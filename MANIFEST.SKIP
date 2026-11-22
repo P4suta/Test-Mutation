@@ -1,0 +1,13 @@
+^\.git
+^\.permutl/
+^local/
+^permutl-report/
+^blib/
+^Makefile$
+^Makefile\.old$
+^MYMETA\.
+^pm_to_blib$
+^MANIFEST\.bak$
+^Permutl-
+\.log$
+\.tar\.gz$

@@ -1,9 +1,10 @@
 use v5.36;
 use Test2::V0;
-use Cwd        ();
-use File::Path ();
-use File::Temp ();
-use JSON::PP   ();
+use Archive::Tar ();
+use Cwd          ();
+use File::Path   ();
+use File::Temp   ();
+use JSON::PP     ();
 use Module::CPANfile;
 use Permutl;
 
@@ -67,5 +68,19 @@ is $meta->{prereqs}{test}{requires},    $declared->{test}{requires},    'test re
 
 my $version = qx{$^X -I$scratch/blib/lib $scratch/blib/script/permutl --version};
 is $version, 'permutl ' . Permutl->VERSION . "\n", 'the built command runs';
+
+ok in_scratch( 'make', 'manifest' ), 'make writes the manifest'    or diag build_log();
+ok in_scratch( 'make', 'dist' ),     'make packs the distribution' or diag build_log();
+
+my $prefix = 'Permutl-' . Permutl->VERSION;
+my %packed = map { $_ => 1 } Archive::Tar->list_archive("$scratch/$prefix.tar.gz");
+my @wanted = qw(
+  Makefile.PL cpanfile META.json README.md LICENSE-MIT LICENSE-APACHE THIRD_PARTY_NOTICES.md bin/permutl
+  lib/Permutl.pm lib/Permutl/Shim.pm lib/Test/Permutl.pm lib/Permutl/Report/resources/mutation-test-elements.js
+  t/unit/tap.t t/shim/serve.t t/fixtures/calc/lib/Calc.pm
+);
+is [ grep { !$packed{"$prefix/$_"} } @wanted ], [], 'the archive holds the sources, the tests, and the notices';
+is [ grep { m{\A\Q$prefix\E/(?:local|blib|[.]git|[.]permutl|permutl-report)(?:/|\z)|[.]log\z} } sort keys %packed ], [],
+  'and leaves out installed dependencies, build output, and reports';
 
 done_testing;

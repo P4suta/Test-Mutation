@@ -60,6 +60,10 @@ run = "perl -Ilib bin/permutl"
 description = "Measure permutl with itself and check the release conditions"
 run = ["perl -Ilib bin/permutl", "prove -l xt/release"]
 
+[tasks.dist]
+description = "Pack the distribution archive"
+run = ["perl Makefile.PL", "make manifest", "make dist"]
+
 [tasks.audit]
 description = "Check the locked dependencies against the CPAN security advisories"
 # Modules bundled with the interpreter follow the Perl that runs the tool, so the audit covers the locked distributions.
