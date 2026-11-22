@@ -4,7 +4,7 @@ use Cwd             ();
 use File::Path      ();
 use File::Temp      ();
 use Time::HiRes     ();
-use Types::Standard qw(ArrayRef CodeRef Dict HashRef InstanceOf Str);
+use Types::Standard qw(ArrayRef CodeRef Dict HashRef InstanceOf Int Str);
 use Type::Params    qw(signature_for);
 use Permutl::Coverage;
 use Permutl::Mutant::Generator;
@@ -215,6 +215,44 @@ sub _inherited ($name) {
     return defined $value && length $value ? ($value) : ();
 }
 
+sub _environment ( $run, $spec ) {
+    my $generation = $run->{generation};
+    return (
+        "PERMUTL_SPEC_G$generation" => $spec,
+        PERMUTL_GENERATION          => $generation,
+        PERL5OPT                    => join( q{ }, _inherited('PERL5OPT'), '-M' . $run->{package} ),
+        PERL5LIB                    => join( q{:}, "$run->{work}/shim",    _inherited('PERL5LIB') ),
+    );
+}
+
+sub _write_mutant ( $run, $source, $mutant ) {
+    my $file = "$run->{work}/mutants/" . $mutant->id . '.pm';
+    _spew( $file, $source->to_bytes( $source->replace_span( $mutant->start, $mutant->end, $mutant->replacement ) ) );
+    my $spec = _spec( $run, 'mutants/' . $mutant->id, 0, [ [ "$run->{root}/" . $mutant->path, $file ] ] );
+    return ( $file, $spec );
+}
+
+signature_for run_command => (
+    positional => [
+        InstanceOf ['Permutl::Config'], InstanceOf ['Permutl::Source'], InstanceOf ['Permutl::Mutant'], ArrayRef [Str]
+    ],
+    returns => Int,
+);
+
+sub run_command ( $config, $source, $mutant, $command ) {
+    my $run = { config => $config, root => Cwd::abs_path( $config->root ) };
+    _prepare_work($run);
+    my ( undef, $spec ) = _write_mutant( $run, $source, $mutant );
+    my $status = do {
+        local %ENV = ( %ENV, _environment( $run, $spec ) );
+        system { $command->[0] } $command->@*;
+    };
+    File::Path::remove_tree( $run->{work} );
+    return 127                     if $status == -1;
+    return 128 + ( $status & 127 ) if $status & 127;
+    return $status >> 8;
+}
+
 sub _test_task ( $run, %arg ) {
     my $sequence   = ++$run->{sequence};
     my $work       = $run->{work};
@@ -231,11 +269,8 @@ sub _test_task ( $run, %arg ) {
             $load,                    $arg{test},
         ],
         env => {
-            "PERMUTL_SPEC_G$generation"   => $arg{spec},
+            _environment( $run, $arg{spec} ),
             "PERMUTL_RECORD_G$generation" => $record,
-            PERMUTL_GENERATION            => $generation,
-            PERL5OPT                      => join( q{ }, _inherited('PERL5OPT'), $load ),
-            PERL5LIB                      => join( q{:}, "$work/shim",           _inherited('PERL5LIB') ),
             HARNESS_ACTIVE                => 1,
             TMPDIR                        => $tmp,
         },
@@ -421,12 +456,7 @@ sub _next_test ( $run, $job, $baseline ) {
     my $config = $run->{config};
     my $mutant = $job->{mutant};
     if ( !defined $job->{spec} ) {
-        my $source = $run->{sources}{ $mutant->path };
-        $job->{file} = "$run->{work}/mutants/" . $mutant->id . '.pm';
-        _spew( $job->{file},
-            $source->to_bytes( $source->replace_span( $mutant->start, $mutant->end, $mutant->replacement ) ) );
-        $job->{spec} =
-          _spec( $run, 'mutants/' . $mutant->id, 0, [ [ "$run->{root}/" . $mutant->path, $job->{file} ] ] );
+        $job->@{qw(file spec)} = _write_mutant( $run, $run->{sources}{ $mutant->path }, $mutant );
     }
     my $test     = $job->{tests}[ $job->{index} ];
     my $duration = $baseline->{tests}{$test}{duration} * $config->timeout_factor;
@@ -493,6 +523,13 @@ Returns the sources, the mutants, and the files that could not be analyzed, with
 
 Runs the measurement and returns a L<Permutl::Result>.
 The listener receives C<analyzed>, C<baseline>, and C<mutant> events with a hash reference of details.
+
+=head2 run_command
+
+    my $status = Permutl::Runner::run_command( $config, $source, $mutant, [ 'prove', '-l', 't/a.t' ] );
+
+Runs a command with one mutant active and returns its exit status.
+The mutant reaches every Perl process the command starts through C<PERL5OPT>, so a process in taint mode runs the original code.
 
 =head2 shim_text
 

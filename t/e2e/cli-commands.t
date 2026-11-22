@@ -77,4 +77,26 @@ subtest 'show accepts a unique prefix and refuses an unknown or ambiguous identi
     is $missing->{stderr}, "permutl: show needs a mutant identifier\n", 'the message';
 };
 
+subtest 'exec runs a command with one mutant active' => sub {
+    my $detected = permutl( $root, 'exec', identifier('replaced + with -'), '--', $^X, '-Ilib', 't/add.t' );
+    isnt $detected->{exit}, 0, 'the test fails with the mutant';
+    like $detected->{stdout}, qr/^not ok 1 - adds$/m, 'the output of the command passes through';
+
+    my ($survivor) =
+      permutl( $root, 'list' )->{stdout} =~ /^([0-9a-f]{12})  lib\/Calc\.pm:12:\d+  comparison  replaced > with >=$/m;
+    my $survived = permutl( $root, 'exec', $survivor, '--', $^X, '-Ilib', 't/sign.t' );
+    is $survived->{exit}, 0, 'the test passes with a mutant it does not detect';
+
+    is permutl( $root, 'exec', identifier('replaced + with -'), '--', $^X, '-e', 'exit 7' )->{exit}, 7,
+      'the exit status of the command is returned';
+    ok !glob("$root/.permutl/run-*"), 'the work directory is removed';
+};
+
+subtest 'exec refuses a missing identifier or command' => sub {
+    my $no_command = permutl( $root, 'exec', identifier('replaced + with -') );
+    is $no_command->{exit},   2,                                                         'no command';
+    is $no_command->{stderr}, "permutl: exec needs a mutant identifier and a command\n", 'the message';
+    is permutl( $root, 'exec', 'zzzzzz', '--', $^X, '-e', '1' )->{exit}, 2,              'an unknown identifier';
+};
+
 done_testing;

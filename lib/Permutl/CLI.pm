@@ -16,7 +16,7 @@ use Permutl::Runner;
 
 our $VERSION = '0.001';
 
-my %COMMAND = ( run => \&_run, list => \&_list, show => \&_show );
+my %COMMAND = ( run => \&_run, list => \&_list, show => \&_show, exec => \&_exec );
 
 signature_for main => ( positional => [ Slurpy [ ArrayRef [Str] ] ], returns => Int );
 
@@ -165,6 +165,15 @@ sub _show (@arguments) {
     say _heading($mutant);
     print Permutl::Report::Patch::render( text => $analysis->{sources}{ $mutant->path }->text, mutant => $mutant );
     return 0;
+}
+
+sub _exec (@arguments) {
+    my $config = _config( \@arguments ) or return 2;
+    my ( $identifier, @command ) = @arguments;
+    return _usage('exec needs a mutant identifier and a command') if !@command;
+    my $analysis = Permutl::Runner::analyze($config);
+    my $mutant   = eval { _find( $analysis, $identifier ) } or return _usage( _first_line($@) );
+    return Permutl::Runner::run_command( $config, $analysis->{sources}{ $mutant->path }, $mutant, \@command );
 }
 
 sub _plural ( $count, $noun ) {
