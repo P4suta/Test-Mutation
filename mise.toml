@@ -8,7 +8,7 @@ PERL5LIB = "{{config_root}}/local/lib/perl5"
 _.path = ["{{config_root}}/local/bin"]
 
 [vars]
-perl_files = "fd --type f --extension pm --extension t --extension pl --exclude corpus --exclude fixtures . lib t"
+perl_files = "fd --type f --extension pm --extension t --extension pl --exclude corpus --exclude fixtures . lib t xt"
 
 [tasks.setup]
 description = "Install the dependencies recorded in cpanfile.snapshot"
@@ -48,6 +48,10 @@ run = "prove -l t/shim"
 description = "Run the end-to-end tests"
 run = "prove -l t/e2e"
 
+[tasks.gate]
+description = "Run the structural gates over the library"
+run = "prove -l xt"
+
 [tasks.mutation]
 description = "Measure the tests of permutl with permutl"
 run = "perl -Ilib bin/permutl"
@@ -63,4 +67,13 @@ run = "gitleaks dir --no-banner ."
 
 [tasks.check]
 description = "Run every fast gate"
-depends = ["fmt-check", "lint", "test", "test-shim", "e2e", "audit", "secrets"]
+depends = [
+  "fmt-check",
+  "lint",
+  "test",
+  "test-shim",
+  "e2e",
+  "gate",
+  "audit",
+  "secrets",
+]
