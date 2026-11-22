@@ -80,4 +80,39 @@ subtest '--format and --report-dir choose the reports' => sub {
     unlike $quiet->{stdout}, qr/^Score:/m, 'no terminal report when the format is left out';
 };
 
+subtest 'permutl.toml configures the run' => sub {
+    my $root = copy_of('calc');
+    write_file( "$root/permutl.toml",
+        "jobs = 2\n\n[mutators]\ndisable = [\"sub-body\", \"return-value\"]\n\n[report]\nformats = [\"terminal\"]\n" );
+    my $run = permutl($root);
+    is $run->{exit}, 0, 'exit status' or diag $run->{stderr};
+    like $run->{stdout}, qr/^11 mutants: 7 killed, 3 survived, 1 no coverage$/m, 'the disabled mutators are left out';
+    like $run->{stdout}, qr/^2 tests, 2 jobs,/m,                                 'jobs come from the file';
+    ok !-e "$root/permutl-report", 'the formats come from the file';
+
+    like permutl( $root, '--jobs', 1 )->{stdout}, qr/^2 tests, 1 job,/m, 'the command line beats the file';
+};
+
+subtest 'a broken configuration file is a usage error' => sub {
+    my $root = copy_of('calc');
+    write_file( "$root/permutl.toml", "[mutators]\nprofil = \"default\"\n" );
+    my $unknown = permutl($root);
+    is $unknown->{exit}, 2, 'an unknown key';
+    like $unknown->{stderr}, qr/\Apermutl: unknown configuration key profil in \[mutators\]\n\z/, 'the key is named';
+
+    write_file( "$root/permutl.toml", "jobs = = 2\n" );
+    my $syntax = permutl($root);
+    is $syntax->{exit}, 2, 'a syntax error';
+    like $syntax->{stderr}, qr/\Apermutl: permutl\.toml: [^\n]+\n\z/, 'the file is named on one line';
+};
+
+subtest '--config names another configuration file' => sub {
+    my $root = copy_of('calc');
+    write_file( "$root/ci.toml", "[mutators]\ndisable = [\"sub-body\"]\n\n[report]\nformats = [\"terminal\"]\n" );
+    like permutl( $root, '--jobs', 2, '--config', 'ci.toml' )->{stdout}, qr/^15 mutants:/m, 'the named file is read';
+    my $missing = permutl( $root, '--config', 'absent.toml' );
+    is $missing->{exit}, 2, 'a missing file named on the command line';
+    like $missing->{stderr}, qr/\Apermutl: cannot read absent\.toml: /, 'the file is named';
+};
+
 done_testing;

@@ -3,6 +3,7 @@ use v5.36;
 use Cwd             ();
 use File::Path      ();
 use Getopt::Long    ();
+use TOML::Tiny      ();
 use Types::Standard qw(ArrayRef Int Slurpy Str);
 use Type::Params    qw(signature_for);
 use Permutl::Config;
@@ -33,6 +34,7 @@ sub _config (@arguments) {
         'min-score=f'  => \$cli{threshold_break},
         'format=s@'    => \$cli{formats},
         'report-dir=s' => \$cli{report_directory},
+        'config=s'     => \my $file,
     ) or return;
     delete @cli{ grep { !defined $cli{$_} } keys %cli };
     my $processors = Permutl::Project::cpu_count();
@@ -40,12 +42,23 @@ sub _config (@arguments) {
         Permutl::Config->from_layers(
             root     => Cwd::getcwd(),
             defaults => { jobs => $processors > 1 ? $processors - 1 : 1 },
-            file     => {},
+            file     => _configuration_file($file),
             cli      => \%cli,
         );
     };
     print {*STDERR} 'permutl: ', _first_line($@), "\n" if !$config;
     return $config;
+}
+
+sub _configuration_file ($named) {
+    my $path = defined $named ? $named : 'permutl.toml';
+    return {} if !defined $named && !-e $path;
+    open my $handle, '<:encoding(UTF-8)', $path or die "cannot read $path: $!\n";
+    my $text = do { local $/ = undef; readline $handle };
+    close $handle or die "cannot close $path: $!\n";
+    my ( $data, $error ) = TOML::Tiny::from_toml($text);
+    die "$path: " . _first_line($error) . "\n" if !defined $data;
+    return $data;
 }
 
 sub _first_line ($error) {
