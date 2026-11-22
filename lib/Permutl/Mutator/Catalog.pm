@@ -239,6 +239,24 @@ sub _range_boundary ($site) {
     return { replacement => '.. -1 +', description => 'lowered the upper bound of the range by one' };
 }
 
+sub _regex_anchor ($site) {
+    return if $site->kind ne 'regex' || $site->role ne 'anchor';
+    return { replacement => q{}, description => 'removed the anchor ' . $site->text };
+}
+
+sub _regex_quantifier ($site) {
+    return if $site->kind ne 'regex' || $site->role ne 'quantifier';
+    my $text = $site->text;
+    return { replacement => q{}, description => 'removed the quantifier ?' } if $text eq q{?};
+    my $replacement = $text eq q{+} ? q{*} : q{+};
+    return { replacement => $replacement, description => "replaced the quantifier $text with $replacement" };
+}
+
+sub _regex_flag ($site) {
+    return if $site->kind ne 'regex' || $site->role ne 'flag';
+    return { replacement => q{}, description => 'removed the flag i' };
+}
+
 my @CODED = (
     [ 'negation',          'default',  'Removes a logical negation',                       \&_negation ],
     [ 'match',             'default',  'Negates a pattern match',                          \&_match ],
@@ -249,6 +267,9 @@ my @CODED = (
     [ 'string-literal',    'extended', 'Empties a string literal',                         \&_string_literal ],
     [ 'condition-fixed',   'extended', 'Replaces a condition with a constant',             \&_condition_fixed ],
     [ 'range-boundary',    'extended', 'Lowers the upper bound of a range by one',         \&_range_boundary ],
+    [ 'regex-anchor',      'extended', 'Removes an anchor from a pattern',                 \&_regex_anchor ],
+    [ 'regex-quantifier',  'extended', 'Changes a quantifier in a pattern',                \&_regex_quantifier ],
+    [ 'regex-flag',        'extended', 'Removes the case flag from a pattern',             \&_regex_flag ],
 );
 
 my @ALL = (

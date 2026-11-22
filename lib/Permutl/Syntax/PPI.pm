@@ -1,6 +1,7 @@
 package Permutl::Syntax::PPI;
 use v5.36;
 use PPI;
+use PPIx::Regexp;
 use Scalar::Util    qw(refaddr);
 use Types::Standard qw(ArrayRef Dict InstanceOf Int Maybe Str);
 use Type::Params    qw(signature_for);
@@ -23,6 +24,14 @@ my %NEVER_A_CALL =
   qw(my our local state sub package class role field method use no return do eval else elsif for foreach
   continue given when default try catch finally defer BEGIN END INIT CHECK UNITCHECK ADJUST
   __PACKAGE__ __FILE__ __LINE__ __SUB__ __CLASS__);
+
+my @REGEX_TOKEN = qw(PPI::Token::Regexp::Match PPI::Token::Regexp::Substitute PPI::Token::QuoteLike::Regexp);
+my %REGEX_ROLE  = (
+    'PPIx::Regexp::Token::Assertion'  => 'anchor',
+    'PPIx::Regexp::Token::Quantifier' => 'quantifier',
+    'PPIx::Regexp::Token::Modifier'   => 'flag',
+);
+my %ANCHOR = map { $_ => 1 } ( q{^}, q{$}, '\\A', '\\z', '\\Z' );
 
 my $SUPPRESSION = Dict [ first => Int, last => Maybe [Int], names => Maybe [ ArrayRef [Str] ] ];
 
@@ -97,7 +106,34 @@ sub _add ( $context, %site ) {
     return;
 }
 
+sub _regex_sites ( $context, $token ) {
+    my ( $start, $end ) = _span( $context, $token, $token ) or return;
+    my $scope   = _scope( $context, $token ) or return;
+    my $content = $token->content;
+    my $regex   = PPIx::Regexp->new($content) or return;
+    return if $regex->failures;
+    my @parts = $regex->tokens;
+    return if join( q{}, map { $_->content } @parts ) ne $content;
+
+    my $offset = $start;
+    for my $part (@parts) {
+        my $text = $part->content;
+        my $from = $offset;
+        $offset += length $text;
+        my $role = $REGEX_ROLE{ ref $part } or next;
+        if ( $role eq 'flag' ) {
+            my $index = index $text, 'i';
+            next if $index < 0 || $text !~ /\A[[:alpha:]]+\z/;
+            ( $from, $text ) = ( $from + $index, 'i' );
+        }
+        next if $role eq 'anchor' && !$ANCHOR{$text};
+        _add( $context, kind => 'regex', start => $from, end => $from + length $text, role => $role, scope => $scope );
+    }
+    return;
+}
+
 sub _token_site ( $context, $token ) {
+    return _regex_sites( $context, $token ) if grep { $token->isa($_) } @REGEX_TOKEN;
     my $kind =
         $token->isa('PPI::Token::Operator')        ? 'operator'
       : $token->isa('PPI::Token::Word')            ? 'word'

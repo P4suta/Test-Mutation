@@ -76,6 +76,13 @@ subtest 'extended mutators' => sub {
       [ [ 'sort', 'reverse sort' ] ], 'a sort call is reversed, and a key or a method is left alone';
     is changes( 'for my $i ( 1 .. $n ) { f($i) } my $s = $a . $b;', 'range-boundary', %extended ),
       [ [ '..', '.. -1 +' ] ], 'the upper bound of a range moves down by one';
+    my $patterns = 'f() if $x =~ /^ab+c*d?$/i; $y =~ s/\Afoo\z/b+r/g; my $r = qr/a{2,3}[+*^]\$(?i)z+?/msix;';
+    is changes( $patterns, 'regex-anchor', %extended ), [ [ '^', q{} ], [ '$', q{} ], [ '\A', q{} ], [ '\z', q{} ] ],
+      'anchors are removed, and an escaped or bracketed character is left alone';
+    is changes( $patterns, 'regex-quantifier', %extended ), [ [ '+', '*' ], [ '*', '+' ], [ '?', q{} ], [ '+', '*' ] ],
+      'quantifiers change, and a replacement or a repetition count is left alone';
+    is changes( $patterns, 'regex-flag', %extended ), [ [ 'i', q{} ], [ 'i', q{} ] ],
+      'the case flag is removed from the trailing flags';
     is changes( 'my $n = 41;', 'number-literal' ), [], 'extended mutators are off in the default profile';
 };
 

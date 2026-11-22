@@ -7,7 +7,7 @@ our $VERSION = '0.001';
 
 has kind => (
     is       => 'ro',
-    isa      => Enum [qw(operator word number string statement condition sub_body return)],
+    isa      => Enum [qw(operator word number string regex statement condition sub_body return)],
     required => 1,
 );
 has text   => ( is => 'ro', isa => Str, required => 1 );
@@ -34,7 +34,7 @@ Mutators receive sites and return replacement text.
 
 =head2 kind
 
-One of C<operator>, C<word>, C<number>, C<string>, C<statement>, C<condition>, C<sub_body>, and C<return>.
+One of C<operator>, C<word>, C<number>, C<string>, C<regex>, C<statement>, C<condition>, C<sub_body>, and C<return>.
 
 =head2 text
 
@@ -53,6 +53,7 @@ The character offset after the last character of the span.
 How the text is used.
 An operator is C<binary>, C<unary>, or C<update>.
 A word is C<compound>, C<modifier>, C<control>, or C<call>.
+A part of a pattern is C<anchor>, C<quantifier>, or C<flag>.
 
 =head2 scope
 

@@ -2,6 +2,7 @@ requires 'perl', '5.036';
 
 requires 'Moo',         '2.004000';
 requires 'PPI',         '1.281';
+requires 'PPIx::Regexp', '0.080';
 requires 'TOML::Tiny',  '0.15';
 requires 'Type::Tiny',  '2.000000';
 
