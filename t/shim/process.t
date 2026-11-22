@@ -68,7 +68,7 @@ subtest 'taint mode works with explicit switches' => sub {
 };
 
 subtest 'loading the shim twice activates it once' => sub {
-    my $root = prepare("use Foo::Bar;\nprint 'hooks=', scalar( grep { ref } \@INC ), \"\\n\";\n");
+    my $root = prepare("use Foo::Bar;\nprint 'hooks=', scalar( grep { ref } \@INC ) - \$ENV{OUTER_HOOKS}, \"\\n\";\n");
     my $run  = run_perl(
         root => $root,
         env  => {
@@ -84,7 +84,8 @@ subtest 'loading the shim twice activates it once' => sub {
 
 subtest 'without a spec the shim stays inactive' => sub {
     my $root = prepare(
-        "use Foo::Bar;\nprint 'hooks=', scalar( grep { ref } \@INC ), ' answer=', Foo::Bar::answer(), \"\\n\";\n");
+        "use Foo::Bar;\nprint 'hooks=', scalar( grep { ref } \@INC ) - \$ENV{OUTER_HOOKS}, ' answer=', Foo::Bar::answer(), \"\\n\";\n"
+    );
     my $run = run_perl( root => $root, args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ] );
     is $run->{stdout}, "hooks=0 answer=42\n", 'no hook and the original behavior';
 };

@@ -30,7 +30,7 @@ print join( "\n",
     'line=' . Foo::Bar::line(),
     'from=' . Foo::Bar::from(),
     'inc=' . $INC{'Foo/Bar.pm'},
-    'hooks=' . scalar( grep { ref } @INC ),
+    'hooks=' . ( scalar( grep { ref } @INC ) - $ENV{OUTER_HOOKS} ),
 ), "\n";
 PERL
 

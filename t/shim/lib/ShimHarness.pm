@@ -43,7 +43,10 @@ sub run_perl {
     die "fork: $!" if !defined $pid;
     if ( !$pid ) {
         chdir $root or die "chdir $root: $!";
-        %ENV = ( %ENV, %{ $run{env} || {} } );
+        my %extra = %{ $run{env} || {} };
+        $extra{PERL5OPT} = join q{ }, grep { defined && length } $ENV{PERL5OPT},   $extra{PERL5OPT};
+        $extra{PERL5LIB} = join q{:}, grep { defined && length } $extra{PERL5LIB}, $ENV{PERL5LIB};
+        %ENV             = ( %ENV, %extra, OUTER_HOOKS => scalar grep { ref } @INC );
         open STDOUT, '>', $out or die "stdout: $!";
         open STDERR, '>', $err or die "stderr: $!";
         exec {$^X} $^X, @{ $run{args} } or die "exec: $!";
