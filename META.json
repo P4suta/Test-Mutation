@@ -1,0 +1,41 @@
+{
+  "abstract": "Mutation testing for Perl that leaves the source tree untouched",
+  "author": [
+    "Yasunobu"
+  ],
+  "dynamic_config": 0,
+  "generated_by": "hand",
+  "license": [
+    "mit",
+    "apache_2_0"
+  ],
+  "meta-spec": {
+    "url": "http://search.cpan.org/perldoc?CPAN::Meta::Spec",
+    "version": 2
+  },
+  "name": "Permutl",
+  "prereqs": {
+    "configure": {
+      "requires": {
+        "Module::Build::Tiny": "0.039"
+      }
+    },
+    "runtime": {
+      "requires": {
+        "Moo": "2.004000",
+        "PPI": "1.281",
+        "TOML::Tiny": "0.15",
+        "Type::Tiny": "2.000000",
+        "perl": "5.036"
+      }
+    },
+    "test": {
+      "requires": {
+        "Test2::Suite": "0.000155"
+      }
+    }
+  },
+  "release_status": "unstable",
+  "version": "0.001",
+  "x_static_install": 1
+}
