@@ -7,6 +7,8 @@ use Time::HiRes     ();
 use Types::Standard qw(ArrayRef CodeRef Dict HashRef InstanceOf Int Str);
 use Type::Params    qw(signature_for);
 use Permutl::Coverage;
+use Permutl::Diff;
+use Permutl::Git;
 use Permutl::Mutant::Generator;
 use Permutl::Mutator::Catalog;
 use Permutl::Pool;
@@ -37,8 +39,10 @@ sub analyze ($config) {
         disable => $config->disable,
     );
     my ( %sources, @mutants, @problems );
-    my %only = map { $_ => 1 } $config->only->@*;
+    my %only    = map { $_ => 1 } $config->only->@*;
+    my $changed = defined $config->since ? Permutl::Git::changed( $root, $config->since ) : undef;
     for my $path ( Permutl::Project::files( $root, $config->source_include, $config->source_exclude )->@* ) {
+        next if $changed && !$changed->{$path};
         my $source   = Permutl::Source->from_bytes( path => $path, bytes => _slurp("$root/$path") );
         my $analysis = Permutl::Syntax::PPI::analyze($source);
         if ( defined $analysis->{problem} ) {
@@ -48,9 +52,17 @@ sub analyze ($config) {
         $sources{$path} = $source;
         my $generated =
           Permutl::Mutant::Generator::generate( source => $source, analysis => $analysis, mutators => $mutators );
-        push @mutants, grep { !%only || $only{ $_->id } } $generated->@*;
+        push @mutants,
+          grep { !$changed || _in_changed_lines( $changed->{$path}, $_ ) }
+          grep { !%only    || $only{ $_->id } } $generated->@*;
     }
     return { sources => \%sources, mutants => \@mutants, problems => \@problems };
+}
+
+sub _in_changed_lines ( $ranges, $mutant ) {
+    my ( $first, $last ) = ( $mutant->from->[0], $mutant->to->[0] );
+    $last-- if $last > $first && $mutant->to->[1] == 1;
+    return Permutl::Diff::touches( $ranges, $first, $last );
 }
 
 signature_for run => (

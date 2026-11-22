@@ -49,6 +49,7 @@ Options:
   --timeout-floor N     Smallest time limit in seconds
   --keep-work           Keep the work directory after the run
   --mutant ID           Run the named mutant; repeatable
+  --since REVISION      Cover the lines changed since a Git revision
   --config FILE         Configuration file to read in place of permutl.toml
   --version             Print the version
   --help                Print this text
@@ -66,7 +67,10 @@ sub main ($list) {
         return 0;
     }
     my $command = $COMMAND{$first} ? shift @arguments : 'run';
-    return $COMMAND{$command}->(@arguments);
+    my $status  = eval { $COMMAND{$command}->(@arguments) };
+    return $status if defined $status;
+    print {*STDERR} 'permutl: ', _first_line($@), "\n";
+    return 4;
 }
 
 my %SETTING_OF_OPTION = (
@@ -85,6 +89,7 @@ my %SETTING_OF_OPTION = (
     'timeout-floor=f'  => 'timeout_floor',
     'keep-work'        => 'keep_work',
     'mutant=s@'        => 'only',
+    'since=s'          => 'since',
 );
 
 sub _config ($arguments) {
