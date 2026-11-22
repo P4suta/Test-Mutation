@@ -73,7 +73,7 @@ sub activate {
         targets     => $spec->{targets},
         by_base     => \%by_base,
         by_path     => {},
-        record_dir  => _untainted($record_dir),
+        record_dir  => scalar _untainted($record_dir),
         pid         => $$,
     );
 

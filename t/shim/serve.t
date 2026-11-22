@@ -72,6 +72,23 @@ subtest 'the hook serves the mutant under the original identity' => sub {
     is $records->[0][1], "$root/lib/Foo/Bar.pm", 'the record names the served target';
 };
 
+subtest 'the shim serves without a record directory' => sub {
+    my $root = project();
+    write_file( "$root/lib/Foo/Bar.pm", $original );
+    write_file( "$root/mutant.pm",      $mutated );
+    write_file( "$root/script.pl",      $script );
+    write_spec( "$root/spec", targets => [ [ "$root/lib/Foo/Bar.pm", "$root/mutant.pm" ] ] );
+    my $run = run_perl(
+        root => $root,
+        env  => { PERMUTL_SPEC => "$root/spec" },
+        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+    );
+    is $run->{status},                  0,   'exit status';
+    is $run->{stderr},                  q{}, 'no warnings';
+    is fields( $run->{stdout} )->{add}, 2,   'the mutant is served';
+    is_deeply [ glob "$root/*.rec $root/*/*.rec" ], [], 'no record file is written';
+};
+
 subtest 'use lib after activation leaves the hook first' => sub {
     my $root = project();
     write_file( "$root/lib/Foo/Bar.pm", $original );
