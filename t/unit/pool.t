@@ -152,6 +152,40 @@ subtest 'tasks run in parallel and follow-up tasks run first' => sub {
     is scalar( grep { $_ eq 'follow-up' } @order ), 1, 'the follow-up task ran';
 };
 
+subtest 'no more tasks run side by side than the jobs allow' => sub {
+    my $running = "$dir/running";
+    mkdir $running or die "mkdir: $!";
+    my $path = script( 'crowd.t', <<"PERL" );
+\$| = 1;
+open my \$mark, '>', "$running/\$\$" or die "mark: \$!";
+close \$mark;
+select undef, undef, undef, 0.3;
+my \@present = glob "$running/*";
+print "1..1\\n", ( \@present <= 2 ? 'ok' : 'not ok' ), " 1 - \@{[ scalar \@present ]} running\\n";
+unlink "$running/\$\$";
+PERL
+    my @queue  = map { task($path) } 1 .. 6;
+    my @passed = ();
+    Permutl::Pool::run(
+        jobs => 2,
+        next => sub { shift @queue },
+        done => sub ( $task, $result ) { push @passed, $result->{passed}; return },
+    );
+    is \@passed, [ (1) x 6 ], 'every task saw at most two tasks running';
+};
+
+subtest 'the captured output keeps its end when a test prints a lot' => sub {
+    my $path =
+      script( 'chatty.t', q{print "# filler line number $_\n" for 1 .. 20_000; print "1..1\nok 1 - last line\n";} );
+    my $result = run_one($path);
+    is $result->{passed},           1,       'the test stream is read in full';
+    is length( $result->{output} ), 262_144, 'the captured output stops at its limit';
+    like $result->{output}, qr/ok 1 - last line\n\z/, 'and keeps the end of the stream';
+
+    my $short = run_one( script( 'short.t', qq{print "1..1\\n"; print "ok 1\\n";\n} ) );
+    is $short->{output}, "1..1\nok 1\n", 'a short stream is captured whole';
+};
+
 subtest 'a malformed task is refused' => sub {
     like dies {
         Permutl::Pool::run(
