@@ -54,4 +54,38 @@ for my $signal (qw(TERM INT)) {
     };
 }
 
+subtest 'a signal during the mutant runs keeps the finished results' => sub {
+    my $root = copy_of('calc');
+    write_file( "$root/t/slow.t",
+        "use Test::More tests => 1;\nuse Calc;\nselect undef, undef, undef, 0.7;\nis Calc::add( 1, 1 ), 2, 'adds';\n" );
+
+    my $pid = fork;
+    die "fork: $!" if !defined $pid;
+    if ( !$pid ) {
+        chdir $root or die "chdir: $!";
+        open STDIN,  '<', '/dev/null'        or die "stdin: $!";
+        open STDOUT, '>', "$root/stdout.txt" or die "stdout: $!";
+        open STDERR, '>', "$root/stderr.txt" or die "stderr: $!";
+        exec {$^X} $^X, "-I$library", $command, '--jobs', 1, '--format', 'terminal', '--format', 'json'
+          or die "exec: $!";
+    }
+
+    my $read = sub ($name) {
+        open my $handle, '<', "$root/$name" or return q{};
+        local $/ = undef;
+        my $text = readline $handle;
+        return defined $text ? $text : q{};
+    };
+    ok wait_for( sub { $read->('stderr.txt') =~ /^\[ *[1-9]\d*\/\d+\]/m } ), 'a mutant has finished';
+    kill 'TERM', $pid;
+    waitpid $pid, 0;
+    is $? >> 8, 143, 'the exit status names the signal';
+
+    like $read->('stdout.txt'), qr/^\d+ mutants: .*\b[1-9]\d* pending$/m,
+      'the summary counts the mutants that did not run';
+    like $read->('stdout.txt'), qr/^The run was interrupted by SIGTERM\.$/m,    'the summary names the signal';
+    like $read->('permutl-report/mutation.json'), qr/"status"\s*:\s*"Pending"/, 'the JSON report marks them as pending';
+    ok !glob("$root/.permutl/run-*"), 'the work directory is removed';
+};
+
 done_testing;

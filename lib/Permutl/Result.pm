@@ -29,8 +29,9 @@ has baseline_failures =>
   ( is => 'ro', isa => ArrayRef [ Dict [ test => Str, output => Str, errors => Str ] ], required => 1 );
 has jobs          => ( is => 'ro', isa => PositiveInt, required => 1 );
 has parallel_safe => ( is => 'ro', isa => Bool,        required => 1 );
-has started       => ( is => 'ro', isa => Num,         required => 1 );
-has finished      => ( is => 'ro', isa => Num,         required => 1 );
+has interrupted   => ( is => 'ro', isa => Maybe [ Enum [qw(HUP INT TERM)] ], default => undef );
+has started       => ( is => 'ro', isa => Num, required => 1 );
+has finished      => ( is => 'ro', isa => Num, required => 1 );
 
 signature_for tally => (
     method     => 1,
@@ -46,7 +47,7 @@ signature_for conclusive => ( method => 1, positional => [], returns => Bool );
 
 sub conclusive ($self) {
     my $tally = $self->tally;
-    return 0 if $self->baseline_failures->@*;
+    return 0 if $self->baseline_failures->@* || defined $self->interrupted;
     return 0 if $tally->{counts}{RuntimeError};
     return 0 if $tally->{total} - $tally->{counts}{Ignored} > 0 && !$tally->{valid};
     return 1;
@@ -98,6 +99,11 @@ The number of test processes that ran side by side.
 =head2 parallel_safe
 
 False when the tests passed one at a time and failed side by side.
+
+=head2 interrupted
+
+The name of the signal that ended the run early, or undefined.
+The mutants that did not finish have the status C<Pending>.
 
 =head2 started, finished
 

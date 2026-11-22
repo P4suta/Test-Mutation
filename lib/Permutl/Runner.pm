@@ -127,7 +127,12 @@ sub run ( $config, $listener ) {
               $analysis->{mutants}->@* ];
     }
 
-    return Permutl::Result->new( %result, jobs => $run->{jobs}, finished => Time::HiRes::time() );
+    return Permutl::Result->new(
+        %result,
+        jobs        => $run->{jobs},
+        interrupted => $run->{interrupted},
+        finished    => Time::HiRes::time(),
+    );
 }
 
 sub _slurp ($path) {
@@ -414,29 +419,46 @@ sub _mutants ( $run, $mutants, $baseline ) {
     }
 
     $run->{syntax_of_original} = {};
-    Permutl::Pool::run(
-        jobs => $run->{jobs},
-        next => sub {
-            my $job = shift @jobs or return;
-            return _next_test( $run, $job, $baseline );
-        },
-        done => sub ( $task, $result ) {
-            my $job = $task->{payload}{job};
-            my $check =
-              $task->{payload}{kind} eq 'test'
-              ? _after_test( $run, $task, $result )
-              : _after_syntax( $run, $task, $result );
-            return $check if $check;
+    my %unfinished = map { $_->{mutant}->id => $_ } @jobs;
+    my $completed  = eval {
+        Permutl::Pool::run(
+            jobs => $run->{jobs},
+            next => sub {
+                my $job = shift @jobs or return;
+                return _next_test( $run, $job, $baseline );
+            },
+            done => sub ( $task, $result ) {
+                my $job = $task->{payload}{job};
+                my $check =
+                  $task->{payload}{kind} eq 'test'
+                  ? _after_test( $run, $task, $result )
+                  : _after_syntax( $run, $task, $result );
+                return $check if $check;
 
-            $job->{verdict} = Permutl::Verdict::step( $job->{verdict}, $job->{outcome} );
-            $job->{index}++;
-            if ( defined $job->{verdict}{status} || $job->{index} >= $job->{tests}->@* ) {
-                push @entries, _finish( $run, $job );
-                return;
-            }
-            return _next_test( $run, $job, $baseline );
-        },
-    );
+                $job->{verdict} = Permutl::Verdict::step( $job->{verdict}, $job->{outcome} );
+                $job->{index}++;
+                if ( defined $job->{verdict}{status} || $job->{index} >= $job->{tests}->@* ) {
+                    delete $unfinished{ $job->{mutant}->id };
+                    push @entries, _finish( $run, $job );
+                    return;
+                }
+                return _next_test( $run, $job, $baseline );
+            },
+        );
+        1;
+    };
+    if ( !$completed ) {
+        my $error = $@;
+        die $error if !ref $error || !$error->isa('Permutl::Interrupted');    ## no critic (ErrorHandling::RequireCarping)
+        $run->{interrupted} = $error->signal;
+        push @entries, map {
+            _entry(
+                $_->{mutant}, 'Pending',   'the run was interrupted',
+                undef,        $_->{tests}, $_->{verdict}{tests},
+                $_->{duration}
+            )
+        } values %unfinished;
+    }
 
     my %order = map { $mutants->[$_]->id => $_ } 0 .. $mutants->$#*;
     return [ sort { $order{ $a->{mutant}->id } <=> $order{ $b->{mutant}->id } } @entries ];

@@ -13,6 +13,7 @@ my @COUNTED = (
     [ CompileError => 'compile error' ],
     [ RuntimeError => 'runtime error' ],
     [ Ignored      => 'ignored' ],
+    [ Pending      => 'pending' ],
 );
 my @SECTIONS = (
     [ Survived     => 'Survived' ],
@@ -62,7 +63,8 @@ sub _summary ( $result, $arg ) {
         $score = _colored( $score, $tally->{score}, $arg ) if $arg->color;
     }
     push @lines, $score;
-    push @lines, 'Timeouts are inconclusive and count toward neither side.' if $counts->{Timeout};
+    push @lines, 'Timeouts are inconclusive and count toward neither side.'     if $counts->{Timeout};
+    push @lines, 'The run was interrupted by SIG' . $result->interrupted . q{.} if defined $result->interrupted;
 
     my $seconds = sprintf '%.1f s', $result->finished - $result->started;
     push @lines, join ', ', _plural( scalar $result->tests->@*, 'test' ), _plural( $result->jobs, 'job' ), $seconds;

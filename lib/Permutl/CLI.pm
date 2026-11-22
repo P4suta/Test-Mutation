@@ -7,6 +7,7 @@ use TOML::Tiny      ();
 use Types::Standard qw(ArrayRef Int Slurpy Str);
 use Type::Params    qw(signature_for);
 use Permutl::Config;
+use Permutl::Interrupted;
 use Permutl::Project;
 use Permutl::Report::GitHub;
 use Permutl::Report::Html;
@@ -152,6 +153,7 @@ sub _run (@arguments) {
     my $terminal = -t *STDERR ? 1 : 0;                                      ## no critic (InputOutput::ProhibitInteractiveTest)
     my $result   = Permutl::Runner::run( $config, _progress($terminal) );
     _report( $result, $config );
+    print {*STDERR} 'permutl: interrupted by SIG', $result->interrupted, "\n" if defined $result->interrupted;
     return _exit_status( $result, $config );
 }
 
@@ -220,8 +222,9 @@ sub _report_to_github ($result) {
 }
 
 sub _exit_status ( $result, $config ) {
-    return 3 if $result->baseline_failures->@*;
-    return 4 if !$result->conclusive;
+    return Permutl::Interrupted->new( signal => $result->interrupted )->exit_status if defined $result->interrupted;
+    return 3                                                                        if $result->baseline_failures->@*;
+    return 4                                                                        if !$result->conclusive;
     my $score = $result->tally->{score};
     my $floor = $config->threshold_break;
     return 1 if defined $floor && defined $score && $score < $floor;
