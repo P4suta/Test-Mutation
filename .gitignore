@@ -2,8 +2,9 @@
 /.permutl/
 /permutl-report/
 /blib/
-/_build/
-/Build
+/Makefile
+/Makefile.old
 /MYMETA.*
+/pm_to_blib
 /Permutl-*/
 /Permutl-*.tar.gz
