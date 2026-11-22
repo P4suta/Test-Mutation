@@ -69,6 +69,10 @@ is $meta->{prereqs}{test}{requires},    $declared->{test}{requires},    'test re
 my $version = qx{$^X -I$scratch/blib/lib $scratch/blib/script/permutl --version};
 is $version, 'permutl ' . Permutl->VERSION . "\n", 'the built command runs';
 
+ok in_scratch( 'make', 'test' ), 'make test passes' or diag build_log();
+my ($test_files) = build_log() =~ /^Files=(\d+), Tests=\d+/m;
+ok defined $test_files && $test_files >= 25, 'and runs the unit, assumption, and shim tests' or diag build_log();
+
 ok in_scratch( 'make', 'manifest' ), 'make writes the manifest'    or diag build_log();
 ok in_scratch( 'make', 'dist' ),     'make packs the distribution' or diag build_log();
 
