@@ -2,6 +2,7 @@ use v5.36;
 use Test2::V0;
 use Digest::SHA ();
 use File::Temp  ();
+use POSIX       ();
 use Time::HiRes ();
 use Permutl::Pool;
 
@@ -195,6 +196,101 @@ subtest 'the result carries a digest of the whole output' => sub {
       'the digest covers the output beyond the capture limit';
     isnt run_one( script( 'quiet.t', qq{print "1..1\\nok 1\\n";\n} ) )->{digest}, Digest::SHA::sha256_hex($text),
       'a different output has a different digest';
+};
+
+sub wait_for (@paths) {
+    for ( 1 .. 100 ) {
+        return 1 if !grep { !-s } @paths;
+        Time::HiRes::sleep(0.05);
+    }
+    return 0;
+}
+
+sub number_in ($path) {
+    open my $handle, '<', $path or die "open $path: $!";
+    my $number = readline $handle;
+    chomp $number;
+    return $number;
+}
+
+sub gone ($pid) {
+    for ( 1 .. 60 ) {
+        return 1 if !kill 0, $pid;
+        Time::HiRes::sleep(0.05);
+    }
+    return 0;
+}
+
+subtest 'a signal ends the polite tasks, the stubborn tasks, and their children' => sub {
+    my $note   = q{open my $out, '>', "$0.pid"; print {$out} $$; close $out;};
+    my $polite = script( 'polite.t',
+        qq{\$SIG{TERM} = sub { open my \$out, '>', "\$0.cleaned"; print {\$out} 1; close \$out; exit 0 };\n$note sleep 30;}
+    );
+    my $stubborn = script( 'deaf.t', qq{\$SIG{TERM} = 'IGNORE';\n$note sleep 30;} );
+    my $family   = script( 'family.t',
+        qq{if ( !fork ) { open my \$out, '>', "\$0.child"; print {\$out} \$\$; close \$out; sleep 30; exit 0 }\n$note sleep 30;}
+    );
+
+    pipe my $read, my $write or die "pipe: $!";
+    my $runner = fork;
+    die "fork: $!" if !defined $runner;
+    if ( !$runner ) {
+        close $read;
+        my @queue = map { task($_) } $polite, $stubborn, $family;
+        my $ended = eval {
+            Permutl::Pool::run( jobs => 3, next => sub { shift @queue }, done => sub { return } );
+            1;
+        };
+        my $error = $@;
+        my $left  = kill 0, number_in("$stubborn.pid");
+        print {$write} $ended ? 'completed' : ref $error ? $error->signal : "died: $error", " $left\n";
+        close $write;
+        POSIX::_exit(0);
+    }
+    close $write;
+    ok wait_for( "$polite.pid", "$stubborn.pid", "$family.pid", "$family.child" ), 'the tasks started';
+    my $started = Time::HiRes::time();
+    kill 'TERM', $runner;
+    my $report  = readline $read;
+    my $elapsed = Time::HiRes::time() - $started;
+    waitpid $runner, 0;
+
+    is $report, "TERM 0\n", 'the pool raises the signal after every task is reaped';
+    ok -s "$polite.cleaned",               'a task that handles the signal cleans up';
+    ok $elapsed < 10,                      'the pool does not wait for the tasks to finish on their own';
+    ok gone( number_in("$family.child") ), 'the child of a task is ended';
+};
+
+subtest 'a finished test leaves no child behind and holds no output open' => sub {
+    my $path = script( 'litter.t', <<'PERL' );
+$| = 1;
+if ( !fork ) { open my $out, '>', "$0.child"; print {$out} $$; close $out; sleep 30; exit 0 }
+sleep 1 while !-s "$0.child";
+print "1..1\nok 1\n";
+PERL
+    my $result = run_one($path);
+    is $result->{passed}, 1, 'the test passes';
+    ok gone( number_in("$path.child") ), 'its child is ended';
+
+    my $detached = script( 'detached.t', <<'PERL' );
+$| = 1;
+if ( !fork ) { setpgrp 0, 0; open my $out, '>', "$0.child"; print {$out} $$; close $out; sleep 5; exit 0 }
+sleep 1 while !-s "$0.child";
+print "1..1\nok 1\n";
+PERL
+    my $started = Time::HiRes::time();
+    my $escaped = run_one($detached);
+    my $elapsed = Time::HiRes::time() - $started;
+    is $escaped->{passed}, 1, 'a test with a detached child passes';
+    ok $elapsed < 4, "the pool stops reading after the test ends ($elapsed s)";
+    kill 'KILL', number_in("$detached.child");
+};
+
+subtest 'a test that exits cleanly after its time limit does not pass' => sub {
+    my $path   = script( 'late.t', q{$| = 1; $SIG{TERM} = sub { exit 0 }; print "1..1\nok 1\n"; sleep 30;} );
+    my $result = run_one( $path, timeout => 0.5 );
+    is $result, hash { field timed_out => 1; field exit => 0; field signal => 0; field passed => 0; etc },
+      'the time limit decides';
 };
 
 subtest 'a malformed task is refused' => sub {
