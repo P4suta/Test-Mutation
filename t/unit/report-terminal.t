@@ -132,4 +132,63 @@ subtest 'color wraps the score when asked' => sub {
     like $color,   qr/\e\[32mScore: 100\.0%/, 'a full score is green';
 };
 
+subtest 'the whole report keeps its order' => sub {
+    my $text = Permutl::Report::Terminal::render(
+        result(
+            [
+                entry('Killed'),
+                entry( 'Survived',   covered_by => [qw(t/a.t t/b.t t/c.t t/d.t t/e.t)] ),
+                entry( 'NoCoverage', covered_by => [] ),
+                entry( 'Timeout',    reason     => 'slow' ),
+            ],
+            warnings    => [ 'first warning', 'second warning' ],
+            problems    => [ { path => 'lib/Bad.pm', problem => 'unreadable' } ],
+            interrupted => 'INT',
+            reused      => 2,
+        ),
+        color => 0,
+    );
+    my $change = "    -     return \$n > 0 ? 1 : 0;\n    +     return \$n >= 0 ? 1 : 0;\n";
+    my $place  = "  lib/Calc.pm:3:15  replaced > with >=  [abcdefabcdef]\n$change";
+    is $text,
+      join( "\n",
+        "4 mutants: 1 killed, 1 survived, 1 no coverage, 1 timeout\nScore: 33.3% (1 of 3 valid mutants)\n"
+          . "Timeouts are inconclusive and count toward neither side.\nThe run was interrupted by SIGINT.\n"
+          . "1 test, 2 jobs, 3.5 s, 2 results from the cache\n",
+        "Survived (1)\n$place    reached by t/a.t, t/b.t, t/c.t and 2 more\n",
+        "No coverage (1)\n$place    reached by no test\n",
+        "Timeout (1)\n$place    reached by t/sign.t\n    slow\n",
+        "warning: first warning\nwarning: second warning\nskipped lib/Bad.pm: unreadable\n",
+      ),
+      'summary, sections, and notes';
+
+    my $failed = Permutl::Report::Terminal::render(
+        result(
+            [],
+            baseline_failures => [
+                { test => 't/a.t', output => "not ok 1\n", errors => "died\n" },
+                { test => 't/b.t', output => "not ok 2\n", errors => q{} },
+            ],
+        ),
+        color => 0,
+    );
+    is $failed, "The unmodified run fails, so no mutant ran.\n  t/a.t\n    not ok 1\n    died\n  t/b.t\n    not ok 2\n",
+      'baseline failures';
+};
+
+subtest 'the color follows the thresholds at their boundaries' => sub {
+    my $at = sub ( $killed, %thresholds ) {
+        my @entries = ( ( map { entry('Killed') } 1 .. $killed ), ( map { entry('Survived') } $killed + 1 .. 5 ) );
+        my ($code) =
+          Permutl::Report::Terminal::render( result( \@entries ), color => 1, %thresholds ) =~ /\e\[(\d+)mScore/;
+        return $code;
+    };
+    is $at->(4),                          32, 'a score at the high threshold is green';
+    is $at->(3),                          33, 'a score at the low threshold is yellow';
+    is $at->(2),                          31, 'a score below the low threshold is red';
+    is $at->( 4, high => 90 ),            33, 'a higher high threshold';
+    is $at->( 4, high => 90, low => 85 ), 31, 'a higher low threshold';
+    is $at->( 2, high => 50, low => 40 ), 33, 'a lower pair of thresholds';
+};
+
 done_testing;
