@@ -44,12 +44,13 @@ sub run_perl {
     if ( !$pid ) {
         chdir $root or die "chdir $root: $!";
         my %extra = %{ $run{env} || {} };
+        my @outer = _outer_switches();
         $extra{PERL5OPT} = join q{ }, grep { defined && length } $ENV{PERL5OPT},   $extra{PERL5OPT};
         $extra{PERL5LIB} = join q{:}, grep { defined && length } $extra{PERL5LIB}, $ENV{PERL5LIB};
         %ENV             = ( %ENV, %extra, OUTER_HOOKS => scalar grep { ref } @INC );
         open STDOUT, '>', $out or die "stdout: $!";
         open STDERR, '>', $err or die "stderr: $!";
-        exec {$^X} $^X, @{ $run{args} } or die "exec: $!";
+        exec {$^X} $^X, @outer, @{ $run{args} } or die "exec: $!";
     }
     waitpid $pid, 0;
     return { status => $? >> 8, stdout => _slurp($out), stderr => _slurp($err) };
@@ -62,6 +63,15 @@ sub all_records {
         push @lines, grep { length } split /\n/, _slurp($file);
     }
     return [ map { [ split /\t/, $_, -1 ] } @lines ];
+}
+
+# Perl loads command-line modules before the ones in PERL5OPT.
+# An outer run of permutl must load its shim first, so its switches go to the front of the command line.
+sub _outer_switches {
+    return if !defined $ENV{PERMUTL_GENERATION};
+    my @directories = grep { length } split /:/,  defined $ENV{PERL5LIB} ? $ENV{PERL5LIB} : q{};
+    my @modules     = grep { length } split q{ }, defined $ENV{PERL5OPT} ? $ENV{PERL5OPT} : q{};
+    return ( ( map { "-I$_" } @directories ), @modules );
 }
 
 sub records {
