@@ -17,7 +17,7 @@ signature_for feed => ( positional => [ $STATE, Str ], returns => $STATE );
 
 sub feed ( $state, $line ) {
     if ( $line =~ /\A1[.][.]([0-9]+)/ ) {
-        return { $state->%*, planned => $1 + 0 };
+        return { $state->%*, planned => int $1 };
     }
     if ( $line =~ /\A(not )?ok\b(.*)/s ) {
         my ( $not, $rest ) = ( $1, $2 );

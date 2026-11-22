@@ -55,6 +55,18 @@ subtest 'an early failure never becomes a pass' => sub {
     is \@broken, [], 'every stream that fails early fails at the end';
 };
 
+subtest 'arguments are checked' => sub {
+    my $state = Permutl::Tap::start();
+    like dies { Permutl::Tap::start('extra') }, qr/Wrong number of parameters/, 'start takes no argument';
+    like dies { Permutl::Tap::feed( { planned => 1 }, 'ok 1' ) }, qr/did not pass type constraint/,
+      'feed needs a whole state';
+    like dies { Permutl::Tap::failed_already('state') }, qr/did not pass type constraint/,
+      'failed_already needs a state';
+    like dies { Permutl::Tap::passed( $state, 'zero' ) }, qr/did not pass type constraint/,
+      'passed needs a numeric status';
+    is Permutl::Tap::feed( $state, '1..12' )->{planned}, 12, 'the plan is a number';
+};
+
 subtest 'feed returns a new state' => sub {
     my $before = Permutl::Tap::start();
     my $after  = Permutl::Tap::feed( $before, 'not ok 1' );
