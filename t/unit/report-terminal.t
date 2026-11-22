@@ -176,6 +176,17 @@ subtest 'the whole report keeps its order' => sub {
       'baseline failures';
 };
 
+subtest 'the list of tests is cut after the third' => sub {
+    my $listed = sub (@tests) {
+        my ($line) =
+          Permutl::Report::Terminal::render( result( [ entry( 'Survived', covered_by => \@tests ) ] ), color => 0 ) =~
+          /^    reached by (.*)$/m;
+        return $line;
+    };
+    is $listed->(qw(t/a.t t/b.t t/c.t)),       't/a.t, t/b.t, t/c.t',            'three tests are listed in full';
+    is $listed->(qw(t/a.t t/b.t t/c.t t/d.t)), 't/a.t, t/b.t, t/c.t and 1 more', 'a fourth test is counted';
+};
+
 subtest 'the color follows the thresholds at their boundaries' => sub {
     my $at = sub ( $killed, %thresholds ) {
         my @entries = ( ( map { entry('Killed') } 1 .. $killed ), ( map { entry('Survived') } $killed + 1 .. 5 ) );
