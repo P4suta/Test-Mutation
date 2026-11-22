@@ -151,4 +151,20 @@ subtest '--mutant limits the run to the named mutants' => sub {
     like $run->{stdout}, qr/^1 mutant: 1 survived$/m, 'one mutant ran';
 };
 
+subtest 'GitHub Actions gets annotations and a job summary' => sub {
+    my $root   = copy_of('calc');
+    my $format = permutl( $root, '--jobs', 2, '--format', 'github' );
+    like $format->{stdout},
+      qr/^::warning file=lib\/Calc\.pm,line=12,col=15,endLine=12,endColumn=16,title=Survived mutant::/m,
+      '--format github prints annotations';
+    unlike $format->{stdout}, qr/^Score:/m, 'and nothing else';
+
+    local $ENV{GITHUB_ACTIONS}      = 'true';
+    local $ENV{GITHUB_STEP_SUMMARY} = "$root/summary.md";
+    my $detected = permutl( $root, '--jobs', 2 );
+    like $detected->{stdout},       qr/^Score: 68\.4%/m,                 'the terminal report stays';
+    like $detected->{stdout},       qr/^::warning file=lib\/Calc\.pm,/m, 'annotations are added inside GitHub Actions';
+    like slurp("$root/summary.md"), qr/^Score: \*\*68\.4%\*\*/m,         'the job summary is appended';
+};
+
 done_testing;

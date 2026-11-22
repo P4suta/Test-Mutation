@@ -8,6 +8,7 @@ use Types::Standard qw(ArrayRef Int Slurpy Str);
 use Type::Params    qw(signature_for);
 use Permutl::Config;
 use Permutl::Project;
+use Permutl::Report::GitHub;
 use Permutl::Report::Html;
 use Permutl::Report::Json;
 use Permutl::Report::Patch;
@@ -99,13 +100,21 @@ sub _config ($arguments) {
     my $config     = eval {
         Permutl::Config->from_layers(
             root     => Cwd::getcwd(),
-            defaults => { jobs => $processors > 1 ? $processors - 1 : 1 },
-            file     => _configuration_file($file),
-            cli      => \%cli,
+            defaults => {
+                jobs    => $processors > 1 ? $processors - 1 : 1,
+                formats => [ qw(terminal json html), _inside_github_actions() ? 'github' : () ],
+            },
+            file => _configuration_file($file),
+            cli  => \%cli,
         );
     };
     print {*STDERR} 'permutl: ', _first_line($@), "\n" if !$config;
     return $config;
+}
+
+sub _inside_github_actions () {
+    my $value = $ENV{GITHUB_ACTIONS};
+    return defined $value && $value eq 'true' ? 1 : 0;
 }
 
 sub _configuration_file ($named) {
@@ -164,6 +173,17 @@ sub _report ( $result, $config ) {
         push @written, "$directory/$name";
     }
     print 'Reports: ', join( ', ', @written ), "\n" if @written;
+    _report_to_github($result) if $wanted{github};
+    return;
+}
+
+sub _report_to_github ($result) {
+    print Permutl::Report::GitHub::annotations($result);
+    my $path = $ENV{GITHUB_STEP_SUMMARY};
+    return if !defined $path || !length $path;
+    open my $handle, '>>:encoding(UTF-8)', $path or die "cannot write $path: $!\n";
+    print {$handle} Permutl::Report::GitHub::summary($result) or die "cannot write $path: $!\n";
+    close $handle                                             or die "cannot close $path: $!\n";
     return;
 }
 
