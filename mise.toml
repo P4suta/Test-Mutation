@@ -56,6 +56,10 @@ run = "prove -l xt"
 description = "Measure the tests of permutl with permutl"
 run = "perl -Ilib bin/permutl"
 
+[tasks.mutation-gate]
+description = "Measure permutl with itself and check the release conditions"
+run = ["perl -Ilib bin/permutl", "prove -l xt/release"]
+
 [tasks.audit]
 description = "Check the locked dependencies against the CPAN security advisories"
 # Modules bundled with the interpreter follow the Perl that runs the tool, so the audit covers the locked distributions.
