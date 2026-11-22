@@ -95,9 +95,9 @@ subtest 'breakable lines include statements that never ran' => sub {
     my %breakable = map { $_ => 1 } @{ $lines->{lines} };
     ok $breakable{26}, 'the body of the unused sub is breakable';
     ok $breakable{12}, 'the untaken branch is breakable';
-    ok !$breakable{5}, 'the compile-time constant has no runtime statement'
+    ok !$breakable{6}, 'an empty line holds no statement'
       or diag "breakable: @{ $lines->{lines} }";
-    ok !$breakable{2}, 'a use statement has no runtime statement';
+    ok !$breakable{13}, 'a closing brace holds no statement';
 };
 
 subtest 'code outside the target is compiled without tracing' => sub {
