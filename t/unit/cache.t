@@ -36,8 +36,8 @@ subtest 'records survive a round trip' => sub {
         cccccccccccc => record( status => 'Ignored',  reason => 'compiles to the same code as the original' ),
         dddddddddddd => record( status => 'CompileError' ),
     );
-    Permutl::Cache::save( $path, \%records );
-    is Permutl::Cache::load($path), \%records, 'the loaded records equal the saved records';
+    is Permutl::Cache::save( $path, \%records ), 4,         'save returns the number of stored records';
+    is Permutl::Cache::load($path),              \%records, 'the loaded records equal the saved records';
 };
 
 subtest 'a result that depends on the machine or on an unfinished run is left out' => sub {
@@ -53,10 +53,22 @@ subtest 'an unusable file is an empty cache' => sub {
     print {$handle} '{ not json' or die "print: $!";
     close $handle                or die "close: $!";
     is Permutl::Cache::load("$dir/broken.json"), {}, 'a file that is not JSON';
-    open $handle, '>', "$dir/other.json" or die "open: $!";
-    print {$handle} '{"version":0,"mutants":{"aaaaaaaaaaaa":{}}}' or die "print: $!";
-    close $handle                                                 or die "close: $!";
-    is Permutl::Cache::load("$dir/other.json"), {}, 'a file of another format version';
+    my $valid = '{"key":"k","status":"Killed","reason":null,"by":null,"tests_run":1,"duration":1,"code":null}';
+    my %text  = (
+        version => qq({"version":0,"mutants":{"aaaaaaaaaaaa":$valid}}),
+        list    => '{"version":1,"mutants":[]}',
+        array   => '[1]',
+        record  => qq({"version":1,"mutants":{"aaaaaaaaaaaa":{"key":"k"},"bbbbbbbbbbbb":$valid}}),
+    );
+    for my $name ( sort keys %text ) {
+        open $handle, '>', "$dir/$name.json" or die "open: $!";
+        print {$handle} $text{$name} or die "print: $!";
+        close $handle                or die "close: $!";
+    }
+    is Permutl::Cache::load("$dir/version.json"), {}, 'a file of another format version';
+    is Permutl::Cache::load("$dir/list.json"),    {}, 'a file whose records are a list';
+    is Permutl::Cache::load("$dir/array.json"),   {}, 'a file that holds a list';
+    is [ keys Permutl::Cache::load("$dir/record.json")->%* ], ['bbbbbbbbbbbb'], 'a malformed record is left out';
 };
 
 done_testing;
