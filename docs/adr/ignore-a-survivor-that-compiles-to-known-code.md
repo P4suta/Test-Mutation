@@ -7,7 +7,7 @@ date: 2026-11-23
 ## Context
 
 Some mutants can't change behavior: Perl folds `60 + 0` and `60 - 0` into one constant.
-A survivor of that class asks for a test that can't exist.
+No test can detect such a survivor.
 
 ## Decision
 
@@ -15,12 +15,13 @@ A mutant that passed every test gets one more step.
 The test interpreter compiles the original file and the mutant with `-MO=Deparse`, and the run compares the digests of the two outputs.
 An equal digest marks the mutant `Ignored`.
 A survivor with the digest of an earlier survivor in the same file is `Ignored` too.
-The original compiles twice, and a failed or unstable output turns the step off for the file.
+The compiles use a fixed hash seed.
+The original compiles twice, and a failed or unstable output turns the step off with a warning.
 
 ## Alternatives
 
 A walk over the op tree with `B` covers `__FILE__`, but a missed field would hide a real survivor.
-A check of every mutant before the tests costs one process per mutant.
+A check before the tests costs one process per mutant.
 
 ## Consequences
 
