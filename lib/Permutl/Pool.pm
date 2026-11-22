@@ -1,5 +1,6 @@
 package Permutl::Pool;
 use v5.36;
+use Digest::SHA            ();
 use IO::Select             ();
 use POSIX                  ();
 use Time::HiRes            ();
@@ -107,6 +108,7 @@ sub _spawn ($task) {
         handle   => $read,
         buffer   => q{},
         output   => q{},
+        digest   => Digest::SHA->new(256),
         tap      => Permutl::Tap::start(),
         started  => $now,
         deadline => $now + $task->{timeout},
@@ -145,6 +147,7 @@ sub _read_ready ( $select, $slots ) {
 }
 
 sub _consume ( $slot, $chunk ) {
+    $slot->{digest}->add($chunk);
     $slot->{output} .= $chunk;
     $slot->{output} = substr $slot->{output}, -$OUTPUT_LIMIT if length $slot->{output} > $OUTPUT_LIMIT;
     $slot->{buffer} .= $chunk;
@@ -207,6 +210,7 @@ sub _result ($slot) {
         early     => Permutl::Tap::failed_already( $slot->{tap} ),
         duration  => $slot->{ended} - $slot->{started},
         output    => $slot->{output},
+        digest    => $slot->{digest}->hexdigest,
     };
 }
 
@@ -241,8 +245,9 @@ C<done> receives each task with its result, and a task it returns runs before an
 A task has the keys C<command>, C<env>, C<cwd>, C<timeout>, C<stop_on_failure>, C<stderr>, and an optional C<payload>.
 An undefined value in C<env> removes the variable.
 
-A result has the keys C<exit>, C<signal>, C<timed_out>, C<stopped>, C<passed>, C<early>, C<duration>, and C<output>.
+A result has the keys C<exit>, C<signal>, C<timed_out>, C<stopped>, C<passed>, C<early>, C<duration>, C<output>, and C<digest>.
 C<passed> is true when the process ran to its end and its TAP stream passed.
 C<early> is true when the stream had failed before the process ended.
+C<output> holds the end of the standard output, and C<digest> is the SHA-256 digest of all of it.
 
 =cut

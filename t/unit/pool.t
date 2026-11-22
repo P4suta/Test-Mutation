@@ -1,5 +1,6 @@
 use v5.36;
 use Test2::V0;
+use Digest::SHA ();
 use File::Temp  ();
 use Time::HiRes ();
 use Permutl::Pool;
@@ -184,6 +185,16 @@ subtest 'the captured output keeps its end when a test prints a lot' => sub {
 
     my $short = run_one( script( 'short.t', qq{print "1..1\\n"; print "ok 1\\n";\n} ) );
     is $short->{output}, "1..1\nok 1\n", 'a short stream is captured whole';
+};
+
+subtest 'the result carries a digest of the whole output' => sub {
+    my $text = join q{}, ( map { "# filler line number $_\n" } 1 .. 20_000 ), "1..1\nok 1 - last line\n";
+    my $path =
+      script( 'loud.t', q{print "# filler line number $_\n" for 1 .. 20_000; print "1..1\nok 1 - last line\n";} );
+    is run_one($path)->{digest}, Digest::SHA::sha256_hex($text),
+      'the digest covers the output beyond the capture limit';
+    isnt run_one( script( 'quiet.t', qq{print "1..1\\nok 1\\n";\n} ) )->{digest}, Digest::SHA::sha256_hex($text),
+      'a different output has a different digest';
 };
 
 subtest 'a malformed task is refused' => sub {
