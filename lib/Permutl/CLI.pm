@@ -20,9 +20,51 @@ my %COMMAND = ( run => \&_run, list => \&_list, show => \&_show, exec => \&_exec
 
 signature_for main => ( positional => [ Slurpy [ ArrayRef [Str] ] ], returns => Int );
 
+my $HELP = <<'TEXT';
+Usage: permutl [run] [options]
+       permutl list [options]
+       permutl show ID [options]
+       permutl exec ID -- COMMAND [ARGUMENT...]
+
+Commands:
+  run     Measure how many mutants the tests detect (the default)
+  list    Print the mutants without running a test
+  show    Print one mutant as a unified diff
+  exec    Run a command with one mutant active
+
+Options:
+  --jobs, -j N          Test processes to run side by side
+  --min-score N         Fail when the score is below N percent
+  --format NAME         Report to write: terminal, json, html; repeatable
+  --report-dir DIR      Directory for the report files
+  --perl PATH           Interpreter that runs the tests
+  --source GLOB         Files to mutate; repeatable
+  --test GLOB           Test files; repeatable
+  --profile NAME        Mutator profile: default or extended
+  --enable NAME         Add a mutator; repeatable
+  --disable NAME        Remove a mutator; repeatable
+  --coverage MODE       Select tests by line or by file
+  --timeout-factor N    Time limit as a multiple of the unmodified duration
+  --timeout-floor N     Smallest time limit in seconds
+  --keep-work           Keep the work directory after the run
+  --mutant ID           Run the named mutant; repeatable
+  --config FILE         Configuration file to read in place of permutl.toml
+  --version             Print the version
+  --help                Print this text
+TEXT
+
 sub main ($list) {
     my @arguments = $list->@*;
-    my $command   = @arguments && $COMMAND{ $arguments[0] } ? shift @arguments : 'run';
+    my $first     = @arguments ? $arguments[0] : q{};
+    if ( $first eq '--version' ) {
+        say "permutl $VERSION";
+        return 0;
+    }
+    if ( $first eq '--help' || $first eq '-h' ) {
+        print $HELP;
+        return 0;
+    }
+    my $command = $COMMAND{$first} ? shift @arguments : 'run';
     return $COMMAND{$command}->(@arguments);
 }
 
@@ -86,6 +128,7 @@ sub _first_line ($error) {
 
 sub _run (@arguments) {
     my $config = _config( \@arguments ) or return 2;
+    return _usage("unexpected argument $arguments[0]") if @arguments;
     my $result = Permutl::Runner::run(
         $config,
         sub ( $event, $data ) {

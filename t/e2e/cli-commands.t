@@ -99,4 +99,22 @@ subtest 'exec refuses a missing identifier or command' => sub {
     is permutl( $root, 'exec', 'zzzzzz', '--', $^X, '-e', '1' )->{exit}, 2,              'an unknown identifier';
 };
 
+subtest 'version, help, and stray arguments' => sub {
+    my $version = permutl( $root, '--version' );
+    is $version->{exit}, 0, '--version succeeds';
+    like $version->{stdout}, qr/\Apermutl \d+[.]\d+\n\z/, 'the version line';
+
+    my $help = permutl( $root, '--help' );
+    is $help->{exit}, 0, '--help succeeds';
+    like $help->{stdout}, qr/^Usage: permutl \[run\] \[options\]$/m, 'the usage line';
+    like $help->{stdout}, qr/^\s+permutl exec ID -- COMMAND/m,       'the commands';
+    my @undocumented = grep { $help->{stdout} !~ /^\s+--\Q$_\E\b/m }
+      qw(jobs min-score format report-dir perl source test profile enable disable coverage timeout-factor timeout-floor keep-work mutant config);
+    is \@undocumented, [], 'every option is described';
+
+    my $stray = permutl( $root, 'run', 'surplus' );
+    is $stray->{exit},   2,                                        'a stray argument is a usage error';
+    is $stray->{stderr}, "permutl: unexpected argument surplus\n", 'the message';
+};
+
 done_testing;
