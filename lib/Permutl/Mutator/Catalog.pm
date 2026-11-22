@@ -234,6 +234,11 @@ sub _condition_fixed ($site) {
     return map { { replacement => $_, description => "replaced the $keyword condition with $_" } } @values;
 }
 
+sub _range_boundary ($site) {
+    return if $site->kind ne 'operator' || $site->role ne 'binary' || $site->text ne '..';
+    return { replacement => '.. -1 +', description => 'lowered the upper bound of the range by one' };
+}
+
 my @CODED = (
     [ 'negation',          'default',  'Removes a logical negation',                       \&_negation ],
     [ 'match',             'default',  'Negates a pattern match',                          \&_match ],
@@ -243,6 +248,7 @@ my @CODED = (
     [ 'number-literal',    'extended', 'Changes an integer literal',                       \&_number_literal ],
     [ 'string-literal',    'extended', 'Empties a string literal',                         \&_string_literal ],
     [ 'condition-fixed',   'extended', 'Replaces a condition with a constant',             \&_condition_fixed ],
+    [ 'range-boundary',    'extended', 'Lowers the upper bound of a range by one',         \&_range_boundary ],
 );
 
 my @ALL = (
