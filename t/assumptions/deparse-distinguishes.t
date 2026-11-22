@@ -54,7 +54,7 @@ my @different = (
 for my $case (@different) {
     my ( $name, $template, $original, $mutated ) = $case->@*;
     my ( $before, $after ) = map { deparsed( $template =~ s/BODY/$_/r ) } $original, $mutated;
-    ok defined $before, "$name compiles";
+    ok defined $before,                      "$name compiles";
     ok !defined $after || $before ne $after, "$name stays distinct";
 }
 
