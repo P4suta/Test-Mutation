@@ -30,6 +30,7 @@ has baseline_failures =>
 has jobs          => ( is => 'ro', isa => PositiveInt, required => 1 );
 has parallel_safe => ( is => 'ro', isa => Bool,        required => 1 );
 has interrupted   => ( is => 'ro', isa => Maybe [ Enum [qw(HUP INT TERM)] ], default => undef );
+has reused        => ( is => 'ro', isa => Int, default  => 0 );
 has started       => ( is => 'ro', isa => Num, required => 1 );
 has finished      => ( is => 'ro', isa => Num, required => 1 );
 
@@ -104,6 +105,10 @@ False when the tests passed one at a time and failed side by side.
 
 The name of the signal that ended the run early, or undefined.
 The mutants that did not finish have the status C<Pending>.
+
+=head2 reused
+
+The number of entries that came from the cache of an earlier run.
 
 =head2 started, finished
 

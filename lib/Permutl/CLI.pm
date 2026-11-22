@@ -54,6 +54,7 @@ Options:
   --since REVISION      Cover the lines changed since a Git revision
   --shard K/N           Cover part K of N equal parts of the mutants
   --no-equivalence      Keep the mutants that compile to the original code
+  --cache               Reuse the results of an earlier run where the inputs are unchanged
   --config FILE         Configuration file to read in place of permutl.toml
   --version             Print the version
   --help                Print this text
@@ -101,6 +102,7 @@ my %SETTING_OF_OPTION = (
     'since=s'          => 'since',
     'shard=s'          => 'shard',
     'equivalence!'     => 'equivalence',
+    'cache!'           => 'cache',
 );
 
 sub _config ($arguments) {

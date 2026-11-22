@@ -1,11 +1,14 @@
 package Permutl::Runner;
 use v5.36;
 use Cwd             ();
+use Digest::SHA     ();
+use File::Find      ();
 use File::Path      ();
 use File::Temp      ();
 use Time::HiRes     ();
 use Types::Standard qw(ArrayRef CodeRef Dict HashRef InstanceOf Int Str Tuple);
 use Type::Params    qw(signature_for);
+use Permutl::Cache;
 use Permutl::Coverage;
 use Permutl::Diff;
 use Permutl::Git;
@@ -135,6 +138,7 @@ sub run ( $config, $listener ) {
         %result,
         jobs        => $run->{jobs},
         interrupted => $run->{interrupted},
+        reused      => $run->{reused} || 0,
         finished    => Time::HiRes::time(),
     );
 }
@@ -405,6 +409,7 @@ sub _mutants ( $run, $mutants, $baseline ) {
         tests     => { map { $_ => { $baseline->{tests}{$_}->%{qw(duration files)} } } keys $baseline->{tests}->%* },
     );
 
+    my $cache = $config->cache ? _open_cache( $run, $baseline ) : undef;
     my ( @entries, @jobs );
     for my $mutant ( $mutants->@* ) {
         if ( $mutant->suppressed ) {
@@ -414,12 +419,16 @@ sub _mutants ( $run, $mutants, $baseline ) {
         my $tests = $coverage->tests_for($mutant);
         my $job =
           { mutant => $mutant, tests => $tests, index => 0, verdict => Permutl::Verdict::start(), duration => 0 };
-        if ( $tests->@* ) {
-            push @jobs, $job;
-        }
-        else {
+        if ( !$tests->@* ) {
             push @entries, _finish( $run, $job );
+            next;
         }
+        my $reused = $cache ? _reused_entry( $run, $cache, $job ) : undef;
+        if ($reused) {
+            push @entries, $reused;
+            next;
+        }
+        push @jobs, $job;
     }
 
     $run->{syntax_of_original} = {};
@@ -470,8 +479,90 @@ sub _mutants ( $run, $mutants, $baseline ) {
 
     my %order  = map  { $mutants->[$_]->id => $_ } 0 .. $mutants->$#*;
     my @sorted = sort { $order{ $a->{mutant}->id } <=> $order{ $b->{mutant}->id } } @entries;
+    _save_cache( $run, $cache, \@sorted ) if $cache;
     _ignore_repeated_code( $run, \@sorted );
     return \@sorted;
+}
+
+sub _support_files ( $run, $tests ) {
+    my %test = map { $_ => 1 } $tests->@*;
+    my %directory;
+    for my $test ( $tests->@* ) {
+        my ($top) = split m{/}, $test;
+        $directory{$top} = 1 if $top ne $test;
+    }
+    my @files;
+    for my $directory ( sort keys %directory ) {
+        File::Find::find(
+            {
+                no_chdir => 1,
+                wanted   => sub {
+                    my $relative = substr $File::Find::name, 1 + length $run->{root};
+                    push @files, $relative if -f $File::Find::name && !$test{$relative};
+                },
+            },
+            "$run->{root}/$directory",
+        );
+    }
+    my @ordered = sort @files;
+    return @ordered;
+}
+
+sub _open_cache ( $run, $baseline ) {
+    my $config = $run->{config};
+    my $root   = $run->{root};
+    my %digest;
+    my $digest_of = sub ($path) {
+        $digest{$path} = Digest::SHA::sha256_hex( _slurp("$root/$path") ) if !defined $digest{$path};
+        return $digest{$path};
+    };
+    my @tests       = sort keys $baseline->{tests}->%*;
+    my @interpreter = map { defined ? $_ : q{} } ( stat $config->perl )[ 7, 9 ];
+    my @shared      = (
+        $VERSION, $config->perl, @interpreter, scalar $config->switches->@*,
+        $config->switches->@*, $config->coverage, $config->equivalence,
+        map { ( $_, $digest_of->($_) ) } _support_files( $run, \@tests ),
+    );
+    return {
+        path    => "$root/" . $config->work_directory . '/cache.json',
+        records => Permutl::Cache::load( "$root/" . $config->work_directory . '/cache.json' ),
+        keys    => {},
+        key_of  => sub ($job) {
+            my $mutant = $job->{mutant};
+            my @reach  = sort $job->{tests}->@*;
+            my %loaded = map { $_ => 1 } $mutant->path, map { keys $baseline->{tests}{$_}{files}->%* } @reach;
+            return Permutl::Cache::key(
+                @shared, $mutant->id, $mutant->replacement,
+                ( map { ( 'test',   $_, $digest_of->($_) ) } @reach ),
+                ( map { ( 'source', $_, $digest_of->($_) ) } sort keys %loaded ),
+            );
+        },
+    };
+}
+
+sub _reused_entry ( $run, $cache, $job ) {
+    my $mutant = $job->{mutant};
+    my $key    = $cache->{keys}{ $mutant->id } = $cache->{key_of}->($job);
+    my $record = $cache->{records}{ $mutant->id };
+    return                                                  if !$record || $record->{key} ne $key;
+    $run->{code_of_mutant}{ $mutant->id } = $record->{code} if defined $record->{code};
+    $run->{reused}++;
+    my $entry =
+      _entry( $mutant, $record->@{qw(status reason by)}, $job->{tests}, $record->@{qw(tests_run duration)} );
+    $run->{listener}->( 'mutant', $entry );
+    return $entry;
+}
+
+sub _save_cache ( $run, $cache, $entries ) {
+    my %records = $cache->{records}->%*;
+    for my $entry ( $entries->@* ) {
+        my $id  = $entry->{mutant}->id;
+        my $key = $cache->{keys}{$id} or next;
+        $records{$id} =
+          { key => $key, $entry->%{qw(status reason by tests_run duration)}, code => $run->{code_of_mutant}{$id} };
+    }
+    Permutl::Cache::save( $cache->{path}, \%records );
+    return;
 }
 
 sub _ignore_repeated_code ( $run, $entries ) {

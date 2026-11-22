@@ -67,7 +67,9 @@ sub _summary ( $result, $arg ) {
     push @lines, 'The run was interrupted by SIG' . $result->interrupted . q{.} if defined $result->interrupted;
 
     my $seconds = sprintf '%.1f s', $result->finished - $result->started;
-    push @lines, join ', ', _plural( scalar $result->tests->@*, 'test' ), _plural( $result->jobs, 'job' ), $seconds;
+    my @facts   = ( _plural( scalar $result->tests->@*, 'test' ), _plural( $result->jobs, 'job' ), $seconds );
+    push @facts, _plural( $result->reused, 'result' ) . ' from the cache' if $result->reused;
+    push @lines, join ', ', @facts;
     return join "\n", @lines;
 }
 

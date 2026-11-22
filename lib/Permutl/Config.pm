@@ -37,9 +37,10 @@ has since            => ( is => 'ro', isa => Maybe [Str],    default => undef );
 has only             => ( is => 'ro', isa => ArrayRef [Str], default => sub { [] } );
 has shard            => ( is => 'ro', isa => Maybe [$SHARD], default => undef );
 has equivalence      => ( is => 'ro', isa => Bool, default => 1 );
+has cache            => ( is => 'ro', isa => Bool, default => 0 );
 
 my %FILE_KEYS = (
-    q{}    => { jobs    => 'jobs' },
+    q{}    => { jobs    => 'jobs',           cache   => 'cache' },
     source => { include => 'source_include', exclude => 'source_exclude' },
     test   => {
         include          => 'test_include',
@@ -185,5 +186,11 @@ N runs with K from 1 to N cover every mutant once.
 
 Whether the run compares the compiled code of an undetected mutant with the original, true by default.
 A mutant that compiles to the same code is ignored, and so is a mutant with the code of an earlier survivor.
+
+=head2 cache
+
+Whether the run reuses results from C<cache.json> in the work directory and writes its own, false by default.
+The key of a result covers the mutated file, the tests that reach the mutant, the source files those tests load, and every other file under the test directories.
+A change outside those files, such as a new version of a dependency, needs a run without the cache.
 
 =cut
