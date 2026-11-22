@@ -1,7 +1,7 @@
 use v5.36;
 use Test2::V0;
 use lib 't/e2e/lib';
-use Fixture qw(copy_of permutl);
+use Fixture qw(copy_of permutl write_file);
 
 subtest 'run prints the summary and succeeds' => sub {
     my $root = copy_of('calc');
@@ -23,6 +23,17 @@ subtest 'a score below --min-score fails the run' => sub {
     my $root = copy_of('calc');
     is permutl( $root, '--jobs', 2, '--min-score', 90 )->{exit}, 1, 'the score is below 90';
     is permutl( $root, '--jobs', 2, '--min-score', 60 )->{exit}, 0, 'the score is above 60';
+};
+
+subtest 'a test that fails without any mutant stops the run' => sub {
+    my $root = copy_of('calc');
+    write_file( "$root/t/broken.t", "use Test::More tests => 1;\nis 1, 2, 'never equal';\n" );
+    my $run = permutl( $root, '--jobs', 2 );
+    is $run->{exit}, 3, 'exit status';
+    like $run->{stdout},   qr/^The unmodified run fails, so no mutant ran\.$/m, 'the reason';
+    like $run->{stdout},   qr/^  t\/broken\.t$/m,                               'the failing test';
+    like $run->{stdout},   qr/^    not ok 1 - never equal$/m,                   'its output';
+    unlike $run->{stdout}, qr/^Score:/m,                                        'no score';
 };
 
 done_testing;

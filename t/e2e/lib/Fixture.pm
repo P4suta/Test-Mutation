@@ -9,7 +9,16 @@ use Exporter 'import';
 use Permutl::Config;
 use Permutl::Runner;
 
-our @EXPORT_OK = qw(copy_of run_fixture tree_digest statuses permutl);
+our @EXPORT_OK = qw(copy_of run_fixture tree_digest statuses permutl write_file);
+
+sub write_file ( $path, $content ) {
+    my ($directory) = $path =~ m{\A(.*)/};
+    File::Path::make_path($directory);
+    open my $handle, '>:raw', $path or die "write $path: $!";
+    print {$handle} $content or die "write $path: $!";
+    close $handle            or die "close $path: $!";
+    return $path;
+}
 
 my $LIBRARY = Cwd::abs_path('lib');
 my $COMMAND = Cwd::abs_path('bin') . '/permutl';
