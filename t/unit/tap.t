@@ -1,0 +1,65 @@
+use v5.36;
+use Test2::V0;
+use Permutl::Tap;
+
+sub fold (@lines) {
+    my $state = Permutl::Tap::start();
+    $state = Permutl::Tap::feed( $state, $_ ) for @lines;
+    return $state;
+}
+
+my @cases = (
+    [ 'all tests pass',                  [ '1..2', 'ok 1', 'ok 2 - named' ],                                 0, 1, 0 ],
+    [ 'plan at the end',                 [ 'ok 1', 'ok 2', '1..2' ],                                         0, 1, 0 ],
+    [ 'a failure',                       [ '1..2', 'ok 1', 'not ok 2 - broken' ],                            1, 0, 1 ],
+    [ 'a TODO failure does not fail',    [ '1..1', 'not ok 1 - later # TODO unfinished' ],                   0, 1, 0 ],
+    [ 'a lowercase todo directive',      [ '1..1', 'not ok 1 # todo unfinished' ],                           0, 1, 0 ],
+    [ 'an escaped hash is not a TODO',   [ '1..1', 'not ok 1 - name \\# TODO' ],                             1, 0, 1 ],
+    [ 'a skipped test passes',           [ '1..1', 'ok 1 # SKIP no network' ],                               0, 1, 0 ],
+    [ 'a skipped file passes',           ['1..0 # SKIP not supported'],                                      0, 1, 0 ],
+    [ 'a bail-out',                      [ '1..3', 'ok 1', 'Bail out! disk full' ],                          0, 0, 1 ],
+    [ 'a missing plan',                  [ 'ok 1', 'ok 2' ],                                                 0, 0, 0 ],
+    [ 'fewer tests than planned',        [ '1..3', 'ok 1' ],                                                 0, 0, 0 ],
+    [ 'more tests than planned',         [ '1..1', 'ok 1', 'ok 2' ],                                         0, 0, 0 ],
+    [ 'a nonzero exit status',           [ '1..1', 'ok 1' ],                                                 2, 0, 0 ],
+    [ 'a failure inside a subtest only', [ '    not ok 1 - inner', '    1..1', 'ok 1 - outer', '1..1' ],     0, 1, 0 ],
+    [ 'a failed subtest',                [ '    not ok 1 - inner', '    1..1', 'not ok 1 - outer', '1..1' ], 1, 0, 1 ],
+    [ 'diagnostics are ignored',         [ '# not ok', 'TAP version 13', '1..1', 'ok 1', 'okay then' ],      0, 1, 0 ],
+    [ 'no output',                       [],                                                                 0, 0, 0 ],
+);
+
+for my $case (@cases) {
+    my ( $name, $lines, $exit, $passed, $early ) = $case->@*;
+    my $state = fold( $lines->@* );
+    is Permutl::Tap::passed( $state, $exit ), $passed, "$name: passed";
+    is Permutl::Tap::failed_already($state),  $early,  "$name: failed already";
+}
+
+subtest 'an early failure never becomes a pass' => sub {
+    my @lines  = ( '1..3', 'ok 1', 'not ok 2', 'ok 3', 'not ok 4 # TODO x', 'Bail out!', '1..5', 'ok' );
+    my @broken = ();
+    for my $first ( 0 .. $#lines ) {
+        for my $second ( 0 .. $#lines ) {
+            for my $third ( 0 .. $#lines ) {
+                my @stream = @lines[ $first, $second, $third ];
+                my $state  = Permutl::Tap::start();
+                my $early  = 0;
+                for my $line (@stream) {
+                    $state = Permutl::Tap::feed( $state, $line );
+                    $early ||= Permutl::Tap::failed_already($state);
+                }
+                push @broken, "@stream" if $early && Permutl::Tap::passed( $state, 0 );
+            }
+        }
+    }
+    is \@broken, [], 'every stream that fails early fails at the end';
+};
+
+subtest 'feed returns a new state' => sub {
+    my $before = Permutl::Tap::start();
+    my $after  = Permutl::Tap::feed( $before, 'not ok 1' );
+    is $before->{failed}, 0, 'the earlier state is unchanged';
+    is $after->{failed},  1, 'the later state has the failure';
+};
+
+done_testing;
