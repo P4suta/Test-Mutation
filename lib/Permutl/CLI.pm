@@ -149,7 +149,8 @@ sub _first_line ($error) {
 sub _run (@arguments) {
     my $config = _config( \@arguments ) or return 2;
     return _usage("unexpected argument $arguments[0]") if @arguments;
-    my $result = Permutl::Runner::run( $config, _progress( -t *STDERR ? 1 : 0 ) );
+    my $terminal = -t *STDERR ? 1 : 0;                                      ## no critic (InputOutput::ProhibitInteractiveTest)
+    my $result   = Permutl::Runner::run( $config, _progress($terminal) );
     _report( $result, $config );
     return _exit_status( $result, $config );
 }
