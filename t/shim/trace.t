@@ -110,4 +110,26 @@ PERL
     is $run->{stdout}, "helper=0 script=0\n", 'no source lines are saved for other files';
 };
 
+subtest 'tracing ends at the end marker of a target' => sub {
+    my $root = project();
+    write_file( "$root/lib/Foo/Documented.pm",
+        "package Foo::Documented;\nsub value { return 1 }\n1;\n__END__\n\n=head1 NAME\n\nFoo::Documented\n\n=cut\n" );
+    write_file( "$root/script.pl", <<'PERL' );
+use Foo::Documented;
+no strict 'refs';
+print 'script=', scalar( @{'main::_<script.pl'} ), "\n";
+PERL
+    write_spec(
+        "$root/spec",
+        trace   => 1,
+        targets => [ [ "$root/lib/Foo/Documented.pm", "$root/lib/Foo/Documented.pm" ] ]
+    );
+    my $run = run_perl(
+        root => $root,
+        env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
+        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+    );
+    is $run->{stdout}, "script=0\n", 'code compiled after the target is not traced';
+};
+
 done_testing;

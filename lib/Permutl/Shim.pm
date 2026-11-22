@@ -167,7 +167,7 @@ sub _serve {
 
     my $filter = sub {
         my $more = length $_ ? 1 : 0;
-        _trace_compile($more);
+        _trace_compile( $more && !/\A__(?:END|DATA)__\s*\z/ ? 1 : 0 );
         return $more;
     };
     return ( \$prepend, $handle, $filter );
