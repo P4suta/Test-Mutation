@@ -104,16 +104,21 @@ sub run ( $config, $listener ) {
 
     if ( @active && @tests ) {
         _prepare_work($run);
-        my $baseline = _baseline( $run, \@tests, [ sort keys %targets ] );
-        $result{parallel_safe}     = $baseline->{parallel_safe};
-        $result{baseline_failures} = $baseline->{failures};
-        $result{tests} =
-          [ map { { name => $_, duration => $baseline->{tests}{$_}{duration} } } sort keys $baseline->{tests}->%* ];
-        if ( !$baseline->{failures}->@* ) {
-            $listener->( 'baseline', { tests => scalar(@tests), jobs => $run->{jobs} } );
-            $result{entries} = _mutants( $run, $analysis->{mutants}, $baseline );
-        }
+        my $measured = eval {
+            my $baseline = _baseline( $run, \@tests, [ sort keys %targets ] );
+            $result{parallel_safe}     = $baseline->{parallel_safe};
+            $result{baseline_failures} = $baseline->{failures};
+            $result{tests} =
+              [ map { { name => $_, duration => $baseline->{tests}{$_}{duration} } } sort keys $baseline->{tests}->%* ];
+            if ( !$baseline->{failures}->@* ) {
+                $listener->( 'baseline', { tests => scalar(@tests), jobs => $run->{jobs} } );
+                $result{entries} = _mutants( $run, $analysis->{mutants}, $baseline );
+            }
+            1;
+        };
+        my $error = $@;
         File::Path::remove_tree( $run->{work} ) if !$config->keep_work;
+        die $error                              if !$measured;            ## no critic (ErrorHandling::RequireCarping)
     }
     else {
         push $run->{warnings}->@*, 'no test files match' if @active && !@tests;

@@ -1,0 +1,57 @@
+use v5.36;
+use Test2::V0;
+use Cwd         ();
+use Time::HiRes ();
+use lib 't/e2e/lib';
+use Fixture qw(copy_of write_file);
+
+my $library = Cwd::abs_path('lib');
+my $command = Cwd::abs_path('bin') . '/permutl';
+
+sub processes_under ($root) {
+    open my $ps, q{-|}, 'ps', '-axo', 'pid=,command=' or die "ps: $!";
+    my @lines = grep { index( $_, $root ) >= 0 } readline $ps;
+    close $ps or die "ps: $!";
+    return \@lines;
+}
+
+sub wait_for ($condition) {
+    for ( 1 .. 100 ) {
+        return 1 if $condition->();
+        Time::HiRes::sleep(0.1);
+    }
+    return 0;
+}
+
+for my $signal (qw(TERM INT)) {
+    subtest "SIG$signal ends the tests and removes the work directory" => sub {
+        my $root = copy_of('calc');
+        write_file( "$root/t/slow.t", "use Test::More tests => 1;\nuse Calc;\nsleep 30;\nok 1, 'slept';\n" );
+
+        my $pid = fork;
+        die "fork: $!" if !defined $pid;
+        if ( !$pid ) {
+            chdir $root or die "chdir: $!";
+            open STDIN,  '<', '/dev/null'        or die "stdin: $!";
+            open STDOUT, '>', "$root/stdout.txt" or die "stdout: $!";
+            open STDERR, '>', "$root/stderr.txt" or die "stderr: $!";
+            exec {$^X} $^X, "-I$library", $command, '--jobs', 2, '--format', 'terminal' or die "exec: $!";
+        }
+
+        ok wait_for(
+            sub {
+                scalar grep { /slow[.]t/ } processes_under($root)->@*;
+            }
+          ),
+          'the slow test is running';
+        kill $signal, $pid;
+        waitpid $pid, 0;
+        is $? >> 8, $signal eq 'TERM' ? 143 : 130, 'the exit status names the signal';
+
+        ok wait_for( sub { !processes_under($root)->@* } ), 'no process of the run is left'
+          or diag join q{}, processes_under($root)->@*;
+        ok !glob("$root/.permutl/run-*"), 'the work directory is removed';
+    };
+}
+
+done_testing;

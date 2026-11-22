@@ -69,7 +69,12 @@ sub main ($list) {
     my $command = $COMMAND{$first} ? shift @arguments : 'run';
     my $status  = eval { $COMMAND{$command}->(@arguments) };
     return $status if defined $status;
-    print {*STDERR} 'permutl: ', _first_line($@), "\n";
+    my $error = $@;
+    if ( ref $error && $error->isa('Permutl::Interrupted') ) {
+        print {*STDERR} 'permutl: interrupted by SIG', $error->signal, "\n";
+        return $error->exit_status;
+    }
+    print {*STDERR} 'permutl: ', _first_line($error), "\n";
     return 4;
 }
 

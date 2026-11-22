@@ -6,6 +6,7 @@ use Time::HiRes            ();
 use Types::Standard        qw(Any ArrayRef Bool CodeRef Dict HashRef Int Maybe Num Optional Str);
 use Types::Common::Numeric qw(PositiveInt PositiveNum);
 use Type::Params           qw(signature_for);
+use Permutl::Interrupted;
 use Permutl::Tap;
 
 our $VERSION = '0.001';
@@ -35,8 +36,16 @@ sub run ($arg) {
     my $select    = IO::Select->new;
     my $exhausted = 0;
     my $completed = 0;
+    my $signal;
+    local $SIG{HUP}  = sub { $signal = 'HUP' };
+    local $SIG{INT}  = sub { $signal = 'INT' };
+    local $SIG{TERM} = sub { $signal = 'TERM' };
 
     while (1) {
+        if ($signal) {
+            _end_all( values %slots );
+            die Permutl::Interrupted->new( signal => $signal );    ## no critic (ErrorHandling::RequireCarping)
+        }
         while ( keys %slots < $arg->jobs ) {
             my $task = shift @ready;
             if ( !$task && !$exhausted ) {
@@ -63,6 +72,22 @@ sub run ($arg) {
         }
     }
     return $completed;
+}
+
+sub _end_all (@slots) {
+    _signal_group( $_, 'TERM' ) for @slots;
+    my $deadline = Time::HiRes::time() + $GRACE_SECONDS;
+    my @running  = @slots;
+    while ( @running && Time::HiRes::time() < $deadline ) {
+        @running = grep { waitpid( $_->{pid}, POSIX::WNOHANG ) != $_->{pid} } @running;
+        Time::HiRes::sleep(0.02) if @running;
+    }
+    for my $slot (@running) {
+        _signal_group( $slot, 'KILL' );
+        waitpid $slot->{pid}, 0;
+    }
+    _signal_group( $_, 'KILL' ) for @slots;
+    return;
 }
 
 sub _spawn ($task) {
