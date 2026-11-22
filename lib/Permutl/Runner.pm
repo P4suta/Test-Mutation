@@ -4,7 +4,7 @@ use Cwd             ();
 use File::Path      ();
 use File::Temp      ();
 use Time::HiRes     ();
-use Types::Standard qw(ArrayRef CodeRef Dict HashRef InstanceOf Int Str);
+use Types::Standard qw(ArrayRef CodeRef Dict HashRef InstanceOf Int Str Tuple);
 use Type::Params    qw(signature_for);
 use Permutl::Coverage;
 use Permutl::Diff;
@@ -105,7 +105,8 @@ sub run ( $config, $listener ) {
     if ( @active && @tests ) {
         _prepare_work($run);
         my $measured = eval {
-            my $baseline = _baseline( $run, \@tests, [ sort keys %targets ] );
+            $run->{targets} = [ sort keys %targets ];
+            my $baseline = _baseline( $run, \@tests, $run->{targets} );
             $result{parallel_safe}     = $baseline->{parallel_safe};
             $result{baseline_failures} = $baseline->{failures};
             $result{tests} =
@@ -241,10 +242,22 @@ sub _environment ( $run, $spec ) {
     );
 }
 
+signature_for target_pairs => (
+    positional => [ Str, ArrayRef [Str], Str, Str ],
+    returns    => ArrayRef [ Tuple [ Str, Str ] ],
+);
+
+sub target_pairs ( $root, $paths, $mutated, $file ) {
+    my %listed = map { $_ => 1 } $paths->@*;
+    my @paths  = ( $paths->@*, $listed{$mutated} ? () : $mutated );
+    return [ map { [ "$root/$_", $_ eq $mutated ? $file : "$root/$_" ] } @paths ];
+}
+
 sub _write_mutant ( $run, $source, $mutant ) {
     my $file = "$run->{work}/mutants/" . $mutant->id . '.pm';
     _spew( $file, $source->to_bytes( $source->replace_span( $mutant->start, $mutant->end, $mutant->replacement ) ) );
-    my $spec = _spec( $run, 'mutants/' . $mutant->id, 0, [ [ "$run->{root}/" . $mutant->path, $file ] ] );
+    my $targets = target_pairs( $run->{root}, $run->{targets} ? $run->{targets} : [], $mutant->path, $file );
+    my $spec    = _spec( $run, 'mutants/' . $mutant->id, 0, $targets );
     return ( $file, $spec );
 }
 
@@ -546,6 +559,13 @@ The listener receives C<analyzed>, C<baseline>, and C<mutant> events with a hash
 
 Runs a command with one mutant active and returns its exit status.
 The mutant reaches every Perl process the command starts through C<PERL5OPT>, so a process in taint mode runs the original code.
+
+=head2 target_pairs
+
+    my $pairs = Permutl::Runner::target_pairs( $root, \@paths, $mutated_path, $mutant_file );
+
+Returns the targets of a mutant run as pairs of an original file and the file to serve in its place.
+Every source file goes through the hook, so a mutant run differs from the unmodified run in the text of one file alone.
 
 =head2 shim_text
 
