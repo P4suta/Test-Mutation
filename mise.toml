@@ -53,8 +53,9 @@ description = "Measure the tests of permutl with permutl"
 run = "perl -Ilib bin/permutl"
 
 [tasks.audit]
-description = "Check the dependencies against the CPAN security advisories"
-run = "cpan-audit deps ."
+description = "Check the locked dependencies against the CPAN security advisories"
+# Modules bundled with the interpreter follow the Perl that runs the tool, so the audit covers the locked distributions.
+run = "cpan-audit --no-corelist deps ."
 
 [tasks.secrets]
 description = "Scan the tree for secrets"
