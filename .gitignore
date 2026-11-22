@@ -1,0 +1,9 @@
+/local/
+/.permutl/
+/permutl-report/
+/blib/
+/_build/
+/Build
+/MYMETA.*
+/Permutl-*/
+/Permutl-*.tar.gz

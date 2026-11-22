@@ -1,0 +1,59 @@
+[tools]
+perl = "5.44.0.0"
+
+[env]
+PERL5LIB = "{{config_root}}/local/lib/perl5"
+_.path = ["{{config_root}}/local/bin"]
+
+[vars]
+perl_files = "fd --type f --extension pm --extension t --extension pl --exclude corpus --exclude fixtures . lib t"
+
+[tasks.setup]
+description = "Install the dependencies recorded in cpanfile.snapshot"
+run = [
+  "test -x local/bin/cpm || cpanm --quiet --notest -L local App::cpm",
+  "cpm install -L local --with-develop --with-test",
+]
+
+[tasks.lock]
+description = "Rewrite cpanfile.snapshot from cpanfile"
+run = "carton install"
+
+[tasks.fmt]
+description = "Format Perl files in place"
+run = "perltidy --backup-and-modify-in-place --backup-file-extension=/ $({{vars.perl_files}})"
+
+[tasks.fmt-check]
+description = "Fail when a Perl file differs from its formatted form"
+run = [
+  "mkdir -p .permutl/tidy",
+  "perltidy --assert-tidy --output-path=.permutl/tidy $({{vars.perl_files}})",
+]
+
+[tasks.lint]
+description = "Run Perl::Critic over the library"
+run = "perlcritic lib"
+
+[tasks.test]
+description = "Run the unit and assumption tests"
+run = "prove -lr t/unit t/assumptions"
+
+[tasks.test-shim]
+description = "Run the shim tests"
+run = "prove -l t/shim"
+
+[tasks.e2e]
+description = "Run the end-to-end tests"
+run = "prove -l t/e2e"
+
+[tasks.audit]
+description = "Check the dependencies against the CPAN security advisories"
+run = "cpan-audit deps ."
+
+[tasks.secrets]
+description = "Scan the tree for secrets"
+run = "gitleaks dir --no-banner ."
+
+[tasks.check]
+description = "Run every fast gate"
+depends = ["fmt-check", "lint", "test", "test-shim", "e2e", "audit", "secrets"]
