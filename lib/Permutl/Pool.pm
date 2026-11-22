@@ -166,6 +166,7 @@ sub _signal_group ( $slot, $signal ) {
 }
 
 sub _descendants (@roots) {
+    no warnings 'exec';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
     open my $listing, q{-|}, 'ps', '-A', '-o', 'pid=,ppid=' or return;
     my %children;
     while ( my $line = readline $listing ) {

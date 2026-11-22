@@ -266,6 +266,21 @@ subtest 'a signal ends the polite tasks, the stubborn tasks, and their children'
     ok gone( number_in("$loose.child") ),  'and so is a child that left the process group';
 };
 
+subtest 'a forced end works and stays quiet without the ps command' => sub {
+    my $empty = "$dir/empty";
+    mkdir $empty or die "mkdir: $!";
+    my $path = script( 'no-ps.t', q{$| = 1; print "1..1\n"; sleep 30;} );
+    open my $saved, '>&', \*STDERR          or die "save: $!";
+    open STDERR,    '>',  "$dir/driver.err" or die "redirect: $!";
+    my $result = do {
+        local $ENV{PATH} = $empty;
+        run_one( $path, timeout => 0.5 );
+    };
+    open STDERR, '>&', $saved or die "restore: $!";
+    is $result->{timed_out}, 1, 'the time limit ends the test';
+    is -s "$dir/driver.err", 0, 'the driver prints no warning';
+};
+
 subtest 'a forced end reaches a child that left the process group' => sub {
     my $code = <<'PERL';
 $| = 1;
