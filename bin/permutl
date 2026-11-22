@@ -1,0 +1,5 @@
+#!perl
+use v5.36;
+use Permutl::CLI;
+
+exit Permutl::CLI::main(@ARGV);
