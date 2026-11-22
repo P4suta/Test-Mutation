@@ -8,6 +8,7 @@ our $VERSION = '0.001';
 my $LINES  = HashRef [Bool];
 my $RECORD = Dict [
     served      => HashRef [ Dict [ traced => Bool, hits => $LINES ] ],
+    compiled    => HashRef [Bool],
     load_failed => HashRef [Bool],
     bypassed    => HashRef [Bool],
     breakable   => HashRef [$LINES],
@@ -28,6 +29,10 @@ my %APPLY = (
         $record->{breakable}{$path}{$_} = 1 for grep { length } split /,/, $value;
         return;
     },
+    compiled => sub ( $record, $traced, $path, $value ) {
+        $record->{compiled}{$path} = 1;
+        return;
+    },
     loadfail => sub ( $record, $traced, $path, $value ) {
         $record->{load_failed}{$path} = 1;
         return;
@@ -45,7 +50,7 @@ my %APPLY = (
 signature_for parse => ( positional => [ ArrayRef [Str] ], returns => $RECORD );
 
 sub parse ($texts) {
-    my %record = ( served => {}, load_failed => {}, bypassed => {}, breakable => {}, errors => [] );
+    my %record = ( served => {}, compiled => {}, load_failed => {}, bypassed => {}, breakable => {}, errors => [] );
     for my $text ( $texts->@* ) {
         my $traced = 0;
         for my $line ( split /\n/, $text ) {
@@ -102,7 +107,7 @@ Permutl::Record - read what the shim recorded about one test run
 Folds the texts of the record files of one test run into one record.
 C<served> maps each target that the hook served to its trace state and the lines that ran.
 A target counts as traced when every process that loaded it was tracing.
-C<load_failed> and C<bypassed> name the targets with those events.
+C<compiled>, C<load_failed>, and C<bypassed> name the targets with those events.
 C<breakable> maps a target to the lines that hold a runtime statement.
 
 =head2 read_directory

@@ -51,6 +51,19 @@ subtest 'a mutant that fails at compile time is a compile error' => sub {
       'a failure while loading is told apart from a failure to compile';
 };
 
+subtest 'a compile error stays a compile error when the test reports the failed load and goes on' => sub {
+    is of('lib/Loaded.pm'),
+      {
+        'lib/Loaded.pm:6 replaced if with unless'   => 'CompileError',
+        'lib/Loaded.pm:6 replaced - with +'         => 'CompileError',
+        'lib/Loaded.pm:6 replaced != with =='       => 'CompileError',
+        'lib/Loaded.pm:6 removed the statement'     => 'Survived',
+        'lib/Loaded.pm:9 removed the body of value' => 'Killed',
+        'lib/Loaded.pm:9 removed the return value'  => 'Killed',
+      },
+      'the early stop does not hide the failed compilation';
+};
+
 subtest 'tests in taint mode, with use lib, and with a forked child detect mutants' => sub {
     is of('lib/Tainted.pm'),
       {

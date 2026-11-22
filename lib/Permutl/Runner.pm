@@ -438,10 +438,10 @@ sub _after_test ( $run, $task, $result ) {
     $job->{duration} += $result->{duration};
     $job->{outcome} = {
         test        => $payload->{test},
-        result      => $result->{timed_out}              ? 'timeout' : $result->{passed} ? 'pass' : 'fail',
-        served      => $record->{served}{$absolute}      ? 1 : 0,
-        load_failed => $record->{load_failed}{$absolute} ? 1 : 0,
-        bypassed    => $record->{bypassed}{$absolute}    ? 1 : 0,
+        result      => $result->{timed_out} ? 'timeout' : $result->{passed} ? 'pass' : 'fail',
+        served      => $record->{served}{$absolute}                                         ? 1 : 0,
+        load_failed => $record->{load_failed}{$absolute} || !$record->{compiled}{$absolute} ? 1 : 0,
+        bypassed    => $record->{bypassed}{$absolute}                                       ? 1 : 0,
         syntax_ok   => $job->{syntax_ok},
     };
     return if !$job->{outcome}{served} || !$job->{outcome}{load_failed} || defined $job->{syntax_ok};

@@ -58,9 +58,15 @@ subtest 'several processes of one test run' => sub {
 
 subtest 'unknown and malformed lines are ignored' => sub {
     my $record = Permutl::Record::parse( ["begin\t1\nmystery\t/p/A.pm\nserved\n\nhit\t/p/A.pm\n"] );
-    is $record, { served => {}, load_failed => {}, bypassed => {}, breakable => {}, errors => [] },
+    is $record, { served => {}, compiled => {}, load_failed => {}, bypassed => {}, breakable => {}, errors => [] },
       'an unknown kind, a line without a path, and a hit without a line number leave nothing';
     is Permutl::Record::parse( [] )->{served}, {}, 'no record files';
+};
+
+subtest 'a compiled line marks a target that compiled' => sub {
+    my $record = Permutl::Record::parse(
+        [ lines( [ 'begin', 0 ], [ 'served', '/p/A.pm' ], [ 'compiled', '/p/A.pm' ], [ 'served', '/p/B.pm' ] ) ] );
+    is $record->{compiled}, { '/p/A.pm' => 1 }, 'the compiled target, without the one that failed';
 };
 
 subtest 'read_directory reads every record file' => sub {
