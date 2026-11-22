@@ -26,5 +26,5 @@ Tests that count hooks subtract the hooks of their own process.
 
 ## Confirmation
 
-`mise run mutation` runs permutl on its own sources, and the nested end-to-end tests pass in that run.
-A gate that fails when no mutant of `lib/Permutl/Shim.pm` loads is still missing, so the decision stays proposed.
+`mise run mutation-gate` runs permutl on its own sources, and the nested end-to-end tests pass in that run.
+`xt/release/self-mutation.t` fails when no test loads a mutant of `lib/Permutl/Shim.pm`.
