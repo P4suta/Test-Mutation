@@ -79,7 +79,7 @@ subtest 'the assertion is skipped inside a permutl run of the same project' => s
     my $project = copy_of('calc');
     write_file( "$project/t/score.t",
         "use Test::More tests => 1;\nuse Test::Permutl;\nmutation_score_ok( min => 100, jobs => 2 );\n" );
-    my ($result) = run_fixture($project);
+    my ($result) = run_fixture( $project, switches => [ '-Ilib', "-I$library" ] );
     is $result->baseline_failures,       [], 'a copy among the tests of a run passes as a skip';
     is $result->tally->{counts}{Killed}, 13, 'and the run measures the project';
 };
