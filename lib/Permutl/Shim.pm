@@ -38,8 +38,8 @@ sub read_spec {
     my %spec = ( trace => 0, targets => [] );
     for my $line (@lines) {
         chomp $line;
+        next if !length $line;
         my ( $key, @fields ) = split /\t/, $line, -1;
-        next if !defined $key || $key eq q{};
         if ( $key eq 'target' ) {
             push @{ $spec{targets} }, { original => $fields[0], serve => $fields[1] };
         }
@@ -61,8 +61,6 @@ sub activate {
         my @stat = stat $target->{original};
         $target->{device} = $stat[0];
         $target->{inode}  = $stat[1];
-        $target->{size}   = $stat[7];
-        $target->{hits}   = {};
         push @{ $by_base{ _basename( $target->{original} ) } }, $target;
     }
 
@@ -78,7 +76,6 @@ sub activate {
     );
 
     my $hook = sub { return _serve(@_) };
-    $STATE{hook} = $hook;
     unshift @INC, $hook;
     _keep_hook_first($hook);
     $STATE{trace} = _install_tracer() if $spec->{trace};
@@ -103,9 +100,9 @@ sub _keep_hook_first {
     my $original = \&lib::import;
     no warnings 'redefine';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
     *lib::import = sub {
-        my @result = $original->(@_);
+        $original->(@_);
         @INC = ( $hook, grep { !( ref $_ && $_ == $hook ) } @INC );    ## no critic (Variables::RequireLocalizedPunctuationVars)
-        return @result;
+        return;
     };
     return;
 }
@@ -127,7 +124,6 @@ sub _same_file {
       if defined $target->{inode}
       && $stat[1] == $target->{inode}
       && $stat[0] == $target->{device};
-    return 0 if !defined $target->{size} || $stat[7] != $target->{size};
     return _slurp($path) eq _slurp( $target->{original} );
 }
 
@@ -225,7 +221,6 @@ sub _record {
     if ( !$STATE{record_handle} ) {
         my $name = sprintf '%s/%d-%d-%d.rec', $dir, $STATE{pid}, time, int rand 1_000_000_000;
         open my $handle, '>>', $name or return;    ## no critic (InputOutput::RequireBriefOpen)
-        binmode $handle;
         $STATE{record_handle} = $handle;
         syswrite $handle, "begin\t$STATE{trace}\n";
     }
@@ -244,16 +239,8 @@ sub _source_lines {
 sub _breakable_lines {
     my ($path) = @_;
     my $lines = _source_lines($path);
-    my @breakable;
-    for my $number ( 1 .. $#{$lines} ) {
-        next if !defined $lines->[$number];
-        my $text = "$lines->[$number]";
-        no warnings 'numeric';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
-        my $from_flag   = $lines->[$number] + 0;
-        my $from_string = $text + 0;
-        push @breakable, $number if $from_flag != $from_string;
-    }
-    return @breakable;
+    no warnings 'numeric';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
+    return grep { defined $lines->[$_] && int( $lines->[$_] ) != int "$lines->[$_]" } 1 .. $#{$lines};
 }
 
 sub _loaded_from_disk {
