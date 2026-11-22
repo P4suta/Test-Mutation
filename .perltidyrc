@@ -1,0 +1,10 @@
+--maximum-line-length=120
+--indent-columns=4
+--continuation-indentation=2
+--nooutdent-long-quotes
+--nooutdent-long-comments
+--paren-tightness=1
+--square-bracket-tightness=1
+--brace-tightness=1
+--block-brace-tightness=0
+--standard-error-output

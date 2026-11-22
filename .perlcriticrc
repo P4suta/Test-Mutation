@@ -1,0 +1,16 @@
+severity = 3
+verbose  = %f:%l:%c %m (%p, severity %s)\n
+
+# "use v5.36" is the documented way to turn on the feature bundle.
+[-ValuesAndExpressions::ProhibitVersionStrings]
+
+[RegularExpressions::RequireExtendedFormatting]
+minimum_regex_length_to_complain_about = 40
+
+# "last" pairs with "first", "close" pairs with "open", and "record" is the name of a domain value.
+[NamingConventions::ProhibitAmbiguousNames]
+forbid = abstract bases contract left no right second set
+
+# Moo calls attribute builders by name.
+[Subroutines::ProhibitUnusedPrivateSubroutines]
+allow_name_regex = _build_\w+
