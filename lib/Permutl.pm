@@ -7,7 +7,7 @@ use Permutl::Runner;
 
 our $VERSION = '0.001';
 
-my %NOT_A_SETTING = map { $_ => 1 } qw(new from_layers);
+my %NOT_A_SETTING = map { $_ => 1 } qw(new from_layers read_file);
 
 sub _config (%settings) {
     my @unknown = sort grep { $NOT_A_SETTING{$_} || !Permutl::Config->can($_) } keys %settings;

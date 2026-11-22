@@ -21,8 +21,10 @@ subtest 'mutants lists the mutants without running a test' => sub {
 };
 
 subtest 'settings are checked' => sub {
-    like dies { Permutl::run( root => $root, jobs  => 0 ) },      qr/jobs/,  'a value outside its type is refused';
-    like dies { Permutl::run( root => $root, speed => 'fast' ) }, qr/speed/, 'an unknown setting is refused';
+    like dies { Permutl::run( root => $root, jobs      => 0 ) },      qr/jobs/,  'a value outside its type is refused';
+    like dies { Permutl::run( root => $root, speed     => 'fast' ) }, qr/speed/, 'an unknown setting is refused';
+    like dies { Permutl::run( root => $root, read_file => 1 ) }, qr/unknown setting: read_file/,
+      'a function of the configuration class is not a setting';
 };
 
 ok Permutl->VERSION, 'the distribution has a version';
