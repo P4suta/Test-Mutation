@@ -31,3 +31,4 @@ A file that reads `__FILE__` at compile time never compares equal.
 ## Confirmation
 
 `t/e2e/equivalence.t` fixes the statuses and reasons of a fixture with both cases.
+`t/assumptions/deparse-distinguishes.t` shows twenty behavior changes with distinct output on Perl 5.44.
