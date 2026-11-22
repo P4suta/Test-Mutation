@@ -46,6 +46,10 @@ run = "prove -l t/shim"
 description = "Run the end-to-end tests"
 run = "prove -l t/e2e"
 
+[tasks.mutation]
+description = "Measure the tests of permutl with permutl"
+run = "perl -Ilib bin/permutl"
+
 [tasks.audit]
 description = "Check the dependencies against the CPAN security advisories"
 run = "cpan-audit deps ."
