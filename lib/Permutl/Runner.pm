@@ -432,21 +432,25 @@ sub _mutants ( $run, $mutants, $baseline ) {
                 return _next_test( $run, $job, $baseline );
             },
             done => sub ( $task, $result ) {
-                my $job = $task->{payload}{job};
+                my $job  = $task->{payload}{job};
+                my $kind = $task->{payload}{kind};
                 my $check =
-                  $task->{payload}{kind} eq 'test'
-                  ? _after_test( $run, $task, $result )
-                  : _after_syntax( $run, $task, $result );
+                    $kind eq 'test'      ? _after_test( $run, $task, $result )
+                  : $kind =~ /\Asyntax-/ ? _after_syntax( $run, $task, $result )
+                  :                        _after_code( $run, $task, $result );
                 return $check if $check;
 
-                $job->{verdict} = Permutl::Verdict::step( $job->{verdict}, $job->{outcome} );
-                $job->{index}++;
-                if ( defined $job->{verdict}{status} || $job->{index} >= $job->{tests}->@* ) {
-                    delete $unfinished{ $job->{mutant}->id };
-                    push @entries, _finish( $run, $job );
-                    return;
+                if ( $kind !~ /\Acode-/ ) {
+                    $job->{verdict} = Permutl::Verdict::step( $job->{verdict}, $job->{outcome} );
+                    $job->{index}++;
                 }
-                return _next_test( $run, $job, $baseline );
+                return _next_test( $run, $job, $baseline )
+                  if !defined $job->{verdict}{status} && $job->{index} < $job->{tests}->@*;
+                my $comparison = _next_code( $run, $job );
+                return $comparison if $comparison;
+                delete $unfinished{ $job->{mutant}->id };
+                push @entries, _finish( $run, $job );
+                return;
             },
         );
         1;
@@ -464,8 +468,48 @@ sub _mutants ( $run, $mutants, $baseline ) {
         } values %unfinished;
     }
 
-    my %order = map { $mutants->[$_]->id => $_ } 0 .. $mutants->$#*;
-    return [ sort { $order{ $a->{mutant}->id } <=> $order{ $b->{mutant}->id } } @entries ];
+    my %order  = map  { $mutants->[$_]->id => $_ } 0 .. $mutants->$#*;
+    my @sorted = sort { $order{ $a->{mutant}->id } <=> $order{ $b->{mutant}->id } } @entries;
+    _ignore_repeated_code( $run, \@sorted );
+    return \@sorted;
+}
+
+sub _ignore_repeated_code ( $run, $entries ) {
+    my %first;
+    for my $entry ( grep { $_->{status} eq 'Survived' } $entries->@* ) {
+        my $mutant = $entry->{mutant};
+        my $code   = $run->{code_of_mutant}{ $mutant->id } or next;
+        my $key    = join "\n", $mutant->path, $code;
+        if ( defined $first{$key} ) {
+            $entry->@{qw(status reason)} = ( 'Ignored', "compiles to the same code as mutant $first{$key}" );
+            next;
+        }
+        $first{$key} = $mutant->id;
+    }
+    return;
+}
+
+sub _next_code ( $run, $job ) {
+    return if !$run->{config}->equivalence || defined $job->{code};
+    return if Permutl::Verdict::final( $job->{verdict} ) ne 'Survived';
+    my $path  = $job->{mutant}->path;
+    my $known = $run->{code_of_original}{$path} ||= [];
+    return _compile_task( $run, $job, 'code-original', "$run->{root}/$path", '-MO=Deparse' ) if $known->@* < 2;
+    return if !length $known->[0] || $known->[0] ne $known->[1];
+    return _compile_task( $run, $job, 'code-mutant', $job->{file}, '-MO=Deparse' );
+}
+
+sub _after_code ( $run, $task, $result ) {
+    my $job    = $task->{payload}{job};
+    my $usable = $result->{exit} == 0 && !$result->{timed_out} && length $result->{output};
+    my $digest = $usable ? $result->{digest} : q{};
+    unlink $task->{stderr};
+    if ( $task->{payload}{kind} eq 'code-original' ) {
+        push $run->{code_of_original}{ $job->{mutant}->path }->@*, $digest;
+        return;
+    }
+    $job->{code} = $digest;
+    return;
 }
 
 sub _after_test ( $run, $task, $result ) {
@@ -486,8 +530,8 @@ sub _after_test ( $run, $task, $result ) {
     return if !$job->{outcome}{served} || !$job->{outcome}{load_failed} || defined $job->{syntax_ok};
 
     my $known = $run->{syntax_of_original};
-    return _syntax_task( $run, $job, 'syntax-original', $absolute )    if !exists $known->{$path};
-    return _syntax_task( $run, $job, 'syntax-mutant',   $job->{file} ) if $known->{$path};
+    return _compile_task( $run, $job, 'syntax-original', $absolute,    '-c' ) if !exists $known->{$path};
+    return _compile_task( $run, $job, 'syntax-mutant',   $job->{file}, '-c' ) if $known->{$path};
     $job->{outcome}{syntax_ok} = $job->{syntax_ok} = 0;
     return;
 }
@@ -499,7 +543,7 @@ sub _after_syntax ( $run, $task, $result ) {
     unlink $task->{stderr};
     if ( $task->{payload}{kind} eq 'syntax-original' ) {
         $run->{syntax_of_original}{$path} = $ok;
-        return _syntax_task( $run, $job, 'syntax-mutant', $job->{file} ) if $ok;
+        return _compile_task( $run, $job, 'syntax-mutant', $job->{file}, '-c' ) if $ok;
         push $run->{warnings}->@*,
           "$path does not pass a standalone syntax check, so its load failures count as compile errors";
     }
@@ -525,11 +569,11 @@ sub _next_test ( $run, $job, $baseline ) {
     );
 }
 
-sub _syntax_task ( $run, $job, $kind, $file ) {
+sub _compile_task ( $run, $job, $kind, $file, $switch ) {
     my $sequence = ++$run->{sequence};
     my $config   = $run->{config};
     return {
-        command         => [ $config->perl, $config->switches->@*, '-c', $file ],
+        command         => [ $config->perl, $config->switches->@*, $switch, $file ],
         env             => {},
         cwd             => $run->{root},
         timeout         => $config->baseline_timeout,
@@ -542,8 +586,15 @@ sub _syntax_task ( $run, $job, $kind, $file ) {
 sub _finish ( $run, $job ) {
     unlink grep { defined } $job->@{qw(file spec)};
     my $verdict = $job->{verdict};
-    my $entry   = _entry( $job->{mutant}, Permutl::Verdict::final($verdict),
-        $verdict->{reason}, $verdict->{by}, $job->{tests}, $verdict->{tests}, $job->{duration}, );
+    my $mutant  = $job->{mutant};
+    my $code    = defined $job->{code} ? $job->{code} : q{};
+    my ( $status, $reason ) = ( Permutl::Verdict::final($verdict), $verdict->{reason} );
+    if ( length $code ) {
+        $run->{code_of_mutant}{ $mutant->id } = $code;
+        ( $status, $reason ) = ( 'Ignored', 'compiles to the same code as the original' )
+          if $code eq $run->{code_of_original}{ $mutant->path }[0];
+    }
+    my $entry = _entry( $mutant, $status, $reason, $verdict->{by}, $job->{tests}, $verdict->{tests}, $job->{duration} );
     $run->{listener}->( 'mutant', $entry );
     return $entry;
 }

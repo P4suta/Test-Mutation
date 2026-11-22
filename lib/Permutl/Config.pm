@@ -36,6 +36,7 @@ has keep_work        => ( is => 'ro', isa => Bool, default => 0 );
 has since            => ( is => 'ro', isa => Maybe [Str],    default => undef );
 has only             => ( is => 'ro', isa => ArrayRef [Str], default => sub { [] } );
 has shard            => ( is => 'ro', isa => Maybe [$SHARD], default => undef );
+has equivalence      => ( is => 'ro', isa => Bool, default => 1 );
 
 my %FILE_KEYS = (
     q{}    => { jobs    => 'jobs' },
@@ -49,7 +50,7 @@ my %FILE_KEYS = (
         'timeout-floor'  => 'timeout_floor',
         coverage         => 'coverage',
     },
-    mutators   => { profile   => 'profile',          enable  => 'enable', disable => 'disable' },
+    mutators   => { profile   => 'profile', enable => 'enable', disable => 'disable', equivalence => 'equivalence' },
     report     => { directory => 'report_directory', formats => 'formats' },
     thresholds => { high      => 'threshold_high',   low     => 'threshold_low', break => 'threshold_break' },
 );
@@ -179,5 +180,10 @@ Mutant identifiers; when set, the run covers these mutants.
 
 A part of the mutants as C<K/N>; the run covers every Nth mutant, starting at the Kth.
 N runs with K from 1 to N cover every mutant once.
+
+=head2 equivalence
+
+Whether the run compares the compiled code of an undetected mutant with the original, true by default.
+A mutant that compiles to the same code is ignored, and so is a mutant with the code of an earlier survivor.
 
 =cut
