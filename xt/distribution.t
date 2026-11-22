@@ -1,0 +1,71 @@
+use v5.36;
+use Test2::V0;
+use Cwd        ();
+use File::Path ();
+use File::Temp ();
+use JSON::PP   ();
+use Module::CPANfile;
+use Permutl;
+
+# The gate builds the distribution in a scratch copy and checks what an installation would receive.
+
+my $root    = Cwd::getcwd();
+my $scratch = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+
+open my $list, q{-|}, 'git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z' or die "git: $!";
+my @files = split /\0/, do { local $/ = undef; readline $list };
+close $list or die 'git ls-files failed';
+
+for my $file (@files) {
+    next if !-f "$root/$file";
+    my ($directory) = "$scratch/$file" =~ m{\A(.*)/};
+    File::Path::make_path($directory);
+    open my $in,  '<:raw', "$root/$file"    or die "read $file: $!";
+    open my $out, '>:raw', "$scratch/$file" or die "write $file: $!";
+    print {$out} do { local $/ = undef; readline $in }
+      or die "copy $file: $!";
+    close $out or die "close $file: $!";
+}
+
+sub in_scratch (@command) {
+    my $pid = fork;
+    die "fork: $!" if !defined $pid;
+    if ( !$pid ) {
+        chdir $scratch or die "chdir: $!";
+        open STDOUT, '>',  "$scratch/build.log" or die "stdout: $!";
+        open STDERR, '>&', \*STDOUT             or die "stderr: $!";
+        exec @command or die "exec: $!";
+    }
+    waitpid $pid, 0;
+    return $? == 0;
+}
+
+sub build_log {
+    open my $log, '<', "$scratch/build.log" or return 'no build log';
+    local $/ = undef;
+    return scalar readline $log;
+}
+
+ok in_scratch( $^X, 'Makefile.PL' ), 'Makefile.PL runs'             or diag build_log();
+ok in_scratch('make'),               'make builds the distribution' or diag build_log();
+
+ok -x "$scratch/blib/script/permutl",                                              'the command is built';
+ok -f "$scratch/blib/lib/Permutl.pm",                                              'the main module is built';
+ok -f "$scratch/blib/lib/Permutl/Report/resources/mutation-test-elements.js",      'the bundled viewer is built';
+ok -f "$scratch/blib/lib/Permutl/Report/resources/mutation-test-elements.LICENSE", 'with its license text';
+
+open my $handle, '<:raw', "$scratch/MYMETA.json" or die "read MYMETA.json: $!";
+my $meta = JSON::PP->new->utf8->decode( do { local $/ = undef; readline $handle } );
+close $handle or die "close MYMETA.json: $!";
+
+my $declared = Module::CPANfile->load("$root/cpanfile")->prereq_specs;
+is $meta->{name},                       'Permutl',                      'the distribution name';
+is $meta->{version},                    Permutl->VERSION,               'the version of the main module';
+is $meta->{license},                    [ 'mit', 'apache_2_0' ],        'the licenses of the repository';
+is $meta->{prereqs}{runtime}{requires}, $declared->{runtime}{requires}, 'runtime requirements match cpanfile';
+is $meta->{prereqs}{test}{requires},    $declared->{test}{requires},    'test requirements match cpanfile';
+
+my $version = qx{$^X -I$scratch/blib/lib $scratch/blib/script/permutl --version};
+is $version, 'permutl ' . Permutl->VERSION . "\n", 'the built command runs';
+
+done_testing;
