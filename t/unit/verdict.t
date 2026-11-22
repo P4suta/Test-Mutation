@@ -84,6 +84,15 @@ subtest 'a load failure without a syntax check is a contract violation' => sub {
     like dies { verdict( outcome( load_failed => 1 ) ) }, qr/needs a syntax check/, 'refused';
 };
 
+subtest 'arguments are checked' => sub {
+    like dies { Permutl::Verdict::start('extra') }, qr/Wrong number of parameters/, 'start takes no argument';
+    like dies { Permutl::Verdict::step( {}, outcome() ) }, qr/did not pass type constraint/, 'step needs a whole state';
+    like dies { Permutl::Verdict::step( Permutl::Verdict::start(), { test => 't/a.t' } ) },
+      qr/did not pass type constraint/, 'step needs a whole outcome';
+    like dies { Permutl::Verdict::final('state') }, qr/did not pass type constraint/, 'final needs a state';
+    like dies { Permutl::Score::tally('Killed') },  qr/did not pass type constraint/, 'tally needs a list of statuses';
+};
+
 subtest 'score' => sub {
     my $tally =
       Permutl::Score::tally( [qw(Killed Killed Killed Survived NoCoverage Timeout CompileError RuntimeError Ignored)] );
