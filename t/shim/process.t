@@ -64,7 +64,8 @@ subtest 'taint mode works with explicit switches' => sub {
     );
     is $run->{status}, 0,                     'exit status' or diag $run->{stderr};
     is $run->{stdout}, "taint=1 answer=41\n", 'the mutant runs under taint mode';
-    is_deeply [ map { $_->[0] } @{ records($root) } ], [ 'served', 'end' ], 'the record is written under taint mode';
+    is_deeply [ map { $_->[0] } @{ records($root) } ], [ 'served', 'compiled', 'end' ],
+      'the record is written under taint mode';
 };
 
 subtest 'loading the shim twice activates it once' => sub {

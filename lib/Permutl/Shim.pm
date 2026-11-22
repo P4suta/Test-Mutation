@@ -55,7 +55,9 @@ sub activate {
     return if $STATE{active};
 
     my %by_base;
+    my $index = 0;
     for my $target ( @{ $spec->{targets} } ) {
+        $target->{index} = $index++;
         my @stat = stat $target->{original};
         $target->{device} = $stat[0];
         $target->{inode}  = $stat[1];
@@ -159,16 +161,23 @@ sub _serve {
     _record( 'served', $target->{original} );
 
     $INC{$file} = $path;                              ## no critic (Variables::RequireLocalizedPunctuationVars)
-    my $prepend = $path =~ /["\n]/ ? q{} : qq{#line 1 "$path"\n};
-    return ( \$prepend, $handle ) if !$STATE{trace};
+    my $prepend = sprintf "UNITCHECK { %s::_compiled(%d) }\n", __PACKAGE__, $target->{index};
+    $prepend .= qq{#line 1 "$path"\n} if $path !~ /["\n]/;
+    return ( \$prepend, $handle )     if !$STATE{trace};
 
-    _trace_compile(1);
     my $filter = sub {
         my $more = length $_ ? 1 : 0;
         _trace_compile($more);
         return $more;
     };
     return ( \$prepend, $handle, $filter );
+}
+
+sub _compiled {
+    my ($index) = @_;
+    my $target = $STATE{targets}[$index] or return;
+    _record( 'compiled', $target->{original} );
+    return;
 }
 
 sub _trace_compile {

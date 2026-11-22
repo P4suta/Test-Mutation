@@ -28,7 +28,21 @@ subtest 'a mutant that fails to compile is recorded as a load failure' => sub {
     );
     isnt $run->{status}, 0, 'the program fails';
     like $run->{stderr}, qr{syntax error at lib/Foo/Bar\.pm line 3}, 'the error names the original file and line';
-    is_deeply $kinds, [ 'served', 'loadfail', 'end' ], 'record kinds';
+    is_deeply $kinds, [ 'served', 'loadfail', 'end' ], 'no compiled line, and a load failure at the end';
+};
+
+subtest 'a compile failure is visible in a process that never reaches its end' => sub {
+    my ( $run, $kinds ) = run_with_mutant(
+        mutant => "package Foo::Bar;\nsub answer { return 42 +* }\n1;\n",
+        script => "my \$ok = eval { require Foo::Bar; 1 };\nkill 'KILL', \$\$;\n",
+    );
+    is_deeply $kinds, ['served'], 'served without compiled';
+
+    ( $run, $kinds ) = run_with_mutant(
+        mutant => "package Foo::Bar;\nsub answer { return 41 }\n1;\n",
+        script => "require Foo::Bar;\nkill 'KILL', \$\$;\n",
+    );
+    is_deeply $kinds, [ 'served', 'compiled' ], 'a mutant that compiles is recorded when it compiles';
 };
 
 subtest 'a mutant that dies while loading is recorded as a load failure' => sub {
@@ -38,7 +52,7 @@ subtest 'a mutant that dies while loading is recorded as a load failure' => sub 
     );
     is $run->{status}, 0,        'the program survives the trapped failure';
     is $run->{stdout}, 'failed', 'the require failed';
-    is_deeply $kinds, [ 'served', 'loadfail', 'end' ], 'record kinds';
+    is_deeply $kinds, [ 'served', 'compiled', 'loadfail', 'end' ], 'compiled, then a load failure at the end';
 };
 
 subtest 'a successful load leaves no failure line' => sub {
@@ -47,7 +61,7 @@ subtest 'a successful load leaves no failure line' => sub {
         script => "use Foo::Bar;\nprint Foo::Bar::answer();\n",
     );
     is $run->{stdout}, '41', 'mutated behavior';
-    is_deeply $kinds, [ 'served', 'end' ], 'record kinds';
+    is_deeply $kinds, [ 'served', 'compiled', 'end' ], 'record kinds';
 };
 
 subtest 'a target loaded by absolute path is recorded as a bypass' => sub {
