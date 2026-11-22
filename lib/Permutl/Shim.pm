@@ -161,7 +161,7 @@ sub _serve {
     _record( 'served', $target->{original} );
 
     $INC{$file} = $path;                              ## no critic (Variables::RequireLocalizedPunctuationVars)
-    my $prepend = sprintf "UNITCHECK { %s::_compiled(%d) }\n", __PACKAGE__, $target->{index};
+    my $prepend = sprintf "UNITCHECK { %s::mark_compiled(%d) }\n", __PACKAGE__, $target->{index};
     $prepend .= qq{#line 1 "$path"\n} if $path !~ /["\n]/;
     return ( \$prepend, $handle )     if !$STATE{trace};
 
@@ -173,7 +173,7 @@ sub _serve {
     return ( \$prepend, $handle, $filter );
 }
 
-sub _compiled {
+sub mark_compiled {
     my ($index) = @_;
     my $target = $STATE{targets}[$index] or return;
     _record( 'compiled', $target->{original} );
@@ -307,12 +307,22 @@ The module depends on core modules alone and runs on Perl 5.10 and later.
 
 Each process writes tab-separated lines to one file in the record directory.
 C<begin> carries 1 when line tracing is active.
-C<served>, C<loadfail>, and C<bypass> carry the original path of a target.
+C<served>, C<compiled>, C<loadfail>, and C<bypass> carry the original path of a target.
 C<hit> carries a target and a line that ran.
 C<lines> carries a target and the lines that hold a runtime statement.
 C<end> marks a process that reached its C<END> block.
 
 =head1 FUNCTIONS
+
+=head2 import
+
+Activates the shim when the environment names a spec file.
+Perl calls it when a C<-M> switch loads the module.
+
+=head2 mark_compiled
+
+Records that the target with the given index compiled.
+The text that the hook serves calls it from a C<UNITCHECK> block.
 
 =head2 activate
 
