@@ -1,0 +1,2 @@
+# The bundled viewer is an unmodified third-party build that carries text in many scripts.
+lib/Permutl/Report/resources/mutation-test-elements.js -diff linguist-vendored dotguard-lang=off
