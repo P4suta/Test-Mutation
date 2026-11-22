@@ -25,16 +25,31 @@ sub main ($list) {
     return $COMMAND{$command}->(@arguments);
 }
 
+my %SETTING_OF_OPTION = (
+    'jobs|j=i'         => 'jobs',
+    'min-score=f'      => 'threshold_break',
+    'format=s@'        => 'formats',
+    'report-dir=s'     => 'report_directory',
+    'perl=s'           => 'perl',
+    'source=s@'        => 'source_include',
+    'test=s@'          => 'test_include',
+    'profile=s'        => 'profile',
+    'enable=s@'        => 'enable',
+    'disable=s@'       => 'disable',
+    'coverage=s'       => 'coverage',
+    'timeout-factor=f' => 'timeout_factor',
+    'timeout-floor=f'  => 'timeout_floor',
+    'keep-work'        => 'keep_work',
+    'mutant=s@'        => 'only',
+);
+
 sub _config (@arguments) {
     my %cli;
     my $parser = Getopt::Long::Parser->new( config => [qw(bundling no_ignore_case)] );
     $parser->getoptionsfromarray(
         \@arguments,
-        'jobs|j=i'     => \$cli{jobs},
-        'min-score=f'  => \$cli{threshold_break},
-        'format=s@'    => \$cli{formats},
-        'report-dir=s' => \$cli{report_directory},
-        'config=s'     => \my $file,
+        ( map { $_ => \$cli{ $SETTING_OF_OPTION{$_} } } keys %SETTING_OF_OPTION ),
+        'config=s' => \my $file,
     ) or return;
     delete @cli{ grep { !defined $cli{$_} } keys %cli };
     my $processors = Permutl::Project::cpu_count();

@@ -115,4 +115,40 @@ subtest '--config names another configuration file' => sub {
     like $missing->{stderr}, qr/\Apermutl: cannot read absent\.toml: /, 'the file is named';
 };
 
+subtest 'options choose mutators, files, and selection' => sub {
+    my $root   = copy_of('calc');
+    my @common = ( '--jobs', 2, '--format', 'terminal' );
+    like permutl( $root, @common, '--disable', 'sub-body', '--disable', 'return-value' )->{stdout}, qr/^11 mutants:/m,
+      '--disable';
+    like permutl( $root, @common, '--disable', 'arithmetic', '--enable', 'number-literal' )->{stdout},
+      qr/^\d+ mutants:.*\n(?:.*\n)*.*replaced 0 with 1/m, '--enable adds an extended mutator';
+    my ($extended) = permutl( $root, @common, '--profile', 'extended' )->{stdout} =~ /^(\d+) mutants:/m;
+    ok $extended > 19, "--profile extended yields more mutants ($extended)";
+    like permutl( $root, @common, '--coverage', 'file' )->{stdout}, qr/^19 mutants: 13 killed, 6 survived$/m,
+      '--coverage file runs every loading test';
+    like permutl( $root, @common, '--test',   't/add.t' )->{stdout},         qr/^1 test, /m,   '--test';
+    like permutl( $root, @common, '--source', 'lib/Nothing*.pm' )->{stdout}, qr/^0 mutants$/m, '--source';
+};
+
+subtest 'options choose the interpreter, the time limits, and the work directory' => sub {
+    my $root   = copy_of('calc');
+    my @common = ( '--jobs', 2, '--format', 'terminal' );
+    is permutl( $root, @common, '--perl', $^X, '--timeout-factor', 3, '--timeout-floor', 5 )->{exit}, 0, 'valid values';
+    is permutl( $root, @common, '--perl', "$root/no-such-perl" )->{exit}, 3,
+      'an interpreter that cannot start fails the unmodified run';
+    is permutl( $root, @common, '--timeout-factor', 0 )->{exit}, 2, 'a factor of zero is refused';
+
+    ok !-e "$root/.permutl" || !glob("$root/.permutl/run-*"), 'the work directory is removed by default';
+    permutl( $root, @common, '--keep-work' );
+    ok scalar( glob "$root/.permutl/run-*" ), '--keep-work keeps it';
+};
+
+subtest '--mutant limits the run to the named mutants' => sub {
+    my $root = copy_of('calc');
+    my ($id) =
+      permutl( $root, '--jobs', 2, '--format', 'terminal' )->{stdout} =~ /replaced > with >=  \[([0-9a-f]{12})\]/;
+    my $run = permutl( $root, '--jobs', 2, '--format', 'terminal', '--mutant', $id );
+    like $run->{stdout}, qr/^1 mutant: 1 survived$/m, 'one mutant ran';
+};
+
 done_testing;
