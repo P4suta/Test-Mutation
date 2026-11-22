@@ -592,7 +592,12 @@ sub _next_code ( $run, $job ) {
     my $path  = $job->{mutant}->path;
     my $known = $run->{code_of_original}{$path} ||= [];
     return _compile_task( $run, $job, 'code-original', "$run->{root}/$path", '-MO=Deparse' ) if $known->@* < 2;
-    return if !length $known->[0] || $known->[0] ne $known->[1];
+    if ( !length $known->[0] || $known->[0] ne $known->[1] ) {
+        push $run->{warnings}->@*,
+          "$path: B::Deparse gives no stable output, so the run compares no compiled code of the file"
+          if !$run->{code_warned}{$path}++;
+        return;
+    }
     return _compile_task( $run, $job, 'code-mutant', $job->{file}, '-MO=Deparse' );
 }
 
@@ -671,7 +676,7 @@ sub _compile_task ( $run, $job, $kind, $file, $switch ) {
     my $config   = $run->{config};
     return {
         command         => [ $config->perl, $config->switches->@*, $switch, $file ],
-        env             => {},
+        env             => { PERL_HASH_SEED => '0', PERL_PERTURB_KEYS => '0' },
         cwd             => $run->{root},
         timeout         => $config->baseline_timeout,
         stop_on_failure => 0,

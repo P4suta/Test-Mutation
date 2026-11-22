@@ -1,6 +1,7 @@
 package Fold;
 use strict;
 use warnings;
+use Digest::SHA ();
 
 sub minute { return 60 + 0 }
 
