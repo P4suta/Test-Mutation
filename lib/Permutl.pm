@@ -69,8 +69,16 @@ C<NoCoverage> means no test loaded the mutated code.
 C<Timeout> means a test exceeded its time limit, which the score leaves out.
 C<CompileError> means the mutant does not compile.
 C<RuntimeError> means a test loaded the original file around the hook.
+C<Ignored> means a comment suppressed the mutant, or the mutant compiles to code the run already knows.
 
 The score is the percentage of C<Killed> among C<Killed>, C<Survived>, and C<NoCoverage>.
+
+A mutant that passed every test compiles once more next to the original, and the run compares the two with L<B::Deparse>.
+Equal code means no test can tell the two apart, so the mutant leaves the score.
+
+C<permutl run --since origin/main> covers the changed lines, and C<--shard 2/4> covers one of four equal parts.
+C<--cache> reuses the results of an earlier run for every mutant whose file and tests are unchanged.
+L<Test::Permutl> asserts a score from a test file.
 
 =head1 CONFIGURATION
 
@@ -78,6 +86,7 @@ C<permutl run> works without configuration: it mutates C<lib/**/*.pm> and runs C
 A file named C<permutl.toml> in the project directory changes the defaults.
 
     jobs = 4
+    cache = true
 
     [source]
     include = ["lib/**/*.pm"]
@@ -92,7 +101,9 @@ A file named C<permutl.toml> in the project directory changes the defaults.
 
     [mutators]
     profile = "default"
+    enable = ["regex-anchor"]
     disable = ["sub-body"]
+    equivalence = true
 
     [report]
     directory = "permutl-report"
@@ -102,6 +113,9 @@ A file named C<permutl.toml> in the project directory changes the defaults.
     high = 80
     low = 60
     break = 70
+
+The C<extended> profile adds mutators for literals, fixed conditions, sort order, range bounds, and patterns.
+C<permutl list --profile extended> shows what a profile produces.
 
 A comment suppresses the mutants on its line, and a comment on a line of its own suppresses them until C<## use mutate>.
 
