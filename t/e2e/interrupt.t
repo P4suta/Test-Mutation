@@ -23,7 +23,9 @@ sub wait_for ($condition) {
     return 0;
 }
 
-for my $signal (qw(TERM INT)) {
+my %status_of = ( HUP => 129, INT => 130, TERM => 143 );
+
+for my $signal ( sort keys %status_of ) {
     subtest "SIG$signal ends the tests and removes the work directory" => sub {
         my $root = copy_of('calc');
         write_file( "$root/t/slow.t", "use Test::More tests => 1;\nuse Calc;\nsleep 30;\nok 1, 'slept';\n" );
@@ -46,7 +48,7 @@ for my $signal (qw(TERM INT)) {
           'the slow test is running';
         kill $signal, $pid;
         waitpid $pid, 0;
-        is $? >> 8, $signal eq 'TERM' ? 143 : 130, 'the exit status names the signal';
+        is $? >> 8, $status_of{$signal}, 'the exit status names the signal';
 
         ok wait_for( sub { !processes_under($root)->@* } ), 'no process of the run is left'
           or diag join q{}, processes_under($root)->@*;
