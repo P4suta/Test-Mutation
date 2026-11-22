@@ -1,0 +1,8 @@
+name = "permutl"
+summary = "Mutation testing for Perl that leaves the source tree untouched"
+install = """
+mise install
+mise run setup"""
+usage = "mise x -- perl -Ilib bin/permutl --help"
+copyright = "Yasunobu"
+license = "MIT OR Apache-2.0"
