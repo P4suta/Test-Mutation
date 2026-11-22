@@ -52,9 +52,8 @@ sub analyze ($config) {
         $sources{$path} = $source;
         my $generated =
           Permutl::Mutant::Generator::generate( source => $source, analysis => $analysis, mutators => $mutators );
-        push @mutants,
-          grep { !$changed || _in_changed_lines( $changed->{$path}, $_ ) }
-          grep { !%only    || $only{ $_->id } } $generated->@*;
+        push @mutants, grep { !$changed || _in_changed_lines( $changed->{$path}, $_ ) }
+          grep { !%only || $only{ $_->id } } $generated->@*;
     }
     return { sources => \%sources, mutants => \@mutants, problems => \@problems };
 }
