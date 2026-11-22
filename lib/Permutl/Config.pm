@@ -4,6 +4,7 @@ use Moo;
 use Types::Standard        qw(ArrayRef Bool Enum HashRef InstanceOf Maybe Num Str);
 use Types::Common::Numeric qw(PositiveInt PositiveNum);
 use Type::Params           qw(signature_for);
+use TOML::Tiny             ();
 
 our $VERSION = '0.001';
 
@@ -55,6 +56,17 @@ my %FILE_KEYS = (
     report     => { directory => 'report_directory', formats => 'formats' },
     thresholds => { high      => 'threshold_high',   low     => 'threshold_low', break => 'threshold_break' },
 );
+
+signature_for read_file => ( positional => [Str], returns => HashRef );
+
+sub read_file ($path) {
+    open my $handle, '<:encoding(UTF-8)', $path or die "cannot read $path: $!\n";
+    my $text = do { local $/ = undef; readline $handle };
+    close $handle or die "cannot close $path: $!\n";
+    my ( $data, $error ) = TOML::Tiny::from_toml($text);
+    die "$path: " . ( split /\n/, "$error" )[0] . "\n" if !defined $data;
+    return $data;
+}
 
 signature_for from_layers => (
     method  => 1,
@@ -114,6 +126,14 @@ Every attribute has a type, and construction fails on a value outside it.
 
 Builds a configuration from defaults, the parsed configuration file, and command line settings, in rising priority.
 The file uses sections and hyphenated keys, and an unknown section or key is a fatal error.
+
+=head1 FUNCTIONS
+
+=head2 read_file
+
+    my $parsed = Permutl::Config::read_file('permutl.toml');
+
+Returns the parsed content of a configuration file, and dies with the path and the first line of the error when the file is malformed.
 
 =head1 ATTRIBUTES
 

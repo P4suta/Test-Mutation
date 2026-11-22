@@ -3,7 +3,6 @@ use v5.36;
 use Cwd             ();
 use File::Path      ();
 use Getopt::Long    ();
-use TOML::Tiny      ();
 use Types::Standard qw(ArrayRef Int Slurpy Str);
 use Type::Params    qw(signature_for);
 use Permutl::Config;
@@ -138,12 +137,7 @@ sub _inside_github_actions () {
 sub _configuration_file ($named) {
     my $path = defined $named ? $named : 'permutl.toml';
     return {} if !defined $named && !-e $path;
-    open my $handle, '<:encoding(UTF-8)', $path or die "cannot read $path: $!\n";
-    my $text = do { local $/ = undef; readline $handle };
-    close $handle or die "cannot close $path: $!\n";
-    my ( $data, $error ) = TOML::Tiny::from_toml($text);
-    die "$path: " . _first_line($error) . "\n" if !defined $data;
-    return $data;
+    return Permutl::Config::read_file($path);
 }
 
 sub _first_line ($error) {
