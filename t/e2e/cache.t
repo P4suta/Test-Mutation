@@ -1,5 +1,7 @@
 use v5.36;
 use Test2::V0;
+use Cwd        ();
+use File::Temp ();
 use lib 't/e2e/lib';
 use Fixture qw(copy_of run_fixture statuses write_file);
 use Permutl::Report::Terminal;
@@ -73,6 +75,33 @@ subtest 'ignored survivors keep their statuses and reasons in a reused run' => s
       'the reasons are unchanged';
     is scalar( grep { $_->{status} eq 'Ignored' } $after->entries->@* ), 2, 'both ignored mutants stay ignored';
     is $after->reused,                                                   8, 'every result comes from the cache';
+};
+
+subtest 'a changed source without a mutant of its own invalidates the tests that load it' => sub {
+    my $project = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    my $inner   = sub ($limit) {
+        return "package Inner;\nuse strict;\nuse warnings;\nuse constant LIMIT => $limit;\n1;\n";
+    };
+    write_file( "$project/lib/Inner.pm", $inner->(10) );
+    write_file( "$project/lib/Outer.pm",
+        "package Outer;\nuse strict;\nuse warnings;\nuse Inner;\nsub total { my (\$n) = \@_; return \$n + Inner::LIMIT }\n1;\n"
+    );
+    write_file( "$project/t/outer.t", "use Test::More tests => 1;\nuse Outer;\nok Outer::total(1) > 1, 'total';\n" );
+
+    run_fixture( $project, cache => 1 );
+    my ($warm) = run_fixture( $project, cache => 1 );
+    ok $warm->reused > 0, 'the unchanged project reuses its results';
+    write_file( "$project/lib/Inner.pm", $inner->(20) );
+    my ($changed) = run_fixture( $project, cache => 1 );
+    is $changed->reused, 0, 'a change to the loaded file measures the mutants again';
+
+    my @narrow = ( cache => 1, source_include => ['lib/Outer.pm'] );
+    run_fixture( $project, @narrow );
+    my ($narrow) = run_fixture( $project, @narrow );
+    ok $narrow->reused > 0, 'a run on one file reuses its results';
+    write_file( "$project/lib/Inner.pm", $inner->(30) );
+    my ($outside) = run_fixture( $project, @narrow );
+    is $outside->reused, 0, 'a change to a file outside the selection measures the mutants again';
 };
 
 done_testing;

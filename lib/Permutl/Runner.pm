@@ -112,7 +112,7 @@ sub run ( $config, $listener ) {
     if ( @active && @tests ) {
         _prepare_work($run);
         my $measured = eval {
-            $run->{targets} = [ sort keys %targets ];
+            $run->{targets} = [ sort keys $analysis->{sources}->%* ];
             my $baseline = _baseline( $run, \@tests, $run->{targets} );
             $result{parallel_safe}     = $baseline->{parallel_safe};
             $result{baseline_failures} = $baseline->{failures};
@@ -484,12 +484,12 @@ sub _mutants ( $run, $mutants, $baseline ) {
     return \@sorted;
 }
 
-sub _support_files ( $run, $tests ) {
-    my %test = map { $_ => 1 } $tests->@*;
+sub _support_files ( $run, $tracked ) {
+    my %tracked = map { $_ => 1 } $tracked->@*;
     my %directory;
-    for my $test ( $tests->@* ) {
-        my ($top) = split m{/}, $test;
-        $directory{$top} = 1 if $top ne $test;
+    for my $path ( $tracked->@* ) {
+        my ($top) = split m{/}, $path;
+        $directory{$top} = 1 if $top ne $path;
     }
     my @files;
     for my $directory ( sort keys %directory ) {
@@ -498,7 +498,7 @@ sub _support_files ( $run, $tests ) {
                 no_chdir => 1,
                 wanted   => sub {
                     my $relative = substr $File::Find::name, 1 + length $run->{root};
-                    push @files, $relative if -f $File::Find::name && !$test{$relative};
+                    push @files, $relative if -f $File::Find::name && !$tracked{$relative};
                 },
             },
             "$run->{root}/$directory",
@@ -519,9 +519,14 @@ sub _open_cache ( $run, $baseline ) {
     my @tests       = sort keys $baseline->{tests}->%*;
     my @interpreter = map { defined ? $_ : q{} } ( stat $config->perl )[ 7, 9 ];
     my @shared      = (
-        $VERSION, $config->perl, @interpreter, scalar $config->switches->@*,
-        $config->switches->@*, $config->coverage, $config->equivalence,
-        map { ( $_, $digest_of->($_) ) } _support_files( $run, \@tests ),
+        $VERSION,
+        $config->perl,
+        @interpreter,
+        scalar $config->switches->@*,
+        $config->switches->@*,
+        $config->coverage,
+        $config->equivalence,
+        map { ( $_, $digest_of->($_) ) } _support_files( $run, [ @tests, keys $run->{sources}->%* ] ),
     );
     return {
         path    => "$root/" . $config->work_directory . '/cache.json',

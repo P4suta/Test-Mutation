@@ -190,7 +190,8 @@ A mutant that compiles to the same code is ignored, and so is a mutant with the 
 =head2 cache
 
 Whether the run reuses results from C<cache.json> in the work directory and writes its own, false by default.
-The key of a result covers the mutated file, the tests that reach the mutant, the source files those tests load, and every other file under the test directories.
-A change outside those files, such as a new version of a dependency, needs a run without the cache.
+The key of a result covers the mutated file, the tests that reach the mutant, and the analyzed source files those tests load.
+The key also covers every other file under the top-level directories of the sources and the tests, so a change there measures every mutant again.
+A change outside those directories, such as a new version of a dependency, needs a run without the cache.
 
 =cut
