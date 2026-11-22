@@ -15,7 +15,7 @@ use Permutl::Runner;
 
 our $VERSION = '0.001';
 
-my %COMMAND = ( run => \&_run );
+my %COMMAND = ( run => \&_run, list => \&_list );
 
 signature_for main => ( positional => [ Slurpy [ ArrayRef [Str] ] ], returns => Int );
 
@@ -129,6 +129,18 @@ sub _exit_status ( $result, $config ) {
     my $score = $result->tally->{score};
     my $floor = $config->threshold_break;
     return 1 if defined $floor && defined $score && $score < $floor;
+    return 0;
+}
+
+sub _list (@arguments) {
+    my $config  = _config(@arguments) or return 2;
+    my @mutants = Permutl::Runner::analyze($config)->{mutants}->@*;
+    for my $mutant (@mutants) {
+        my $place = sprintf '%s:%d:%d', $mutant->path, $mutant->from->@*;
+        my $note  = $mutant->suppressed ? '  (suppressed)' : q{};
+        say join( q{  }, $mutant->id, $place, $mutant->mutator, $mutant->description ), $note;
+    }
+    say _plural( scalar @mutants, 'mutant' );
     return 0;
 }
 
