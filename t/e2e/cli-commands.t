@@ -99,6 +99,22 @@ subtest 'exec refuses a missing identifier or command' => sub {
     is permutl( $root, 'exec', 'zzzzzz', '--', $^X, '-e', '1' )->{exit}, 2,              'an unknown identifier';
 };
 
+subtest '--shard splits the mutants into disjoint parts' => sub {
+    my $ids = sub (@arguments) {
+        return [ map { /\A([0-9a-f]{12})  / ? $1 : () } split /\n/, permutl( $root, 'list', @arguments )->{stdout} ];
+    };
+    my @all    = $ids->()->@*;
+    my @shards = map { $ids->( '--shard', "$_/3" ) } 1 .. 3;
+    is [ sort map { $_->@* } @shards ],   [ sort @all ], 'the parts together hold every mutant once';
+    is [ map { scalar $_->@* } @shards ], [ 7, 6, 6 ],   'the parts have even sizes';
+    is $ids->( '--shard', '1/1' ),        \@all,         'one part is the whole';
+
+    for my $invalid (qw(0/3 4/3 2 a/b)) {
+        my $run = permutl( $root, 'list', '--shard', $invalid );
+        is $run->{exit}, 2, "--shard $invalid is a usage error";
+    }
+};
+
 subtest 'version, help, and stray arguments' => sub {
     my $version = permutl( $root, '--version' );
     is $version->{exit}, 0, '--version succeeds';
@@ -109,7 +125,8 @@ subtest 'version, help, and stray arguments' => sub {
     like $help->{stdout}, qr/^Usage: permutl \[run\] \[options\]$/m, 'the usage line';
     like $help->{stdout}, qr/^\s+permutl exec ID -- COMMAND/m,       'the commands';
     my @undocumented = grep { $help->{stdout} !~ /^\s+--\Q$_\E\b/m }
-      qw(jobs min-score format report-dir perl source test profile enable disable coverage timeout-factor timeout-floor keep-work mutant config);
+      qw(jobs min-score format report-dir perl source test profile enable disable coverage timeout-factor timeout-floor
+      keep-work mutant since shard config);
     is \@undocumented, [], 'every option is described';
 
     my $stray = permutl( $root, 'run', 'surplus' );

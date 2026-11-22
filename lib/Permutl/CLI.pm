@@ -52,6 +52,7 @@ Options:
   --keep-work           Keep the work directory after the run
   --mutant ID           Run the named mutant; repeatable
   --since REVISION      Cover the lines changed since a Git revision
+  --shard K/N           Cover part K of N equal parts of the mutants
   --config FILE         Configuration file to read in place of permutl.toml
   --version             Print the version
   --help                Print this text
@@ -97,6 +98,7 @@ my %SETTING_OF_OPTION = (
     'keep-work'        => 'keep_work',
     'mutant=s@'        => 'only',
     'since=s'          => 'since',
+    'shard=s'          => 'shard',
 );
 
 sub _config ($arguments) {

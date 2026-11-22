@@ -55,6 +55,10 @@ sub analyze ($config) {
         push @mutants, grep { !$changed || _in_changed_lines( $changed->{$path}, $_ ) }
           grep { !%only || $only{ $_->id } } $generated->@*;
     }
+    if ( defined $config->shard ) {
+        my ( $part, $parts ) = split m{/}, $config->shard;
+        @mutants = @mutants[ grep { $_ % $parts == $part - 1 } 0 .. $#mutants ];
+    }
     return { sources => \%sources, mutants => \@mutants, problems => \@problems };
 }
 

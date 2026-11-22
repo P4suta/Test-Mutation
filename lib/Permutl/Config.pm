@@ -9,6 +9,7 @@ our $VERSION = '0.001';
 
 my $PERCENT = Num->where( sub { $_ >= 0 && $_ <= 100 } );
 my $FORMAT  = Enum [qw(terminal json html github)];
+my $SHARD   = Str->where( sub { m{\A([1-9][0-9]*)/([1-9][0-9]*)\z} && $1 <= $2 } );
 
 has root             => ( is => 'ro', isa => Str,         required => 1 );
 has jobs             => ( is => 'ro', isa => PositiveInt, default  => 1 );
@@ -34,6 +35,7 @@ has work_directory   => ( is => 'ro', isa => Str,  default => '.permutl' );
 has keep_work        => ( is => 'ro', isa => Bool, default => 0 );
 has since            => ( is => 'ro', isa => Maybe [Str],    default => undef );
 has only             => ( is => 'ro', isa => ArrayRef [Str], default => sub { [] } );
+has shard            => ( is => 'ro', isa => Maybe [$SHARD], default => undef );
 
 my %FILE_KEYS = (
     q{}    => { jobs    => 'jobs' },
@@ -172,5 +174,10 @@ A Git revision; when set, the run covers the lines changed since it.
 =head2 only
 
 Mutant identifiers; when set, the run covers these mutants.
+
+=head2 shard
+
+A part of the mutants as C<K/N>; the run covers every Nth mutant, starting at the Kth.
+N runs with K from 1 to N cover every mutant once.
 
 =cut
