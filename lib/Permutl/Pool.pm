@@ -13,6 +13,7 @@ our $VERSION = '0.001';
 my $OUTPUT_LIMIT  = 262_144;
 my $POLL_SECONDS  = 0.2;
 my $DRAIN_SECONDS = 1;
+my $GRACE_SECONDS = 0.5;
 
 my $TASK = Dict [
     command         => ArrayRef [Str],
@@ -128,28 +129,35 @@ sub _consume ( $slot, $chunk ) {
     return;
 }
 
-sub _kill_group ($slot) {
-    kill 'KILL', -$slot->{pid};
-    kill 'KILL', $slot->{pid};
+sub _signal_group ( $slot, $signal ) {
+    kill $signal, -$slot->{pid};
+    kill $signal, $slot->{pid};
+    return;
+}
+
+sub _ask_to_end ($slot) {
+    return if defined $slot->{asked};
+    $slot->{asked} = Time::HiRes::time();
+    _signal_group( $slot, 'TERM' );
     return;
 }
 
 sub _supervise ($slot) {
     my $now = Time::HiRes::time();
-    if ( !defined $slot->{status} ) {
-        if ( $now > $slot->{deadline} && !$slot->{stopped} ) {
-            $slot->{timed_out} = 1;
-            _kill_group($slot);
-        }
-        elsif ( $slot->{task}{stop_on_failure} && !$slot->{stopped} && Permutl::Tap::failed_already( $slot->{tap} ) ) {
-            $slot->{stopped} = 1;
-            _kill_group($slot);
-        }
-        if ( waitpid( $slot->{pid}, POSIX::WNOHANG ) == $slot->{pid} ) {
-            $slot->{status} = $?;
-            $slot->{ended}  = Time::HiRes::time();
-            _kill_group($slot);
-        }
+    return if defined $slot->{status};
+    if ( $now > $slot->{deadline} && !$slot->{stopped} ) {
+        $slot->{timed_out} = 1;
+        _ask_to_end($slot);
+    }
+    elsif ( $slot->{task}{stop_on_failure} && !$slot->{stopped} && Permutl::Tap::failed_already( $slot->{tap} ) ) {
+        $slot->{stopped} = 1;
+        _ask_to_end($slot);
+    }
+    _signal_group( $slot, 'KILL' ) if defined $slot->{asked} && $now - $slot->{asked} > $GRACE_SECONDS;
+    if ( waitpid( $slot->{pid}, POSIX::WNOHANG ) == $slot->{pid} ) {
+        $slot->{status} = $?;
+        $slot->{ended}  = Time::HiRes::time();
+        _signal_group( $slot, 'KILL' );
     }
     return;
 }

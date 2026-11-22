@@ -87,6 +87,24 @@ PERL
     ok !-e $marker, 'the child of the test was ended with it';
 };
 
+subtest 'a test gets a chance to clean up before it is ended' => sub {
+    my $marker = "$dir/term-received";
+    my $path   = script( 'graceful.t', <<"PERL" );
+\$| = 1;
+\$SIG{TERM} = sub { open my \$out, '>', '$marker'; close \$out; exit 0 };
+print "1..1\\n";
+sleep 30;
+PERL
+    my $result = run_one( $path, timeout => 0.5 );
+    ok -e $marker, 'the test received TERM';
+    is $result->{timed_out}, 1, 'the result reports the time limit';
+
+    my $stubborn = script( 'stubborn.t', q{$| = 1; $SIG{TERM} = 'IGNORE'; print "1..1\n"; sleep 30;} );
+    my $started  = Time::HiRes::time();
+    is run_one( $stubborn, timeout => 0.5 )->{timed_out}, 1, 'a test that ignores TERM is ended';
+    ok Time::HiRes::time() - $started < 5, 'without waiting for it';
+};
+
 subtest 'stop_on_failure ends the test at the first failure' => sub {
     my $path    = script( 'slow-fail.t', qq{\$| = 1; print "1..2\\nnot ok 1\\n"; sleep 30; print "ok 2\\n";\n} );
     my $started = Time::HiRes::time();
