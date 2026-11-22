@@ -1,11 +1,14 @@
 package Permutl::CLI;
 use v5.36;
 use Cwd             ();
+use File::Path      ();
 use Getopt::Long    ();
 use Types::Standard qw(ArrayRef Int Slurpy Str);
 use Type::Params    qw(signature_for);
 use Permutl::Config;
 use Permutl::Project;
+use Permutl::Report::Html;
+use Permutl::Report::Json;
 use Permutl::Report::Terminal;
 use Permutl::Runner;
 
@@ -26,8 +29,10 @@ sub _config (@arguments) {
     my $parser = Getopt::Long::Parser->new( config => [qw(bundling no_ignore_case)] );
     $parser->getoptionsfromarray(
         \@arguments,
-        'jobs|j=i'    => \$cli{jobs},
-        'min-score=f' => \$cli{threshold_break},
+        'jobs|j=i'     => \$cli{jobs},
+        'min-score=f'  => \$cli{threshold_break},
+        'format=s@'    => \$cli{formats},
+        'report-dir=s' => \$cli{report_directory},
     ) or return;
     delete @cli{ grep { !defined $cli{$_} } keys %cli };
     my $processors = Permutl::Project::cpu_count();
@@ -61,8 +66,33 @@ sub _run (@arguments) {
             return;
         }
     );
-    print Permutl::Report::Terminal::render( $result, color => 0 );
+    _report( $result, $config );
     return _exit_status( $result, $config );
+}
+
+my %FILE_REPORT = (
+    json => [ 'mutation.json', \&Permutl::Report::Json::render ],
+    html => [ 'mutation.html', \&Permutl::Report::Html::render ],
+);
+
+sub _report ( $result, $config ) {
+    my %wanted = map { $_ => 1 } $config->formats->@*;
+    print Permutl::Report::Terminal::render( $result, color => 0 ) if $wanted{terminal};
+
+    my @written;
+    for my $format ( grep { $wanted{$_} } qw(json html) ) {
+        my ( $name, $render ) = $FILE_REPORT{$format}->@*;
+        my $directory = $config->report_directory;
+        File::Path::make_path( $config->root . "/$directory" );
+        my $text = $render->( $result, high => $config->threshold_high, low => $config->threshold_low );
+        open my $handle, '>:encoding(UTF-8)', $config->root . "/$directory/$name"
+          or die "cannot write $directory/$name: $!\n";
+        print {$handle} $text or die "cannot write $directory/$name: $!\n";
+        close $handle         or die "cannot close $directory/$name: $!\n";
+        push @written, "$directory/$name";
+    }
+    print 'Reports: ', join( ', ', @written ), "\n" if @written;
+    return;
 }
 
 sub _exit_status ( $result, $config ) {

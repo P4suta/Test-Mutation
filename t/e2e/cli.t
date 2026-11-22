@@ -1,7 +1,14 @@
 use v5.36;
 use Test2::V0;
 use lib 't/e2e/lib';
-use Fixture qw(copy_of permutl write_file);
+use JSON::PP ();
+use Fixture  qw(copy_of permutl write_file);
+
+sub slurp ($path) {
+    open my $handle, '<:raw', $path or die "read $path: $!";
+    local $/ = undef;
+    return scalar readline $handle;
+}
 
 subtest 'run prints the summary and succeeds' => sub {
     my $root = copy_of('calc');
@@ -46,6 +53,31 @@ subtest 'a usage error exits with status 2 and one line' => sub {
     is $invalid->{exit}, 2, 'a value outside its type';
     like $invalid->{stderr}, qr/\Apermutl: [^\n]*jobs[^\n]*\n\z/, 'one line that names the setting';
     is $invalid->{stdout}, q{}, 'no report';
+};
+
+subtest 'run writes the JSON and HTML reports' => sub {
+    my $root = copy_of('calc');
+    my $run  = permutl( $root, '--jobs', 2 );
+    like $run->{stdout}, qr/^Reports: permutl-report\/mutation\.json, permutl-report\/mutation\.html$/m,
+      'the report paths';
+
+    my $document = JSON::PP->new->utf8->decode( slurp("$root/permutl-report/mutation.json") );
+    is $document->{schemaVersion},                               '2', 'the JSON report has the schema version';
+    is scalar( $document->{files}{'lib/Calc.pm'}{mutants}->@* ), 19,  'the JSON report has every mutant';
+    like slurp("$root/permutl-report/mutation.html"), qr/<mutation-test-report-app\b/, 'the HTML report has the viewer';
+};
+
+subtest '--format and --report-dir choose the reports' => sub {
+    my $root = copy_of('calc');
+    my $run  = permutl( $root, '--jobs', 2, '--format', 'terminal', '--format', 'json', '--report-dir', 'out' );
+    is $run->{exit}, 0, 'exit status' or diag $run->{stderr};
+    ok -f "$root/out/mutation.json",  'the JSON report is in the named directory';
+    ok !-e "$root/out/mutation.html", 'no HTML report';
+    ok !-e "$root/permutl-report",    'the default directory is not created';
+    like $run->{stdout}, qr/^Reports: out\/mutation\.json$/m, 'the report path';
+
+    my $quiet = permutl( copy_of('calc'), '--jobs', 2, '--format', 'json' );
+    unlike $quiet->{stdout}, qr/^Score:/m, 'no terminal report when the format is left out';
 };
 
 done_testing;
