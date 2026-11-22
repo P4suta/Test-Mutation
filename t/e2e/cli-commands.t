@@ -26,4 +26,55 @@ subtest 'list marks suppressed mutants and honors the mutator options' => sub {
     unlike $run->{stdout}, qr/sub-body/, 'a disabled mutator is absent';
 };
 
+sub identifier ($description) {
+    my ($id) = permutl( $root, 'list' )->{stdout} =~ /^([0-9a-f]{12})  \S+  \S+  \Q$description\E$/m;
+    return $id;
+}
+
+subtest 'show prints a mutant as a patch' => sub {
+    my $id  = identifier('replaced > with >=');
+    my $run = permutl( $root, 'show', $id );
+    is $run->{exit}, 0, 'exit status' or diag $run->{stderr};
+    is [ split /\n/, $run->{stdout} ],
+      [
+        "$id  lib/Calc.pm:12:15  comparison  replaced > with >=",
+        '--- lib/Calc.pm',
+        '+++ lib/Calc.pm',
+        '@@ -10,5 +10,5 @@',
+        ' sub is_positive {',
+        '     my ($n) = @_;',
+        '-    return $n > 0 ? 1 : 0;',
+        '+    return $n >= 0 ? 1 : 0;',
+        ' }',
+        q{ },
+      ],
+      'the heading and a unified diff with two lines of context';
+};
+
+subtest 'show prints a mutant that removes lines' => sub {
+    my $run = permutl( $root, 'show', identifier('removed the body of add') );
+    is [ grep { /\A[-+@]/ } split /\n/, $run->{stdout} ],
+      [
+        '--- lib/Calc.pm',
+        '+++ lib/Calc.pm',
+        '@@ -4,6 +4,6 @@',
+        '-    my ( $x, $y ) = @_;',
+        '-    return $x + $y;',
+        '+',
+        '+'
+      ],
+      'the removed lines and the blank lines that keep the line numbers';
+};
+
+subtest 'show accepts a unique prefix and refuses an unknown or ambiguous identifier' => sub {
+    my $id = identifier('replaced + with -');
+    is permutl( $root, 'show', substr $id, 0, 6 )->{exit}, 0, 'a unique prefix';
+    my $unknown = permutl( $root, 'show', 'zzzzzz' );
+    is $unknown->{exit},   2,                                                'an unknown identifier';
+    is $unknown->{stderr}, "permutl: no mutant has the identifier zzzzzz\n", 'the message';
+    my $missing = permutl( $root, 'show' );
+    is $missing->{exit},   2,                                           'no identifier';
+    is $missing->{stderr}, "permutl: show needs a mutant identifier\n", 'the message';
+};
+
 done_testing;

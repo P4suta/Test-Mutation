@@ -10,12 +10,13 @@ use Permutl::Config;
 use Permutl::Project;
 use Permutl::Report::Html;
 use Permutl::Report::Json;
+use Permutl::Report::Patch;
 use Permutl::Report::Terminal;
 use Permutl::Runner;
 
 our $VERSION = '0.001';
 
-my %COMMAND = ( run => \&_run, list => \&_list );
+my %COMMAND = ( run => \&_run, list => \&_list, show => \&_show );
 
 signature_for main => ( positional => [ Slurpy [ ArrayRef [Str] ] ], returns => Int );
 
@@ -43,11 +44,11 @@ my %SETTING_OF_OPTION = (
     'mutant=s@'        => 'only',
 );
 
-sub _config (@arguments) {
+sub _config ($arguments) {
     my %cli;
     my $parser = Getopt::Long::Parser->new( config => [qw(bundling no_ignore_case)] );
     $parser->getoptionsfromarray(
-        \@arguments,
+        $arguments,
         ( map { $_ => \$cli{ $SETTING_OF_OPTION{$_} } } keys %SETTING_OF_OPTION ),
         'config=s' => \my $file,
     ) or return;
@@ -84,7 +85,7 @@ sub _first_line ($error) {
 }
 
 sub _run (@arguments) {
-    my $config = _config(@arguments) or return 2;
+    my $config = _config( \@arguments ) or return 2;
     my $result = Permutl::Runner::run(
         $config,
         sub ( $event, $data ) {
@@ -132,15 +133,37 @@ sub _exit_status ( $result, $config ) {
     return 0;
 }
 
+sub _heading ($mutant) {
+    my $place = sprintf '%s:%d:%d', $mutant->path, $mutant->from->@*;
+    return join q{  }, $mutant->id, $place, $mutant->mutator, $mutant->description;
+}
+
 sub _list (@arguments) {
-    my $config  = _config(@arguments) or return 2;
+    my $config  = _config( \@arguments ) or return 2;
     my @mutants = Permutl::Runner::analyze($config)->{mutants}->@*;
-    for my $mutant (@mutants) {
-        my $place = sprintf '%s:%d:%d', $mutant->path, $mutant->from->@*;
-        my $note  = $mutant->suppressed ? '  (suppressed)' : q{};
-        say join( q{  }, $mutant->id, $place, $mutant->mutator, $mutant->description ), $note;
-    }
+    say _heading($_), $_->suppressed ? '  (suppressed)' : q{} for @mutants;
     say _plural( scalar @mutants, 'mutant' );
+    return 0;
+}
+
+sub _usage ($message) {
+    print {*STDERR} "permutl: $message\n";
+    return 2;
+}
+
+sub _find ( $analysis, $identifier ) {
+    my @matches = grep { index( $_->id, $identifier ) == 0 } $analysis->{mutants}->@*;
+    return $matches[0] if @matches == 1;
+    die( ( @matches ? 'more than one mutant has' : 'no mutant has' ) . " the identifier $identifier\n" );
+}
+
+sub _show (@arguments) {
+    my $config = _config( \@arguments ) or return 2;
+    return _usage('show needs a mutant identifier') if !@arguments;
+    my $analysis = Permutl::Runner::analyze($config);
+    my $mutant   = eval { _find( $analysis, $arguments[0] ) } or return _usage( _first_line($@) );
+    say _heading($mutant);
+    print Permutl::Report::Patch::render( text => $analysis->{sources}{ $mutant->path }->text, mutant => $mutant );
     return 0;
 }
 
