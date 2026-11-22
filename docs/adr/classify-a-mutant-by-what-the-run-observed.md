@@ -6,7 +6,6 @@ date: 2026-11-22
 
 ## Context
 
-A mutation score misleads when a status rests on an assumption.
 A test can pass because it never loaded the mutant, and a test can fail because the mutant doesn't compile.
 
 ## Decision
@@ -14,7 +13,8 @@ A test can pass because it never loaded the mutant, and a test can fail because 
 The unmodified run serves the original sources through the hook, so a failure there stops the run before any mutant.
 A test result counts for a mutant after the record shows that the test loaded it.
 A mutant that no test loaded is `NoCoverage`.
-A mutant that fails to load gets a syntax check: a failed check means `CompileError`, and otherwise the test result decides.
+The shim records the moment a mutant compiles.
+A mutant without that record gets a syntax check: a failed check means `CompileError`, and otherwise the test result decides.
 A target loaded around the hook means `RuntimeError`.
 A time limit means `Timeout`, which the score leaves out.
 The score divides `Killed` by the sum of `Killed`, `Survived`, and `NoCoverage`.
