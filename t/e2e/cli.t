@@ -36,4 +36,16 @@ subtest 'a test that fails without any mutant stops the run' => sub {
     unlike $run->{stdout}, qr/^Score:/m,                                        'no score';
 };
 
+subtest 'a usage error exits with status 2 and one line' => sub {
+    my $root    = copy_of('calc');
+    my $unknown = permutl( $root, '--no-such-option' );
+    is $unknown->{exit}, 2, 'an unknown option';
+    like $unknown->{stderr}, qr/Unknown option: no-such-option/, 'the option is named';
+
+    my $invalid = permutl( $root, '--jobs', 0 );
+    is $invalid->{exit}, 2, 'a value outside its type';
+    like $invalid->{stderr}, qr/\Apermutl: [^\n]*jobs[^\n]*\n\z/, 'one line that names the setting';
+    is $invalid->{stdout}, q{}, 'no report';
+};
+
 done_testing;

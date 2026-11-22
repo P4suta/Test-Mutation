@@ -31,12 +31,23 @@ sub _config (@arguments) {
     ) or return;
     delete @cli{ grep { !defined $cli{$_} } keys %cli };
     my $processors = Permutl::Project::cpu_count();
-    return Permutl::Config->from_layers(
-        root     => Cwd::getcwd(),
-        defaults => { jobs => $processors > 1 ? $processors - 1 : 1 },
-        file     => {},
-        cli      => \%cli,
-    );
+    my $config     = eval {
+        Permutl::Config->from_layers(
+            root     => Cwd::getcwd(),
+            defaults => { jobs => $processors > 1 ? $processors - 1 : 1 },
+            file     => {},
+            cli      => \%cli,
+        );
+    };
+    print {*STDERR} 'permutl: ', _first_line($@), "\n" if !$config;
+    return $config;
+}
+
+sub _first_line ($error) {
+    my $message = ref $error && $error->can('message') ? $error->message : "$error";
+    my ($line)  = split /\n/, $message;
+    $line =~ s/ at \S+ line \d+[.]?\z//;
+    return $line;
 }
 
 sub _run (@arguments) {
