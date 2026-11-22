@@ -27,6 +27,6 @@ Linux and macOS are the supported platforms, because the pool relies on `fork` a
 
 ## Confirmation
 
-`t/shim/` tests the shim in Perl 5.10 syntax through `-M` in a child process.
+`t/shim/` passes on Perl 5.34 and 5.44, and `t/e2e/second-perl.t` runs a 5.44 driver with tests on 5.34.
 A run on Perl 5.10 itself is still missing, so the decision stays proposed.
 Reconsider when a project needs an older Perl or a platform without `fork`.
