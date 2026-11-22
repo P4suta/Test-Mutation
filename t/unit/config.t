@@ -66,7 +66,10 @@ subtest 'invalid settings are refused' => sub {
     like dies { layers( cli  => { jobs       => 0 } ) },                qr/jobs/,            'zero jobs';
     like dies { layers( cli  => { coverage   => 'branch' } ) },         qr/coverage/,        'an unknown coverage mode';
     like dies { layers( file => { thresholds => { break => 120 } } ) }, qr/threshold_break/, 'a percentage above 100';
-    like dies { layers( cli  => { formats    => ['pdf'] } ) },          qr/formats/,         'an unknown format';
+    like dies { layers( cli  => { threshold_break => -1 } ) },          qr/threshold_break/, 'a negative percentage';
+    is layers( cli => { threshold_break => 0 } )->threshold_break,   0,   'zero percent is accepted';
+    is layers( cli => { threshold_break => 100 } )->threshold_break, 100, 'one hundred percent is accepted';
+    like dies { layers( cli => { formats => ['pdf'] } ) }, qr/formats/, 'an unknown format';
 };
 
 done_testing;
