@@ -230,15 +230,18 @@ subtest 'a signal ends the polite tasks, the stubborn tasks, and their children'
     my $family   = script( 'family.t',
         qq{if ( !fork ) { open my \$out, '>', "\$0.child"; print {\$out} \$\$; close \$out; sleep 30; exit 0 }\n$note sleep 30;}
     );
+    my $loose = script( 'loose.t',
+        qq{if ( !fork ) { setpgrp 0, 0; open my \$out, '>', "\$0.child"; print {\$out} \$\$; close \$out; sleep 30; exit 0 }\n$note sleep 30;}
+    );
 
     pipe my $read, my $write or die "pipe: $!";
     my $runner = fork;
     die "fork: $!" if !defined $runner;
     if ( !$runner ) {
         close $read;
-        my @queue = map { task($_) } $polite, $stubborn, $family;
+        my @queue = map { task($_) } $polite, $stubborn, $family, $loose;
         my $ended = eval {
-            Permutl::Pool::run( jobs => 3, next => sub { shift @queue }, done => sub { return } );
+            Permutl::Pool::run( jobs => 4, next => sub { shift @queue }, done => sub { return } );
             1;
         };
         my $error = $@;
@@ -248,7 +251,8 @@ subtest 'a signal ends the polite tasks, the stubborn tasks, and their children'
         POSIX::_exit(0);
     }
     close $write;
-    ok wait_for( "$polite.pid", "$stubborn.pid", "$family.pid", "$family.child" ), 'the tasks started';
+    ok wait_for( "$polite.pid", "$stubborn.pid", "$family.pid", "$family.child", "$loose.pid", "$loose.child" ),
+      'the tasks started';
     my $started = Time::HiRes::time();
     kill 'TERM', $runner;
     my $report  = readline $read;
@@ -259,6 +263,25 @@ subtest 'a signal ends the polite tasks, the stubborn tasks, and their children'
     ok -s "$polite.cleaned",               'a task that handles the signal cleans up';
     ok $elapsed < 10,                      'the pool does not wait for the tasks to finish on their own';
     ok gone( number_in("$family.child") ), 'the child of a task is ended';
+    ok gone( number_in("$loose.child") ),  'and so is a child that left the process group';
+};
+
+subtest 'a forced end reaches a child that left the process group' => sub {
+    my $code = <<'PERL';
+$| = 1;
+if ( !fork ) { setpgrp 0, 0; open my $out, '>', "$0.child"; print {$out} $$; close $out; sleep 30; exit 0 }
+print "1..2\nnot ok 1\n";
+sleep 30;
+PERL
+    my $late = script( 'escape-late.t', $code );
+    is run_one( $late, timeout => 1 )->{timed_out}, 1, 'the test runs into its time limit';
+    ok wait_for("$late.child"),          'its child started';
+    ok gone( number_in("$late.child") ), 'the time limit ends the child';
+
+    my $failed = script( 'escape-failed.t', $code );
+    is run_one( $failed, stop_on_failure => 1 )->{stopped}, 1, 'the test stops at its first failure';
+    ok wait_for("$failed.child"),          'its child started';
+    ok gone( number_in("$failed.child") ), 'the early stop ends the child';
 };
 
 subtest 'a finished test leaves no child behind and holds no output open' => sub {

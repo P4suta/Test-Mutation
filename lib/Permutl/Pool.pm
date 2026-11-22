@@ -76,6 +76,7 @@ sub run ($arg) {
 }
 
 sub _end_all (@slots) {
+    my @escaped = _descendants( map { $_->{pid} } @slots );
     _signal_group( $_, 'TERM' ) for @slots;
     my $deadline = Time::HiRes::time() + $GRACE_SECONDS;
     my @running  = @slots;
@@ -88,6 +89,7 @@ sub _end_all (@slots) {
         waitpid $slot->{pid}, 0;
     }
     _signal_group( $_, 'KILL' ) for @slots;
+    _end_escaped(@escaped);
     return;
 }
 
@@ -163,9 +165,33 @@ sub _signal_group ( $slot, $signal ) {
     return;
 }
 
+sub _descendants (@roots) {
+    open my $listing, q{-|}, 'ps', '-A', '-o', 'pid=,ppid=' or return;
+    my %children;
+    while ( my $line = readline $listing ) {
+        my ( $pid, $parent ) = $line =~ /(\d+)\s+(\d+)/ or next;
+        push $children{$parent}->@*, $pid;
+    }
+    close $listing or return;
+    my @found;
+    my @queue = @roots;
+    while (@queue) {
+        my @next = ( $children{ shift @queue } || [] )->@*;
+        push @found, @next;
+        push @queue, @next;
+    }
+    return @found;
+}
+
+sub _end_escaped (@pids) {
+    kill 'KILL', map { ( -$_, $_ ) } @pids;
+    return;
+}
+
 sub _ask_to_end ($slot) {
     return if defined $slot->{asked};
-    $slot->{asked} = Time::HiRes::time();
+    $slot->{asked}   = Time::HiRes::time();
+    $slot->{escaped} = [ _descendants( $slot->{pid} ) ];
     _signal_group( $slot, 'TERM' );
     return;
 }
@@ -186,6 +212,7 @@ sub _supervise ($slot) {
         $slot->{status} = $?;
         $slot->{ended}  = Time::HiRes::time();
         _signal_group( $slot, 'KILL' );
+        _end_escaped( $slot->{escaped}->@* ) if $slot->{escaped};
     }
     return;
 }
@@ -234,6 +261,7 @@ Permutl::Pool - run test processes in parallel with time limits
 
 The pool starts every task in its own process group and reads its standard output as TAP.
 It ends a task that exceeds its time limit, and a task that asked to stop at the first failure, by signalling the whole group.
+Before a forced end the pool lists the descendants of the task with C<ps>, and it ends those that left the group too.
 
 =head1 FUNCTIONS
 
