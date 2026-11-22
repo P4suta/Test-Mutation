@@ -2,7 +2,7 @@ use v5.36;
 use Test2::V0;
 use Cwd ();
 use lib 't/e2e/lib';
-use Fixture qw(copy_of write_file);
+use Fixture qw(copy_of run_fixture write_file);
 
 my $library = Cwd::abs_path('lib');
 
@@ -39,6 +39,49 @@ subtest 'settings pass through to the run' => sub {
     my ( $status, $output ) = run_test( $root, 'xt/narrow.t' );
     isnt $status, 0, 'the mutants without a detecting test still fail the assertion' or diag $output;
     like $output, qr/^# \d+ mutants: \d+ killed, \d+ survived$/m, 'file selection runs the tests for every mutant';
+};
+
+subtest 'the assertion reads permutl.toml, and a setting overrides the file' => sub {
+    my $project = copy_of('calc');
+    write_file( "$project/lib/Extra.pm",
+        "package Extra;\nuse strict;\nuse warnings;\nsub twice { my (\$n) = \@_; return \$n * 2 + 1 - 1 }\n1;\n" );
+    write_file( "$project/permutl.toml", "[source]\nexclude = [\"lib/Extra.pm\"]\n" );
+    write_file( "$project/xt/file.t",
+        "use Test::More tests => 1;\nuse Test::Permutl;\nmutation_score_ok( min => 60, jobs => 2 );\n" );
+    write_file( "$project/xt/override.t",
+        "use Test::More tests => 1;\nuse Test::Permutl;\nmutation_score_ok( min => 60, jobs => 2, source_exclude => [] );\n"
+    );
+    my ( $status, $output ) = run_test( $project, 'xt/file.t' );
+    is $status, 0, 'the excluded file leaves the score above the minimum' or diag $output;
+    ( $status, $output ) = run_test( $project, 'xt/override.t' );
+    isnt $status, 0, 'the setting brings the untested file back';
+    like $output, qr/^#   lib\/Extra\.pm:/m, 'and the diagnostics list its mutants';
+
+    write_file( "$project/permutl.toml", "[source\n" );
+    ( $status, $output ) = run_test( $project, 'xt/file.t' );
+    isnt $status, 0, 'a malformed file fails the test';
+    like $output, qr/permutl[.]toml/, 'and the error names the file';
+};
+
+subtest 'the assertion is skipped inside a permutl run of the same project' => sub {
+    {
+        local $ENV{PERMUTL_ROOT} = $root;
+        my ( $status, $output ) = run_test( $root, 'xt/strict.t' );
+        is $status, 0, 'the test passes';
+        like $output, qr/^ok 1 # skip inside a permutl run$/m, 'with a skip that states the reason';
+    }
+    {
+        local $ENV{PERMUTL_ROOT} = "$root/lib";
+        my ( $status, $output ) = run_test( $root, 'xt/strict.t' );
+        isnt $status, 0, 'a run of another project leaves the assertion active';
+    }
+
+    my $project = copy_of('calc');
+    write_file( "$project/t/score.t",
+        "use Test::More tests => 1;\nuse Test::Permutl;\nmutation_score_ok( min => 100, jobs => 2 );\n" );
+    my ($result) = run_fixture($project);
+    is $result->baseline_failures,       [], 'a copy among the tests of a run passes as a skip';
+    is $result->tally->{counts}{Killed}, 13, 'and the run measures the project';
 };
 
 done_testing;

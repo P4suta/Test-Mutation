@@ -1,5 +1,6 @@
 package Test::Permutl;
 use v5.36;
+use Cwd             ();
 use Exporter        qw(import);
 use Test::Builder   ();
 use Types::Standard qw(Bool HashRef Slurpy);
@@ -17,11 +18,17 @@ sub mutation_score_ok ($settings) {
     my $minimum  = exists $settings{min}  ? delete $settings{min}  : 100;
     my $name     = exists $settings{name} ? delete $settings{name} : "the mutation score is at least $minimum%";
 
+    my $builder = Test::Builder->new;
+    my $outer   = defined $ENV{PERMUTL_ROOT} ? Cwd::abs_path( $ENV{PERMUTL_ROOT} ) : undef;
+    my $own     = Cwd::abs_path( $settings{root} );
+    if ( defined $outer && defined $own && $outer eq $own ) {
+        $builder->skip('inside a permutl run');
+        return 1;
+    }
+
     my $result  = Permutl::run(%settings);
     my $score   = $result->tally->{score};
     my $reached = $result->conclusive && defined $score && $score >= $minimum ? 1 : 0;
-
-    my $builder = Test::Builder->new;
     $builder->ok( $reached, $name );
     $builder->diag( Permutl::Report::Terminal::render( $result, color => 0 ) ) if !$reached;
     return $reached;
@@ -54,7 +61,8 @@ A test file under C<xt/> keeps the measurement out of the tests that permutl its
     mutation_score_ok( min => 80, name => 'tests detect mutants', jobs => 4, profile => 'extended' );
 
 Passes when the run is conclusive and the score reaches C<min>, 100 by default.
-C<name> names the test, and every other setting goes to L<Permutl/run>.
+C<name> names the test, and every other setting goes to L<Permutl/run>, which also reads C<permutl.toml>.
 A failing assertion prints the report with the undetected mutants as diagnostics.
+Inside a permutl run of the same project the assertion is a skip, so a copy under C<t/> does not start a run for every mutant.
 
 =cut

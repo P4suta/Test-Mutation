@@ -250,6 +250,7 @@ sub _environment ( $run, $spec ) {
     return (
         "PERMUTL_SPEC_G$generation" => $spec,
         PERMUTL_GENERATION          => $generation,
+        PERMUTL_ROOT                => $run->{root},
         PERL5OPT                    => join( q{ }, _inherited('PERL5OPT'), '-M' . $run->{package} ),
         PERL5LIB                    => join( q{:}, "$run->{work}/shim",    _inherited('PERL5LIB') ),
     );
