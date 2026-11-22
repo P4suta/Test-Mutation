@@ -11,7 +11,7 @@ my $report = JSON::PP->new->utf8->decode( do { local $/ = undef; readline $handl
 close $handle or die "close $path: $!";
 
 my %mutants = map { $_ => $report->{files}{$_}{mutants} } keys $report->{files}->%*;
-my @library = sort glob 'lib/Permutl.pm lib/Permutl/*.pm lib/Permutl/*/*.pm';
+my @library = sort glob 'lib/Permutl.pm lib/Permutl/*.pm lib/Permutl/*/*.pm lib/Test/*.pm';
 my @absent  = grep { !$mutants{$_} } @library;
 is \@absent, [], 'the report covers every library file';
 

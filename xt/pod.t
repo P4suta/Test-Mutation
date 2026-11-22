@@ -6,7 +6,7 @@ use Pod::Coverage;
 
 # Every library file has well-formed documentation, and every public subroutine and attribute is documented.
 
-my @files = sort grep { -f } 'bin/permutl', glob 'lib/Permutl.pm lib/Permutl/*.pm lib/Permutl/*/*.pm';
+my @files = sort grep { -f } 'bin/permutl', glob 'lib/Permutl.pm lib/Permutl/*.pm lib/Permutl/*/*.pm lib/Test/*.pm';
 ok scalar(@files) > 10, 'library files exist';
 
 for my $file (@files) {
