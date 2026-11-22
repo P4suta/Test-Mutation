@@ -24,7 +24,11 @@ sub main ($list) {
 sub _config (@arguments) {
     my %cli;
     my $parser = Getopt::Long::Parser->new( config => [qw(bundling no_ignore_case)] );
-    $parser->getoptionsfromarray( \@arguments, 'jobs|j=i' => \$cli{jobs} ) or return;
+    $parser->getoptionsfromarray(
+        \@arguments,
+        'jobs|j=i'    => \$cli{jobs},
+        'min-score=f' => \$cli{threshold_break},
+    ) or return;
     delete @cli{ grep { !defined $cli{$_} } keys %cli };
     my $processors = Permutl::Project::cpu_count();
     return Permutl::Config->from_layers(
@@ -47,6 +51,15 @@ sub _run (@arguments) {
         }
     );
     print Permutl::Report::Terminal::render( $result, color => 0 );
+    return _exit_status( $result, $config );
+}
+
+sub _exit_status ( $result, $config ) {
+    return 3 if $result->baseline_failures->@*;
+    return 4 if !$result->conclusive;
+    my $score = $result->tally->{score};
+    my $floor = $config->threshold_break;
+    return 1 if defined $floor && defined $score && $score < $floor;
     return 0;
 }
 

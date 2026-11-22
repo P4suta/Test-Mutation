@@ -19,4 +19,10 @@ subtest 'run is the default command' => sub {
     like $run->{stdout}, qr/^Score: 68\.4%/m, 'the score';
 };
 
+subtest 'a score below --min-score fails the run' => sub {
+    my $root = copy_of('calc');
+    is permutl( $root, '--jobs', 2, '--min-score', 90 )->{exit}, 1, 'the score is below 90';
+    is permutl( $root, '--jobs', 2, '--min-score', 60 )->{exit}, 0, 'the score is above 60';
+};
+
 done_testing;
