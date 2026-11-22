@@ -20,6 +20,13 @@ subtest 'run prints the summary and succeeds' => sub {
     like $run->{stderr}, qr/^19 mutants in 1 file, 2 tests$/m, 'the analysis is announced on standard error';
 };
 
+subtest 'run reports its progress on standard error' => sub {
+    my $run = permutl( copy_of('calc'), '--jobs', 2, '--format', 'terminal' );
+    like $run->{stderr},   qr/^The unmodified run passed: 2 tests, 2 jobs$/m,      'the unmodified run';
+    like $run->{stderr},   qr/^\[19\/19\] 13 killed, 3 survived, 3 no coverage$/m, 'the last progress line';
+    unlike $run->{stderr}, qr/\r/,                                                 'no carriage return in a log';
+};
+
 subtest 'run is the default command' => sub {
     my $run = permutl( copy_of('calc'), '--jobs', 2 );
     is $run->{exit}, 0, 'exit status' or diag $run->{stderr};

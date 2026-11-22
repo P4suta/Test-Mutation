@@ -12,6 +12,7 @@ use Permutl::Report::GitHub;
 use Permutl::Report::Html;
 use Permutl::Report::Json;
 use Permutl::Report::Patch;
+use Permutl::Report::Progress;
 use Permutl::Report::Terminal;
 use Permutl::Runner;
 
@@ -148,17 +149,37 @@ sub _first_line ($error) {
 sub _run (@arguments) {
     my $config = _config( \@arguments ) or return 2;
     return _usage("unexpected argument $arguments[0]") if @arguments;
-    my $result = Permutl::Runner::run(
-        $config,
-        sub ( $event, $data ) {
-            return if $event ne 'analyzed';
-            printf {*STDERR} "%s in %s, %s\n", _plural( $data->{mutants}, 'mutant' ), _plural( $data->{files}, 'file' ),
-              _plural( $data->{tests}, 'test' );
-            return;
-        }
-    );
+    my $result = Permutl::Runner::run( $config, _progress( -t *STDERR ? 1 : 0 ) );
     _report( $result, $config );
     return _exit_status( $result, $config );
+}
+
+sub _progress ($in_place) {
+    my ( %counts, $total );
+    my $done = 0;
+    return sub ( $event, $data ) {
+        if ( $event eq 'analyzed' ) {
+            $total = $data->{mutants};
+            printf {*STDERR} "%s in %s, %s\n", _plural( $total, 'mutant' ), _plural( $data->{files}, 'file' ),
+              _plural( $data->{tests}, 'test' );
+        }
+        elsif ( $event eq 'baseline' ) {
+            printf {*STDERR} "The unmodified run passed: %s, %s\n", _plural( $data->{tests}, 'test' ),
+              _plural( $data->{jobs}, 'job' );
+        }
+        elsif ( $event eq 'mutant' ) {
+            $counts{ $data->{status} }++;
+            $done++;
+            my $line = Permutl::Report::Progress::line( $done, $total, \%counts );
+            if ($in_place) {
+                print {*STDERR} "\r$line", $done == $total ? "\n" : q{};
+            }
+            elsif ( Permutl::Report::Progress::due( $done, $total ) ) {
+                print {*STDERR} "$line\n";
+            }
+        }
+        return;
+    };
 }
 
 my %FILE_REPORT = (
