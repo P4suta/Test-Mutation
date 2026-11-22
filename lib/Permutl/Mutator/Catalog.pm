@@ -125,6 +125,13 @@ my @WORD_FAMILIES = (
         roles       => ['call'],
         table       => { shift => 'pop', pop => 'shift' },
     },
+    {
+        name        => 'sort-order',
+        profile     => 'extended',
+        description => 'Reverses the result of a sort',
+        roles       => ['call'],
+        table       => { sort => 'reverse sort' },
+    },
 );
 
 sub _blank ($text) {

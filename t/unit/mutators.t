@@ -72,6 +72,8 @@ subtest 'extended mutators' => sub {
       'string literals';
     is changes( 'if ($a) { f() } while ($b) { g() } until ($c) { h() }', 'condition-fixed', %extended ),
       [ [ '$a', '1' ], [ '$a', '0' ], [ '$b', '0' ], [ '$c', '1' ] ], 'fixed conditions avoid endless loops';
+    is changes( 'my @s = sort { $a <=> $b } @n; my %h = ( sort => 1 ); $o->sort;', 'sort-order', %extended ),
+      [ [ 'sort', 'reverse sort' ] ], 'a sort call is reversed, and a key or a method is left alone';
     is changes( 'my $n = 41;', 'number-literal' ), [], 'extended mutators are off in the default profile';
 };
 
