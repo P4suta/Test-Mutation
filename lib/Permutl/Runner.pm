@@ -184,12 +184,12 @@ sub _module_text ($file) {
     for my $entry (@INC) {
         if ( ref $entry eq 'CODE' ) {
             my @served = $entry->( $entry, $file );
-            next if !@served;
-            my $prepend = ref $served[0] eq 'SCALAR' ? ${ shift @served } : q{};
-            my $handle  = shift @served;
+            next          if !@served;
+            shift @served if ref $served[0] eq 'SCALAR';
+            my $handle = shift @served;
             next if ref $handle ne 'GLOB';
             my $filter = ref $served[0] eq 'CODE' ? $served[0] : undef;
-            my $text   = $prepend;
+            my $text   = q{};
             while ( defined( my $line = readline $handle ) ) {
                 if ($filter) {
                     local $_ = $line;
