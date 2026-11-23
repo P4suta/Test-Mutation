@@ -44,6 +44,7 @@ Commands:
   mutators  Print the name, the profile, and the description of every mutator
 
 Options:
+  --root, -C DIR        Run as if permutl had started in DIR
   --jobs, -j N          Test processes to run side by side
   --min-score N         Fail when the score is below N percent
   --format NAME         Report to write: terminal, json, html; repeatable
@@ -70,7 +71,18 @@ TEXT
 
 sub main ($list) {
     my @arguments = $list->@*;
-    my $first     = @arguments ? $arguments[0] : q{};
+
+    # The directory comes first, so every later path and the configuration file are read from inside it.
+    my $anywhere = Getopt::Long::Parser->new( config => [qw(pass_through no_ignore_case no_auto_abbrev)] );
+    $anywhere->getoptionsfromarray( \@arguments, 'root|C=s' => \my $directory );
+    if ( defined $directory ) {
+
+        # A relative entry of the module search path names another place after the change of directory.
+        @INC = map { ref $_ ? $_ : File::Spec->rel2abs($_) } @INC;    ## no critic (Variables::RequireLocalizedPunctuationVars)
+        return _usage("cannot enter $directory: $!") if !chdir $directory;
+    }
+
+    my $first = @arguments ? $arguments[0] : q{};
     if ( $first eq '--version' ) {
         say "permutl $VERSION";
         return 0;

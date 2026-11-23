@@ -1,7 +1,9 @@
 use v5.36;
 use Test2::V0;
 use lib 't/e2e/lib';
-use Fixture qw(copy_of permutl tree_digest write_file);
+use Cwd        ();
+use File::Temp ();
+use Fixture    qw(copy_of permutl permutl_from tree_digest write_file);
 use Permutl::Mutator::Catalog;
 
 my $root = copy_of('calc');
@@ -16,6 +18,29 @@ subtest 'list prints every mutant without running a test' => sub {
       'identifier, place, mutator, description';
     is $lines[-1],         '19 mutants', 'the count';
     is tree_digest($root), $before,      'nothing is written';
+};
+
+subtest '--root runs the command as if it had started in the named directory' => sub {
+    my $elsewhere = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    my $listed    = permutl( $elsewhere, '--root', $root, 'list' );
+    is $listed->{stdout}, permutl( $root, 'list' )->{stdout},                   'list names the mutants of the project';
+    is permutl( $elsewhere, 'list', '-C', $root )->{stdout}, $listed->{stdout}, 'the option may follow the command';
+
+    my $inside = permutl( $elsewhere, '--root', $root, 'exec', identifier('replaced + with -'),
+        '--', $^X, '-MCwd', '-e', 'print Cwd::getcwd()' );
+    is $inside->{stdout}, $root, 'exec starts its command in the project';
+
+    my $missing = permutl( $elsewhere, '--root', "$elsewhere/none", 'list' );
+    is [ $missing->@{qw(exit stdout)} ], [ 2, q{} ], 'a directory that does not exist is a usage error';
+    like $missing->{stderr}, qr/\Apermutl: cannot enter \Q$elsewhere\E\/none: [^\n]+\n\z/, 'with one line';
+    is [ glob "$elsewhere/*" ], [], 'the directory of the caller gets no file';
+
+    my $library = Cwd::abs_path('lib');
+    local $ENV{PERL5LIB} = join q{:}, grep { $_ ne $library } split /:/, defined $ENV{PERL5LIB} ? $ENV{PERL5LIB} : q{};
+    my $relative = permutl_from( 'lib', Cwd::getcwd(), '--root', $root, '--jobs', 2, '--format', 'terminal' );
+    is $relative->{exit}, 0, 'a relative library directory of the caller still serves the run'
+      or diag $relative->{stderr};
+    like $relative->{stdout}, qr/^Score: 68\.4%/m, 'and the run measures the project';
 };
 
 subtest 'list marks suppressed mutants and honors the mutator options' => sub {
@@ -145,7 +170,7 @@ subtest 'version, help, and stray arguments' => sub {
     like $help->{stdout}, qr/^\s+permutl merge FILE/m,               'the merge command';
     like $help->{stdout}, qr/^\s+permutl mutators$/m,                'the mutators command';
     my @undocumented = grep { $help->{stdout} !~ /^\s+--\Q$_\E\b/m }
-      qw(jobs min-score format report-dir perl source test profile enable disable coverage timeout-factor timeout-floor
+      qw(root jobs min-score format report-dir perl source test profile enable disable coverage timeout-factor timeout-floor
       keep-work mutant since shard no-equivalence cache config);
     is \@undocumented, [], 'every option is described';
 
