@@ -6,7 +6,7 @@ class Counter 1.0 {
     field $limit = 10 + 5;
 
     ADJUST {
-        $count = $count + 0;
+        $limit = $limit + 5;
     }
 
     method bump ( $by = 1 ) {
@@ -18,7 +18,7 @@ class Counter 1.0 {
 
     method limit { return $limit }
 
-    method minute { return 60 + 0 }
+    method size { return 10 > 5 ? 'big' : 'small' }
 }
 
 1;

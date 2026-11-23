@@ -121,8 +121,12 @@ for my $context (@contexts) {
 }
 
 my @equal = (
-    [ 'a constant that folds to the same value', 'return 60 + 0',                 'return 60 - 0' ],
-    [ 'a double negation of a condition',        'return 1 unless !$x; return 0', 'return 1 if $x; return 0' ],
+    [
+        'a comparison that folds to the same value',
+        q{return 10 > 5 ? 'big' : 'small'},
+        q{return 10 >= 5 ? 'big' : 'small'}
+    ],
+    [ 'a double negation of a condition', 'return 1 unless !$x; return 0', 'return 1 if $x; return 0' ],
 );
 
 for my $case (@equal) {

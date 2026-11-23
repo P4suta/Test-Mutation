@@ -6,7 +6,7 @@ date: 2026-11-23
 
 ## Context
 
-Perl folds `60 + 0` and `60 - 0` into one constant, so no test can detect that mutant.
+Perl folds `10 > 5` and `10 >= 5` into one constant, so no test can detect that mutant.
 
 ## Decision
 

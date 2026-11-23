@@ -11,34 +11,35 @@ subtest 'a mutant that compiles to the code of the original is ignored' => sub {
     my ($result) = run_fixture($root);
     is statuses($result),
       {
-        'lib/Fold.pm:6 removed the body of minute' => 'Killed',
-        'lib/Fold.pm:6 removed the return value'   => 'Killed',
-        'lib/Fold.pm:6 replaced + with -'          => 'Ignored',
-        'lib/Fold.pm:8 removed the body of label'  => 'Killed',
-        'lib/Fold.pm:10 removed the return value'  => 'Survived',
-        'lib/Fold.pm:10 replaced if with unless'   => 'Survived',
-        'lib/Fold.pm:10 removed !'                 => 'Ignored',
-        'lib/Fold.pm:11 removed the return value'  => 'Killed',
+        'lib/Fold.pm:6 removed the body of size'  => 'Killed',
+        'lib/Fold.pm:6 removed the return value'  => 'Killed',
+        'lib/Fold.pm:6 replaced > with <='        => 'Killed',
+        'lib/Fold.pm:6 replaced > with >='        => 'Ignored',
+        'lib/Fold.pm:8 removed the body of label' => 'Killed',
+        'lib/Fold.pm:10 removed the return value' => 'Survived',
+        'lib/Fold.pm:10 replaced if with unless'  => 'Survived',
+        'lib/Fold.pm:10 removed !'                => 'Ignored',
+        'lib/Fold.pm:11 removed the return value' => 'Killed',
       },
       'statuses';
     my %reason = map { $_->{mutant}->description => $_->{reason} } $result->entries->@*;
-    is $reason{'replaced + with -'}, 'compiles to the same code as the original', 'the reason names the original';
+    is $reason{'replaced > with >='}, 'compiles to the same code as the original', 'the reason names the original';
     my ($kept) = grep { $_->{mutant}->description eq 'replaced if with unless' } $result->entries->@*;
     is $reason{'removed !'}, 'compiles to the same code as mutant ' . $kept->{mutant}->id,
       'a later mutant with the code of an earlier survivor names it';
-    is $result->tally->{score}, 4 / 6 * 100, 'ignored mutants leave the score';
+    is $result->tally->{score}, 5 / 7 * 100, 'ignored mutants leave the score';
 };
 
 subtest 'a file that does not compile on its own keeps its survivors and warns' => sub {
     my $project = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
     write_file( "$project/lib/Bound.pm",
-        "package Bound;\nuse strict;\nuse warnings;\nBEGIN { die \"no application\\n\" if !\$main::APPLICATION }\nsub minute { return 60 + 0 }\n1;\n"
+        "package Bound;\nuse strict;\nuse warnings;\nBEGIN { die \"no application\\n\" if !\$main::APPLICATION }\nsub size { return 10 > 5 ? 'big' : 'small' }\n1;\n"
     );
     write_file( "$project/t/bound.t",
-        "use Test::More tests => 1;\nBEGIN { \$main::APPLICATION = 1 }\nuse Bound;\nis Bound::minute(), 60, 'a minute';\n"
+        "use Test::More tests => 1;\nBEGIN { \$main::APPLICATION = 1 }\nuse Bound;\nis Bound::size(), 'big', 'a size';\n"
     );
     my ($result) = run_fixture($project);
-    is statuses($result)->{'lib/Bound.pm:5 replaced + with -'}, 'Survived', 'the mutant survives';
+    is statuses($result)->{'lib/Bound.pm:5 replaced > with >='}, 'Survived', 'the mutant survives';
     is [ grep { /compiled code/ } $result->warnings->@* ],
       ['lib/Bound.pm: B::Deparse gives no stable output, so the run compares no compiled code of the file'],
       'one warning names the file';
@@ -52,7 +53,7 @@ subtest 'a mutant that no test reaches is compared too' => sub {
         'package Idle;',
         'use strict;',
         'use warnings;',
-        'sub minute { return 60 + 0 }',
+        q{sub size { return 10 > 5 ? 'big' : 'small' }},
         'sub hour { return 60 * 60 }',
         'sub used { return $_[0] }',
         'sub label {',
@@ -66,26 +67,27 @@ subtest 'a mutant that no test reaches is compared too' => sub {
     my ($result) = run_fixture($project);
     is statuses($result),
       {
-        'lib/Idle.pm:4 removed the body of minute' => 'NoCoverage',
-        'lib/Idle.pm:4 removed the return value'   => 'NoCoverage',
-        'lib/Idle.pm:4 replaced + with -'          => 'Ignored',
-        'lib/Idle.pm:5 removed the body of hour'   => 'NoCoverage',
-        'lib/Idle.pm:5 removed the return value'   => 'NoCoverage',
-        'lib/Idle.pm:5 replaced * with /'          => 'NoCoverage',
-        'lib/Idle.pm:6 removed the body of used'   => 'Killed',
-        'lib/Idle.pm:6 removed the return value'   => 'Killed',
-        'lib/Idle.pm:7 removed the body of label'  => 'NoCoverage',
-        'lib/Idle.pm:8 removed the return value'   => 'NoCoverage',
-        'lib/Idle.pm:8 replaced if with unless'    => 'NoCoverage',
-        'lib/Idle.pm:8 removed !'                  => 'Ignored',
-        'lib/Idle.pm:9 removed the return value'   => 'NoCoverage',
+        'lib/Idle.pm:4 removed the body of size'  => 'NoCoverage',
+        'lib/Idle.pm:4 removed the return value'  => 'NoCoverage',
+        'lib/Idle.pm:4 replaced > with <='        => 'NoCoverage',
+        'lib/Idle.pm:4 replaced > with >='        => 'Ignored',
+        'lib/Idle.pm:5 removed the body of hour'  => 'NoCoverage',
+        'lib/Idle.pm:5 removed the return value'  => 'NoCoverage',
+        'lib/Idle.pm:5 replaced * with /'         => 'NoCoverage',
+        'lib/Idle.pm:6 removed the body of used'  => 'Killed',
+        'lib/Idle.pm:6 removed the return value'  => 'Killed',
+        'lib/Idle.pm:7 removed the body of label' => 'NoCoverage',
+        'lib/Idle.pm:8 removed the return value'  => 'NoCoverage',
+        'lib/Idle.pm:8 replaced if with unless'   => 'NoCoverage',
+        'lib/Idle.pm:8 removed !'                 => 'Ignored',
+        'lib/Idle.pm:9 removed the return value'  => 'NoCoverage',
       },
       'a change without effect leaves the score, and a real change stays uncovered';
     my %entry = map { $_->{mutant}->description => $_ } grep { $_->{mutant}->from->[0] == 8 } $result->entries->@*;
     is $entry{'removed !'}{reason},
       'compiles to the same code as mutant ' . $entry{'replaced if with unless'}{mutant}->id,
       'a repeated change names the mutant that stays';
-    is $result->tally->{score}, 2 / 11 * 100, 'the two ignored mutants leave the score';
+    is $result->tally->{score}, 2 / 12 * 100, 'the two ignored mutants leave the score';
 };
 
 subtest 'the comparison can be turned off' => sub {
