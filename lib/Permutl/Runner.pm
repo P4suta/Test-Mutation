@@ -755,10 +755,10 @@ sub _compile_task ( $run, $job, $kind, $file, $switch ) {
 
 sub _finish ( $run, $job ) {
     unlink grep { defined } $job->@{qw(file spec)};
-    my $verdict = $job->{verdict};
+    my $verdict = Permutl::Verdict::conclude( $job->{verdict} );
     my $mutant  = $job->{mutant};
     my $code    = defined $job->{code} ? $job->{code} : q{};
-    my ( $status, $reason ) = ( Permutl::Verdict::final($verdict), $verdict->{reason} );
+    my ( $status, $reason ) = $verdict->@{qw(status reason)};
     if ( length $code ) {
         $run->{code_of_mutant}{ $mutant->id } = $code;
         ( $status, $reason ) = ( 'Ignored', 'compiles to the same code as the original' )

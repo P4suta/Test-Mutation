@@ -292,6 +292,23 @@ subtest 'a comparison with the version of Perl follows the interpreter of the te
     is $boundary->(), 1, 'a literal that equals the version of this interpreter keeps the mutant';
 };
 
+subtest 'a test that fails decides a mutant that ran another test into its time limit' => sub {
+    my $stuck = "use Test::More tests => 1;\nuse Small;\nmy \$next = Small::next_one(2);\n"
+      . "sleep 30 if \$next != 3;\nis \$next, 3, 'the next one';\n";
+    my $sure = "use Test::More tests => 1;\nuse Small;\nselect undef, undef, undef, 0.3;\n"
+      . "is Small::next_one(2), 3, 'the next one';\n";
+    my $root = project( 'lib/Small.pm' => $MODULE, 't/stuck.t' => $stuck, 't/sure.t' => $sure );
+    my ($result) = run_fixture( $root, jobs => 1, timeout_factor => 4, timeout_floor => 0.5 );
+    is [ map { [ $_->@{qw(status by tests_run)} ] } $result->entries->@* ], [ ( [ 'Killed', 't/sure.t', 2 ] ) x 3 ],
+      'the shorter test runs out of time, and the longer test detects each mutant';
+
+    my $alone = project( 'lib/Small.pm' => $MODULE, 't/stuck.t' => $stuck );
+    my ($only) = run_fixture( $alone, jobs => 1, timeout_factor => 4, timeout_floor => 0.5 );
+    is [ map { [ $_->@{qw(status by reason)} ] } $only->entries->@* ],
+      [ ( [ 'Timeout', 't/stuck.t', 't/stuck.t exceeded its time limit' ] ) x 3 ],
+      'without a test that decides, the timeout stays with its test and its reason';
+};
+
 subtest 'a source that holds a single zero keeps its text' => sub {
     my $root     = project( 'lib/Zero.pm' => '0', 'lib/Small.pm' => $MODULE );
     my $analysis = Permutl::Runner::analyze( Permutl::Config->new( root => $root ) );
