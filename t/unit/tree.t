@@ -83,6 +83,118 @@ subtest 'a path that changes its kind is a change' => sub {
     is Permutl::Tree::changes( $earlier, snapshot($linked) ), ['changed link'], 'a link with another target';
 };
 
+# The kind of every path below a root with the content of a file and the target of a link.
+sub content ( $root, @skip ) {
+    my %content;
+    for my $path ( sort keys snapshot( $root, @skip )->%* ) {
+        my $full = "$root/$path";
+        if ( -l $full ) {
+            $content{$path} = 'link to ' . readlink $full;
+        }
+        elsif ( -d $full ) {
+            $content{$path} = 'directory';
+        }
+        else {
+            open my $handle, '<', $full or die "read $path: $!";
+            $content{$path} = sprintf 'file %04o %s', ( stat $handle )[2] & oct '7777',
+              do { local $/ = undef; readline $handle };
+            close $handle or die "close $path: $!";
+        }
+    }
+    return \%content;
+}
+
+sub project_tree () {
+    my $root = tree(
+        'lib/A.pm'             => "1;\n",
+        'bin/tool'             => "#!perl\n",
+        't/a.t'                => 'ok',
+        't/data/deep/list.txt' => "a\nb\n",
+        '.git/HEAD'            => 'ref',
+        '.permutl/run/x'       => 'work',
+        'local/lib/perl5/B.pm' => "1;\n",
+    );
+    chmod oct '755', "$root/bin/tool" or die "chmod: $!";
+    mkdir "$root/empty" or die "mkdir: $!";
+    symlink 'lib/A.pm', "$root/link" or die "symlink: $!";
+    utime 1_000_000_000, 1_000_000_000, "$root/lib/A.pm" or die "utime: $!";
+    return $root;
+}
+
+sub copy_of ( $root, %arg ) {
+    my $to = File::Temp::tempdir( CLEANUP => 1 ) . '/deep/copy';
+    Permutl::Tree::copy( from => $root, to => $to, skip => [], link => [], %arg );
+    return $to;
+}
+
+subtest 'copy reproduces the files, directories, and links of a tree' => sub {
+    my $root = project_tree();
+    my $copy = copy_of( $root, skip => [ '.git', '.permutl' ], link => [ 'local', 'absent' ] );
+    is content( $copy, 'local' ), content( $root, '.git', '.permutl', 'local' ),
+      'the same paths, kinds, contents, modes, and link targets, without the skipped paths';
+    is content($copy)->{'bin/tool'},     "file 0755 #!perl\n", 'a command keeps its right to run';
+    is readlink "$copy/local",           "$root/local",        'a linked path points at the original';
+    is [ ( stat "$copy/lib/A.pm" )[9] ], [1_000_000_000],      'a file keeps its modification time';
+    ok !-e "$copy/absent" && !-l "$copy/absent", 'a linked name that the tree lacks adds nothing';
+    is content( copy_of($root) ), content($root), 'without a skip or a link, the copy holds everything';
+};
+
+subtest 'copy keeps a link as a link and leaves out what is no file' => sub {
+    my $root = tree( 'real/file.txt' => 'x' );
+    symlink 'real',            "$root/inside"  or die "symlink: $!";
+    symlink '/nonexistent/at', "$root/dangles" or die "symlink: $!";
+    require POSIX;
+    POSIX::mkfifo( "$root/pipe", oct '600' ) or die "mkfifo: $!";
+    my $copy = copy_of($root);
+    is content($copy),
+      {
+        'real'          => 'directory',
+        'real/file.txt' => 'file 0644 x',
+        'inside'        => 'link to real',
+        'dangles'       => 'link to /nonexistent/at'
+      },
+      'a link to a directory stays one link, a dangling link stays, and a pipe is left out';
+};
+
+subtest 'restore undoes what was created, removed, and changed' => sub {
+    my $master = project_tree();
+    my $slot   = copy_of( $master, skip => [ '.git', '.permutl' ], link => ['local'] );
+    my $before = snapshot($slot);
+    my $wanted = content($slot);
+
+    tree_file( "$slot/stray", 'left behind' );
+    File::Path::make_path("$slot/made/deeper");
+    tree_file( "$slot/made/deeper/file", 'x' );
+    unlink "$slot/t/a.t" or die "unlink: $!";
+    File::Path::remove_tree("$slot/t/data");
+    tree_file( "$slot/lib/A.pm", "0;\n# changed\n" );
+    unlink "$slot/bin/tool" or die "unlink: $!";
+    mkdir "$slot/bin/tool"  or die "mkdir: $!";
+    tree_file( "$slot/bin/tool/inner", 'x' );
+    rmdir "$slot/empty" or die "rmdir: $!";
+    tree_file( "$slot/empty", 'now a file' );
+    unlink "$slot/link" or die "unlink: $!";
+    symlink 'elsewhere', "$slot/link" or die "symlink: $!";
+
+    my $changes = Permutl::Tree::changes( $before, snapshot($slot) );
+    is scalar $changes->@*,                                                         13, 'the changes of the trial';
+    is Permutl::Tree::restore( from => $master, to => $slot, changes => $changes ), 13, 'one restored path for each';
+    is content($slot),                                                              $wanted, 'the tree is as it was';
+    is [ grep { !/\Achanged / } Permutl::Tree::changes( $before, snapshot($slot) )->@* ], [],
+      'and no path is missing or left over';
+    is Permutl::Tree::restore( from => $master, to => $slot, changes => [] ), 0, 'no change, no work';
+};
+
+like dies { Permutl::Tree::copy( from => 1 ) },    qr/Wrong number of parameters/, 'copy checks its arguments';
+like dies { Permutl::Tree::restore( from => 1 ) }, qr/Wrong number of parameters/, 'restore checks its arguments';
+like dies {
+    Permutl::Tree::copy(
+        from => '/nonexistent/at/all',
+        to   => File::Temp::tempdir( CLEANUP => 1 ) . '/x',
+        skip => [],
+        link => []
+    )
+}, qr{cannot read /nonexistent/at/all}, 'copy names a tree it cannot read';
 like dies { Permutl::Tree::snapshot( root => 1 ) }, qr/Wrong number of parameters/,   'snapshot checks its arguments';
 like dies { Permutl::Tree::changes( {}, [] ) },     qr/did not pass type constraint/, 'changes checks its arguments';
 
