@@ -139,6 +139,24 @@ subtest 'an identical copy in another directory is the same target' => sub {
     is $fields->{file}, 'blib/lib/Foo/Bar.pm', 'the file identity is the path Perl resolved';
 };
 
+subtest 'a file that starts with a byte order mark is served without the mark' => sub {
+    my $root = project();
+    my $mark = "\xEF\xBB\xBF";
+    write_file( "$root/lib/Marked.pm",
+        $mark . "package Marked;\nsub value { return 1 }\nsub line { return __LINE__ }\n1;\n" );
+    write_file( "$root/mutant.pm",
+        $mark . "package Marked;\nsub value { return 2 }\nsub line { return __LINE__ }\n1;\n" );
+    write_file( "$root/script.pl", "use Marked;\nprint Marked::value(), Marked::line();\n" );
+    is run_perl( root => $root, args => [ '-Ilib', 'script.pl' ] )->{stdout}, '13', 'Perl loads the file with its mark';
+    write_spec( "$root/spec", targets => [ [ "$root/lib/Marked.pm", "$root/mutant.pm" ] ] );
+    my $run = run_perl(
+        root => $root,
+        env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
+        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+    );
+    is $run->{stdout}, '23', 'the mutant runs, and its lines keep their numbers' or diag $run->{stderr};
+};
+
 subtest 'the exit status of the program is preserved' => sub {
     my $root = project();
     write_file( "$root/lib/Foo/Bar.pm", $original );
