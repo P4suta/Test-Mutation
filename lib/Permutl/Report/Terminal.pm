@@ -114,7 +114,10 @@ sub _baseline ($result) {
     my @lines = ('The unmodified run fails, so no mutant ran.');
     for my $failure ( $result->baseline_failures->@* ) {
         push @lines, "  $failure->{test}";
-        push @lines, map { "    $_" } grep { length } split /\n/, $failure->{output} . $failure->{errors};
+
+        # A passing assertion and the plan of a subtest explain no failure, and a test suite has hundreds of them.
+        push @lines, map { "    $_" } grep { length && !/\A\s*ok\b/ && !/\A\s+\d+[.][.]\d+/ } split /\n/,
+          $failure->{output} . $failure->{errors};
     }
     return join "\n", @lines;
 }
@@ -139,6 +142,7 @@ Returns the report as one string.
 The summary counts every status, states the score, and names the number of tests, jobs, and seconds.
 Mutants that survived, had no coverage, timed out, or ended in a runtime error follow, each with its place, its change, and the tests that reached it.
 When the unmodified run fails, the report shows the failing tests with their output in place of the summary.
+The output leaves out the passing assertions.
 C<color> wraps the score in an escape sequence chosen by the C<high> and C<low> percentages, 80 and 60 by default.
 
 =cut

@@ -136,6 +136,20 @@ subtest 'warnings, problems, and baseline failures are reported' => sub {
     unlike $text, qr/^Score:/m,                                               'no score without a measurement';
 };
 
+subtest 'a failing unmodified run shows the lines that explain the failure' => sub {
+    my $output =
+      "ok 1 - loads\n    ok 1 - inner step\n    1..1\nok 2 - a subtest\nnot ok 3 - adds\nok 4 # skip no network\n1..4\n";
+    my $text = Permutl::Report::Terminal::render(
+        result(
+            [], baseline_failures => [ { test => 't/add.t', output => $output, errors => "#   Failed test 'adds'\n" } ]
+        ),
+        color => 0
+    );
+    is $text,
+      "The unmodified run fails, so no mutant ran.\n  t/add.t\n    not ok 3 - adds\n    1..4\n    #   Failed test 'adds'\n",
+      'the passing assertions and the plan of a subtest are left out';
+};
+
 subtest 'color wraps the score when asked' => sub {
     my $plain = Permutl::Report::Terminal::render( result( [ entry('Killed') ] ), color => 0 );
     my $color = Permutl::Report::Terminal::render( result( [ entry('Killed') ] ), color => 1 );
