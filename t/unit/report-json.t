@@ -50,6 +50,15 @@ my $result = Permutl::Result->new(
         ),
         entry( 'Survived',   id => '000000000002', covered_by => ['t/sign.t'], tests_run => 1, duration => 0.5 ),
         entry( 'NoCoverage', id => '000000000003' ),
+        entry(
+            'Timeout',
+            id         => '000000000004',
+            by         => 't/sign.t',
+            reason     => 't/sign.t exceeded its time limit',
+            covered_by => ['t/sign.t'],
+            tests_run  => 1,
+            duration   => 2
+        ),
     ],
     problems          => [],
     warnings          => [],
@@ -74,14 +83,13 @@ subtest 'the document has the required top-level fields' => sub {
 
 subtest 'a file carries its language, source, and mutants' => sub {
     my $file = $document->{files}{'lib/Calc.pm'};
-    is $file->{language}, 'perl',  'language';
-    is $file->{source},   $source, 'source';
-    is [ map { $_->{id} } $file->{mutants}->@* ], [ '000000000001', '000000000002', '000000000003' ],
-      'mutants in order';
+    is $file->{language},                         'perl',                             'language';
+    is $file->{source},                           $source,                            'source';
+    is [ map { $_->{id} } $file->{mutants}->@* ], [ map { "00000000000$_" } 1 .. 4 ], 'mutants in order';
 };
 
 subtest 'a mutant maps to the schema' => sub {
-    my ( $killed, $survived, $uncovered ) = $document->{files}{'lib/Calc.pm'}{mutants}->@*;
+    my ( $killed, $survived, $uncovered, $timeout ) = $document->{files}{'lib/Calc.pm'}{mutants}->@*;
     is $killed,
       {
         id             => '000000000001',
@@ -100,6 +108,7 @@ subtest 'a mutant maps to the schema' => sub {
       },
       'a killed mutant';
     ok !exists $survived->{killedBy},     'a survived mutant has no killing test';
+    ok !exists $timeout->{killedBy},      'the test that ran into the time limit killed nothing';
     ok !exists $survived->{statusReason}, 'an absent reason is left out';
     is $uncovered->{coveredBy}, [], 'an uncovered mutant has no tests';
 };
