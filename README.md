@@ -5,14 +5,13 @@ Mutation testing for Perl that never rewrites a source file.
 ## Installation
 
 ```sh
-mise install
-mise run setup
+cpanm https://github.com/P4suta/permutl.git
 ```
 
 ## Usage
 
 ```sh
-mise x -- perl -Ilib bin/permutl --help
+permutl run
 ```
 
 ## License
