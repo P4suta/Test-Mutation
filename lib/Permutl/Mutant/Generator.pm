@@ -56,12 +56,14 @@ sub _id ( $path, $site, $name, $replacement ) {
 }
 
 sub _suppressed ( $ranges, $line, $name ) {
-    for my $range ( $ranges->@* ) {
-        next     if $line < $range->{first};
-        next     if defined $range->{last} && $line > $range->{last};
-        return 1 if !$range->{names} || grep { $_ eq $name } $range->{names}->@*;
-    }
-    return 0;
+    my @covering = grep { $line >= $_->{first} && ( !defined $_->{last} || $line <= $_->{last} ) } $ranges->@*;
+    return (
+        grep {
+            !$_->{names}
+              || grep { $_ eq $name }
+              $_->{names}->@*
+        } @covering
+    ) ? 1 : 0;
 }
 
 1;

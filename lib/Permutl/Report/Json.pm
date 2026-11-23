@@ -155,7 +155,7 @@ sub parse ($text) {
 # The explanation of the type library walks from the document down to the value that fails.
 # A line names the place of a value, and a line about a key of a hash names the next step.
 sub _place ($explanation) {
-    my $place;
+    my $place = q{$report};
     for my $line ( $explanation->@* ) {
         if    ( $line =~ /[(]in (.+)[)]\z/ ) { $place = $1 }
         elsif ( $line =~ /(?: constrains [ ] value [ ] at | requires ) [ ] key [ ] "([^"]+)"/x ) {
