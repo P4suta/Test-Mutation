@@ -20,6 +20,8 @@ my %CODE_BLOCK_WORD =
   BEGIN END INIT CHECK UNITCHECK);
 my %UNDELETABLE_FIRST_WORD =
   map { $_ => 1 } qw(package class role field method use no my our local state return last next redo goto);
+my %LIST_BLOCK_WORD  = map { $_ => 1 } qw(map grep);
+my %DECLARATION      = map { $_ => 1 } qw(my our state);
 my %OPEN_BLOCK_HEAD  = map { $_ => 1 } qw(ADJUST if unless while until for foreach);
 my %BLOCK_FIRST_HEAD = map { $_ => 1 } qw(finally defer try);
 my %NAMED_BLOCK_HEAD = map { $_ => 1 } qw(class role method sub);
@@ -349,6 +351,9 @@ sub _is_name ($element) {
 
 sub _is_code_block ( $context, $block ) {
     my $parent = $block->parent;
+
+    # PPI reads the braces of a file handle inside the parentheses of print as a bare block.
+    return 0 if $parent->isa('PPI::Statement::Compound') && $parent->parent->isa('PPI::Structure::List');
     return 1 if $parent->isa('PPI::Statement::Compound') || $parent->isa('PPI::Statement::Package');
     return 1 if ref $parent eq 'PPI::Statement' && _segment_of( $context, $parent, $block )->{closes};
     my $previous = $block->sprevious_sibling;
@@ -474,7 +479,13 @@ sub _statement_site ( $context, $segment ) {
     return if !@content;
     return if @content == 1 && ( $content[0]->isa('PPI::Token::Number') || $content[0]->isa('PPI::Token::Quote') );
 
+    # The text of a here-document follows its line, so the removal of the statement leaves that text as code.
+    my @tokens = map { $_->isa('PPI::Token') ? $_ : $_->tokens } @children;
+    return if grep { $_->isa('PPI::Token::HereDoc') } @tokens;
+    return if _is_whole_list_block( $children[0]->parent );
+
     my ( $start, $end ) = _span( $context, _edge_tokens( @children[ 0, -1 ] ) ) or return;
+    return if _declares_for_later( $context, $children[0]->parent, \@tokens, $end );
     my $scope = _segment_scope($segment) or return;
     _add(
         $context,
@@ -484,6 +495,30 @@ sub _statement_site ( $context, $segment ) {
         scope => $scope,
     );
     return;
+}
+
+# Perl reads the empty braces after map or grep as a hash, so the one statement of such a block must stay.
+sub _is_whole_list_block ($statement) {
+    my $block = $statement->parent;
+    return 0 if !$block->isa('PPI::Structure::Block') || $block->schildren != 1;
+    return _is_word( scalar $block->sprevious_sibling, \%LIST_BLOCK_WORD );
+}
+
+# A variable that the statement declares and later code of the block names needs its declaration under strict.
+sub _declares_for_later ( $context, $statement, $tokens, $end ) {
+    my @names = map { $_->content =~ /\A[\$\@%](\w+)\z/ } grep {
+        my $before = $_->sprevious_sibling;
+        $before = $_->parent->parent->sprevious_sibling if !$before && $_->parent->parent->isa('PPI::Structure::List');
+        $_->isa('PPI::Token::Symbol') && _is_word( $before, \%DECLARATION )
+    } $tokens->@*;
+    return 0 if !@names;
+
+    my $block = $statement->parent;
+    $block = $block->parent while !$block->isa('PPI::Structure::Block') && !$block->isa('PPI::Document');
+    my $finish = $block->isa('PPI::Structure::Block') ? $block->finish               : undef;
+    my $limit  = $finish                              ? _offset( $context, $finish ) : undef;
+    my $later  = substr $context->{text}, $end, ( defined $limit ? $limit : length $context->{text} ) - $end;
+    return scalar grep { $later =~ /[\$\@%]\#?\{?\Q$_\E\b/ } @names;
 }
 
 sub _suppressions ($document) {
@@ -535,6 +570,10 @@ PPI joins the code after a method, a C<defer> block, or a C<finally> block to th
 The module splits such a statement at the closing brace, so each part has its own scope and its own sites.
 The name, the version, and the attributes of a class, a field, or a method produce no sites.
 A site in a field or in an C<ADJUST> block is marked as not comparable.
+
+A statement is no statement site when the file does not compile without it.
+That holds for the one statement of a C<map> or C<grep> block, for a statement with a here-document, and for a statement that declares a variable which later code of the block names.
+The braces around a file handle hold no statement.
 
 =head1 FUNCTIONS
 

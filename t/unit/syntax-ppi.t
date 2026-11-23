@@ -204,6 +204,35 @@ PERL
       [ [ ' $a > 1 ', 'if' ], [ '$b', 'elsif' ], [ '$c', 'while' ] ], 'conditions';
 };
 
+subtest 'a statement whose removal breaks the file is not deletable' => sub {
+    my $code = <<'PERL';
+sub f {
+    my ( $fh, @data ) = @_;
+    print( {$fh} map { lc } @data );
+    my @kept = grep { defined && length } @data;
+    my %seen = map { my $key = lc; note($key); ( $key => 1 ) } @kept;
+    open( my $in, '<', $data[0] ) or die;
+    close $in;
+    ( my $name = $data[1] ) =~ s/x/y/;
+    bless \( my $unused = 1 ), 'Flag';
+    push @kept, do { my $inner = 1; note($inner) };
+    my $inner = 2;
+    eval <<'CODE' or die;
+1;
+CODE
+    return $name;
+}
+PERL
+    is [ map { $_->text } sites_of( $code, 'statement' )->@* ],
+      [
+        'print( {$fh} map { lc } @data );',
+        'note($key);', '( $key => 1 )',
+        'close $in;',  q{bless \( my $unused = 1 ), 'Flag';},
+        'note($inner)',
+      ],
+      'no file handle block, no only statement of map or grep, no declaration that later code uses, no here-document';
+};
+
 subtest 'statements that must stay are not deletable' => sub {
     is [ map { $_->text }
           sites_of( "1;\n'done';\nmy \$x = f();\nfield \$y = 1;\nADJUST { f() } method name { g() }\n", 'statement' )
@@ -326,7 +355,7 @@ subtest 'a site that the compiled code leaves out is not comparable' => sub {
     my $code = <<'PERL';
 class Counter {
     field $step = 1 + 1;
-    field @list = map { $_ * 2 } 1 .. 3;
+    field @list = map { note($_); $_ * 2 } 1 .. 3;
     ADJUST {
         setup( 4 - 4 );
     }
@@ -340,7 +369,14 @@ PERL
     is [ map { [ $_->detail->{name}, $_->comparable ] } sites_of( $code, 'sub_body' )->@* ],
       [ [ 'ADJUST', 0 ], [ 'bump', 1 ], [ 'plain', 1 ] ], 'the body of an ADJUST block';
     is [ map { [ $_->text, $_->comparable ] } sites_of( $code, 'statement' )->@* ],
-      [ [ '$_ * 2', 0 ], [ 'setup( 4 - 4 );', 0 ], [ '$step % $by', 1 ], [ 'register( 6 ** 6 );', 1 ], [ '7 x 7', 1 ] ],
+      [
+        [ 'note($_);',           0 ],
+        [ '$_ * 2',              0 ],
+        [ 'setup( 4 - 4 );',     0 ],
+        [ '$step % $by',         1 ],
+        [ 'register( 6 ** 6 );', 1 ],
+        [ '7 x 7',               1 ]
+      ],
       'a statement of a field and of an ADJUST block';
 };
 
