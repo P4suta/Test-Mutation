@@ -50,6 +50,8 @@ subtest 'operators carry a role' => sub {
           sites_of( $versions, 'operator' )->@* ],
       [qw(<5.01 >=5.036 >5.008 ==? <? <? >=?)],
       'an ordering comparison of the version of Perl names its literal';
+    is [ map { $_->text } sites_of( 'f( [ [<$in>] ] );', 'operator' )->@* ], [ '<', '>' ],
+      'the brackets of a read without a neighbor on one side are read without a literal';
 };
 
 subtest 'words carry a role and data words are left out' => sub {

@@ -307,7 +307,7 @@ sub _operator_role ($token) {
 # A comparison of the version of Perl with a literal has one result on each interpreter.
 sub _version_literal ($token) {
     return if !$BOUNDED_COMPARISON{ $token->content };
-    my @sides    = grep { defined } $token->sprevious_sibling, $token->snext_sibling;
+    my @sides    = grep { ref } $token->sprevious_sibling, $token->snext_sibling;
     my ($number) = grep { $_->isa('PPI::Token::Number') && !$_->isa('PPI::Token::Number::Version') } @sides;
     my ($perl)   = grep { $_->content eq '$]' || $_->content eq '"$]"' } @sides;
     my $value    = $number && $perl ? $number->literal : undef;
