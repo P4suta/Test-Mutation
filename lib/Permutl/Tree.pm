@@ -126,6 +126,11 @@ sub _copy_mode ( $source, $target ) {
     return;
 }
 
+sub _below ( $path, $closed ) {
+    my @parts = split m{/}, $path;
+    return scalar grep { $closed->{ join q{/}, @parts[ 0 .. $_ ] } } 0 .. $#parts - 1;
+}
+
 signature_for restore => (
     named   => [ from => Str, to => Str, changes => ArrayRef [Str] ],
     returns => Int,
@@ -136,9 +141,13 @@ sub restore ($arg) {
 
     # A directory sorts before its content, so a removed directory returns before its files.
     my @paths = sort map { s/\A\w+[ ]//r } $arg->changes->@*;
-    my %directory;
+    my ( %directory, %closed );
     for my $path (@paths) {
         my ( $source, $target ) = ( "$from/$path", "$to/$path" );
+
+        # A path below a file, a link, or a gap of the source went with that path, and a link there leads elsewhere.
+        next               if _below( $path, \%closed );
+        $closed{$path} = 1 if !_is_directory($source);
         if ( _is_directory($source) && _is_directory($target) ) {
 
             # A directory that stays may forbid new entries, so its own mode waits for its content.

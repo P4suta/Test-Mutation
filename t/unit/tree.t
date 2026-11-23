@@ -134,6 +134,7 @@ sub project_tree () {
     mkdir "$root/empty" or die "mkdir: $!";
     symlink 'lib/A.pm', "$root/link"    or die "symlink: $!";
     symlink 'lib',      "$root/library" or die "symlink: $!";
+    symlink 'docs',     "$root/mirror"  or die "symlink: $!";
     utime 1_000_000_000, 1_000_000_000, "$root/lib/A.pm" or die "utime: $!";
     return $root;
 }
@@ -183,10 +184,19 @@ subtest 'copy keeps a link as a link and leaves out what is no file' => sub {
 };
 
 subtest 'restore undoes what was created, removed, and changed' => sub {
-    my $master = project_tree();
-    my $slot   = copy_of( $master, skip => [ '.git', '.permutl' ], link => ['local'] );
-    my $before = snapshot($slot);
-    my $wanted = content($slot);
+
+    # The source of the restore holds a link that leads out of it, as a copy of a project does for its modules.
+    my $project  = project_tree();
+    my $original = content($project);
+    my $master   = copy_of( $project, skip => [ '.git', '.permutl' ], link => ['local'] );
+    my $slot     = copy_of($master);
+    my $before   = snapshot($slot);
+    my $wanted   = content($slot);
+
+    # A directory takes the place of that link, with a file that has the name of a file behind the link.
+    unlink "$slot/local" or die "unlink: $!";
+    File::Path::make_path("$slot/local/lib/perl5");
+    tree_file( "$slot/local/lib/perl5/B.pm", "0;\n" );
 
     tree_file( "$slot/stray", 'left behind' );
     File::Path::make_path("$slot/made/deeper");
@@ -199,6 +209,11 @@ subtest 'restore undoes what was created, removed, and changed' => sub {
     chmod oct '700', "$slot/docs" or die "chmod: $!";
     unlink "$slot/library" or die "unlink: $!";
     symlink 'docs', "$slot/library" or die "symlink: $!";
+
+    # A directory takes the place of a link, with a file that has the name of a file behind the link.
+    unlink "$slot/mirror" or die "unlink: $!";
+    mkdir "$slot/mirror"  or die "mkdir: $!";
+    tree_file( "$slot/mirror/guide.txt", 'another text' );
     unlink "$slot/bin/tool" or die "unlink: $!";
     mkdir "$slot/bin/tool"  or die "mkdir: $!";
     tree_file( "$slot/bin/tool/inner", 'x' );
@@ -208,12 +223,13 @@ subtest 'restore undoes what was created, removed, and changed' => sub {
     symlink 'elsewhere', "$slot/link" or die "symlink: $!";
 
     my $changes = Permutl::Tree::changes( $before, snapshot($slot) );
-    is scalar $changes->@*,                                                         17, 'the changes of the trial';
-    is Permutl::Tree::restore( from => $master, to => $slot, changes => $changes ), 17, 'one restored path for each';
+    is scalar $changes->@*,                                                         23, 'the changes of the trial';
+    is Permutl::Tree::restore( from => $master, to => $slot, changes => $changes ), 23, 'one restored path for each';
     is content($slot),                                                              $wanted, 'the tree is as it was';
     is [ grep { !/\Achanged / } Permutl::Tree::changes( $before, snapshot($slot) )->@* ], [],
       'and no path is missing or left over';
     is Permutl::Tree::restore( from => $master, to => $slot, changes => [] ), 0, 'no change, no work';
+    is content($project), $original, 'and the tree behind the link keeps every file';
 };
 
 subtest 'remove takes a tree away, whatever rights its directories give' => sub {
