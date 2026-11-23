@@ -18,4 +18,14 @@ subtest 'due tells when a line belongs in a log' => sub {
     ok Permutl::Report::Progress::due( 1234, 1234 ), 'the last mutant';
 };
 
+subtest 'update gives the text for a terminal or for a log' => sub {
+    my $update =
+      sub ( $done, $in_place ) { Permutl::Report::Progress::update( $done, 30, { Killed => $done }, $in_place ) };
+    is $update->( 4,  1 ), "\r[ 4/30] 4 killed",    'a terminal overwrites its line';
+    is $update->( 30, 1 ), "\r[30/30] 30 killed\n", 'and ends the line after the last mutant';
+    is $update->( 4,  0 ), q{},                     'a log skips a mutant between two steps';
+    is $update->( 6,  0 ), "[ 6/30] 6 killed\n",    'and gets a line at a step';
+    is $update->( 30, 0 ), "[30/30] 30 killed\n",   'and at the last mutant';
+};
+
 done_testing;
