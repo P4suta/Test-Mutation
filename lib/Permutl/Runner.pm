@@ -5,6 +5,7 @@ use Digest::SHA     ();
 use File::Find      ();
 use File::Path      ();
 use File::Temp      ();
+use List::Util      ();
 use Time::HiRes     ();
 use Types::Standard qw(ArrayRef CodeRef Dict HashRef InstanceOf Int Str Tuple);
 use Type::Params    qw(signature_for);
@@ -96,7 +97,7 @@ sub run ( $config, $listener ) {
         jobs     => $config->jobs,
         sequence => 0,
         taint    => {},
-        warnings => [],
+        warnings => {},
     };
     $listener->( 'analyzed',
         { mutants => scalar(@active), files => scalar( keys %targets ), tests => scalar(@tests) } );
@@ -107,7 +108,6 @@ sub run ( $config, $listener ) {
         tests             => [],
         entries           => [],
         problems          => $analysis->{problems},
-        warnings          => $run->{warnings},
         baseline_failures => [],
         parallel_safe     => 1,
         shard             => $config->shard,
@@ -135,13 +135,15 @@ sub run ( $config, $listener ) {
         die $error                              if !$measured;            ## no critic (ErrorHandling::RequireCarping)
     }
     else {
-        push $run->{warnings}->@*, 'no test files match' if @active && !@tests;
-        $result{entries} = [ map { _entry( $_, $_->suppressed ? 'Ignored' : 'NoCoverage', undef, undef, [], 0, 0 ) }
+        _warn( $run, 'no test files match' ) if @active && !@tests;
+        $result{entries} =
+          [ map { $_->suppressed ? _suppressed($_) : _entry( $_, 'NoCoverage', undef, undef, [], 0, 0 ) }
               $analysis->{mutants}->@* ];
     }
 
     return Permutl::Result->new(
         %result,
+        warnings    => [ sort keys $run->{warnings}->%* ],
         jobs        => $run->{jobs},
         interrupted => $run->{interrupted},
         reused      => $run->{reused} || 0,
@@ -174,6 +176,16 @@ sub _entry ( $mutant, $status, $reason, $by, $covered_by, $tests_run, $duration 
         tests_run  => $tests_run,
         duration   => $duration,
     };
+}
+
+sub _suppressed ($mutant) {
+    return _entry( $mutant, 'Ignored', 'suppressed by a comment', undef, [], 0, 0 );
+}
+
+# Tasks end in an order that changes from run to run, so the warnings form a set that the result sorts.
+sub _warn ( $run, $text ) {
+    $run->{warnings}{$text} = 1;
+    return;
 }
 
 sub _prepare_work ($run) {
@@ -381,8 +393,7 @@ sub _baseline ( $run, $tests, $targets ) {
         if ( !@failed ) {
             $parallel_safe = 0;
             $run->{jobs} = 1;
-            push $run->{warnings}->@*,
-              'the tests fail when they run side by side, so the mutants run one test at a time';
+            _warn( $run, 'the tests fail when they run side by side, so the mutants run one test at a time' );
         }
     }
 
@@ -395,7 +406,7 @@ sub _baseline ( $run, $tests, $targets ) {
             $files{$path} = $record->{served}{$absolute} if $record->{served}{$absolute};
             my $lines = $record->{breakable}{$absolute};
             $breakable{$path} = { ( $breakable{$path} ? $breakable{$path}->%* : () ), $lines->%* } if $lines;
-            push $run->{warnings}->@*, "$test loads $path around the hook and cannot detect its mutants"
+            _warn( $run, "$test loads $path around the hook and cannot detect its mutants" )
               if $record->{bypassed}{$absolute};
         }
         $tests{$test} = { duration => $result->{duration}, files => \%files, early => $result->{early} };
@@ -419,35 +430,31 @@ sub _mutants ( $run, $mutants, $baseline ) {
     );
 
     my $cache = $config->cache ? _open_cache( $run, $baseline ) : undef;
-    my ( @entries, @jobs );
+
+    # Each mutant has one entry under its identifier, so the result keeps the order of the analysis.
+    my ( %entry_of, @jobs );
     for my $mutant ( $mutants->@* ) {
         if ( $mutant->suppressed ) {
-            push @entries, _entry( $mutant, 'Ignored', 'suppressed by a comment', undef, [], 0, 0 );
+            $entry_of{ $mutant->id } = _suppressed($mutant);
             next;
         }
         my $tests = $coverage->tests_for($mutant);
         my $job =
           { mutant => $mutant, tests => $tests, index => 0, verdict => Permutl::Verdict::start(), duration => 0 };
-        my $reused = $cache && $tests->@* ? _reused_entry( $run, $cache, $job ) : undef;
-        if ($reused) {
-            push @entries, $reused;
-            next;
-        }
-        push @jobs, $job;
+        $entry_of{ $mutant->id } = _reused_entry( $run, $cache, $job ) if $cache && $tests->@*;
+        push @jobs, $job if !$entry_of{ $mutant->id };
     }
 
-    $run->{syntax_of_original} = {};
-    my %unfinished = map { $_->{mutant}->id => $_ } @jobs;
-    my $finish     = sub ($job) {
-        delete $unfinished{ $job->{mutant}->id };
-        push @entries, _finish( $run, $job );
+    my @waiting = @jobs;
+    my $finish  = sub ($job) {
+        $entry_of{ $job->{mutant}->id } = _finish( $run, $job );
         return;
     };
     my $completed = eval {
         Permutl::Pool::run(
             jobs => $run->{jobs},
             next => sub {
-                while ( my $job = shift @jobs ) {
+                while ( my $job = shift @waiting ) {
                     my $task = $job->{tests}->@* ? _next_test( $run, $job, $baseline ) : _next_code( $run, $job );
                     return $task if $task;
                     $finish->($job);
@@ -462,22 +469,21 @@ sub _mutants ( $run, $mutants, $baseline ) {
     };
     if ( !$completed ) {
         my $error = $@;
-        die $error if !ref $error || !$error->isa('Permutl::Interrupted');    ## no critic (ErrorHandling::RequireCarping)
+        die $error if !eval { $error->isa('Permutl::Interrupted') };    ## no critic (ErrorHandling::RequireCarping)
         $run->{interrupted} = $error->signal;
-        push @entries, map {
-            _entry(
-                $_->{mutant}, 'Pending',   'the run was interrupted',
-                undef,        $_->{tests}, $_->{verdict}{tests},
-                $_->{duration}
-            )
-        } values %unfinished;
+        for my $job ( grep { !$entry_of{ $_->{mutant}->id } } @jobs ) {
+            $entry_of{ $job->{mutant}->id } = _entry(
+                $job->{mutant}, 'Pending',     'the run was interrupted',
+                undef,          $job->{tests}, $job->{verdict}{tests},
+                $job->{duration}
+            );
+        }
     }
 
-    my %order  = map  { $mutants->[$_]->id => $_ } 0 .. $mutants->$#*;
-    my @sorted = sort { $order{ $a->{mutant}->id } <=> $order{ $b->{mutant}->id } } @entries;
-    _save_cache( $run, $cache, \@sorted ) if $cache;
-    _ignore_repeated_code( $run, \@sorted );
-    return \@sorted;
+    my @entries = map { $entry_of{ $_->id } } $mutants->@*;
+    _save_cache( $run, $cache, \@entries ) if $cache;
+    _ignore_repeated_code( $run, \@entries );
+    return \@entries;
 }
 
 sub _after_task ( $run, $baseline, $task, $result ) {
@@ -504,20 +510,20 @@ sub _support_files ( $run, $tracked ) {
         my ($top) = split m{/}, $path;
         $directory{$top} = 1 if $top ne $path;
     }
-    my @files;
+    my %found;
     for my $directory ( sort keys %directory ) {
         File::Find::find(
             {
                 no_chdir => 1,
                 wanted   => sub {
                     my $relative = substr $File::Find::name, 1 + length $run->{root};
-                    push @files, $relative if -f $File::Find::name && !$tracked{$relative};
+                    $found{$relative} = 1 if -f $File::Find::name && !$tracked{$relative};
                 },
             },
             "$run->{root}/$directory",
         );
     }
-    my @ordered = sort @files;
+    my @ordered = sort keys %found;
     return @ordered;
 }
 
@@ -604,12 +610,12 @@ sub _next_code ( $run, $job ) {
     my $mutant = $job->{mutant};
     my $path   = $mutant->path;
     $job->@{qw(file spec)} = _write_mutant( $run, $run->{sources}{$path}, $mutant ) if !defined $job->{spec};
-    my $known = $run->{code_of_original}{$path} ||= [];
-    return _compile_task( $run, $job, 'code-original', "$run->{root}/$path", '-MO=Deparse' ) if $known->@* < 2;
-    if ( !length $known->[0] || $known->[0] ne $known->[1] ) {
-        push $run->{warnings}->@*,
-          "$path: B::Deparse gives no stable output, so the run compares no compiled code of the file"
-          if !$run->{code_warned}{$path}++;
+
+    # Two runs of the original show whether its compiled code has a stable text.
+    my ( $once, $again ) = ( $run->{code_of_original}{$path} ||= [] )->@*;
+    return _compile_task( $run, $job, 'code-original', "$run->{root}/$path", '-MO=Deparse' ) if !defined $again;
+    if ( !length $once || $once ne $again ) {
+        _warn( $run, "$path: B::Deparse gives no stable output, so the run compares no compiled code of the file" );
         return;
     }
     return _compile_task( $run, $job, 'code-mutant', $job->{file}, '-MO=Deparse' );
@@ -645,9 +651,9 @@ sub _after_test ( $run, $task, $result ) {
     };
     return if !$job->{outcome}{served} || !$job->{outcome}{load_failed} || defined $job->{syntax_ok};
 
-    my $known = $run->{syntax_of_original};
-    return _compile_task( $run, $job, 'syntax-original', $absolute,    '-c' ) if !exists $known->{$path};
-    return _compile_task( $run, $job, 'syntax-mutant',   $job->{file}, '-c' ) if $known->{$path};
+    my $known = $run->{syntax_of_original}{$path};
+    return _compile_task( $run, $job, 'syntax-original', $absolute,    '-c' ) if !defined $known;
+    return _compile_task( $run, $job, 'syntax-mutant',   $job->{file}, '-c' ) if $known;
     $job->{outcome}{syntax_ok} = $job->{syntax_ok} = 0;
     return;
 }
@@ -660,8 +666,7 @@ sub _after_syntax ( $run, $task, $result ) {
     if ( $task->{payload}{kind} eq 'syntax-original' ) {
         $run->{syntax_of_original}{$path} = $ok;
         return _compile_task( $run, $job, 'syntax-mutant', $job->{file}, '-c' ) if $ok;
-        push $run->{warnings}->@*,
-          "$path does not pass a standalone syntax check, so its load failures count as compile errors";
+        _warn( $run, "$path does not pass a standalone syntax check, so its load failures count as compile errors" );
     }
     $job->{outcome}{syntax_ok} = $job->{syntax_ok} = $ok;
     return;
@@ -679,8 +684,8 @@ sub _next_test ( $run, $job, $baseline ) {
         $run,
         test            => $test,
         spec            => $job->{spec},
-        timeout         => $duration > $config->timeout_floor ? $duration : $config->timeout_floor,
-        stop_on_failure => $baseline->{tests}{$test}{early}   ? 0         : 1,
+        timeout         => List::Util::max( $duration, $config->timeout_floor ),
+        stop_on_failure => $baseline->{tests}{$test}{early} ? 0 : 1,
         payload         => { kind => 'test', job => $job },
     );
 }

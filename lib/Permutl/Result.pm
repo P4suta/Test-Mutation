@@ -89,7 +89,7 @@ The source files that were left out, with the reason.
 
 =head2 warnings
 
-Conditions that weaken the measurement without stopping it.
+Conditions that weaken the measurement without stopping it, each once and in the order of their text.
 
 =head2 baseline_failures
 
