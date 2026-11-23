@@ -82,28 +82,99 @@ package Outer::Inner {
 }
 package Outer::Versioned 1.2 {
     sub twice ($x) { return $x * 2 }
+    register(4);
 }
 package Outer::Plain;
 sub minus ($x) { return $x - 3 }
 PERL
     is [ map { [ $_->kind, $_->text, $_->scope ] } grep { $_->kind ne 'word' } analyze($code)->{sites}->@* ],
       [
-        [ 'sub_body',  ' return $x + 1 ',    [ 2, 2 ] ],
-        [ 'return',    '$x + 1',             [ 2, 2 ] ],
-        [ 'operator',  q{+},                 [ 2, 2 ] ],
-        [ 'number',    '1',                  [ 2, 2 ] ],
-        [ 'statement', q{log_it('loaded');}, [ 3, 3 ] ],
-        [ 'string',    q{'loaded'},          [ 3, 3 ] ],
-        [ 'sub_body',  ' return $x * 2 ',    [ 6, 6 ] ],
-        [ 'return',    '$x * 2',             [ 6, 6 ] ],
-        [ 'operator',  q{*},                 [ 6, 6 ] ],
-        [ 'number',    '2',                  [ 6, 6 ] ],
-        [ 'sub_body',  ' return $x - 3 ',    [ 9, 9 ] ],
-        [ 'return',    '$x - 3',             [ 9, 9 ] ],
-        [ 'operator',  q{-},                 [ 9, 9 ] ],
-        [ 'number',    '3',                  [ 9, 9 ] ],
+        [ 'sub_body',  ' return $x + 1 ',    [ 2,  2 ] ],
+        [ 'return',    '$x + 1',             [ 2,  2 ] ],
+        [ 'operator',  q{+},                 [ 2,  2 ] ],
+        [ 'number',    '1',                  [ 2,  2 ] ],
+        [ 'statement', q{log_it('loaded');}, [ 3,  3 ] ],
+        [ 'string',    q{'loaded'},          [ 3,  3 ] ],
+        [ 'sub_body',  ' return $x * 2 ',    [ 6,  6 ] ],
+        [ 'return',    '$x * 2',             [ 6,  6 ] ],
+        [ 'operator',  q{*},                 [ 6,  6 ] ],
+        [ 'number',    '2',                  [ 6,  6 ] ],
+        [ 'statement', 'register(4);',       [ 7,  7 ] ],
+        [ 'number',    '4',                  [ 7,  7 ] ],
+        [ 'sub_body',  ' return $x - 3 ',    [ 10, 10 ] ],
+        [ 'return',    '$x - 3',             [ 10, 10 ] ],
+        [ 'operator',  q{-},                 [ 10, 10 ] ],
+        [ 'number',    '3',                  [ 10, 10 ] ],
       ],
       'the bodies of two package blocks and the code after a package statement, without the names and the version';
+};
+
+subtest 'a call of a function with the name of a declaration is no declaration' => sub {
+    my $code = q{class 'Name' => 1 + 2; method foo => sub { g() }; sub { f() }->();};
+    is sites_of( $code, 'sub_body' ), [], 'no body site';
+    is [ map { $_->text } sites_of( $code, 'statement' )->@* ], [ 'g()', 'f()' ],
+      'the blocks of the anonymous subs hold statements';
+    is [ map { $_->text } grep { $_->role eq 'binary' } sites_of( $code, 'operator' )->@* ], [ '=>', q{+}, '=>', '->' ],
+      'the arguments keep their sites';
+};
+
+subtest 'a lone word with the name of a declaration is analyzed without an error' => sub {
+    is [ map { analyze($_)->{problem} } 'class', 'method', 'sub', 'finally', 'ADJUST', 'field' ], [ (undef) x 6 ],
+      'no problem and no exception';
+};
+
+subtest 'unary operators and operators after a word' => sub {
+    is summary( 'my $z = ~$y; my $r = \$y; my $n = not $y; my $t = time - $x;', 'operator' ),
+      [
+        [ q{=},  'binary' ],
+        [ q{~},  'unary' ],
+        [ q{=},  'binary' ],
+        [ q{=},  'binary' ],
+        [ 'not', 'unary' ],
+        [ q{=},  'binary' ],
+        [ q{-},  'binary' ],
+      ],
+      'complement and not are unary, a reference is no operator, and a minus after a function name is binary';
+};
+
+subtest 'a word with an argument or inside a list is a call' => sub {
+    is summary( '$h{ lc $key }; f(shift); my @l = (pop);', 'word' ),
+      [ [ 'lc', 'call' ], [ 'f', 'call' ], [ 'shift', 'call' ], [ 'pop', 'call' ] ],
+      'a call inside a subscript, and a lone word inside parentheses';
+};
+
+subtest 'the parts of a pattern after an assertion that is no anchor' => sub {
+    is summary( '$x =~ /\bfoo$/i;', 'regex' ), [ [ q{$}, 'anchor' ], [ 'i', 'flag' ] ],
+      'a word boundary is no site, and the anchor and the flag after it are';
+};
+
+subtest 'blocks that hold code and blocks that hold data' => sub {
+    my $code = join "\n", 'my @a = @{ list() };', 'sub attributed :lvalue { h() }', 'my $f = sub ($x) { g($x) };',
+      'frobnicate { k() } 1;', 'print {*STDERR} l();', q{};
+    is [ map { $_->text } sites_of( $code, 'statement' )->@* ], [ 'h()', 'g($x)' ],
+      'a sub with an attribute or a signature holds statements, and a dereference, a block after an unknown word, and a file handle block do not';
+};
+
+subtest 'a token whose reported place holds other text yields no site' => sub {
+    my $reported = \&PPI::Element::location;
+    my $code     = "if (\$a) { f(1) }\nif (\$b) { f(1) + 3; }\nif (\$a + 2) { }\n";
+    my $sites    = do {
+        no warnings 'redefine';
+        local *PPI::Element::location = sub ($self) {
+            my $place = $reported->($self) or return;
+            return [ 1, $place->@[ 1 .. $place->$#* ] ];
+        };
+        analyze($code)->{sites};
+    };
+    is [ map { [ $_->kind, $_->text ] } $sites->@* ],
+      [
+        ( [ 'word',      'if' ] ) x 3,
+        ( [ 'condition', '$a' ] ) x 2,
+        ( [ 'word',      'f' ] ) x 2,
+        [ 'statement', 'f(1)' ],
+        ( [ 'number', '1' ] ) x 2,
+      ],
+      'a span stays when both of its ends hold the reported text, and it is dropped when one end does not';
 };
 
 subtest 'structural sites' => sub {
@@ -375,11 +446,44 @@ subtest 'suppression comments become line ranges' => sub {
         { first => 6, last => undef, names => undef },
       ],
       'trailing, bounded, and open-ended ranges';
+
+    my $mixed = join "\n", '# a plain comment', '## no mutate', 'my $a = 1;', '## use mutate',
+      'my $b = 2;    ## no mutate', '## use mutate', q{};
+    is analyze($mixed)->{suppressions},
+      [ { first => 2, last => 4, names => undef }, { first => 5, last => 5, names => undef } ],
+      'a plain comment before, a range in source order after, and a second end that moves nothing';
 };
 
 subtest 'files that cannot be analyzed report a problem' => sub {
     like analyze("my \$x = 1;\r\n")->{problem}, qr/carriage returns/, 'carriage returns';
     is analyze("my \$x = 1;\r\n")->{sites}, [], 'no sites';
+    is analyze("my \$x = 1;\x0bmy \$y = 2;\n"),
+      {
+        sites        => [],
+        suppressions => [],
+        problem      => q{PPI cannot parse the file: Lexer failed: Encountered unexpected character '11'}
+      },
+      'a character that PPI rejects, with the reason of PPI';
+
+    my $unfaithful = do {
+        no warnings 'redefine';
+        local *PPI::Document::serialize = sub { return 'other text' };
+        analyze("my \$x = 1 + 2;\n");
+    };
+    is $unfaithful, { sites => [], suppressions => [], problem => 'PPI does not reproduce the file' },
+      'a document that does not serialize to the text it came from';
+};
+
+subtest 'a byte order mark before the first line moves no site' => sub {
+    my $code     = "\x{feff}my \$a = 1 + 2;\nmy \$b = 3 - 4;\n";
+    my $analysis = analyze($code);
+    is $analysis->{problem}, undef, 'the file is analyzed';
+    is [
+        map  { [ $_->text, $_->start, substr $code, $_->start, $_->end - $_->start ] }
+        grep { $_->role eq 'binary' } $analysis->{sites}->@*
+      ],
+      [ [ q{=}, 7, q{=} ], [ q{+}, 11, q{+} ], [ q{=}, 22, q{=} ], [ q{-}, 26, q{-} ] ],
+      'each site addresses its own text in the file with the mark';
 };
 
 done_testing;

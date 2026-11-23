@@ -38,8 +38,9 @@ my %TIGHTER_THAN_SUM     = ( %TIGHTER_THAN_PRODUCT, map { $_ => 1 } qw(* / % x) 
 my %BINDS_TIGHTER_THAN =
   ( ( map { $_ => \%TIGHTER_THAN_SUM } qw(+ -) ), ( map { $_ => \%TIGHTER_THAN_PRODUCT } qw(* / % **) ), );
 
-my @REGEX_TOKEN = qw(PPI::Token::Regexp::Match PPI::Token::Regexp::Substitute PPI::Token::QuoteLike::Regexp);
-my %REGEX_ROLE  = (
+my @BEFORE_A_SUB_BODY = qw(PPI::Structure::List PPI::Structure::Signature PPI::Token::Prototype PPI::Token::Attribute);
+my @REGEX_TOKEN       = qw(PPI::Token::Regexp::Match PPI::Token::Regexp::Substitute PPI::Token::QuoteLike::Regexp);
+my %REGEX_ROLE        = (
     'PPIx::Regexp::Token::Assertion'  => 'anchor',
     'PPIx::Regexp::Token::Quantifier' => 'quantifier',
     'PPIx::Regexp::Token::Modifier'   => 'flag',
@@ -61,13 +62,17 @@ sub analyze ($source) {
     my $text = $source->text;
     return _problem('the file has carriage returns') if $text =~ /\r/;
 
-    my $copy     = $text;
+    # Perl skips a byte order mark and PPI rejects it, so the parser reads the text after the mark.
+    my $mark     = $text =~ /\A\x{feff}/ ? 1 : 0;
+    my $copy     = substr $text, $mark;
     my $document = PPI::Document->new( \$copy );
-    return _problem( 'PPI cannot parse the file: ' . ( PPI::Document->errstr // 'unknown error' ) ) if !$document;
-    return _problem('PPI does not reproduce the file') if $document->serialize ne $text;
+    if ( !$document ) {
+        my $reason = PPI::Document->errstr;
+        return _problem( 'PPI cannot parse the file: ' . ( defined $reason ? $reason : 'unknown error' ) );
+    }
+    return _problem('PPI does not reproduce the file') if $document->serialize ne substr $text, $mark;
 
-    $document->index_locations;
-    my $context = { source => $source, text => $text, scopes => {}, sites => [] };
+    my $context = { source => $source, text => $text, mark => $mark, scopes => {}, sites => [] };
     _visit( $context, $document, 0 );
     my @sites = sort { $a->start <=> $b->start || $a->end <=> $b->end } $context->{sites}->@*;
     return { sites => \@sites, suppressions => _suppressions($document), problem => undef };
@@ -117,22 +122,12 @@ sub _visit_segments ( $context, $statement, $excluded ) {
 sub _header ($segment) {
     my ( $head, @rest ) = $segment->{children}->@*;
     if ( $segment->{closes} && _is_word( $head, \%NAMED_BLOCK_HEAD ) ) {
-        return grep { !$_->isa('PPI::Structure::Block') } @rest
-          if $head->content eq 'class' || $head->content eq 'role';
-        my @header;
-        for my $child (@rest) {
-            last if $child->isa('PPI::Structure');
-            push @header, $child;
-        }
-        return @header;
+        my $kept = _is_word( $head, { class => 1, role => 1 } ) ? 'PPI::Structure::Block' : 'PPI::Structure';
+        return grep { !$_->isa($kept) } @rest;
     }
     return if !_is_word( $head, { field => 1 } );
-    my @attributes;
-    for my $child ( @rest[ 1 .. $#rest ] ) {
-        last if _is_semicolon($child) || _is_operator( $child, q{=}, '//=', '||=' );
-        push @attributes, $child;
-    }
-    return @attributes;
+    my ($stop) = grep { _is_semicolon( $rest[$_] ) || _is_operator( $rest[$_], q{=}, '//=', '||=' ) } 1 .. $#rest;
+    return @rest[ 1 .. ( defined $stop ? $stop : scalar @rest ) - 1 ];
 }
 
 sub _is_word ( $element, $words ) {
@@ -140,24 +135,21 @@ sub _is_word ( $element, $words ) {
 }
 
 sub _is_semicolon ($element) {
-    return $element->isa('PPI::Token::Structure') && $element->content eq q{;} ? 1 : 0;
+    return $element->isa('PPI::Token::Structure') ? 1 : 0;
 }
 
 sub _ends_at_block ( $head, $next, $after ) {
-    return 0                                           if !$next;
-    return 1                                           if _is_word( $head,  \%OPEN_BLOCK_HEAD );
-    return $next->isa('PPI::Structure::Block') ? 1 : 0 if _is_word( $head,  \%BLOCK_FIRST_HEAD );
-    return 0                                           if !_is_word( $head, \%NAMED_BLOCK_HEAD );
+    return 1                                                    if _is_word( $head,  \%OPEN_BLOCK_HEAD );
+    return $next && $next->isa('PPI::Structure::Block') ? 1 : 0 if _is_word( $head,  \%BLOCK_FIRST_HEAD );
+    return 0                                                    if !_is_word( $head, \%NAMED_BLOCK_HEAD );
 
     # PPI reads a name before an attribute, as in "method name :lvalue", as a label.
-    return 1 if $next->isa('PPI::Token::Label');
+    return 1 if $next && $next->isa('PPI::Token::Label');
     return _is_name($next) && !_is_operator( $after, '=>', q{,} ) ? 1 : 0;
 }
 
 # PPI ends a statement it does not know, such as a method or a defer block, at the next semicolon.
 sub _segments ( $context, $statement ) {
-    my $key = refaddr $statement;
-    return $context->{segments}{$key} if $context->{segments}{$key};
     my @children = $statement->schildren;
     my @segments;
     while (@children) {
@@ -166,18 +158,16 @@ sub _segments ( $context, $statement ) {
         my $closes = _ends_at_block( $part[0], $next, $after );
         while (@children) {
             push @part, shift @children;
-            last if _is_semicolon( $part[-1] );
             last if $closes && $part[-1]->isa('PPI::Structure::Block') && !_is_word( $children[0], \%CONTINUATION );
         }
         my $segment = { children => \@part, closes => $closes };
         $context->{segment_of}{ refaddr $_ } = $segment for @part;
         push @segments, $segment;
     }
-    return $context->{segments}{$key} = \@segments;
+    return \@segments;
 }
 
 sub _segment_of ( $context, $statement, $element ) {
-    _segments( $context, $statement );
     my $child = $element;
     while ( my $parent = $child->parent ) {
         return $context->{segment_of}{ refaddr $child } if refaddr($parent) == refaddr $statement;
@@ -187,10 +177,7 @@ sub _segment_of ( $context, $statement, $element ) {
 }
 
 sub _segment_scope ($segment) {
-    if ( !exists $segment->{scope} ) {
-        my ( $first, $last ) = map { $_->location } _edge_tokens( $segment->{children}->@[ 0, -1 ] );
-        $segment->{scope} = $first && $last ? [ $first->[0], $last->[0] ] : undef;
-    }
+    $segment->{scope} ||= [ map { $_->location->[0] } _edge_tokens( $segment->{children}->@[ 0, -1 ] ) ];
     return $segment->{scope};
 }
 
@@ -214,7 +201,8 @@ sub _holds_version (@children) {
 sub _offset ( $context, $token ) {
     my $location = $token->location or return;
     my $offset   = $context->{source}->offset_of( $location->[0], $location->[1] );
-    my $content  = $token->content;
+    $offset += $context->{mark} if $location->[0] == 1;
+    my $content = $token->content;
     return if substr( $context->{text}, $offset, length $content ) ne $content;
     return $offset;
 }
@@ -249,9 +237,8 @@ sub _regex_sites ( $context, $token ) {
         $offset += length $text;
         my $role = $REGEX_ROLE{ ref $part } or next;
         if ( $role eq 'flag' ) {
-            my $index = index $text, 'i';
-            next if $index < 0 || $text !~ /\A[[:alpha:]]+\z/;
-            ( $from, $text ) = ( $from + $index, 'i' );
+            my ($before) = $text =~ /\A([[:alpha:]]*?)i[[:alpha:]]*\z/ or next;
+            ( $from, $text ) = ( $from + length $before, 'i' );
         }
         next if $role eq 'anchor' && !$ANCHOR{$text};
         _add( $context, kind => 'regex', start => $from, end => $from + length $text, role => $role, scope => $scope );
@@ -310,7 +297,7 @@ sub _operator_role ($token) {
       || ( $previous->isa('PPI::Token::Operator') && $previous->content ne '++' && $previous->content ne '--' )
       || ( $previous->isa('PPI::Token::Word') && $UNARY_AFTER{ $previous->content } );
     return ( 'unary',  {} ) if $unary && ( $content eq '-' || $content eq '+' );
-    return ( 'unary',  {} ) if $content eq '!' || $content eq '~' || $content eq '\\' || $content eq 'not';
+    return ( 'unary',  {} ) if $content eq '!' || $content eq '~' || $content eq 'not';
     return ( 'binary', _right_number($token) );
 }
 
@@ -337,9 +324,7 @@ sub _word_role ( $context, $token ) {
     my $heads   = $segment && refaddr( $segment->{children}[0] ) == refaddr $token;
     my $leads   = !$previous || $previous->isa('PPI::Token::Label') || $heads;
     if ( $CONDITIONAL{$content} ) {
-        return 'compound' if $leads && ( $heads || $parent->isa('PPI::Statement::Compound') );
-        return 'modifier' if !$leads;
-        return q{};
+        return $leads ? 'compound' : 'modifier';
     }
     return 'control' if $LOOP_CONTROL{$content} && $leads && ( $heads || $parent->isa('PPI::Statement::Break') );
     return q{}       if $NEVER_A_CALL{$content} || $LOOP_CONTROL{$content};
@@ -359,23 +344,18 @@ sub _is_data_word ( $previous, $next, $parent ) {
 }
 
 sub _is_name ($element) {
-    return $element->isa('PPI::Token::Word') || ( $element->isa('PPI::Token::Operator') && $element->content eq 'x' );
+    return $element && ( $element->isa('PPI::Token::Word') || $element->content eq 'x' ) ? 1 : 0;
 }
 
 sub _is_code_block ( $context, $block ) {
     my $parent = $block->parent;
-    return 1
-      if $parent->isa('PPI::Statement::Compound')
-      || $parent->isa('PPI::Statement::Sub')
-      || $parent->isa('PPI::Statement::Package');
+    return 1 if $parent->isa('PPI::Statement::Compound') || $parent->isa('PPI::Statement::Package');
     return 1 if ref $parent eq 'PPI::Statement' && _segment_of( $context, $parent, $block )->{closes};
     my $previous = $block->sprevious_sibling;
-    return 1 if !$previous;
-    return 1 if $previous->isa('PPI::Structure::List') || $previous->isa('PPI::Structure::Signature');
+    return 1 if $previous && grep { $previous->isa($_) } @BEFORE_A_SUB_BODY;
     return 0 if !_is_name($previous);
     return 1 if $CODE_BLOCK_WORD{ $previous->content };
-    my $before = $previous->sprevious_sibling;
-    return $before && $before->isa('PPI::Token::Word') && $DECLARATOR{ $before->content } ? 1 : 0;
+    return _is_word( scalar $previous->sprevious_sibling, \%DECLARATOR );
 }
 
 sub _running_statement ( $context, $element ) {
@@ -397,11 +377,7 @@ sub _scope ( $context, $element ) {
     my $segment   = ref $statement eq 'PPI::Statement' ? _segment_of( $context, $statement, $element ) : undef;
     return _segment_scope($segment) if $segment;
     my $key = refaddr $statement;
-    if ( !exists $context->{scopes}{$key} ) {
-        my $first = $statement->first_token->location;
-        my $last  = $statement->last_token->location;
-        $context->{scopes}{$key} = $first && $last ? [ $first->[0], $last->[0] ] : undef;
-    }
+    $context->{scopes}{$key} ||= [ map { $_->location->[0] } $statement->first_token, $statement->last_token ];
     return $context->{scopes}{$key};
 }
 
@@ -410,7 +386,8 @@ sub _structure_sites ( $context, $node ) {
     return                             if !$node->isa('PPI::Statement');
     if ( $node->isa('PPI::Statement::Sub') && !$node->isa('PPI::Statement::Scheduled') ) {
         my $block = $node->block;
-        _add_body( $context, $block, $node->name // q{}, $node->first_token ) if $block;
+        my $name  = $node->name;
+        _add_body( $context, $block, defined $name ? $name : q{}, $node->first_token ) if $block;
     }
     _return_site( $context, scalar _scope( $context, $node ), $node->schildren ) if $node->isa('PPI::Statement::Break');
     return;
