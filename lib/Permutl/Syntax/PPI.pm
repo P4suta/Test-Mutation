@@ -85,7 +85,10 @@ sub _visit ( $context, $element, $excluded ) {
     return _visit_segments( $context, $element, $excluded ) if ref $element eq 'PPI::Statement';
     my $skip = $excluded || _excluded($element);
     _structure_sites( $context, $element ) if !$skip;
-    _visit( $context, $_, $skip ) for $element->children;
+
+    # The name and the version of a package hold no behavior, and its block holds ordinary code.
+    my $package = $element->isa('PPI::Statement::Package');
+    _visit( $context, $_, $skip || ( $package && !$_->isa('PPI::Structure::Block') ) ) for $element->children;
     return;
 }
 
@@ -199,11 +202,7 @@ sub _edge_tokens ( $first, $last ) {
 }
 
 sub _excluded ($node) {
-    return 1
-      if $node->isa('PPI::Statement::Include')
-      || $node->isa('PPI::Statement::Package')
-      || $node->isa('PPI::Statement::End')
-      || $node->isa('PPI::Statement::Data');
+    return 1 if $node->isa('PPI::Statement::Include');
     return 0 if !$node->isa('PPI::Statement');
     return _holds_version( $node->schildren );
 }
@@ -266,6 +265,7 @@ sub _token_site ( $context, $token ) {
         $token->isa('PPI::Token::Operator')        ? 'operator'
       : $token->isa('PPI::Token::Word')            ? 'word'
       : $token->isa('PPI::Token::Number::Version') ? undef
+      : $token->isa('PPI::Token::Prototype')       ? undef
       : $token->isa('PPI::Token::Number')          ? 'number'
       : $token->isa('PPI::Token::Quote')           ? 'string'
       :                                              undef;
@@ -367,7 +367,7 @@ sub _is_code_block ( $context, $block ) {
     return 1
       if $parent->isa('PPI::Statement::Compound')
       || $parent->isa('PPI::Statement::Sub')
-      || $parent->isa('PPI::Statement::Scheduled');
+      || $parent->isa('PPI::Statement::Package');
     return 1 if ref $parent eq 'PPI::Statement' && _segment_of( $context, $parent, $block )->{closes};
     my $previous = $block->sprevious_sibling;
     return 1 if !$previous;
@@ -551,7 +551,8 @@ Permutl::Syntax::PPI - find mutation sites with PPI
 
 The module parses a source with PPI and reports the places a mutator can change.
 It verifies that every reported span holds the text PPI attributes to it, and it drops a span that fails the check.
-C<use>, C<no>, and C<package> statements, C<$VERSION> assignments, and text after C<__END__> produce no sites.
+C<use> and C<no> statements, the name and the version of a C<package>, C<$VERSION> assignments, and text after C<__END__> produce no sites.
+The block of a C<package> holds sites like any other code.
 
 PPI joins the code after a method, a C<defer> block, or a C<finally> block to the block.
 The module splits such a statement at the closing brace, so each part has its own scope and its own sites.

@@ -74,6 +74,38 @@ subtest 'excluded regions produce no sites' => sub {
       [ [ '=', 'binary' ], [ '=', 'binary' ], [ '-', 'binary' ] ], 'heredoc bodies';
 };
 
+subtest 'a package block holds sites like any other code' => sub {
+    my $code = <<'PERL';
+package Outer::Inner {
+    sub total ($x) { return $x + 1 }
+    log_it('loaded');
+}
+package Outer::Versioned 1.2 {
+    sub twice ($x) { return $x * 2 }
+}
+package Outer::Plain;
+sub minus ($x) { return $x - 3 }
+PERL
+    is [ map { [ $_->kind, $_->text, $_->scope ] } grep { $_->kind ne 'word' } analyze($code)->{sites}->@* ],
+      [
+        [ 'sub_body',  ' return $x + 1 ',    [ 2, 2 ] ],
+        [ 'return',    '$x + 1',             [ 2, 2 ] ],
+        [ 'operator',  q{+},                 [ 2, 2 ] ],
+        [ 'number',    '1',                  [ 2, 2 ] ],
+        [ 'statement', q{log_it('loaded');}, [ 3, 3 ] ],
+        [ 'string',    q{'loaded'},          [ 3, 3 ] ],
+        [ 'sub_body',  ' return $x * 2 ',    [ 6, 6 ] ],
+        [ 'return',    '$x * 2',             [ 6, 6 ] ],
+        [ 'operator',  q{*},                 [ 6, 6 ] ],
+        [ 'number',    '2',                  [ 6, 6 ] ],
+        [ 'sub_body',  ' return $x - 3 ',    [ 9, 9 ] ],
+        [ 'return',    '$x - 3',             [ 9, 9 ] ],
+        [ 'operator',  q{-},                 [ 9, 9 ] ],
+        [ 'number',    '3',                  [ 9, 9 ] ],
+      ],
+      'the bodies of two package blocks and the code after a package statement, without the names and the version';
+};
+
 subtest 'structural sites' => sub {
     my $code = <<'PERL';
 sub total {
