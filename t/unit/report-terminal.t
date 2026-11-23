@@ -148,6 +148,20 @@ subtest 'a failing unmodified run shows the lines that explain the failure' => s
     is $text,
       "The unmodified run fails, so no mutant ran.\n  t/add.t\n    not ok 3 - adds\n    1..4\n    #   Failed test 'adds'\n",
       'the passing assertions and the plan of a subtest are left out';
+
+    my $copied = Permutl::Report::Terminal::render(
+        result(
+            [],
+            in_copies         => 1,
+            baseline_failures => [ { test => 't/add.t', output => "not ok 1\n", errors => q{} } ]
+        ),
+        color => 0
+    );
+    is $copied,
+        "The unmodified run fails, so no mutant ran.\n  t/add.t\n    not ok 1\n"
+      . "The tests ran in a copy of the project, which holds no .git directory.\n"
+      . "--in-place runs them in the project itself.\n",
+      'a run in copies names the other place for the tests';
 };
 
 subtest 'color wraps the score when asked' => sub {

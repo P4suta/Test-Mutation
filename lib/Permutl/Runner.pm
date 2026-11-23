@@ -242,6 +242,7 @@ sub _measure ( $run, $started ) {
         jobs        => $run->{jobs},
         interrupted => $run->{interrupted},
         reused      => $run->{reused} || 0,
+        in_copies   => defined $run->{copies} ? 1 : 0,
         finished    => Time::HiRes::time(),
     );
 }
@@ -873,6 +874,8 @@ It first runs every test against the unmodified sources through the same hook th
 That run proves the hook leaves the tests passing, times each test, and records which test reaches which line.
 The runner then serves one mutant at a time to the tests that reach it, fastest first, until a test fails.
 It writes temporary files under the work directory and leaves the project files unchanged.
+The tests run in copies of the project: the unmodified run in one copy, and each job in a copy of the result.
+After every mutant, the runner restores a copy that the tests changed.
 
 =head1 FUNCTIONS
 

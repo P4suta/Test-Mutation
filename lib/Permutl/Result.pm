@@ -30,7 +30,8 @@ has baseline_failures =>
 has jobs          => ( is => 'ro', isa => PositiveInt, required => 1 );
 has parallel_safe => ( is => 'ro', isa => Bool,        required => 1 );
 has interrupted   => ( is => 'ro', isa => Maybe [ Enum [qw(HUP INT TERM)] ], default => undef );
-has reused        => ( is => 'ro', isa => Int, default => 0 );
+has reused        => ( is => 'ro', isa => Int,  default => 0 );
+has in_copies     => ( is => 'ro', isa => Bool, default => 0 );
 has shard         => ( is => 'ro', isa => Maybe [ StrMatch [qr{\A[1-9][0-9]*/[1-9][0-9]*\z}] ], default => undef );
 has inventory =>
   ( is => 'ro', isa => Maybe [ Dict [ mutants => Int, digest => StrMatch [qr/\A[0-9a-f]{64}\z/] ] ], default => undef );
@@ -112,6 +113,10 @@ The mutants that did not finish have the status C<Pending>.
 =head2 reused
 
 The number of entries that came from the cache of an earlier run.
+
+=head2 in_copies
+
+True when the tests ran in copies of the project, and false when they ran in the project itself.
 
 =head2 shard
 

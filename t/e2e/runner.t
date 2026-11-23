@@ -308,7 +308,10 @@ subtest 'a copy has the name of the project, links the installed modules, and ho
     is \@facts,      [ 'no git', 'link', 'no report', 'helper' ], 'what a test finds in its directory';
     isnt $directory, $root, 'the directory of a test is another one than the project';
     is [ ( split m{/}, $directory )[-1] ], [ ( split m{/}, $root )[-1] ], 'and has its name';
-    ok !-e $directory, 'the copies are gone after the run';
+    ok !-e $directory,     'the copies are gone after the run';
+    ok $result->in_copies, 'the result names the copies';
+    my ($inside) = run_fixture( $root, jobs => 1, in_place => 1 );
+    ok !$inside->in_copies, 'and a run in the project itself names none';
 };
 
 subtest 'in the project itself, a mutant that leaves a file takes the verdict from the tests it breaks' => sub {
