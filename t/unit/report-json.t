@@ -63,9 +63,11 @@ my $result = Permutl::Result->new(
 my $document = Permutl::Report::Json::document( $result, high => 80, low => 60 );
 
 subtest 'the document has the required top-level fields' => sub {
-    is $document->{schemaVersion},                         '2', 'schema version';
+    is $document->{schemaVersion}, '2', 'schema version';
     is $document->{thresholds}, { high => 80, low => 60 }, 'thresholds';
-    is $document->{projectRoot},                           '/project', 'project root';
+    is Permutl::Report::Json::document( $result, high => 79.5, low => 60.25 )->{thresholds}, { high => 80, low => 60 },
+      'the schema takes whole thresholds, so the report rounds them';
+    is $document->{projectRoot}, '/project', 'project root';
     is $document->{framework}, { name => 'permutl', version => Permutl::Report::Json->VERSION }, 'framework';
     is [ sort keys $document->{files}->%* ], ['lib/Calc.pm'], 'files with mutants';
 };

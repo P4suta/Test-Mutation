@@ -23,7 +23,7 @@ sub document ( $result, $arg ) {
     }
     return {
         schemaVersion => '2',
-        thresholds    => { high => $arg->high + 0, low => $arg->low + 0 },
+        thresholds    => { high => int( $arg->high + 0.5 ), low => int( $arg->low + 0.5 ) },
         projectRoot   => $result->root,
         framework     => { name => 'permutl', version => $VERSION },
         files         => \%files,
