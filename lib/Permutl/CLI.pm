@@ -58,6 +58,7 @@ Options:
   --coverage MODE       Select tests by line or by file
   --timeout-factor N    Time limit as a multiple of the unmodified duration
   --timeout-floor N     Smallest time limit in seconds
+  --in-place            Run the tests in the project itself, not in copies of it
   --keep-work           Keep the work directory after the run
   --mutant ID           Run the named mutant; repeatable
   --since REVISION      Cover the lines changed since a Git revision
@@ -123,6 +124,7 @@ my %SETTING_OF_OPTION = (
     'shard=s'          => 'shard',
     'equivalence!'     => 'equivalence',
     'cache!'           => 'cache',
+    'in-place!'        => 'in_place',
 );
 
 sub _config ($arguments) {

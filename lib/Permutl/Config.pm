@@ -39,6 +39,8 @@ has only             => ( is => 'ro', isa => ArrayRef [Str], default => sub { []
 has shard            => ( is => 'ro', isa => Maybe [$SHARD], default => undef );
 has equivalence      => ( is => 'ro', isa => Bool, default => 1 );
 has cache            => ( is => 'ro', isa => Bool, default => 0 );
+has in_place         => ( is => 'ro', isa => Bool, default => 0 );
+has link             => ( is => 'ro', isa => ArrayRef [Str], default => sub { ['local'] } );
 
 my %FILE_KEYS = (
     q{}    => { jobs    => 'jobs',           cache   => 'cache' },
@@ -51,6 +53,8 @@ my %FILE_KEYS = (
         'timeout-factor' => 'timeout_factor',
         'timeout-floor'  => 'timeout_floor',
         coverage         => 'coverage',
+        'in-place'       => 'in_place',
+        link             => 'link',
     },
     mutators   => { profile   => 'profile', enable => 'enable', disable => 'disable', equivalence => 'equivalence' },
     report     => { directory => 'report_directory', formats => 'formats' },
@@ -189,6 +193,12 @@ Score percentages for report colors, and the score below which the run fails.
 =head2 work_directory, keep_work
 
 The directory for temporary files, and whether to keep it after the run.
+
+=head2 in_place, link
+
+The tests run in copies of the project, which a run makes in the temporary directory.
+C<in_place> runs them in the project itself.
+C<link> names the paths that a copy holds as links to the original, C<local> by default.
 
 =head2 since
 
