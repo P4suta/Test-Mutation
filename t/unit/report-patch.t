@@ -52,4 +52,15 @@ for my $case (@cases) {
 is patch( "a\nb", 'b', 'c' ), hunk( '@@ -1,2 +1,2 @@', ' a', '-b', '+c' ), 'a file without a final newline';
 is patch( "one\n", 'one', 'two' ), hunk( '@@ -1,1 +1,1 @@', '-one', '+two' ), 'a file of one line';
 
+is patch( "x\nx\nx\n", "x\n", q{} ), hunk( '@@ -1,3 +1,2 @@', ' x', ' x', '-x' ),
+  'the loss of one of three equal lines shows one removed line';
+is patch( "x\nx\n", 'x', "x\nx" ), hunk( '@@ -1,2 +1,3 @@', ' x', ' x', '+x' ),
+  'a new line among equal lines shows one added line';
+
+my ( $longer, $shorter );
+is warnings { $longer = patch( 'a', 'a', "a\nb" ); $shorter = patch( "a\nb", "\nb", q{} ) }, [],
+  'a change in the number of lines at the end raises no warning';
+is $longer,  hunk( '@@ -1,1 +1,2 @@', ' a', '+b' ), 'a line after the last one';
+is $shorter, hunk( '@@ -1,2 +1,1 @@', ' a', '-b' ), 'the loss of the last line';
+
 done_testing;
