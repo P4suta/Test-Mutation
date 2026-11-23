@@ -39,6 +39,7 @@ sub generate ($arg) {
                     from        => $from,
                     to          => $source->position_of( $site->end ),
                     scope       => $site->scope,
+                    comparable  => $site->comparable,
                     suppressed  => _suppressed( $arg->analysis->{suppressions}, $from->[0], $mutator->name ),
                   );
             }

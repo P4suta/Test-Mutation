@@ -97,6 +97,12 @@ subtest 'mutants carry positions, identities, and suppression' => sub {
     is [ map { $_->id } mutants($code)->@* ], [ map { $_->id } @mutants ], 'identifiers are stable across runs';
 };
 
+subtest 'a mutant knows whether the compiled code shows it' => sub {
+    my $code = "class Counter {\n    field \$step = 1 + 1;\n    method bump { \$step - 1 }\n}\n";
+    is [ map { [ $_->original, $_->comparable ] } grep { $_->mutator eq 'arithmetic' } mutants($code)->@* ],
+      [ [ '+', 0 ], [ '-', 1 ] ], 'a mutant of a field is not comparable';
+};
+
 subtest 'two mutators with the same replacement yield one mutant' => sub {
     my @mutants = mutants( 'sub f { return 1 }', profile => 'extended' )->@*;
     is [ map { [ $_->mutator, $_->original, $_->replacement ] } grep { $_->original eq '1' } @mutants ],

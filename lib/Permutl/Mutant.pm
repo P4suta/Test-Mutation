@@ -17,6 +17,7 @@ has from        => ( is => 'ro', isa => Tuple [ Int, Int ], required => 1 );
 has to          => ( is => 'ro', isa => Tuple [ Int, Int ], required => 1 );
 has scope       => ( is => 'ro', isa => Tuple [ Int, Int ], required => 1 );
 has suppressed  => ( is => 'ro', isa => Bool, default => 0 );
+has comparable  => ( is => 'ro', isa => Bool, default => 1 );
 
 1;
 
@@ -75,5 +76,9 @@ The first and last line of the statement that runs the mutated code.
 =head2 suppressed
 
 True when a C<## no mutate> comment covers the mutant.
+
+=head2 comparable
+
+False when L<B::Deparse> leaves the replaced code out, so the run compares no compiled code for the mutant.
 
 =cut
