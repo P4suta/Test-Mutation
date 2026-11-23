@@ -1,0 +1,9 @@
+title = "permutl"
+
+[extend]
+useDefault = true
+
+# `mise run setup` installs third-party modules under local/, and their sample keys are no secret of this project.
+[[allowlists]]
+description = "installed dependencies"
+paths = ['''^local/''']
