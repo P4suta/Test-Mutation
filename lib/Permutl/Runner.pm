@@ -236,7 +236,7 @@ sub _measure ( $run, $started ) {
         };
         my $error = $@;
         _warn( $run, "the work directory $run->{work} stays, because a file in it resists removal" )
-          if !$config->keep_work && _discard( $run->{work} );
+          if !$config->keep_work && _leave_work($run);
         die $error if !$measured;    ## no critic (ErrorHandling::RequireCarping)
     }
     else {
@@ -292,6 +292,15 @@ sub _suppressed ($mutant) {
 sub _warn ( $run, $text ) {
     $run->{warnings}{$text} = 1;
     return;
+}
+
+# The work directory leaves the project with its last file, and a cache or a kept run holds it there.
+sub _leave_work ($run) {
+    my $stuck = _discard( $run->{work} );
+
+    # A directory that still holds a file refuses to go, which is the wanted result.
+    rmdir $run->{project} . q{/} . $run->{config}->work_directory;
+    return $stuck;
 }
 
 sub _prepare_work ($run) {
@@ -415,7 +424,7 @@ sub run_command ( $config, $source, $mutant, $command ) {
         local %ENV = ( %ENV, _environment( $run, $spec, $root ) );
         system { $command->[0] } $command->@*;
     };
-    _discard( $run->{work} );
+    _leave_work($run);
     return 127                     if $status == -1;
     return 128 + ( $status & 127 ) if $status & 127;
     return $status >> 8;
