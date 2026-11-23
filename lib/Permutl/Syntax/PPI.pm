@@ -76,8 +76,33 @@ sub _visit ( $context, $element, $excluded ) {
     }
     my $skip = $excluded || _excluded($element);
     _structure_sites( $context, $element ) if !$skip;
-    _visit( $context, $_, $skip ) for $element->children;
+    my %header;
+    %header = map { refaddr($_) => 1 } map { _header($_) } _segments( $context, $element )->@*
+      if ref $element eq 'PPI::Statement';
+    _visit( $context, $_, $skip || $header{ refaddr $_ } ) for $element->children;
     return;
+}
+
+# The name, the version, and the attributes of a declaration hold no behavior to change.
+sub _header ($segment) {
+    my ( $head, @rest ) = $segment->{children}->@*;
+    if ( $segment->{closes} && _is_word( $head, \%NAMED_BLOCK_HEAD ) ) {
+        return grep { !$_->isa('PPI::Structure::Block') } @rest
+          if $head->content eq 'class' || $head->content eq 'role';
+        my @header;
+        for my $child (@rest) {
+            last if $child->isa('PPI::Structure');
+            push @header, $child;
+        }
+        return @header;
+    }
+    return if !_is_word( $head, { field => 1 } );
+    my @attributes;
+    for my $child ( @rest[ 1 .. $#rest ] ) {
+        last if _is_semicolon($child) || _is_operator( $child, q{=}, '//=', '||=' );
+        push @attributes, $child;
+    }
+    return @attributes;
 }
 
 sub _is_word ( $element, $words ) {
@@ -90,10 +115,13 @@ sub _is_semicolon ($element) {
 
 sub _ends_at_block ( $head, $next, $after ) {
     return 0                                           if !$next;
-    return 1                                           if _is_word( $head, \%OPEN_BLOCK_HEAD );
-    return $next->isa('PPI::Structure::Block') ? 1 : 0 if _is_word( $head, \%BLOCK_FIRST_HEAD );
-    return 0 if !_is_word( $head, \%NAMED_BLOCK_HEAD ) || !$next->isa('PPI::Token::Word');
-    return _is_operator( $after, '=>', q{,} ) ? 0 : 1;
+    return 1                                           if _is_word( $head,  \%OPEN_BLOCK_HEAD );
+    return $next->isa('PPI::Structure::Block') ? 1 : 0 if _is_word( $head,  \%BLOCK_FIRST_HEAD );
+    return 0                                           if !_is_word( $head, \%NAMED_BLOCK_HEAD );
+
+    # PPI reads a name before an attribute, as in "method name :lvalue", as a label.
+    return 1 if $next->isa('PPI::Token::Label');
+    return $next->isa('PPI::Token::Word') && !_is_operator( $after, '=>', q{,} ) ? 1 : 0;
 }
 
 # PPI ends a statement it does not know, such as a method or a defer block, at the next semicolon.

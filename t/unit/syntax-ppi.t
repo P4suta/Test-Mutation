@@ -131,6 +131,29 @@ PERL
       'a call in the class body is deletable';
 };
 
+subtest 'declaration headers produce no sites' => sub {
+    my $code = <<'PERL';
+class Counter 1.0 :isa(Base) {
+    field $count :param :reader = 0;
+    field $name :param(label) //= 'none';
+    method bump :lvalue ($by = 1) { $count }
+}
+class Plain 2.0;
+role Shared;
+PERL
+    is [ map { [ $_->kind, $_->text ] } grep { $_->kind ne 'sub_body' } analyze($code)->{sites}->@* ],
+      [
+        [ 'operator',  q{=} ],
+        [ 'number',    '0' ],
+        [ 'operator',  '//=' ],
+        [ 'string',    q{'none'} ],
+        [ 'operator',  q{=} ],
+        [ 'number',    '1' ],
+        [ 'statement', '$count' ],
+      ],
+      'the initializers, the signature, and the bodies remain';
+};
+
 subtest 'code after a block that PPI leaves open is its own statement' => sub {
     my $code = <<'PERL';
 sub f {
