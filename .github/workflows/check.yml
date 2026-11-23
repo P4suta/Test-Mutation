@@ -43,8 +43,9 @@ jobs:
       - uses: shogo82148/actions-setup-perl@eebc5c886de14ebbfcd2493d49a12007d2c30477 # v1.44.5
         with:
           perl-version: ${{ matrix.perl }}
-          install-modules-with: cpm
-          install-modules-args: --with-test
+          # cpm reads cpanfile.snapshot through this module.
+          install-modules: Carton::Snapshot
+      - run: cpm install --top-level-phase configure,build,test,runtime
       - run: prove -lr t/unit t/shim t/assumptions t/e2e
 
   shim:

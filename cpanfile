@@ -11,7 +11,7 @@ on test => sub {
 };
 
 on develop => sub {
-    requires 'App::cpm',      '0.997';
+    requires 'App::cpm',      'v1.1.7';
     requires 'CPAN::Audit',   '20240000';
     requires 'Carton',        '1.0.35';
     requires 'JSON::Schema::Tiny', '0.034';

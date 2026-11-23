@@ -12,9 +12,10 @@ perl_files = "fd --type f --extension pm --extension t --extension pl --exclude 
 
 [tasks.setup]
 description = "Install the dependencies recorded in cpanfile.snapshot"
+# cpm reads cpanfile.snapshot through Carton::Snapshot, so a fresh checkout needs Carton before the first install.
 run = [
-  "test -x local/bin/cpm || cpanm --quiet --notest -L local App::cpm",
-  "cpm install -L local --with-develop --with-test",
+  "test -x local/bin/cpm || cpanm --quiet --notest -L local App::cpm Carton",
+  "cpm install -L local --top-level-phase configure,build,test,runtime,develop",
 ]
 
 [tasks.lock]
