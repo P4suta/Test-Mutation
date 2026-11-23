@@ -1,10 +1,11 @@
 use v5.36;
 use Test2::V0;
-use Archive::Tar ();
-use Cwd          ();
-use File::Path   ();
-use File::Temp   ();
-use JSON::PP     ();
+use Archive::Tar           ();
+use IO::Uncompress::Gunzip ();
+use Cwd                    ();
+use File::Path             ();
+use File::Temp             ();
+use JSON::PP               ();
 use Module::CPANfile;
 use Permutl;
 
@@ -86,5 +87,9 @@ my @wanted = qw(
 is [ grep { !$packed{"$prefix/$_"} } @wanted ], [], 'the archive holds the sources, the tests, and the notices';
 is [ grep { m{\A\Q$prefix\E/(?:local|blib|[.]git|[.]permutl|permutl-report)(?:/|\z)|[.]log\z} } sort keys %packed ], [],
   'and leaves out installed dependencies, build output, and reports';
+
+IO::Uncompress::Gunzip::gunzip( "$scratch/$prefix.tar.gz" => \my $bytes ) or die 'cannot read the archive';
+ok $bytes !~ /(?:LIBARCHIVE|SCHILY)[.]xattr/, 'the archive carries no extended attribute of the build machine';
+is [ grep { m{/[.]_} } sort keys %packed ], [], 'and no resource fork file';
 
 done_testing;

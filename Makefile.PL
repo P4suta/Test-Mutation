@@ -38,4 +38,7 @@ WriteMakefile(
     META_MERGE       => { 'meta-spec' => { version => 2 } },
     META_ADD         => { license     => [ 'mit', 'apache_2_0' ] },
     test             => { TESTS       => 't/unit/*.t t/shim/*.t t/assumptions/*.t t/e2e/*.t' },
+
+    # macOS records extended attributes in the archive, and GNU tar warns about each one when it unpacks.
+    dist => { TARFLAGS => '--no-xattrs -cvf' },
 );
