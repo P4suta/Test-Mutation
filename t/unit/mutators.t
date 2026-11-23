@@ -7,11 +7,13 @@ use Permutl::Syntax::PPI;
 
 sub mutants ( $code, %select ) {
     my $source   = Permutl::Source->new( path => 'lib/X.pm', text => $code, encoding => 'UTF-8' );
+    my @perl     = exists $select{perl} ? ( perl => delete $select{perl} ) : ();
     my $mutators = Permutl::Mutator::Catalog::choose( profile => 'default', enable => [], disable => [], %select );
     return Permutl::Mutant::Generator::generate(
         source   => $source,
         analysis => Permutl::Syntax::PPI::analyze($source),
         mutators => $mutators,
+        @perl,
     );
 }
 
@@ -116,6 +118,20 @@ subtest 'an arithmetic change without effect yields no mutant' => sub {
     is changes( '$a + 1; $b * 0; 0 + $c; 1 * $d; $e % 1; $f + 0 * $g; $h - 0 if $i;', 'arithmetic' ),
       [ [ '+', '-' ], [ '*', '/' ], [ '+', '-' ], [ '*', '/' ], [ '%', '*' ], [ '+', '-' ], [ '*', '/' ] ],
       'another number, another side, another operator, and a number that belongs to a tighter operator';
+};
+
+subtest 'a comparison with the version of Perl keeps its boundary on another version' => sub {
+    my $code = 'f() if $] < 5.010; g() if "$]" >= 5.036; h() if 5.008 > $]; i() if $] <= 5.012001;';
+    is changes( $code, 'comparison', perl => 5.044 ),
+      [ [ '<', '>=' ], [ '>=', '<' ], [ '>', '<=' ], [ '<=', '>' ] ],
+      'the tests run on another version, so the boundary changes nothing and the negation stays';
+    is changes( $code, 'comparison', perl => 5.036 ),
+      [ [ '<', '>=' ], [ '>=', '>' ], [ '>=', '<' ], [ '>', '<=' ], [ '<=', '>' ] ],
+      'the tests run on the named version, so the boundary of that comparison decides';
+    is scalar( changes( $code, 'comparison' )->@* ), 8, 'without the version of the tests every change stays';
+    is changes( 'f() if $n < 5.010; g() if $] < $least;', 'comparison', perl => 5.044 ),
+      [ [ '<', '<=' ], [ '<', '>=' ], [ '<', '<=' ], [ '<', '>=' ] ],
+      'another variable or no literal leaves the comparison as it is';
 };
 
 subtest 'two mutators with the same replacement yield one mutant' => sub {

@@ -26,6 +26,7 @@ my @OPERATOR_FAMILIES = (
             '==' => ['!='],
             '!=' => ['=='],
         },
+        boundary => { '<' => '<=', '<=' => '<', '>' => '>=', '>=' => '>' },
     },
     {
         name        => 'string-comparison',
@@ -144,7 +145,8 @@ sub _blank ($text) {
 # One as a factor differs from one as a divisor for negative zero alone.
 sub _operator_mutator ($family) {
     my ( $role, $table ) = $family->@{qw(role table)};
-    my $idle = $family->{idle} || {};
+    my $idle     = $family->{idle}     || {};
+    my $boundary = $family->{boundary} || {};
     return Permutl::Mutator->new(
         name        => $family->{name},
         profile     => 'default',
@@ -155,7 +157,11 @@ sub _operator_mutator ($family) {
             my $replacements = $table->{$text} or return;
             my $operand      = $site->detail->{right};
             return if defined $operand && defined $idle->{$text} && $operand == $idle->{$text};
-            return map { { replacement => $_, description => "replaced $text with $_" } } $replacements->@*;
+
+            # A settled comparison gives the same result on both sides of its boundary.
+            my $settled = $site->detail->{settled} ? $boundary->{$text} : q{};
+            return map { { replacement => $_, description => "replaced $text with $_" } }
+              grep { $_ ne $settled } $replacements->@*;
         },
     );
 }
@@ -337,6 +343,10 @@ C<permutl mutators> prints the name, the profile, and the description of every m
 
 The C<arithmetic> mutator leaves C<+ 0>, C<- 0>, C<* 1>, C</ 1>, and C<** 1> alone.
 The operator and its replacement give the same value there, apart from the sign of a negative zero under C<* 1> and C</ 1>.
+
+The C<comparison> mutator keeps the boundary of a comparison between C<$]> and a number, as in C<< $] < 5.010 >>.
+The boundary matters on the one interpreter whose version equals the number, and the tests of other interpreters cannot detect its change.
+The negation of such a comparison stays a mutant.
 
 =head1 FUNCTIONS
 

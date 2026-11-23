@@ -20,15 +20,16 @@ my %CODE_BLOCK_WORD =
   BEGIN END INIT CHECK UNITCHECK);
 my %UNDELETABLE_FIRST_WORD =
   map { $_ => 1 } qw(package class role field method use no my our local state return last next redo goto);
-my %LIST_BLOCK_WORD  = map { $_ => 1 } qw(map grep);
-my %DECLARATION      = map { $_ => 1 } qw(my our state);
-my %OPEN_BLOCK_HEAD  = map { $_ => 1 } qw(ADJUST if unless while until for foreach);
-my %BLOCK_FIRST_HEAD = map { $_ => 1 } qw(finally defer try);
-my %NAMED_BLOCK_HEAD = map { $_ => 1 } qw(class role method sub);
-my %CONTINUATION     = map { $_ => 1 } qw(elsif else continue catch finally);
-my %BODY_HEAD        = map { $_ => 1 } qw(method sub ADJUST);
-my %EXCLUDED_HEAD    = map { $_ => 1 } qw(use no package);
-my %HIDDEN_HEAD      = map { $_ => 1 } qw(field ADJUST);
+my %BOUNDED_COMPARISON = map { $_ => 1 } qw(< <= > >=);
+my %LIST_BLOCK_WORD    = map { $_ => 1 } qw(map grep);
+my %DECLARATION        = map { $_ => 1 } qw(my our state);
+my %OPEN_BLOCK_HEAD    = map { $_ => 1 } qw(ADJUST if unless while until for foreach);
+my %BLOCK_FIRST_HEAD   = map { $_ => 1 } qw(finally defer try);
+my %NAMED_BLOCK_HEAD   = map { $_ => 1 } qw(class role method sub);
+my %CONTINUATION       = map { $_ => 1 } qw(elsif else continue catch finally);
+my %BODY_HEAD          = map { $_ => 1 } qw(method sub ADJUST);
+my %EXCLUDED_HEAD      = map { $_ => 1 } qw(use no package);
+my %HIDDEN_HEAD        = map { $_ => 1 } qw(field ADJUST);
 my %NEVER_A_CALL =
   map { $_ => 1 }
   qw(my our local state sub package class role field method use no return do eval else elsif for foreach
@@ -300,7 +301,17 @@ sub _operator_role ($token) {
       || ( $previous->isa('PPI::Token::Word') && $UNARY_AFTER{ $previous->content } );
     return ( 'unary',  {} ) if $unary && ( $content eq '-' || $content eq '+' );
     return ( 'unary',  {} ) if $content eq '!' || $content eq '~' || $content eq 'not';
-    return ( 'binary', _right_number($token) );
+    return ( 'binary', { _right_number($token)->%*, _version_literal($token) } );
+}
+
+# A comparison of the version of Perl with a literal has one result on each interpreter.
+sub _version_literal ($token) {
+    return if !$BOUNDED_COMPARISON{ $token->content };
+    my @sides    = grep { defined } $token->sprevious_sibling, $token->snext_sibling;
+    my ($number) = grep { $_->isa('PPI::Token::Number') && !$_->isa('PPI::Token::Number::Version') } @sides;
+    my ($perl)   = grep { $_->content eq '$]' || $_->content eq '"$]"' } @sides;
+    my $value    = $number && $perl ? $number->literal : undef;
+    return defined $value ? ( version => 0 + $value ) : ();
 }
 
 # A number is the whole right operand unless the operator after it binds tighter.

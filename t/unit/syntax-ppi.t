@@ -45,6 +45,11 @@ subtest 'operators carry a role' => sub {
           sites_of( $code, 'operator' )->@* ],
       [qw(+0 -0 *1 +? +? *? *? **? /? +? -1 +0)],
       'an arithmetic operator names a number that is its whole right operand';
+    my $versions = '$] < 5.010; "$]" >= 5.036; 5.008 > $]; $] == 5.010; $n < 5.010; $] < $least; $] >= 5.36.0;';
+    is [ map { $_->text . ( defined $_->detail->{version} ? $_->detail->{version} : q{?} ) }
+          sites_of( $versions, 'operator' )->@* ],
+      [qw(<5.01 >=5.036 >5.008 ==? <? <? >=?)],
+      'an ordering comparison of the version of Perl names its literal';
 };
 
 subtest 'words carry a role and data words are left out' => sub {

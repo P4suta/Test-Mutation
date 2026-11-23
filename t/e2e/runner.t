@@ -265,6 +265,20 @@ subtest 'a project that the mutants leave alone is not checked again' => sub {
     is scalar(@runs), 1 + 3, 'one unmodified run and one run for each of the three mutants';
 };
 
+subtest 'a comparison with the version of Perl follows the interpreter of the tests' => sub {
+    my $root = project( 'lib/Old.pm' => "package Old;\nsub era { return 'old' if \$] < 5.008; return 'new' }\n1;\n" );
+    my $fake = "$root/perl-5.008";
+    write_file( $fake, "#!/bin/sh\nprintf 5.008\n" );
+    chmod 0755, $fake or die "chmod: $!";
+    my $boundary = sub (%settings) {
+        my $analysis = Permutl::Runner::analyze( Permutl::Config->new( root => $root, %settings ) );
+        return scalar grep { $_->description eq 'replaced < with <=' } $analysis->{mutants}->@*;
+    };
+    is $boundary->(), 0, 'the interpreter of this test has another version, so the boundary yields no mutant';
+    is $boundary->( perl => $fake ),                1, 'an interpreter of the named version keeps the mutant';
+    is $boundary->( perl => "$root/no-such-perl" ), 1, 'an interpreter that gives no version keeps the mutant too';
+};
+
 subtest 'a source that holds a single zero keeps its text' => sub {
     my $root     = project( 'lib/Zero.pm' => '0', 'lib/Small.pm' => $MODULE );
     my $analysis = Permutl::Runner::analyze( Permutl::Config->new( root => $root ) );

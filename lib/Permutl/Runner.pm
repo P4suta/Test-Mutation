@@ -49,6 +49,7 @@ sub analyze ($config) {
     my ( %sources, @mutants, @problems );
     my %only    = map { $_ => 1 } $config->only->@*;
     my $changed = defined $config->since ? Permutl::Git::changed( $root, $config->since ) : undef;
+    my $perl    = _perl_version( $config->perl );
     for my $path ( Permutl::Project::files( $root, $config->source_include, $config->source_exclude )->@* ) {
         next if $changed && !$changed->{$path};
         my $source   = Permutl::Source->from_bytes( path => $path, bytes => _slurp("$root/$path") );
@@ -58,8 +59,12 @@ sub analyze ($config) {
             next;
         }
         $sources{$path} = $source;
-        my $generated =
-          Permutl::Mutant::Generator::generate( source => $source, analysis => $analysis, mutators => $mutators );
+        my $generated = Permutl::Mutant::Generator::generate(
+            source   => $source,
+            analysis => $analysis,
+            mutators => $mutators,
+            perl     => $perl
+        );
         push @mutants, grep { !$changed || _in_changed_lines( $changed->{$path}, $_ ) }
           grep { !%only || $only{ $_->id } } $generated->@*;
     }
@@ -70,6 +75,16 @@ sub analyze ($config) {
         @mutants = @mutants[ grep { $_ % $parts == $part - 1 } 0 .. $#mutants ];
     }
     return { sources => \%sources, mutants => \@mutants, problems => \@problems, inventory => $inventory };
+}
+
+# The version of the interpreter that runs the tests, which may be another one than this interpreter.
+sub _perl_version ($perl) {
+    return 0 + $] if $perl eq $^X;
+    no warnings 'exec';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
+    open my $answer, q{-|}, $perl, '-e', 'print $]' or return;
+    my $version = readline $answer;
+    close $answer or return;
+    return defined $version && $version =~ /\A[0-9]+(?:[.][0-9]+)?\z/ ? 0 + $version : undef;
 }
 
 sub _in_changed_lines ( $ranges, $mutant ) {
