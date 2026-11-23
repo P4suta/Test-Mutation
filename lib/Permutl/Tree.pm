@@ -127,8 +127,10 @@ sub _copy_mode ( $source, $target ) {
 }
 
 sub _below ( $path, $closed ) {
-    my @parts = split m{/}, $path;
-    return scalar grep { $closed->{ join q{/}, @parts[ 0 .. $_ ] } } 0 .. $#parts - 1;
+    while ( $path =~ s{/[^/]+\z}{} ) {
+        return 1 if $closed->{$path};
+    }
+    return 0;
 }
 
 signature_for restore => (
