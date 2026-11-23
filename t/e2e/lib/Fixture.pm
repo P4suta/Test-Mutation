@@ -9,7 +9,7 @@ use Exporter 'import';
 use Permutl::Config;
 use Permutl::Runner;
 
-our @EXPORT_OK = qw(copy_of run_fixture tree_digest statuses permutl write_file);
+our @EXPORT_OK = qw(copy_of run_fixture tree_digest statuses permutl permutl_from write_file);
 
 sub write_file ( $path, $content ) {
     my ($directory) = $path =~ m{\A(.*)/};
@@ -24,6 +24,10 @@ my $LIBRARY = Cwd::abs_path('lib');
 my $COMMAND = Cwd::abs_path('bin') . '/permutl';
 
 sub permutl ( $root, @arguments ) {
+    return permutl_from( $LIBRARY, $root, @arguments );
+}
+
+sub permutl_from ( $library, $root, @arguments ) {
     my $output = File::Temp->new;
     my $errors = File::Temp->new;
     my $pid    = fork;
@@ -33,7 +37,7 @@ sub permutl ( $root, @arguments ) {
         open STDIN,  '<', '/dev/null'       or die "stdin: $!";
         open STDOUT, '>', $output->filename or die "stdout: $!";
         open STDERR, '>', $errors->filename or die "stderr: $!";
-        exec {$^X} $^X, "-I$LIBRARY", $COMMAND, @arguments or die "exec: $!";
+        exec {$^X} $^X, "-I$library", $COMMAND, @arguments or die "exec: $!";
     }
     waitpid $pid, 0;
     my $read = sub ($file) {

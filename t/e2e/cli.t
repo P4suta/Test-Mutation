@@ -1,8 +1,10 @@
 use v5.36;
 use Test2::V0;
 use lib 't/e2e/lib';
-use JSON::PP ();
-use Fixture  qw(copy_of permutl write_file);
+use Cwd        ();
+use File::Temp ();
+use JSON::PP   ();
+use Fixture    qw(copy_of permutl permutl_from write_file);
 
 sub slurp ($path) {
     open my $handle, '<:raw', $path or die "read $path: $!";
@@ -25,6 +27,7 @@ subtest 'run reports its progress on standard error' => sub {
     like $run->{stderr},   qr/^The unmodified run passed: 2 tests, 2 jobs$/m,      'the unmodified run';
     like $run->{stderr},   qr/^\[19\/19\] 13 killed, 3 survived, 3 no coverage$/m, 'the last progress line';
     unlike $run->{stderr}, qr/\r/,                                                 'no carriage return in a log';
+    unlike $run->{stderr}, qr/^permutl:/m,                                         'a complete run reports no problem';
 };
 
 subtest 'run is the default command' => sub {
@@ -37,6 +40,32 @@ subtest 'a score below --min-score fails the run' => sub {
     my $root = copy_of('calc');
     is permutl( $root, '--jobs', 2, '--min-score', 90 )->{exit}, 1, 'the score is below 90';
     is permutl( $root, '--jobs', 2, '--min-score', 60 )->{exit}, 0, 'the score is above 60';
+};
+
+subtest 'a score that equals --min-score passes' => sub {
+    my $root = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    write_file( "$root/lib/Half.pm",
+        "package Half;\nuse strict;\nuse warnings;\nsub tested { return \$_[0] + 1 }\nsub untested { return \$_[0] + 1 }\n1;\n"
+    );
+    write_file( "$root/t/half.t", "use Test::More tests => 1;\nuse Half;\nis Half::tested(2), 3, 'the next one';\n" );
+    my $run = permutl( $root, '--jobs', 2, '--format', 'terminal', '--min-score', 50 );
+    like $run->{stdout}, qr/^Score: 50\.0% \(3 of 6 valid mutants\)$/m, 'half of the mutants are detected';
+    is $run->{exit}, 0, 'a minimum of 50 is met';
+    is permutl( $root, '--jobs', 2, '--format', 'terminal', '--min-score', 50.5 )->{exit}, 1,
+      'a minimum of 50.5 is not';
+};
+
+subtest 'a run that cannot judge a mutant exits with status 4 and no error line' => sub {
+    my $root = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    write_file( "$root/lib/Slow.pm",
+        "package Slow;\nuse strict;\nuse warnings;\nsub next_one { return \$_[0] + 1 }\n1;\n" );
+    write_file( "$root/t/slow.t",
+            "use Test::More tests => 1;\nBEGIN { select undef, undef, undef, 0.6 }\n"
+          . "use Slow;\nis Slow::next_one(2), 3, 'the next one';\n" );
+    my $run = permutl( $root, '--jobs', 2, '--format', 'terminal', '--timeout-factor', 0.1, '--timeout-floor', 0.1 );
+    is $run->{exit}, 4, 'exit status';
+    like $run->{stdout},   qr/^3 mutants: 3 runtime error$/m, 'every test ran out of time before it loaded a mutant';
+    unlike $run->{stderr}, qr/^permutl:/m,                    'the report is the whole explanation';
 };
 
 subtest 'a test that fails without any mutant stops the run' => sub {
@@ -60,6 +89,12 @@ subtest 'a usage error exits with status 2 and one line' => sub {
     is $invalid->{exit}, 2, 'a value outside its type';
     like $invalid->{stderr}, qr/\Apermutl: [^\n]*jobs[^\n]*\n\z/, 'one line that names the setting';
     is $invalid->{stdout}, q{}, 'no report';
+
+    my $spaced = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) ) . '/with a space';
+    mkdir $spaced or die "mkdir: $!";
+    symlink Cwd::abs_path('lib'), "$spaced/lib" or die "symlink: $!";
+    my $installed = permutl_from( "$spaced/lib", $root, '--jobs', 0 );
+    is $installed->{stderr}, $invalid->{stderr}, 'a library under a directory with a space gives the same line';
 };
 
 subtest 'run writes the JSON and HTML reports' => sub {
@@ -85,6 +120,15 @@ subtest '--format and --report-dir choose the reports' => sub {
 
     my $quiet = permutl( copy_of('calc'), '--jobs', 2, '--format', 'json' );
     unlike $quiet->{stdout}, qr/^Score:/m, 'no terminal report when the format is left out';
+
+    my $elsewhere = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    my $project   = copy_of('calc');
+    my $named     = permutl( $project, '--jobs', 2, '--format', 'json', '--report-dir', "$elsewhere/out" );
+    is $named->{exit}, 0, 'a directory named in full is accepted' or diag $named->{stderr};
+    ok -f "$elsewhere/out/mutation.json", 'the report is in that directory';
+    is $named->{stdout}, "Reports: $elsewhere/out/mutation.json\n", 'and the output names it';
+    is [ grep { !/\A(?:lib|t|[.]permutl)\z/ } map { s{.*/}{}r } glob "$project/* $project/.permutl" ], [],
+      'the project gets no directory for it';
 };
 
 subtest 'permutl.toml configures the run' => sub {
@@ -172,6 +216,12 @@ subtest 'GitHub Actions gets annotations and a job summary' => sub {
     like $detected->{stdout},       qr/^Score: 68\.4%/m,                 'the terminal report stays';
     like $detected->{stdout},       qr/^::warning file=lib\/Calc\.pm,/m, 'annotations are added inside GitHub Actions';
     like slurp("$root/summary.md"), qr/^Score: \*\*68\.4%\*\*/m,         'the job summary is appended';
+    is $detected->{exit}, 0, 'the run succeeds' or diag $detected->{stderr};
+
+    local $ENV{GITHUB_STEP_SUMMARY} = q{};
+    my $unnamed = permutl( $root, '--jobs', 2 );
+    is $unnamed->{exit}, 0, 'an empty name for the job summary is no error' or diag $unnamed->{stderr};
+    like $unnamed->{stdout}, qr/^::warning file=lib\/Calc\.pm,/m, 'and the annotations stay';
 };
 
 done_testing;

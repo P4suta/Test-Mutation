@@ -148,6 +148,10 @@ subtest 'version, help, and stray arguments' => sub {
     my $stray = permutl( $root, 'run', 'surplus' );
     is $stray->{exit},   2,                                        'a stray argument is a usage error';
     is $stray->{stderr}, "permutl: unexpected argument surplus\n", 'the message';
+
+    my $listed = permutl( $root, 'mutators', 'surplus' );
+    is [ $listed->@{qw(exit stdout stderr)} ], [ 2, q{}, "permutl: unexpected argument surplus\n" ],
+      'mutators refuses a stray argument and prints no list';
 };
 
 done_testing;

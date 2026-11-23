@@ -23,6 +23,13 @@ sub wait_for ($condition) {
     return 0;
 }
 
+sub text_of ($path) {
+    open my $handle, '<', $path or return q{};
+    local $/ = undef;
+    my $text = readline $handle;
+    return defined $text ? $text : q{};
+}
+
 my %status_of = ( HUP => 129, INT => 130, TERM => 143 );
 
 for my $signal ( sort keys %status_of ) {
@@ -49,6 +56,7 @@ for my $signal ( sort keys %status_of ) {
         kill $signal, $pid;
         waitpid $pid, 0;
         is $? >> 8, $status_of{$signal}, 'the exit status names the signal';
+        like text_of("$root/stderr.txt"), qr/^permutl: interrupted by SIG$signal$/m, 'and so does standard error';
 
         ok wait_for( sub { !processes_under($root)->@* } ), 'no process of the run is left'
           or diag join q{}, processes_under($root)->@*;
@@ -86,6 +94,7 @@ subtest 'a signal during the mutant runs keeps the finished results' => sub {
     like $read->('stdout.txt'), qr/^\d+ mutants: .*\b[1-9]\d* pending$/m,
       'the summary counts the mutants that did not run';
     like $read->('stdout.txt'), qr/^The run was interrupted by SIGTERM\.$/m,    'the summary names the signal';
+    like $read->('stderr.txt'), qr/^permutl: interrupted by SIGTERM$/m,         'and so does standard error';
     like $read->('permutl-report/mutation.json'), qr/"status"\s*:\s*"Pending"/, 'the JSON report marks them as pending';
     ok !glob("$root/.permutl/run-*"), 'the work directory is removed';
 };

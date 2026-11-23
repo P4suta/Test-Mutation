@@ -2,6 +2,7 @@ package Permutl::CLI;
 use v5.36;
 use Cwd             ();
 use File::Path      ();
+use File::Spec      ();
 use Getopt::Long    ();
 use List::Util      ();
 use Types::Standard qw(ArrayRef Int Slurpy Str);
@@ -82,7 +83,7 @@ sub main ($list) {
     my $status  = eval { $COMMAND{$command}->(@arguments) };
     return $status if defined $status;
     my $error = $@;
-    if ( ref $error && $error->isa('Permutl::Interrupted') ) {
+    if ( eval { $error->isa('Permutl::Interrupted') } ) {
         print {*STDERR} 'permutl: interrupted by SIG', $error->signal, "\n";
         return $error->exit_status;
     }
@@ -148,8 +149,8 @@ sub _configuration_file ($named) {
 }
 
 sub _first_line ($error) {
-    my $message = ref $error && $error->can('message') ? $error->message : "$error";
-    my ($line)  = split /\n/, $message;
+    my $message = eval { $error->message };
+    my ($line)  = split /\n/, defined $message ? $message : "$error";
     $line =~ s/ at \S+ line \d+[.]?\z//;
     return $line;
 }
@@ -180,13 +181,7 @@ sub _progress ($in_place) {
         elsif ( $event eq 'mutant' ) {
             $counts{ $data->{status} }++;
             $done++;
-            my $line = Permutl::Report::Progress::line( $done, $total, \%counts );
-            if ($in_place) {
-                print {*STDERR} "\r$line", $done == $total ? "\n" : q{};
-            }
-            elsif ( Permutl::Report::Progress::due( $done, $total ) ) {
-                print {*STDERR} "$line\n";
-            }
+            print {*STDERR} Permutl::Report::Progress::update( $done, $total, \%counts, $in_place );
         }
         return;
     };
@@ -205,10 +200,10 @@ sub _report ( $result, $config ) {
     for my $format ( grep { $wanted{$_} } qw(json html) ) {
         my ( $name, $render ) = $FILE_REPORT{$format}->@*;
         my $directory = $config->report_directory;
-        File::Path::make_path( $config->root . "/$directory" );
+        my $target    = File::Spec->rel2abs( $directory, $config->root );
+        File::Path::make_path($target);
         my $text = $render->( $result, high => $config->threshold_high, low => $config->threshold_low );
-        open my $handle, '>:encoding(UTF-8)', $config->root . "/$directory/$name"
-          or die "cannot write $directory/$name: $!\n";
+        open my $handle, '>:encoding(UTF-8)', "$target/$name" or die "cannot write $directory/$name: $!\n";
         print {$handle} $text or die "cannot write $directory/$name: $!\n";
         close $handle         or die "cannot close $directory/$name: $!\n";
         push @written, "$directory/$name";
@@ -257,7 +252,7 @@ sub _usage ($message) {
 }
 
 sub _find ( $analysis, $identifier ) {
-    my @matches = grep { index( $_->id, $identifier ) == 0 } $analysis->{mutants}->@*;
+    my @matches = grep { substr( $_->id, 0, length $identifier ) eq $identifier } $analysis->{mutants}->@*;
     return $matches[0] if @matches == 1;
     die( ( @matches ? 'more than one mutant has' : 'no mutant has' ) . " the identifier $identifier\n" );
 }
