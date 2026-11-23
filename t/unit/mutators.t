@@ -87,13 +87,20 @@ subtest 'extended mutators' => sub {
 };
 
 subtest 'mutants carry positions, identities, and suppression' => sub {
-    my $code    = "my \$a = 1 + 2;\nmy \$b = 3 + 4;    ## no mutate\nmy \$c = 5 - 6;    ## no mutate (comparison)\n";
+    my $code = join "\n", 'my $a = 1 + 2;', 'my $b = 3 + 4;    ## no mutate',
+      'my $c = 5 - 6;    ## no mutate (comparison)',
+      'my $d = 7 * 8;    ## no mutate (comparison, arithmetic)', q{};
     my @mutants = mutants($code)->@*;
     is [ map { [ $_->from, $_->to, $_->suppressed ] } @mutants ],
-      [ [ [ 1, 11 ], [ 1, 12 ], 0 ], [ [ 2, 11 ], [ 2, 12 ], 1 ], [ [ 3, 11 ], [ 3, 12 ], 0 ] ],
-      'positions and suppression';
+      [
+        [ [ 1, 11 ], [ 1, 12 ], 0 ],
+        [ [ 2, 11 ], [ 2, 12 ], 1 ],
+        [ [ 3, 11 ], [ 3, 12 ], 0 ],
+        [ [ 4, 11 ], [ 4, 12 ], 1 ]
+      ],
+      'positions, and the comments of the second and the fourth line';
     my %ids = map { $_->id => 1 } @mutants;
-    is scalar( keys %ids ),                   3,                           'identifiers are distinct';
+    is scalar( keys %ids ),                   4,                           'identifiers are distinct';
     is [ map { $_->id } mutants($code)->@* ], [ map { $_->id } @mutants ], 'identifiers are stable across runs';
 };
 
@@ -115,6 +122,30 @@ subtest 'two mutators with the same replacement yield one mutant' => sub {
     my @mutants = mutants( 'sub f { return 1 }', profile => 'extended' )->@*;
     is [ map { [ $_->mutator, $_->original, $_->replacement ] } grep { $_->original eq '1' } @mutants ],
       [ [ 'return-value', '1', '0' ] ], 'the first mutator is credited';
+
+    my $source    = Permutl::Source->new( path => 'lib/X.pm', text => '$a + $b;', encoding => 'UTF-8' );
+    my @proposed  = ( [ first => [q{-}] ], [ second => [ q{-}, q{*} ] ], [ third => [ q{*}, q{/} ] ] );
+    my $generated = Permutl::Mutant::Generator::generate(
+        source   => $source,
+        analysis => Permutl::Syntax::PPI::analyze($source),
+        mutators => [
+            map {
+                my ( $name, $replacements ) = $_->@*;
+                Permutl::Mutator->new(
+                    name        => $name,
+                    profile     => 'default',
+                    description => 'a test mutator',
+                    generate    => sub ($site) {
+                        return if $site->text ne q{+};
+                        return map { { replacement => $_, description => "to $_" } } $replacements->@*;
+                    },
+                )
+            } @proposed
+        ],
+    );
+    is [ map { [ $_->mutator, $_->replacement ] } $generated->@* ],
+      [ [ 'first', q{-} ], [ 'second', q{*} ], [ 'third', q{/} ] ],
+      'a mutator keeps its later replacements after one that an earlier mutator proposed';
 };
 
 subtest 'selection' => sub {

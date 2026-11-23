@@ -24,7 +24,9 @@ sub generate ($arg) {
         for my $mutator ( $arg->mutators->@* ) {
             for my $mutation ( $mutator->mutations($site)->@* ) {
                 my $replacement = $mutation->{replacement};
-                next if $seen{ join "\0", $site->start, $site->end, $replacement }++;
+                my $change      = join "\0", $site->start, $site->end, $replacement;
+                next if $seen{$change};
+                $seen{$change} = 1;
                 my $from = $source->position_of( $site->start );
                 push @mutants,
                   Permutl::Mutant->new(
