@@ -10,9 +10,9 @@ Perl folds `60 + 0` and `60 - 0` into one constant, so no test can detect that m
 
 ## Decision
 
-For a mutant that passed every test, the test interpreter compiles the original file and the mutant with `-MO=Deparse`, and the run compares the two digests.
+For a mutant that no test detected, the test interpreter compiles the original file and the mutant with `-MO=Deparse`, and the run compares the two digests.
 An equal digest marks the mutant `Ignored`.
-A survivor with the digest of an earlier survivor in the same file is `Ignored` too.
+A mutant with the digest of an earlier one in the same file is `Ignored` too.
 The compiles use a fixed hash seed, and an original with failed or unstable output turns the step off with a warning.
 
 ## Alternatives

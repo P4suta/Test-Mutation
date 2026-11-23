@@ -205,7 +205,7 @@ N runs with K from 1 to N cover every mutant once.
 =head2 equivalence
 
 Whether the run compares the compiled code of an undetected mutant with the original, true by default.
-A mutant that compiles to the same code is ignored, and so is a mutant with the code of an earlier survivor.
+A mutant that compiles to the same code is ignored, and so is a mutant with the code of an earlier undetected mutant.
 
 =head2 cache
 

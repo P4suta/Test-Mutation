@@ -24,7 +24,8 @@ use Permutl::Verdict;
 
 our $VERSION = '0.001';
 
-my $SHIM_FILE = 'Permutl/Shim.pm';
+my $SHIM_FILE  = 'Permutl/Shim.pm';
+my %UNDETECTED = ( Survived => 1, NoCoverage => 1 );
 
 my $ANALYSIS = Dict [
     sources   => HashRef [ InstanceOf ['Permutl::Source'] ],
@@ -425,11 +426,7 @@ sub _mutants ( $run, $mutants, $baseline ) {
         my $tests = $coverage->tests_for($mutant);
         my $job =
           { mutant => $mutant, tests => $tests, index => 0, verdict => Permutl::Verdict::start(), duration => 0 };
-        if ( !$tests->@* ) {
-            push @entries, _finish( $run, $job );
-            next;
-        }
-        my $reused = $cache ? _reused_entry( $run, $cache, $job ) : undef;
+        my $reused = $cache && $tests->@* ? _reused_entry( $run, $cache, $job ) : undef;
         if ($reused) {
             push @entries, $reused;
             next;
@@ -439,33 +436,24 @@ sub _mutants ( $run, $mutants, $baseline ) {
 
     $run->{syntax_of_original} = {};
     my %unfinished = map { $_->{mutant}->id => $_ } @jobs;
-    my $completed  = eval {
+    my $finish     = sub ($job) {
+        delete $unfinished{ $job->{mutant}->id };
+        push @entries, _finish( $run, $job );
+        return;
+    };
+    my $completed = eval {
         Permutl::Pool::run(
             jobs => $run->{jobs},
             next => sub {
-                my $job = shift @jobs or return;
-                return _next_test( $run, $job, $baseline );
+                while ( my $job = shift @jobs ) {
+                    my $task = $job->{tests}->@* ? _next_test( $run, $job, $baseline ) : _next_code( $run, $job );
+                    return $task if $task;
+                    $finish->($job);
+                }
+                return;
             },
             done => sub ( $task, $result ) {
-                my $job  = $task->{payload}{job};
-                my $kind = $task->{payload}{kind};
-                my $check =
-                    $kind eq 'test'      ? _after_test( $run, $task, $result )
-                  : $kind =~ /\Asyntax-/ ? _after_syntax( $run, $task, $result )
-                  :                        _after_code( $run, $task, $result );
-                return $check if $check;
-
-                if ( $kind !~ /\Acode-/ ) {
-                    $job->{verdict} = Permutl::Verdict::step( $job->{verdict}, $job->{outcome} );
-                    $job->{index}++;
-                }
-                return _next_test( $run, $job, $baseline )
-                  if !defined $job->{verdict}{status} && $job->{index} < $job->{tests}->@*;
-                my $comparison = _next_code( $run, $job );
-                return $comparison if $comparison;
-                delete $unfinished{ $job->{mutant}->id };
-                push @entries, _finish( $run, $job );
-                return;
+                return _after_task( $run, $baseline, $task, $result ) || $finish->( $task->{payload}{job} );
             },
         );
         1;
@@ -488,6 +476,23 @@ sub _mutants ( $run, $mutants, $baseline ) {
     _save_cache( $run, $cache, \@sorted ) if $cache;
     _ignore_repeated_code( $run, \@sorted );
     return \@sorted;
+}
+
+sub _after_task ( $run, $baseline, $task, $result ) {
+    my $job  = $task->{payload}{job};
+    my $kind = $task->{payload}{kind};
+    my $check =
+        $kind eq 'test'      ? _after_test( $run, $task, $result )
+      : $kind =~ /\Asyntax-/ ? _after_syntax( $run, $task, $result )
+      :                        _after_code( $run, $task, $result );
+    return $check if $check;
+
+    if ( $kind !~ /\Acode-/ ) {
+        $job->{verdict} = Permutl::Verdict::step( $job->{verdict}, $job->{outcome} );
+        $job->{index}++;
+    }
+    return _next_test( $run, $job, $baseline ) if !defined $job->{verdict}{status} && $job->{index} < $job->{tests}->@*;
+    return _next_code( $run, $job );
 }
 
 sub _support_files ( $run, $tracked ) {
@@ -578,7 +583,7 @@ sub _save_cache ( $run, $cache, $entries ) {
 
 sub _ignore_repeated_code ( $run, $entries ) {
     my %first;
-    for my $entry ( grep { $_->{status} eq 'Survived' } $entries->@* ) {
+    for my $entry ( grep { $UNDETECTED{ $_->{status} } } $entries->@* ) {
         my $mutant = $entry->{mutant};
         my $code   = $run->{code_of_mutant}{ $mutant->id } or next;
         my $key    = join "\n", $mutant->path, $code;
@@ -593,8 +598,10 @@ sub _ignore_repeated_code ( $run, $entries ) {
 
 sub _next_code ( $run, $job ) {
     return if !$run->{config}->equivalence || defined $job->{code} || !$job->{mutant}->comparable;
-    return if Permutl::Verdict::final( $job->{verdict} ) ne 'Survived';
-    my $path  = $job->{mutant}->path;
+    return if !$UNDETECTED{ Permutl::Verdict::final( $job->{verdict} ) };
+    my $mutant = $job->{mutant};
+    my $path   = $mutant->path;
+    $job->@{qw(file spec)} = _write_mutant( $run, $run->{sources}{$path}, $mutant ) if !defined $job->{spec};
     my $known = $run->{code_of_original}{$path} ||= [];
     return _compile_task( $run, $job, 'code-original', "$run->{root}/$path", '-MO=Deparse' ) if $known->@* < 2;
     if ( !length $known->[0] || $known->[0] ne $known->[1] ) {

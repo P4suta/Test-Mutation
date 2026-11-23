@@ -82,7 +82,8 @@ C<Ignored> means a comment suppressed the mutant, or the mutant compiles to code
 
 The score is the percentage of C<Killed> among C<Killed>, C<Survived>, and C<NoCoverage>.
 
-A mutant that passed every test compiles once more next to the original, and the run compares the two with L<B::Deparse>.
+A mutant that no test detected compiles once more next to the original, and the run compares the two with L<B::Deparse>.
+That covers a survivor and a mutant that no test reaches.
 Equal code means no test can tell the two apart, so the mutant leaves the score.
 A mutant in a field or in an C<ADJUST> block skips the comparison, because L<B::Deparse> prints neither.
 
