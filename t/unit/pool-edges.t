@@ -62,9 +62,51 @@ sub gone ($pid) {
 
 subtest 'the pool asks for a task once more after the last one and then never again' => sub {
     my @queue = map { task( script( "plain-$_.t", qq{print "1..1\\nok 1\\n";\n} ) ) } 1 .. 3;
+    push @queue, task( script( 'last.t', qq{sleep 1;\nprint "1..1\\nok 1\\n";\n} ) );
     my $calls = 0;
-    Permutl::Pool::run( jobs => 1, next => sub { $calls++; shift @queue }, done => sub { return } );
-    is $calls, 4, 'three tasks and the one call that returns nothing';
+    Permutl::Pool::run( jobs => 2, next => sub { $calls++; shift @queue }, done => sub { return } );
+    is $calls, 5, 'four tasks and the one call that returns nothing, also while a test still runs';
+};
+
+subtest 'an error of a callback ends the tests that still run' => sub {
+    my $quick   = script( 'quick.t',   qq{print "1..1\\nok 1\\n";\n} );
+    my $sleeper = script( 'sleeper.t', q{open my $out, '>', "$0.pid"; print {$out} $$; close $out; sleep 30;} );
+    my @queue   = ( task($sleeper), task($quick) );
+    like dies {
+        Permutl::Pool::run(
+            jobs => 2,
+            next => sub { shift @queue },
+            done => sub ( $task, $result ) { wait_for("$sleeper.pid"); die "the callback broke\n" },
+        )
+    }, qr/\Athe callback broke\n\z/, 'the error passes through';
+    ok gone( text_of("$sleeper.pid") ), 'and no test is left behind';
+};
+
+subtest 'a test gets no descriptor beyond the standard three' => sub {
+    my $path = script( 'descriptors.t',
+        q{use POSIX (); print "1..1\nok 1\n"; print "# open ", join( q{ }, grep { POSIX::fstat($_) } 3 .. 40 ), "\n";}
+    );
+    my ($alone)  = qx{$^X $path}                              =~ /^# open (.*)$/m;
+    my ($pooled) = run_all( 1, task($path) )->{$path}{output} =~ /^# open (.*)$/m;
+    is $pooled, $alone, 'the open descriptors match a run from a shell';
+};
+
+subtest 'a test that moved into the process group of the pool is ended at its time limit' => sub {
+    my $path = script( 'joined.t', <<'PERL' );
+$| = 1;
+setpgrp 0, getpgrp getppid;
+print "1..1\n";
+sleep 30;
+PERL
+    my $result = do {
+        local $SIG{ALRM} = sub { die "the pool did not end the test\n" };
+        alarm 15;
+        my $got = run_all( 1, task( $path, timeout => 1 ) )->{$path};
+        alarm 0;
+        $got;
+    };
+    is [ $result->@{qw(timed_out passed)} ], [ 1, 0 ], 'the signal reaches the process itself';
+    ok $result->{duration} < 10, 'without a wait for the end of its sleep';
 };
 
 subtest 'a test that leaves a child behind does not hide the output of another test' => sub {
@@ -165,11 +207,20 @@ sub interrupted (%setup) {
     }
     close $write;
     wait_for( $setup{started}->@* ) or die 'the tasks did not start';
-    kill 'TERM', $runner;
+    kill $setup{signal} || 'TERM', $runner;
     my $report = readline $read;
     waitpid $runner, 0;
     return $report;
 }
+
+subtest 'each signal that asks a program to end stops the pool under its name' => sub {
+    for my $signal (qw(HUP INT TERM)) {
+        my $short = script( "short-$signal.t",
+            q{open my $out, '>', "$0.pid"; print {$out} $$; close $out; sleep 3; print "1..1\nok 1\n";} );
+        is interrupted( tasks => [$short], started => ["$short.pid"], signal => $signal ), "$signal\n",
+          "SIG$signal ends the run before the test ends";
+    }
+};
 
 subtest 'a signal leaves a test the time to clean up' => sub {
     my $patient = script( 'patient.t', <<'PERL' );

@@ -34,7 +34,7 @@ signature_for run => (
 );
 
 sub run ($arg) {
-    my ( %slots, @ready );
+    my %slots;
     my $select    = IO::Select->new;
     my $exhausted = 0;
     my $completed = 0;
@@ -43,37 +43,41 @@ sub run ($arg) {
     local $SIG{INT}  = sub { $signal = 'INT' };
     local $SIG{TERM} = sub { $signal = 'TERM' };
 
-    while (1) {
-        if ($signal) {
-            _end_all( values %slots );
-            die Permutl::Interrupted->new( signal => $signal );    ## no critic (ErrorHandling::RequireCarping)
-        }
-        while ( keys %slots < $arg->jobs ) {
-            my $task = shift @ready;
-            if ( !$task && !$exhausted ) {
-                $task      = $arg->next->();
+    my $start = sub ($task) {
+        my $slot = _spawn( $TASK->assert_return($task) );
+        $slots{ $slot->{pid} } = $slot;
+        $select->add( $slot->{handle} );
+        return;
+    };
+    my $ended = eval {
+        while (1) {
+            die Permutl::Interrupted->new( signal => $signal ) if $signal;    ## no critic (ErrorHandling::RequireCarping)
+            while ( !$exhausted && keys %slots < $arg->jobs ) {
+                my $task = $arg->next->();
                 $exhausted = 1 if !$task;
+                $start->($task) if $task;
             }
-            last if !$task;
-            my $slot = _spawn( $TASK->assert_return($task) );
-            $slots{ $slot->{pid} } = $slot;
-            $select->add( $slot->{handle} );
-        }
-        last if !%slots;
+            last if !%slots;
 
-        _read_ready( $select, \%slots );
-        for my $slot ( values %slots ) {
-            _supervise($slot);
-            next                               if !_finished($slot);
-            $select->remove( $slot->{handle} ) if !$slot->{eof};
-            close $slot->{handle} or die "close pipe: $!\n";
-            delete $slots{ $slot->{pid} };
-            $completed++;
-            my $follow_up = $arg->done->( $slot->{task}, _result($slot) );
-            push @ready, $follow_up if $follow_up;
+            _read_ready( $select, \%slots );
+            _supervise($_) for values %slots;
+            for my $slot ( grep { _finished($_) } values %slots ) {
+                $select->remove( $slot->{handle} ) if !$slot->{eof};
+                close $slot->{handle} or die "close pipe: $!\n";
+                delete $slots{ $slot->{pid} };
+                $completed++;
+                my $follow_up = $arg->done->( $slot->{task}, _result($slot) );
+                $start->($follow_up) if $follow_up;
+            }
         }
-    }
-    return $completed;
+        1;
+    };
+    return $completed if $ended;
+
+    # A signal, a callback, or the pool itself failed, and no test may outlive the run.
+    my $error = $@;
+    _end_all( values %slots );
+    die $error;    ## no critic (ErrorHandling::RequireCarping)
 }
 
 sub _end_all (@slots) {
@@ -99,7 +103,6 @@ sub _spawn ($task) {
     my $pid = fork;
     die "fork: $!\n" if !defined $pid;
     if ( !$pid ) {
-        close $read;
         setpgrp 0, 0;
         _exec_child( $task, $write );
     }
@@ -154,21 +157,20 @@ sub _read_ready ( $select, $slots ) {
     my %by_fileno = map { fileno( $_->{handle} ) => $_ } grep { !$_->{eof} } values $slots->%*;
     for my $handle ( $select->can_read($POLL_SECONDS) ) {
         my $slot = $by_fileno{ fileno $handle };
-        my $read = sysread $handle, my $chunk, 65_536;
-        if ($read) {
+        if ( sysread $handle, my $chunk, 65_536 ) {
             _consume( $slot, $chunk );
-            next;
         }
-        $slot->{eof} = 1;
-        $select->remove($handle);
+        else {
+            $slot->{eof} = 1;
+            $select->remove($handle);
+        }
     }
     return;
 }
 
 sub _consume ( $slot, $chunk ) {
     $slot->{digest}->add($chunk);
-    $slot->{output} .= $chunk;
-    $slot->{output} = substr $slot->{output}, -$OUTPUT_LIMIT if length $slot->{output} > $OUTPUT_LIMIT;
+    $slot->{output} = substr $slot->{output} . $chunk, -$OUTPUT_LIMIT;
     $slot->{buffer} .= $chunk;
     while ( $slot->{buffer} =~ s/\A([^\n]*)\n// ) {
         $slot->{tap} = Permutl::Tap::feed( $slot->{tap}, $1 );
@@ -188,17 +190,14 @@ sub _descendants (@roots) {
     my %children;
     while ( my $line = readline $listing ) {
         my ( $pid, $parent ) = $line =~ /(\d+)\s+(\d+)/ or next;
-        push $children{$parent}->@*, $pid;
+        $children{$parent}{$pid} = 1;
     }
     close $listing or return;
-    my @found;
-    my @queue = @roots;
-    while (@queue) {
-        my @next = ( $children{ shift @queue } || [] )->@*;
-        push @found, @next;
-        push @queue, @next;
-    }
-    return @found;
+    return _below( \%children, @roots );
+}
+
+sub _below ( $children, @parents ) {
+    return map { ( $_, _below( $children, $_ ) ) } map { keys( ( $children->{$_} || {} )->%* ) } @parents;
 }
 
 sub _end_escaped (@pids) {
@@ -245,7 +244,7 @@ sub _result ($slot) {
     $slot->{tap} = Permutl::Tap::feed( $slot->{tap}, $slot->{buffer} ) if length $slot->{buffer};
     my $exit        = $slot->{status} >> 8;
     my $signal      = $slot->{status} & 127;
-    my $interrupted = $slot->{timed_out} || $slot->{stopped} || $signal;
+    my $interrupted = $slot->{timed_out} || $signal;
     return {
         exit      => $exit,
         signal    => $signal,
