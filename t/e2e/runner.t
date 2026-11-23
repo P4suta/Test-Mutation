@@ -218,7 +218,8 @@ subtest 'a mutant that leaves a file in the project takes the verdict from the t
     # The first test stands for code that writes a file when it goes wrong, and the second test trips over that file.
     my $writer =
         "use Test::More tests => 1;\nuse Small;\nmy \$next = Small::next_one(2);\n"
-      . "if ( \$next != 3 ) { open my \$out, '>', 'left-behind.txt' or die \$!; close \$out }\n"
+      . "if ( \$next != 3 ) { for my \$name ( 'left-behind.txt', map { \"more-\$_.txt\" } 1 .. 6 ) {"
+      . " open my \$out, '>', \$name or die \$!; close \$out } }\n"
       . "is \$next, 3, 'the next one';\n";
     my $reader = "use Test::More tests => 2;\nuse Small;\nok !-e 'left-behind.txt', 'no file is in the way';\n"
       . "is Small::size(9), 'big', 'a size';\n";
@@ -228,7 +229,8 @@ subtest 'a mutant that leaves a file in the project takes the verdict from the t
     is $result->warnings,
       [
         't/reader.t fails without a mutant now, so the mutants it detected have no verdict',
-        'the mutants changed the project: created left-behind.txt',
+        'the project changed while the mutants ran: created left-behind.txt, created more-1.txt, created more-2.txt, '
+          . 'created more-3.txt, created more-4.txt and 2 more',
       ],
       'the warnings name the change and the test that it breaks';
     my %entry = map { $_->{mutant}->from->[0] . q{ } . $_->{mutant}->description => $_ } $result->entries->@*;
@@ -246,7 +248,7 @@ subtest 'a mutant that leaves a file in the project takes the verdict from the t
       },
       'a kill by the broken test is no kill, and a kill by a sound test stays';
     is $entry{'5 replaced > with >='}{reason},
-      't/reader.t fails without a mutant since the mutants changed the project',
+      't/reader.t fails without a mutant since the project changed',
       'the reason of a mutant without a verdict';
     ok !$result->conclusive,       'the run is not conclusive';
     ok -e "$root/left-behind.txt", 'the file stays for the user to judge';
@@ -267,16 +269,27 @@ subtest 'a project that the mutants leave alone is not checked again' => sub {
 
 subtest 'a comparison with the version of Perl follows the interpreter of the tests' => sub {
     my $root = project( 'lib/Old.pm' => "package Old;\nsub era { return 'old' if \$] < 5.008; return 'new' }\n1;\n" );
-    my $fake = "$root/perl-5.008";
-    write_file( $fake, "#!/bin/sh\nprintf 5.008\n" );
-    chmod 0755, $fake or die "chmod: $!";
+    my $fake = sub ( $name, $script ) {
+        write_file( "$root/$name", "#!/bin/sh\n$script\n" );
+        chmod 0755, "$root/$name" or die "chmod: $!";
+        return "$root/$name";
+    };
     my $boundary = sub (%settings) {
         my $analysis = Permutl::Runner::analyze( Permutl::Config->new( root => $root, %settings ) );
         return scalar grep { $_->description eq 'replaced < with <=' } $analysis->{mutants}->@*;
     };
     is $boundary->(), 0, 'the interpreter of this test has another version, so the boundary yields no mutant';
-    is $boundary->( perl => $fake ),                1, 'an interpreter of the named version keeps the mutant';
-    is $boundary->( perl => "$root/no-such-perl" ), 1, 'an interpreter that gives no version keeps the mutant too';
+    is $boundary->( perl => $fake->( 'same', 'printf 5.008' ) ), 1,
+      'an interpreter of the named version keeps the mutant';
+    is $boundary->( perl => $fake->( 'other', 'printf 5.010' ) ), 0, 'an interpreter of another version drops it';
+    is $boundary->( perl => $fake->( 'failing', 'printf 5.010; exit 1' ) ), 1,
+      'an interpreter that fails gives no version, so the mutant stays';
+    is $boundary->( perl => $fake->( 'wordy', 'printf "no version here"' ) ), 1,
+      'an answer that is no number gives no version';
+    is $boundary->( perl => "$root/no-such-perl" ), 1, 'an interpreter that cannot start gives no version';
+
+    $root = project( 'lib/Old.pm' => "package Old;\nsub era { return 'old' if \$] < $]; return 'new' }\n1;\n" );
+    is $boundary->(), 1, 'a literal that equals the version of this interpreter keeps the mutant';
 };
 
 subtest 'a source that holds a single zero keeps its text' => sub {

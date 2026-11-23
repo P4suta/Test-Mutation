@@ -522,13 +522,14 @@ sub _tree ($run) {
 sub _recheck ( $run, $tests, $entries, $changes ) {
     my @named = $changes->@[ 0 .. List::Util::min( $changes->$#*, $CHANGES_NAMED - 1 ) ];
     my $rest  = $changes->@* - @named;
-    _warn( $run, 'the mutants changed the project: ' . join( ', ', @named ) . ( $rest ? " and $rest more" : q{} ) );
+    _warn( $run,
+        'the project changed while the mutants ran: ' . join( ', ', @named ) . ( $rest ? " and $rest more" : q{} ) );
 
     my $outcome = _unmodified( $run, 'recheck', 0, $run->{jobs}, $tests );
     my %broken  = map { $_ => 1 } grep { !$outcome->{$_}{result}{passed} } $tests->@*;
     for my $entry ( grep { $_->{status} eq 'Killed' && $broken{ $_->{by} } } $entries->@* ) {
         $entry->@{qw(status reason)} =
-          ( 'RuntimeError', "$entry->{by} fails without a mutant since the mutants changed the project" );
+          ( 'RuntimeError', "$entry->{by} fails without a mutant since the project changed" );
     }
     _warn( $run, "$_ fails without a mutant now, so the mutants it detected have no verdict" ) for sort keys %broken;
     return;
