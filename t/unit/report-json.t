@@ -96,6 +96,7 @@ subtest 'a mutant maps to the schema' => sub {
         testsCompleted => 2,
         duration       => 750,
         static         => JSON::PP::false,
+        permutl        => { scope => [ 3, 3 ], suppressed => JSON::PP::false, comparable => JSON::PP::true },
       },
       'a killed mutant';
     ok !exists $survived->{killedBy},     'a survived mutant has no killing test';
@@ -110,6 +111,25 @@ subtest 'tests are listed as test files' => sub {
         't/sign.t' => { tests => [ { id => 't/sign.t', name => 't/sign.t' } ] },
       },
       'one test per file';
+};
+
+subtest 'the document carries the facts of the run that the schema has no place for' => sub {
+    is $document->{permutl},
+      {
+        shard            => undef,
+        inventory        => undef,
+        jobs             => 2,
+        parallelSafe     => JSON::PP::true,
+        interrupted      => undef,
+        reused           => 0,
+        started          => 100,
+        finished         => 103.5,
+        warnings         => [],
+        problems         => [],
+        baselineFailures => [],
+        tests            => [ { name => 't/sign.t', duration => 0.5 }, { name => 't/add.t', duration => 0.25 } ],
+      },
+      'the run facts';
 };
 
 subtest 'render writes canonical JSON with numbers as numbers' => sub {

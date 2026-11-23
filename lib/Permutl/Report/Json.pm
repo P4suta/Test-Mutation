@@ -29,6 +29,30 @@ sub document ( $result, $arg ) {
         files         => \%files,
         testFiles     =>
           { map { $_->{name} => { tests => [ { id => $_->{name}, name => $_->{name} } ] } } $result->tests->@* },
+        permutl => _facts($result),
+    };
+}
+
+sub _boolean ($value) {
+    return $value ? JSON::PP::true : JSON::PP::false;
+}
+
+# The schema has no place for these facts, and a merge of several reports needs them.
+sub _facts ($result) {
+    my $inventory = $result->inventory;
+    return {
+        shard        => $result->shard,
+        inventory    => $inventory ? { mutants => $inventory->{mutants} + 0, digest => $inventory->{digest} } : undef,
+        jobs         => $result->jobs + 0,
+        parallelSafe => _boolean( $result->parallel_safe ),
+        interrupted  => $result->interrupted,
+        reused       => $result->reused + 0,
+        started      => $result->started + 0,
+        finished     => $result->finished + 0,
+        warnings     => [ $result->warnings->@* ],
+        problems     => [ map { { path => $_->{path}, problem => $_->{problem} } } $result->problems->@* ],
+        baselineFailures => [ map { $_->{test} } $result->baseline_failures->@* ],
+        tests            => [ map { { name => $_->{name}, duration => $_->{duration} + 0 } } $result->tests->@* ],
     };
 }
 
@@ -45,6 +69,11 @@ sub _mutant ($entry) {
         testsCompleted => $entry->{tests_run} + 0,
         duration       => int( $entry->{duration} * $MILLISECONDS + 0.5 ),
         static         => JSON::PP::false,
+        permutl        => {
+            scope      => [ map { $_ + 0 } $mutant->scope->@* ],
+            suppressed => _boolean( $mutant->suppressed ),
+            comparable => _boolean( $mutant->comparable ),
+        },
     );
     $mutant{statusReason} = $entry->{reason} if defined $entry->{reason};
     $mutant{killedBy}     = [ $entry->{by} ] if $entry->{status} eq 'Killed' && defined $entry->{by};
@@ -89,6 +118,8 @@ Tools that read that schema, such as the C<mutation-testing-elements> viewer, ca
 
 Returns the report as a data structure.
 Each test file appears as one test, because permutl runs test files as units.
+The C<permutl> key of the document and of each mutant holds the facts that the schema has no place for.
+The schema allows such keys, and C<permutl merge> reads them.
 
 =head2 render
 
