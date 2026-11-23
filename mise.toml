@@ -56,6 +56,10 @@ run = "prove -l xt"
 description = "Measure the tests of permutl with permutl"
 run = "perl -Ilib bin/permutl"
 
+[tasks.schema]
+description = "Fetch the report schema of the pinned viewer release"
+run = "curl --fail --silent --show-error --location --output xt/schema/mutation-testing-report-schema.json https://raw.githubusercontent.com/stryker-mutator/mutation-testing-elements/v3.9.0/packages/report-schema/src/mutation-testing-report-schema.json"
+
 [tasks.corpus]
 description = "Analyze every installed module and check each site and mutant"
 run = "prove -l xt/corpus"

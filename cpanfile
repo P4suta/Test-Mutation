@@ -14,6 +14,7 @@ on develop => sub {
     requires 'App::cpm',      '0.997';
     requires 'CPAN::Audit',   '20240000';
     requires 'Carton',        '1.0.35';
+    requires 'JSON::Schema::Tiny', '0.034';
     requires 'Perl::Critic',  '1.156';
     requires 'Perl::Tidy',    '20240903';
     requires 'Pod::Coverage', '0.23';
