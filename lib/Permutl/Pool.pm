@@ -1,6 +1,7 @@
 package Permutl::Pool;
 use v5.36;
 use Digest::SHA            ();
+use Fcntl                  ();
 use IO::Select             ();
 use POSIX                  ();
 use Time::HiRes            ();
@@ -123,13 +124,29 @@ sub _exec_child ( $task, $write ) {
         my %environment = ( %ENV, $task->{env}->%* );
         delete @environment{ grep { !defined $environment{$_} } keys %environment };
         local %ENV = %environment;
-        open STDIN,  '<',  '/dev/null'     or die "stdin: $!\n";
-        open STDOUT, '>&', $write          or die "stdout: $!\n";
-        open STDERR, '>',  $task->{stderr} or die "stderr: $!\n";
+        ## no critic (InputOutput::RequireBriefOpen)
+        open my $input,  '<', '/dev/null'     or die "stdin: $!\n";
+        open my $errors, '>', $task->{stderr} or die "stderr: $!\n";
+        ## use critic
+        _take_standard_descriptors( $input, $write, $errors );
+        no warnings 'exec';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
         exec { $task->{command}[0] } $task->{command}->@* or die "exec $task->{command}[0]: $!\n";
     };
-    print {*STDERR} "permutl: $@" if !$ok;
+    my $message = "permutl: $@";
+    POSIX::write( 2, $message, length $message ) if !$ok;
     POSIX::_exit(127);
+    return;
+}
+
+# The driver may hold STDOUT or STDERR in memory or closed, so the child sets descriptors 0 to 2 and no Perl handle.
+# Each source moves above the three first, because a source that sits on one of them would be replaced too early.
+sub _take_standard_descriptors (@handles) {
+    my @copies = map { fcntl $_, Fcntl::F_DUPFD(), 3 } @handles;
+    die "dup: $!\n" if grep { !defined } @copies;
+    for my $target ( 0 .. 2 ) {
+        defined POSIX::dup2( $copies[$target], $target ) or die "dup2: $!\n";
+    }
+    POSIX::close($_) for @copies;
     return;
 }
 
