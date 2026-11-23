@@ -132,4 +132,35 @@ PERL
     is $run->{stdout}, "script=0\n", 'code compiled after the target is not traced';
 };
 
+subtest 'the trace of a line leaves the error variables of the program alone' => sub {
+    my $root = project();
+    write_file( "$root/lib/Foo/Errors.pm", <<'PERL' );
+package Foo::Errors;
+use strict;
+use warnings;
+
+sub number {
+    $! = 7;
+    my $seen = $! + 0;
+    return $seen;
+}
+
+sub message {
+    eval { die "kept\n" };
+    my $seen = $@;
+    return $seen;
+}
+
+1;
+PERL
+    write_file( "$root/script.pl", "use Foo::Errors;\nprint Foo::Errors::number(), q{ }, Foo::Errors::message();\n" );
+    write_spec( "$root/spec", trace => 1, targets => [ [ "$root/lib/Foo/Errors.pm", "$root/lib/Foo/Errors.pm" ] ] );
+    my $run = run_perl(
+        root => $root,
+        env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
+        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+    );
+    is $run->{stdout}, "7 kept\n", 'the error number and the error of an eval reach the next line';
+};
+
 done_testing;

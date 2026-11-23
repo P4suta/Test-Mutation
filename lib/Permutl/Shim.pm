@@ -216,8 +216,13 @@ sub _define_dispatcher {
 
     package DB;        ## no critic (Modules::ProhibitMultiplePackages)
     $Permutl::Shim::DISPATCHER = sub {
+
+        # A trace point lies between two statements, and the second one may read the error number of the first.
+        # An assignment restores the number: a localized $! with an initial value comes back as zero.
+        my $number = $! + 0;
         my ( undef, $file, $line ) = caller;
         $_->( $file, $line ) for @Permutl::Shim::TRACERS;
+        $! = $number;    ## no critic (Variables::RequireLocalizedPunctuationVars)
         return;
     };
     no strict 'refs';    ## no critic (TestingAndDebugging::ProhibitNoStrict)
