@@ -7,18 +7,19 @@ use Permutl;
 
 my $root = copy_of('calc');
 
+# The listing comes first: a call that takes another project than the named one fails here within a moment.
+subtest 'mutants lists the mutants without running a test' => sub {
+    my $mutants = Permutl::mutants( root => $root, disable => ['sub-body'] );
+    is scalar( $mutants->@* ), 15, 'the mutants of the enabled mutators';
+    isa_ok $mutants->[0], ['Permutl::Mutant'], 'each element';
+};
+
 subtest 'run measures a project and returns the result' => sub {
     my @events;
     my $result = Permutl::run( root => $root, jobs => 2, on_event => sub ( $event, $data ) { push @events, $event } );
     isa_ok $result, ['Permutl::Result'], 'the result';
     is $result->tally->{counts}{Killed}, 13,         'the killed mutants';
     is $events[0],                       'analyzed', 'the listener receives the events';
-};
-
-subtest 'mutants lists the mutants without running a test' => sub {
-    my $mutants = Permutl::mutants( root => $root, disable => ['sub-body'] );
-    is scalar( $mutants->@* ), 15, 'the mutants of the enabled mutators';
-    isa_ok $mutants->[0], ['Permutl::Mutant'], 'each element';
 };
 
 subtest 'settings are checked' => sub {
