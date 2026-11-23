@@ -1,5 +1,6 @@
 package Permutl::Report::Patch;
 use v5.36;
+use List::Util      qw(max min);
 use Types::Standard qw(InstanceOf Str);
 use Type::Params    qw(signature_for);
 
@@ -27,10 +28,10 @@ sub render ($arg) {
 
     my @removed = @old[ $prefix .. $#old - $suffix ];
     my @added   = @new[ $prefix .. $#new - $suffix ];
-    my $first   = $prefix > $CONTEXT ? $prefix - $CONTEXT : 0;
+    my $first   = max( 0, $prefix - $CONTEXT );
     my $resume  = @old - $suffix;
-    my $lines   = $old[-1] eq q{}                     ? @old - 1               : scalar @old;
-    my $final   = $resume + $CONTEXT - 1 < $lines - 1 ? $resume + $CONTEXT - 1 : $lines - 1;
+    my $lines   = $old[-1] eq q{} ? @old - 1 : scalar @old;
+    my $final   = min( $resume + $CONTEXT, $lines ) - 1;
     my @before  = @old[ $first .. $prefix - 1 ];
     my @after   = $resume <= $final ? @old[ $resume .. $final ] : ();
 
