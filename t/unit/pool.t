@@ -8,11 +8,14 @@ use Permutl::Pool;
 
 my $dir = File::Temp::tempdir( CLEANUP => 1 );
 
+# A broken pool may leave a test script behind, so each script ends on its own after a while.
+my $OWN_END = "alarm 90;\n";
+
 sub script ( $name, $code ) {
     my $path = "$dir/$name";
     open my $handle, '>', $path or die "open $path: $!";
-    print {$handle} $code or die "print $path: $!";
-    close $handle         or die "close $path: $!";
+    print {$handle} ( $name =~ /[.]t\z/ ? $OWN_END : q{} ), $code or die "print $path: $!";
+    close $handle or die "close $path: $!";
     return $path;
 }
 
