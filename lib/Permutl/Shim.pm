@@ -117,14 +117,18 @@ sub _resolve {
     return;
 }
 
-sub _same_file {
-    my ( $path, $target ) = @_;
-    my @stat = stat $path or return 0;
-    return 1
-      if defined $target->{inode}
-      && $stat[1] == $target->{inode}
-      && $stat[0] == $target->{device};
-    return _slurp($path) eq _slurp( $target->{original} );
+# The file itself wins over a copy with the same text, such as the copy in blib.
+sub _target_at {
+    my ( $path, $candidates ) = @_;
+    my @stat = stat $path or return;
+    for my $target ( @{$candidates} ) {
+        return $target if defined $target->{inode} && $stat[1] == $target->{inode} && $stat[0] == $target->{device};
+    }
+    my $text = _slurp($path);
+    for my $target ( @{$candidates} ) {
+        return $target if $text eq _slurp( $target->{original} );
+    }
+    return;
 }
 
 sub _slurp {
@@ -143,8 +147,7 @@ sub _serve {
 
     my $candidates = $STATE{by_base}{ _basename($file) } or return;
     my $path       = _resolve($file)                     or return;
-    my ($target)   = grep { _same_file( $path, $_ ) } @{$candidates};
-    return if !$target;
+    my $target     = _target_at( $path, $candidates )    or return;
 
     open my $handle, '<', $target->{serve} or do {    ## no critic (InputOutput::RequireBriefOpen)
         _record( 'error', $target->{original}, "cannot open $target->{serve}: $!" );

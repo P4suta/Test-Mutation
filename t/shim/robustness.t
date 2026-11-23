@@ -61,6 +61,19 @@ subtest 'a different file of the same name and size is left alone' => sub {
     is_deeply [ map { $_->[0] } @{ records($root) } ], ['end'], 'nothing is served and nothing bypasses the hook';
 };
 
+subtest 'two targets with one name and the same text keep their own replacements' => sub {
+    my $root = project();
+    write_file( "$root/lib/$_/Twin.pm", "1;\n" ) for qw(One Two);
+    write_file( "$root/one.pm",         "print 'one';\n1;\n" );
+    write_file( "$root/two.pm",         "print 'two';\n1;\n" );
+    write_spec( "$root/spec",
+        targets => [ [ "$root/lib/One/Twin.pm", "$root/one.pm" ], [ "$root/lib/Two/Twin.pm", "$root/two.pm" ] ] );
+    for my $name (qw(One Two)) {
+        write_file( "$root/script.pl", "require $name\::Twin;\n" );
+        is shim_run($root)->{stdout}, lc $name, "the file of $name gets the replacement of $name";
+    }
+};
+
 subtest 'a replacement that cannot be opened leaves the original and an error record' => sub {
     my $root = project();
     write_file( "$root/lib/One.pm", module( 'One', 1 ) );
