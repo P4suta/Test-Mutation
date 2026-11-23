@@ -1,8 +1,9 @@
 use v5.36;
 use Test2::V0;
-use Cwd        ();
-use File::Path ();
-use File::Temp ();
+use Cwd            ();
+use File::Basename ();
+use File::Path     ();
+use File::Temp     ();
 use Permutl::Diff;
 use Permutl::Git;
 
@@ -49,9 +50,13 @@ ok Permutl::Diff::touches( $changed->{'lib/Added.pm'}, 100_000, 100_000 ), 'and 
 like dies { Permutl::Git::changed( $root, 'no-such-revision' ) },
   qr/\Agit diff failed: [^\n]*no-such-revision[^\n]*\n\z/, 'an unknown revision gives one line with the reason of git';
 
+# The temporary directory may lie inside a work tree, so the search of git for a repository stops at its parent.
 my $plain = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
-like dies { Permutl::Git::changed( $plain, 'HEAD' ) }, qr/\Agit diff failed: [^\n]+\n\z/,
-  'a directory outside a repository gives the reason of git';
+{
+    local $ENV{GIT_CEILING_DIRECTORIES} = File::Basename::dirname($plain);
+    like dies { Permutl::Git::changed( $plain, 'HEAD' ) }, qr/\Agit diff failed: [^\n]+\n\z/,
+      'a directory outside a repository gives the reason of git';
+}
 
 {
     local $ENV{PATH} = $plain;
