@@ -15,11 +15,11 @@ my $TRACE_FLAGS = 0x02 | 0x04;
 my %STATE;
 
 sub spec_variable {
-    return $GENERATION ? "PERMUTL_SPEC_G$GENERATION" : 'PERMUTL_SPEC';
+    return $GENERATION ? "TEST_MUTATION_SPEC_G$GENERATION" : 'TEST_MUTATION_SPEC';
 }
 
 sub record_variable {
-    return $GENERATION ? "PERMUTL_RECORD_G$GENERATION" : 'PERMUTL_RECORD';
+    return $GENERATION ? "TEST_MUTATION_RECORD_G$GENERATION" : 'TEST_MUTATION_RECORD';
 }
 
 sub import {
@@ -308,7 +308,7 @@ Test::Mutation::Shim - serve mutated source inside a test process
 
 =head1 DESCRIPTION
 
-The permutl driver loads a copy of this module into every test process.
+The driver of Test::Mutation loads a copy of this module into every test process.
 The copy reads the spec file named by its environment variable and puts a hook at the front of C<@INC>.
 When a test requires a target file, the hook serves the replacement source and records the event.
 The module depends on core modules alone and runs on Perl 5.10 and later.

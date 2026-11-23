@@ -84,7 +84,7 @@ subtest 'extended mutators' => sub {
       [ [ '0', '1' ], [ '1', '0' ], [ '41', '42' ] ],
       'integer literals';
     is changes( q{my @s = ( 'abc', "", q{def} );}, 'string-literal', %extended ),
-      [ [ q{'abc'}, q{''} ], [ q{""}, q{"permutl"} ] ],
+      [ [ q{'abc'}, q{''} ], [ q{""}, q{"mutant"} ] ],
       'string literals';
     is changes( 'if ($a) { f() } while ($b) { g() } until ($c) { h() }', 'condition-fixed', %extended ),
       [ [ '$a', '1' ], [ '$a', '0' ], [ '$b', '0' ], [ '$c', '1' ] ], 'fixed conditions avoid endless loops';

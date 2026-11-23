@@ -17,7 +17,7 @@ sub _config (%settings) {
     die 'unknown setting: ' . join( ', ', @unknown ) . "\n" if @unknown;
     my $root = delete $settings{root};
     $root = q{.} if !defined $root;
-    my $file = "$root/permutl.toml";
+    my $file = "$root/mutation.toml";
     return Test::Mutation::Config->from_layers(
         root     => $root,
         defaults => {},
@@ -54,7 +54,7 @@ sub mutation_score_ok ($settings) {
     require Test::Builder;
     require Test::Mutation::Report::Terminal;
     my $builder = Test::Builder->new;
-    my $outer   = defined $ENV{PERMUTL_ROOT} ? Cwd::abs_path( $ENV{PERMUTL_ROOT} ) : undef;
+    my $outer   = defined $ENV{TEST_MUTATION_ROOT} ? Cwd::abs_path( $ENV{TEST_MUTATION_ROOT} ) : undef;
     my $own     = Cwd::abs_path( $settings{root} );
     if ( defined $outer && defined $own && $outer eq $own ) {
         $builder->skip('inside a mutation run');
@@ -136,8 +136,8 @@ C<mutation_score_ok> asserts a score from a test file.
 =head1 CONFIGURATION
 
 C<mutation run> works without configuration: it mutates C<lib/**/*.pm> and runs C<t/**/*.t> with C<-Ilib>.
-A file named C<permutl.toml> in the project directory changes the defaults.
-A run writes its reports into C<permutl-report>, and C<--cache> keeps its results in C<.permutl>.
+A file named C<mutation.toml> in the project directory changes the defaults.
+A run writes its reports into C<mutation-report>, and C<--cache> keeps its results in C<.mutation>.
 Both directories belong in C<.gitignore>.
 
     jobs = 4
@@ -163,7 +163,7 @@ Both directories belong in C<.gitignore>.
     equivalence = true
 
     [report]
-    directory = "permutl-report"
+    directory = "mutation-report"
     formats = ["terminal", "json", "html"]
 
     [thresholds]
@@ -191,7 +191,7 @@ A comment suppresses the mutants on its line, and a comment on a line of its own
 Measures the project and returns a L<Test::Mutation::Result>.
 The settings are the attributes of L<Test::Mutation::Config>, and C<on_event> receives the progress events of L<Test::Mutation::Runner>.
 C<root> is the working directory when the call leaves it out.
-A C<permutl.toml> in the root directory supplies the settings that the call leaves out.
+A C<mutation.toml> in the root directory supplies the settings that the call leaves out.
 
 =head2 mutants
 
@@ -203,12 +203,12 @@ Returns the L<Test::Mutation::Mutant> objects of the project without running a t
 
     mutation_score_ok( min => 80, name => 'tests detect mutants', jobs => 4, profile => 'extended' );
 
-Runs permutl on the project in the current directory from a test file, which gets the function by loading the module.
+Measures the project in the current directory from a test file, which gets the function by loading the module.
 Passes when the run is conclusive and the score reaches C<min>, 100 by default.
-C<name> names the test, and every other setting goes to C<run>, which also reads C<permutl.toml>.
+C<name> names the test, and every other setting goes to C<run>, which also reads C<mutation.toml>.
 A failing assertion prints the report with the undetected mutants as diagnostics.
-A test file under C<xt/> keeps the measurement out of the tests that permutl itself runs.
-Inside a permutl run of the same project the assertion is a skip, so a copy under C<t/> does not start a run for every mutant.
+A test file under C<xt/> keeps the measurement out of the tests that a run itself starts.
+Inside a run of the same project the assertion is a skip, so a copy under C<t/> does not start a run for every mutant.
 
 =head1 LIMITS
 

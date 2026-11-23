@@ -16,7 +16,7 @@ subtest 'defaults' => sub {
     is $config->coverage,         'line',                   'coverage';
     is $config->profile,          'default',                'profile';
     is $config->formats,          [qw(terminal json html)], 'formats';
-    is $config->report_directory, 'permutl-report',         'report directory';
+    is $config->report_directory, 'mutation-report',        'report directory';
     is $config->threshold_break,  undef,                    'no failing threshold';
     is $config->jobs,             1,                        'jobs';
     is $config->in_place,         0,                        'the tests run in copies of the project';

@@ -23,10 +23,10 @@ subtest 'a child perl started through PERL5OPT gets the mutant' => sub {
     my $run  = run_perl(
         root => $root,
         env  => {
-            PERMUTL_SPEC   => "$root/spec",
-            PERMUTL_RECORD => "$root/records",
-            PERL5OPT       => '-MTest::Mutation::Shim',
-            PERL5LIB       => lib_dir(),
+            TEST_MUTATION_SPEC   => "$root/spec",
+            TEST_MUTATION_RECORD => "$root/records",
+            PERL5OPT             => '-MTest::Mutation::Shim',
+            PERL5LIB             => lib_dir(),
         },
         args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
@@ -47,7 +47,7 @@ waitpid $pid, 0;
 PERL
     my $run = run_perl(
         root => $root,
-        env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
+        env  => { TEST_MUTATION_SPEC => "$root/spec", TEST_MUTATION_RECORD => "$root/records" },
         args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
     is $run->{status},                                             0,             'exit status' or diag $run->{stderr};
@@ -59,7 +59,7 @@ subtest 'taint mode works with explicit switches' => sub {
     my $root = prepare("use Foo::Bar;\nprint 'taint=', \${^TAINT}, ' answer=', Foo::Bar::answer(), \"\\n\";\n");
     my $run  = run_perl(
         root => $root,
-        env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
+        env  => { TEST_MUTATION_SPEC => "$root/spec", TEST_MUTATION_RECORD => "$root/records" },
         args => [ '-T', '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
     is $run->{status}, 0,                     'exit status' or diag $run->{stderr};
@@ -73,10 +73,10 @@ subtest 'loading the shim twice activates it once' => sub {
     my $run  = run_perl(
         root => $root,
         env  => {
-            PERMUTL_SPEC   => "$root/spec",
-            PERMUTL_RECORD => "$root/records",
-            PERL5OPT       => '-MTest::Mutation::Shim',
-            PERL5LIB       => lib_dir(),
+            TEST_MUTATION_SPEC   => "$root/spec",
+            TEST_MUTATION_RECORD => "$root/records",
+            PERL5OPT             => '-MTest::Mutation::Shim',
+            PERL5LIB             => lib_dir(),
         },
         args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );

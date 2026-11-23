@@ -82,7 +82,7 @@ is $back->sources, { 'lib/Calc.pm' => $source }, 'the sources';
 
 like dies { Test::Mutation::Report::Json::parse('{') }, qr/\Athe text is no JSON document/, 'broken JSON is refused';
 like dies { Test::Mutation::Report::Json::parse('{"schemaVersion":"2","thresholds":{"high":80,"low":60},"files":{}}') },
-  qr/\Athe report holds no run facts of permutl/, 'a report of another tool is refused';
+  qr/\Athe report holds no run facts of Test::Mutation/, 'a report of another tool is refused';
 
 like dies { Test::Mutation::Report::Json::parse(undef) }, qr/did not pass type constraint "Str"/,
   'the text is a string';
@@ -97,23 +97,28 @@ subtest 'a value of the wrong type is refused with its place in the report' => s
     my $mutant = q{->{"files"}->{"lib/Calc.pm"}->{"mutants"}->[0]};
     my %cases  = (
         'a count that is no number' =>
-          [ sub ($t) { $t =~ s/"jobs" : 3/"jobs" : "many"/r }, q{->{"permutl"}->{"jobs"}} ],
-        'a run without a test process' => [ sub ($t) { $t =~ s/"jobs" : 3/"jobs" : 0/r }, q{->{"permutl"}->{"jobs"}} ],
-        'a count that is missing'      => [ sub ($t) { $t =~ s/"jobs" : 3,//r },          q{->{"permutl"}->{"jobs"}} ],
-        'an unknown status'            =>
+          [ sub ($t) { $t =~ s/"jobs" : 3/"jobs" : "many"/r }, q{->{"testMutation"}->{"jobs"}} ],
+        'a run without a test process' =>
+          [ sub ($t) { $t =~ s/"jobs" : 3/"jobs" : 0/r }, q{->{"testMutation"}->{"jobs"}} ],
+        'a count that is missing' => [ sub ($t) { $t =~ s/"jobs" : 3,//r }, q{->{"testMutation"}->{"jobs"}} ],
+        'an unknown status'       =>
           [ sub ($t) { $t =~ s/"status" : "Killed"/"status" : "Eaten"/r }, $mutant . q{->{"status"}} ],
         'a line that is no number' =>
           [ sub ($t) { $t =~ s/"line" : 3/"line" : "third"/r }, $mutant . q{->{"location"}->{"end"}->{"line"}} ],
-        'an unknown signal' =>
-          [ sub ($t) { $t =~ s/"interrupted" : "INT"/"interrupted" : "USR1"/r }, q{->{"permutl"}->{"interrupted"}} ],
+        'an unknown signal' => [
+            sub ($t) { $t =~ s/"interrupted" : "INT"/"interrupted" : "USR1"/r },
+            q{->{"testMutation"}->{"interrupted"}}
+        ],
         'a part without a number' =>
-          [ sub ($t) { $t =~ s{"shard" : "2/4"}{"shard" : "second"}r }, q{->{"permutl"}->{"shard"}} ],
+          [ sub ($t) { $t =~ s{"shard" : "2/4"}{"shard" : "second"}r }, q{->{"testMutation"}->{"shard"}} ],
         'a digest of another length' => [
             sub ($t) { $t =~ s/"digest" : "(?:ab){32}"/"digest" : "abab"/r },
-            q{->{"permutl"}->{"inventory"}->{"digest"}}
+            q{->{"testMutation"}->{"inventory"}->{"digest"}}
         ],
-        'a warning that is no text' =>
-          [ sub ($t) { $t =~ s/"warnings" : \[/"warnings" : [ "first", {},/r }, q{->{"permutl"}->{"warnings"}->[1]} ],
+        'a warning that is no text' => [
+            sub ($t) { $t =~ s/"warnings" : \[/"warnings" : [ "first", {},/r },
+            q{->{"testMutation"}->{"warnings"}->[1]}
+        ],
     );
     for my $name ( sort keys %cases ) {
         my ( $change, $place ) = $cases{$name}->@*;

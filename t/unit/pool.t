@@ -60,10 +60,11 @@ subtest 'a failing test and a nonzero exit' => sub {
 };
 
 subtest 'the environment and the working directory reach the test' => sub {
-    local $ENV{PERMUTL_POOL_REMOVED} = 'present';
+    local $ENV{TEST_MUTATION_POOL_REMOVED} = 'present';
     my $path = script( 'env.t',
-        q{use Cwd; print "$ENV{PERMUTL_POOL_ADDED}|", ( $ENV{PERMUTL_POOL_REMOVED} // 'gone' ), '|', getcwd(), "\n";} );
-    my $result = run_one( $path, env => { PERMUTL_POOL_ADDED => 'added', PERMUTL_POOL_REMOVED => undef } );
+        q{use Cwd; print "$ENV{TEST_MUTATION_POOL_ADDED}|", ( $ENV{TEST_MUTATION_POOL_REMOVED} // 'gone' ), '|', getcwd(), "\n";}
+    );
+    my $result = run_one( $path, env => { TEST_MUTATION_POOL_ADDED => 'added', TEST_MUTATION_POOL_REMOVED => undef } );
     like $result->{output}, qr{\Aadded[|]gone[|].*\Q$dir\E\n\z},
       'variables are set and removed, and the directory is changed';
 };

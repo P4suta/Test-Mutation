@@ -5,7 +5,7 @@ use File::Temp ();
 use Test::Mutation::Runner;
 
 # The run copies the source of the shim from the first entry of @INC that supplies it.
-# An entry is a directory or a hook, and an outer run of permutl serves the file through its own hook.
+# An entry is a directory or a hook, and an outer run serves the file through its own hook.
 
 my $SHIM  = "package Test::Mutation::Shim;\nmy \$GENERATION = 0;\n1;\n";
 my $THIRD = "package Test::Mutation::Shim::G3;\nmy \$GENERATION = 3;\n1;\n";

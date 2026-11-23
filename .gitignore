@@ -1,6 +1,6 @@
 /local/
-/.permutl/
-/permutl-report/
+/.mutation/
+/mutation-report/
 /blib/
 /Makefile
 /Makefile.old

@@ -24,19 +24,19 @@ sub snapshot ( $root, @skip ) {
 }
 
 subtest 'the state names every file, directory, and link below the root' => sub {
-    my $root = tree( 'lib/A.pm' => "1;\n", 't/a.t' => 'ok', '.permutl/run/x' => 'work', '.git/HEAD' => 'ref' );
+    my $root = tree( 'lib/A.pm' => "1;\n", 't/a.t' => 'ok', '.mutation/run/x' => 'work', '.git/HEAD' => 'ref' );
     mkdir "$root/empty" or die "mkdir: $!";
     symlink 'lib/A.pm', "$root/link" or die "symlink: $!";
     is [ sort keys snapshot($root)->%* ],
       [
-        '.git', '.git/HEAD', '.permutl', '.permutl/run', '.permutl/run/x', 'empty',
-        'lib',  'lib/A.pm',  'link',     't',            't/a.t'
+        '.git', '.git/HEAD', '.mutation', '.mutation/run', '.mutation/run/x', 'empty',
+        'lib',  'lib/A.pm',  'link',      't',             't/a.t'
       ],
       'paths from the root, hidden ones included';
-    is [ sort keys snapshot( $root, '.git', '.permutl' )->%* ], [ 'empty', 'lib', 'lib/A.pm', 'link', 't', 't/a.t' ],
+    is [ sort keys snapshot( $root, '.git', '.mutation' )->%* ], [ 'empty', 'lib', 'lib/A.pm', 'link', 't', 't/a.t' ],
       'a skipped directory is left out with all it holds';
     is [ sort keys snapshot( $root, 'lib/A.pm', 't' )->%* ],
-      [ '.git', '.git/HEAD', '.permutl', '.permutl/run', '.permutl/run/x', 'empty', 'lib', 'link' ],
+      [ '.git', '.git/HEAD', '.mutation', '.mutation/run', '.mutation/run/x', 'empty', 'lib', 'link' ],
       'a skipped path may lie below the top';
 };
 
@@ -126,7 +126,7 @@ sub project_tree () {
         't/data/deep/list.txt' => "a\nb\n",
         'docs/guide.txt'       => 'read me',
         '.git/HEAD'            => 'ref',
-        '.permutl/run/x'       => 'work',
+        '.mutation/run/x'      => 'work',
         'local/lib/perl5/B.pm' => "1;\n",
     );
     chmod oct '755', "$root/bin/tool" or die "chmod: $!";
@@ -147,8 +147,8 @@ sub copy_of ( $root, %arg ) {
 
 subtest 'copy reproduces the files, directories, and links of a tree' => sub {
     my $root = project_tree();
-    my $copy = copy_of( $root, skip => [ '.git', '.permutl' ], link => [ 'local', 'absent' ] );
-    is content( $copy, 'local' ), content( $root, '.git', '.permutl', 'local' ),
+    my $copy = copy_of( $root, skip => [ '.git', '.mutation' ], link => [ 'local', 'absent' ] );
+    is content( $copy, 'local' ), content( $root, '.git', '.mutation', 'local' ),
       'the same paths, kinds, contents, modes, and link targets, without the skipped paths';
     is content($copy)->{'bin/tool'},     "file 0755 #!perl\n", 'a command keeps its right to run';
     is content($copy)->{'t/data'},       'directory 0750',     'a directory keeps its mode';
@@ -157,7 +157,7 @@ subtest 'copy reproduces the files, directories, and links of a tree' => sub {
     ok !-e "$copy/absent" && !-l "$copy/absent", 'a linked name that the tree lacks adds nothing';
     is content( copy_of($root) ), content($root), 'without a skip or a link, the copy holds everything';
     my $counted = File::Temp::tempdir( CLEANUP => 1 ) . '/copy';
-    is Test::Mutation::Tree::copy( from => $root, to => $counted, skip => [ '.git', '.permutl' ], link => ['local'] ),
+    is Test::Mutation::Tree::copy( from => $root, to => $counted, skip => [ '.git', '.mutation' ], link => ['local'] ),
       scalar( keys content( $counted, 'local' )->%* ), 'the number of the copied paths, without the linked one';
 };
 
@@ -188,7 +188,7 @@ subtest 'restore undoes what was created, removed, and changed' => sub {
     # The source of the restore holds a link that leads out of it, as a copy of a project does for its modules.
     my $project  = project_tree();
     my $original = content($project);
-    my $master   = copy_of( $project, skip => [ '.git', '.permutl' ], link => ['local'] );
+    my $master   = copy_of( $project, skip => [ '.git', '.mutation' ], link => ['local'] );
     my $slot     = copy_of($master);
     my $before   = snapshot($slot);
     my $wanted   = content($slot);

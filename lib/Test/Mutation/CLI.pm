@@ -65,7 +65,7 @@ Options:
   --shard K/N           Cover part K of N equal parts of the mutants
   --no-equivalence      Keep the mutants that compile to the original code
   --cache               Reuse the results of an earlier run where the inputs are unchanged
-  --config FILE         Configuration file to read in place of permutl.toml
+  --config FILE         Configuration file to read in place of mutation.toml
   --version             Print the version
   --help                Print this text
 TEXT
@@ -157,7 +157,7 @@ sub _inside_github_actions () {
 }
 
 sub _configuration_file ($named) {
-    my $path = defined $named ? $named : 'permutl.toml';
+    my $path = defined $named ? $named : 'mutation.toml';
     return {} if !defined $named && !-e $path;
     return Test::Mutation::Config::read_file($path);
 }

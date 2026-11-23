@@ -117,13 +117,14 @@ subtest 'a usage error exits with status 2 and one line' => sub {
 subtest 'run writes the JSON and HTML reports' => sub {
     my $root = copy_of('calc');
     my $run  = mutation( $root, '--jobs', 2 );
-    like $run->{stdout}, qr/^Reports: permutl-report\/mutation\.json, permutl-report\/mutation\.html$/m,
+    like $run->{stdout}, qr/^Reports: mutation-report\/mutation\.json, mutation-report\/mutation\.html$/m,
       'the report paths';
 
-    my $document = JSON::PP->new->utf8->decode( slurp("$root/permutl-report/mutation.json") );
+    my $document = JSON::PP->new->utf8->decode( slurp("$root/mutation-report/mutation.json") );
     is $document->{schemaVersion},                               '2', 'the JSON report has the schema version';
     is scalar( $document->{files}{'lib/Calc.pm'}{mutants}->@* ), 19,  'the JSON report has every mutant';
-    like slurp("$root/permutl-report/mutation.html"), qr/<mutation-test-report-app\b/, 'the HTML report has the viewer';
+    like slurp("$root/mutation-report/mutation.html"), qr/<mutation-test-report-app\b/,
+      'the HTML report has the viewer';
 };
 
 subtest '--format and --report-dir choose the reports' => sub {
@@ -132,7 +133,7 @@ subtest '--format and --report-dir choose the reports' => sub {
     is $run->{exit}, 0, 'exit status' or diag $run->{stderr};
     ok -f "$root/out/mutation.json",  'the JSON report is in the named directory';
     ok !-e "$root/out/mutation.html", 'no HTML report';
-    ok !-e "$root/permutl-report",    'the default directory is not created';
+    ok !-e "$root/mutation-report",   'the default directory is not created';
     like $run->{stdout}, qr/^Reports: out\/mutation\.json$/m, 'the report path';
 
     my $quiet = mutation( copy_of('calc'), '--jobs', 2, '--format', 'json' );
@@ -144,34 +145,34 @@ subtest '--format and --report-dir choose the reports' => sub {
     is $named->{exit}, 0, 'a directory named in full is accepted' or diag $named->{stderr};
     ok -f "$elsewhere/out/mutation.json", 'the report is in that directory';
     is $named->{stdout}, "Reports: $elsewhere/out/mutation.json\n", 'and the output names it';
-    is [ grep { !/\A(?:lib|t|[.]permutl)\z/ } map { s{.*/}{}r } glob "$project/* $project/.permutl" ], [],
+    is [ grep { !/\A(?:lib|t|[.]mutation)\z/ } map { s{.*/}{}r } glob "$project/* $project/.mutation" ], [],
       'the project gets no directory for it';
 };
 
-subtest 'permutl.toml configures the run' => sub {
+subtest 'mutation.toml configures the run' => sub {
     my $root = copy_of('calc');
-    write_file( "$root/permutl.toml",
+    write_file( "$root/mutation.toml",
         "jobs = 2\n\n[mutators]\ndisable = [\"sub-body\", \"return-value\"]\n\n[report]\nformats = [\"terminal\"]\n" );
     my $run = mutation($root);
     is $run->{exit}, 0, 'exit status' or diag $run->{stderr};
     like $run->{stdout}, qr/^11 mutants: 7 killed, 3 survived, 1 no coverage$/m, 'the disabled mutators are left out';
     like $run->{stdout}, qr/^2 tests, 2 jobs,/m,                                 'jobs come from the file';
-    ok !-e "$root/permutl-report", 'the formats come from the file';
+    ok !-e "$root/mutation-report", 'the formats come from the file';
 
     like mutation( $root, '--jobs', 1 )->{stdout}, qr/^2 tests, 1 job,/m, 'the command line beats the file';
 };
 
 subtest 'a broken configuration file is a usage error' => sub {
     my $root = copy_of('calc');
-    write_file( "$root/permutl.toml", "[mutators]\nprofil = \"default\"\n" );
+    write_file( "$root/mutation.toml", "[mutators]\nprofil = \"default\"\n" );
     my $unknown = mutation($root);
     is $unknown->{exit}, 2, 'an unknown key';
     like $unknown->{stderr}, qr/\Amutation: unknown configuration key profil in \[mutators\]\n\z/, 'the key is named';
 
-    write_file( "$root/permutl.toml", "jobs = = 2\n" );
+    write_file( "$root/mutation.toml", "jobs = = 2\n" );
     my $syntax = mutation($root);
     is $syntax->{exit}, 2, 'a syntax error';
-    like $syntax->{stderr}, qr/\Amutation: permutl\.toml: [^\n]+\n\z/, 'the file is named on one line';
+    like $syntax->{stderr}, qr/\Amutation: mutation\.toml: [^\n]+\n\z/, 'the file is named on one line';
 };
 
 subtest '--config names another configuration file' => sub {
@@ -207,9 +208,9 @@ subtest 'options choose the interpreter, the time limits, and the work directory
       'an interpreter that cannot start fails the unmodified run';
     is mutation( $root, @common, '--timeout-factor', 0 )->{exit}, 2, 'a factor of zero is refused';
 
-    ok !-e "$root/.permutl" || !glob("$root/.permutl/run-*"), 'the work directory is removed by default';
+    ok !-e "$root/.mutation" || !glob("$root/.mutation/run-*"), 'the work directory is removed by default';
     mutation( $root, @common, '--keep-work' );
-    ok scalar( glob "$root/.permutl/run-*" ), '--keep-work keeps it';
+    ok scalar( glob "$root/.mutation/run-*" ), '--keep-work keeps it';
 };
 
 subtest '--mutant limits the run to the named mutants' => sub {

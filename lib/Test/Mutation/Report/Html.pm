@@ -51,7 +51,7 @@ sub render ( $result, $arg ) {
 <script>$viewer</script>
 </head>
 <body>
-<mutation-test-report-app title-postfix="permutl"></mutation-test-report-app>
+<mutation-test-report-app title-postfix="Test::Mutation"></mutation-test-report-app>
 <script id="report" type="application/json">$data</script>
 <script>
 document.querySelector('mutation-test-report-app').report = JSON.parse(document.getElementById('report').textContent);

@@ -63,7 +63,7 @@ for my $signal ( sort keys %status_of ) {
 
         ok wait_for( sub { !processes_under($root)->@* } ), 'no process of the run is left'
           or diag join q{}, processes_under($root)->@*;
-        ok !glob("$root/.permutl/run-*"), 'the work directory is removed';
+        ok !glob("$root/.mutation/run-*"), 'the work directory is removed';
         is [ glob "$scratch/*" ], [], 'and so are the copies of the project';
     };
 }
@@ -97,10 +97,11 @@ subtest 'a signal during the mutant runs keeps the finished results' => sub {
 
     like $read->('stdout.txt'), qr/^\d+ mutants: .*\b[1-9]\d* pending$/m,
       'the summary counts the mutants that did not run';
-    like $read->('stdout.txt'), qr/^The run was interrupted by SIGTERM\.$/m,    'the summary names the signal';
-    like $read->('stderr.txt'), qr/^mutation: interrupted by SIGTERM$/m,        'and so does standard error';
-    like $read->('permutl-report/mutation.json'), qr/"status"\s*:\s*"Pending"/, 'the JSON report marks them as pending';
-    ok !glob("$root/.permutl/run-*"), 'the work directory is removed';
+    like $read->('stdout.txt'), qr/^The run was interrupted by SIGTERM\.$/m, 'the summary names the signal';
+    like $read->('stderr.txt'), qr/^mutation: interrupted by SIGTERM$/m,     'and so does standard error';
+    like $read->('mutation-report/mutation.json'), qr/"status"\s*:\s*"Pending"/,
+      'the JSON report marks them as pending';
+    ok !glob("$root/.mutation/run-*"), 'the work directory is removed';
 };
 
 done_testing;

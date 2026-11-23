@@ -24,7 +24,7 @@ File-level selection needs no tracing and runs more tests for each mutant.
 
 A mutant that no test reaches gets `NoCoverage` without running a test.
 The compiler attributes an `elsif` condition to the line of its `if`, so the scope of a site is its whole statement.
-Code inside the debugger callback leaves no trace, so a run of permutl on itself reports three detectable tracer mutants as `NoCoverage`.
+Code inside the debugger callback leaves no trace, so a run of the tool on itself reports three detectable tracer mutants as `NoCoverage`.
 
 ## Confirmation
 

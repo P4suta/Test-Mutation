@@ -6,7 +6,7 @@ use Fixture qw(copy_of);
 use Test::Mutation::CLI;
 use Test::Mutation::Runner;
 
-# The command ends every error with one line, also an error that no code of permutl raises on purpose.
+# The command ends every error with one line, also an error that no code of the command raises on purpose.
 
 my $root = copy_of('calc');
 

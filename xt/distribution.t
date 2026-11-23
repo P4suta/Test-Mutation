@@ -61,12 +61,12 @@ my $meta = JSON::PP->new->utf8->decode( do { local $/ = undef; readline $handle 
 close $handle or die "close MYMETA.json: $!";
 
 my $declared = Module::CPANfile->load("$root/cpanfile")->prereq_specs;
-is $meta->{name},                       'Test-Mutation',                            'the distribution name';
-is $meta->{version},                    Test::Mutation->VERSION,                    'the version of the main module';
-is $meta->{license},                    [ 'mit', 'apache_2_0' ],                    'the licenses of the repository';
-is $meta->{author},                     ['Yasunobu Sakashita'],                     'the author';
-is $meta->{resources}{repository}{web}, 'https://github.com/P4suta/permutl',        'the repository';
-is $meta->{resources}{bugtracker}{web}, 'https://github.com/P4suta/permutl/issues', 'the issue tracker';
+is $meta->{name},                       'Test-Mutation',                           'the distribution name';
+is $meta->{version},                    Test::Mutation->VERSION,                   'the version of the main module';
+is $meta->{license},                    [ 'mit', 'apache_2_0' ],                   'the licenses of the repository';
+is $meta->{author},                     ['Yasunobu Sakashita'],                    'the author';
+is $meta->{resources}{repository}{web}, 'https://github.com/P4suta/Test-Mutation', 'the repository';
+is $meta->{resources}{bugtracker}{web}, 'https://github.com/P4suta/Test-Mutation/issues', 'the issue tracker';
 is $meta->{no_index}, { directory => [ 't', 'xt' ], package => ['DB'] },
   'the index leaves out the tests and the debugger package that the shim extends';
 is $meta->{prereqs}{runtime}{requires}, $declared->{runtime}{requires}, 'runtime requirements match cpanfile';
@@ -104,7 +104,8 @@ my @wanted = qw(
   t/unit/tap.t t/shim/serve.t t/fixtures/calc/lib/Calc.pm
 );
 is [ grep { !$packed{"$prefix/$_"} } @wanted ], [], 'the archive holds the sources, the tests, and the notices';
-is [ grep { m{\A\Q$prefix\E/(?:local|blib|[.]git|[.]permutl|permutl-report)(?:/|\z)|[.]log\z} } sort keys %packed ], [],
+is [ grep { m{\A\Q$prefix\E/(?:local|blib|[.]git|[.]mutation|mutation-report)(?:/|\z)|[.]log\z} } sort keys %packed ],
+  [],
   'and leaves out installed dependencies, build output, and reports';
 
 IO::Uncompress::Gunzip::gunzip( "$scratch/$prefix.tar.gz" => \my $bytes ) or die 'cannot read the archive';

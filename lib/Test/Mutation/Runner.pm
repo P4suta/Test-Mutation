@@ -136,7 +136,7 @@ sub _copy_project ($run) {
     my $config  = $run->{config};
     my $project = $run->{project};
     $run->{name}   = File::Basename::basename($project);
-    $run->{copies} = Cwd::abs_path( File::Temp::tempdir( q{permutl-XXXXXX}, TMPDIR => 1 ) );
+    $run->{copies} = Cwd::abs_path( File::Temp::tempdir( q{mutation-XXXXXX}, TMPDIR => 1 ) );
 
     # A temporary directory inside the project holds the copies, which are no part of a copy.
     my @skip =
@@ -309,7 +309,7 @@ sub _prepare_work ($run) {
     my $base = $run->{project} . q{/} . $run->{config}->work_directory;
     File::Path::make_path($base);
     my $work       = File::Temp::tempdir( 'run-XXXXXX', DIR => $base );
-    my $outer      = $ENV{PERMUTL_GENERATION};
+    my $outer      = $ENV{TEST_MUTATION_GENERATION};
     my $generation = defined $outer ? $outer + 1 : 1;
     File::Path::make_path( map { "$work/$_" } 'shim/Test/Mutation/Shim', 'mutants', 'records', 'tmp', 'stderr' );
     _spew( "$work/shim/Test/Mutation/Shim/G$generation.pm", shim_text($generation) );
@@ -383,11 +383,11 @@ sub _inherited ($name) {
 sub _environment ( $run, $spec, $root ) {
     my $generation = $run->{generation};
     return (
-        "PERMUTL_SPEC_G$generation" => $spec,
-        PERMUTL_GENERATION          => $generation,
-        PERMUTL_ROOT                => $root,
-        PERL5OPT                    => join( q{ }, _inherited('PERL5OPT'), '-M' . $run->{package} ),
-        PERL5LIB                    => join( q{:}, "$run->{work}/shim",    _inherited('PERL5LIB') ),
+        "TEST_MUTATION_SPEC_G$generation" => $spec,
+        TEST_MUTATION_GENERATION          => $generation,
+        TEST_MUTATION_ROOT                => $root,
+        PERL5OPT                          => join( q{ }, _inherited('PERL5OPT'), '-M' . $run->{package} ),
+        PERL5LIB                          => join( q{:}, "$run->{work}/shim",    _inherited('PERL5LIB') ),
     );
 }
 
@@ -457,10 +457,10 @@ sub _test_task ( $run, %arg ) {
         ],
         env => {
             _environment( $run, $arg{spec}, $arg{root} ),
-            "PERMUTL_RECORD_G$generation" => $record,
-            HARNESS_ACTIVE                => 1,
-            PWD                           => $arg{root},
-            TMPDIR                        => $tmp,
+            "TEST_MUTATION_RECORD_G$generation" => $record,
+            HARNESS_ACTIVE                      => 1,
+            PWD                                 => $arg{root},
+            TMPDIR                              => $tmp,
         },
         cwd             => $arg{root},
         timeout         => $arg{timeout},

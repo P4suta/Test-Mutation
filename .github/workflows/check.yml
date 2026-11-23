@@ -46,7 +46,7 @@ jobs:
       - uses: shogo82148/actions-setup-perl@eebc5c886de14ebbfcd2493d49a12007d2c30477 # v1.44.5
         with:
           perl-version: "5.10"
-      - run: echo "PERMUTL_SECOND_PERL=$(command -v perl)" >> "$GITHUB_ENV"
+      - run: echo "TEST_MUTATION_SECOND_PERL=$(command -v perl)" >> "$GITHUB_ENV"
       - uses: shogo82148/actions-setup-perl@eebc5c886de14ebbfcd2493d49a12007d2c30477 # v1.44.5
         with:
           perl-version: ${{ matrix.perl }}

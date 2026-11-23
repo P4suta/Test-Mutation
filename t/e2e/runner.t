@@ -29,7 +29,7 @@ subtest 'a project without a test gets a warning, and its mutants have no covera
     my ($result) = run_fixture($root);
     is $result->warnings,                             ['no test files match'], 'the warning';
     is [ map { $_->{status} } $result->entries->@* ], [ ('NoCoverage') x 3 ], 'every mutant is listed without coverage';
-    ok !-e "$root/.permutl", 'and no work directory appears';
+    ok !-e "$root/.mutation", 'and no work directory appears';
 };
 
 subtest 'the analysis keeps the files in the order of their paths and names each file it cannot use' => sub {
@@ -95,7 +95,7 @@ subtest 'an error of the listener stops the run and leaves no work directory' =>
         Test::Mutation::Runner::run( $config,
             sub ( $event, $data ) { die "the listener broke\n" if $event eq 'mutant' } )
     }, "the listener broke\n", 'the error passes through unchanged';
-    ok !glob("$root/.permutl/run-*"), 'the work directory is removed';
+    ok !glob("$root/.mutation/run-*"), 'the work directory is removed';
 };
 
 subtest 'tests that fail side by side run one at a time' => sub {
@@ -151,7 +151,7 @@ subtest 'the work files of a finished task are removed while the run goes on' =>
     $count{$_}++ for values statuses($result)->%*;
     is \%count, { CompileError => 3, Killed => 3, NoCoverage => 3, Survived => 1, Ignored => 1 },
       'the run has compile errors, detected mutants, and mutants whose code is compared';
-    my ($work) = glob "$root/.permutl/run-*";
+    my ($work) = glob "$root/.mutation/run-*";
     ok defined $work && -d "$work/shim", 'the work directory stays on request';
     is [ map { s{\A\Q$work\E/}{}r } map { glob "$work/$_/*" } qw(records tmp stderr mutants) ], [],
       'and it holds no record, no temporary directory, no error output, and no mutant file';
@@ -236,7 +236,7 @@ sub status_by_line ($result) {
 }
 
 sub project_state ($root) {
-    return Test::Mutation::Tree::snapshot( root => $root, skip => ['.permutl'] );
+    return Test::Mutation::Tree::snapshot( root => $root, skip => ['.mutation'] );
 }
 
 subtest 'a mutant that leaves a file changes a copy, and the project and the later mutants stay clear of it' => sub {
@@ -296,14 +296,14 @@ subtest 'a copy has the name of the project, links the installed modules, and ho
         "use Test::More tests => 1;\nuse Cwd ();\nuse lib 'local/lib/perl5';\nuse Helper;\nuse Small;\n"
       . "open my \$log, '>', \$ENV{RUN_LOG} or die \$!;\n"
       . "print {\$log} join \"\\n\", Cwd::getcwd(), ( -e '.git' ? 'git' : 'no git' ), ( -l 'local' ? 'link' : 'no link' ),"
-      . " ( -e 'permutl-report' ? 'report' : 'no report' ), Helper::name(),"
+      . " ( -e 'mutation-report' ? 'report' : 'no report' ), Helper::name(),"
       . " ( \$ENV{PWD} eq Cwd::getcwd() ? 'named' : 'not named' ), q{};\nclose \$log;\n"
       . "is Small::next_one(2), 3, 'the next one';\n";
     my $root = project(
         'lib/Small.pm'              => $MODULE,
         't/small.t'                 => $looking,
         '.git/HEAD'                 => "ref: refs/heads/main\n",
-        'permutl-report/old.json'   => '{}',
+        'mutation-report/old.json'  => '{}',
         'local/lib/perl5/Helper.pm' => "package Helper;\nsub name { return 'helper' }\n1;\n",
     );
     my $log = File::Temp->new;
@@ -353,7 +353,7 @@ subtest 'a directory without any right in the temporary directory of a test goes
     my ($result) = run_fixture( $root, jobs => 1 );
     is [ sort values statuses($result)->%* ], [ ('Killed') x 3 ], 'the mutants are measured';
     is $result->warnings,                     [],                 'without a warning';
-    is [ glob "$root/.permutl/*" ],           [],                 'and the work directory is gone';
+    is [ glob "$root/.mutation/*" ],          [],                 'and the work directory is gone';
 };
 
 subtest 'a work directory that resists removal stays, and a warning names it' => sub {
@@ -361,7 +361,7 @@ subtest 'a work directory that resists removal stays, and a warning names it' =>
     no warnings 'redefine';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
     local *Test::Mutation::Tree::remove = sub { die "stuck\n" };
     my ($result) = run_fixture( $root, jobs => 1, in_place => 1 );
-    my ($work)   = glob "$root/.permutl/run-*";
+    my ($work)   = glob "$root/.mutation/run-*";
     is $result->warnings, ["the work directory $work stays, because a file in it resists removal"], 'the warning';
     is [ sort values statuses($result)->%* ], [ ('Killed') x 3 ], 'and the mutants are measured';
 };
@@ -369,14 +369,14 @@ subtest 'a work directory that resists removal stays, and a warning names it' =>
 subtest 'the work directory leaves the project with its last file' => sub {
     my $root = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $TEST );
     run_fixture( $root, jobs => 1 );
-    ok !-e "$root/.permutl", 'a run leaves no work directory';
+    ok !-e "$root/.mutation", 'a run leaves no work directory';
     run_fixture( $root, jobs => 1, in_place => 1 );
-    ok !-e "$root/.permutl", 'nor does a run in the project itself';
+    ok !-e "$root/.mutation", 'nor does a run in the project itself';
     run_fixture( $root, jobs => 1, cache => 1 );
-    is [ map { s{\A\Q$root\E/}{}r } glob "$root/.permutl/*" ], ['.permutl/cache.json'],
+    is [ map { s{\A\Q$root\E/}{}r } glob "$root/.mutation/*" ], ['.mutation/cache.json'],
       'a cache stays, in its directory';
     run_fixture( $root, jobs => 1 );
-    is [ map { s{\A\Q$root\E/}{}r } glob "$root/.permutl/*" ], ['.permutl/cache.json'],
+    is [ map { s{\A\Q$root\E/}{}r } glob "$root/.mutation/*" ], ['.mutation/cache.json'],
       'and a later run without a cache keeps it';
 };
 

@@ -32,7 +32,7 @@ for my $fixture (qw(calc mechanics equivalent)) {
 is [
     sort $schema->{properties}{files}{additionalProperties}{properties}{mutants}{items}{properties}{status}{enum}->@* ],
   [qw(CompileError Ignored Killed NoCoverage Pending RuntimeError Survived Timeout)],
-  'the schema and permutl name the same statuses';
+  'the schema and the verdict rules name the same statuses';
 
 subtest 'the gate rejects a report that breaks the schema' => sub {
     my ($result) = run_fixture( copy_of('calc') );

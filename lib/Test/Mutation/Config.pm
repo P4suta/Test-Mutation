@@ -27,12 +27,12 @@ has coverage         => ( is => 'ro', isa => Enum [qw(line file)],        defaul
 has profile          => ( is => 'ro', isa => Enum [qw(default extended)], default => 'default' );
 has enable           => ( is => 'ro', isa => ArrayRef [Str], default => sub { [] } );
 has disable          => ( is => 'ro', isa => ArrayRef [Str], default => sub { [] } );
-has report_directory => ( is => 'ro', isa => Str, default => 'permutl-report' );
+has report_directory => ( is => 'ro', isa => Str, default => 'mutation-report' );
 has formats          => ( is => 'ro', isa => ArrayRef [$FORMAT], default => sub { [qw(terminal json html)] } );
 has threshold_high   => ( is => 'ro', isa => $PERCENT, default => 80 );
 has threshold_low    => ( is => 'ro', isa => $PERCENT, default => 60 );
 has threshold_break  => ( is => 'ro', isa => Maybe [$PERCENT], default => undef );
-has work_directory   => ( is => 'ro', isa => Str,  default => '.permutl' );
+has work_directory   => ( is => 'ro', isa => Str,  default => '.mutation' );
 has keep_work        => ( is => 'ro', isa => Bool, default => 0 );
 has since            => ( is => 'ro', isa => Maybe [Str],    default => undef );
 has only             => ( is => 'ro', isa => ArrayRef [Str], default => sub { [] } );
@@ -135,7 +135,7 @@ The file uses sections and hyphenated keys, and an unknown section or key is a f
 
 =head2 read_file
 
-    my $parsed = Test::Mutation::Config::read_file('permutl.toml');
+    my $parsed = Test::Mutation::Config::read_file('mutation.toml');
 
 Returns the parsed content of a configuration file, and dies with the path and the first line of the error when the file is malformed.
 

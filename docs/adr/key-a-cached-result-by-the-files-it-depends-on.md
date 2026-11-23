@@ -11,7 +11,7 @@ A stale result is worse than a slow run, so reuse needs a key that changes with 
 
 ## Decision
 
-`--cache` stores each result in `.permutl/cache.json` with a digest.
+`--cache` stores each result in `.mutation/cache.json` with a digest.
 The digest covers the mutant, the interpreter, the switches, each test that reaches the mutant, and each analyzed source those tests load.
 Every analyzed source goes through the hook, so the unmodified run records the loads.
 Other files under the top-level source and test directories enter every key.

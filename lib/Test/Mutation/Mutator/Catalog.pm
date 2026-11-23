@@ -248,7 +248,7 @@ sub _string_literal ($site) {
     my $quote = substr $text, 0, 1;
     return if $quote ne q{'} && $quote ne q{"};
     return if length $text < 2 || substr( $text, -1 ) ne $quote;
-    return { replacement => $quote . 'permutl' . $quote, description => 'replaced the empty string' }
+    return { replacement => $quote . 'mutant' . $quote, description => 'replaced the empty string' }
       if length $text == 2;
     return { replacement => $quote . $quote, description => 'emptied the string' };
 }

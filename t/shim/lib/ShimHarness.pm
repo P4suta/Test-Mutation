@@ -66,9 +66,9 @@ sub all_records {
 }
 
 # Perl loads command-line modules before the ones in PERL5OPT.
-# An outer run of permutl must load its shim first, so its switches go to the front of the command line.
+# An outer run must load its shim first, so its switches go to the front of the command line.
 sub _outer_switches {
-    return if !defined $ENV{PERMUTL_GENERATION};
+    return if !defined $ENV{TEST_MUTATION_GENERATION};
     my @directories = grep { length } split /:/,  defined $ENV{PERL5LIB} ? $ENV{PERL5LIB} : q{};
     my @modules     = grep { length } split q{ }, defined $ENV{PERL5OPT} ? $ENV{PERL5OPT} : q{};
     return ( ( map { "-I$_" } @directories ), @modules );

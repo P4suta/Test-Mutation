@@ -29,11 +29,11 @@ sub document ( $result, $arg ) {
         schemaVersion => '2',
         thresholds    => { high => int( $arg->high + 0.5 ), low => int( $arg->low + 0.5 ) },
         projectRoot   => $result->root,
-        framework     => { name => 'permutl', version => $VERSION },
+        framework     => { name => 'Test::Mutation', version => $VERSION },
         files         => \%files,
         testFiles     =>
           { map { $_->{name} => { tests => [ { id => $_->{name}, name => $_->{name} } ] } } $result->tests->@* },
-        permutl => _facts($result),
+        testMutation => _facts($result),
     };
 }
 
@@ -73,7 +73,7 @@ sub _mutant ($entry) {
         testsCompleted => 0 + $entry->{tests_run},
         duration       => int( $entry->{duration} * $MILLISECONDS + 0.5 ),
         static         => JSON::PP::false,
-        permutl        => {
+        testMutation   => {
             scope      => [ map { 0 + $_ } $mutant->scope->@* ],
             suppressed => _boolean( $mutant->suppressed ),
             comparable => _boolean( $mutant->comparable ),
@@ -116,12 +116,12 @@ my $MUTANT   = Dict [
     testsCompleted => Int,
     duration       => Num,
     static         => $FLAG,
-    permutl        => Dict [ scope => Tuple [ Int, Int ], suppressed => $FLAG, comparable => $FLAG ],
+    testMutation   => Dict [ scope => Tuple [ Int, Int ], suppressed => $FLAG, comparable => $FLAG ],
 ];
 my $DOCUMENT = Dict [
-    projectRoot => Str,
-    files       => HashRef [ Dict [ language => Str, source => Str, mutants => ArrayRef [$MUTANT] ] ],
-    permutl     => Dict [
+    projectRoot  => Str,
+    files        => HashRef [ Dict [ language => Str, source => Str, mutants => ArrayRef [$MUTANT] ] ],
+    testMutation => Dict [
         shard            => Maybe [ StrMatch [qr{\A[1-9][0-9]*/[1-9][0-9]*\z}] ],
         inventory        => Maybe [ Dict [ mutants => Int, digest => StrMatch [qr/\A[0-9a-f]{64}\z/] ] ],
         jobs             => PositiveInt,
@@ -142,8 +142,8 @@ signature_for parse => ( positional => [Str], returns => InstanceOf ['Test::Muta
 
 sub parse ($text) {
     my $document = eval { JSON::PP->new->decode($text) };
-    die "the text is no JSON document\n"             if ref $document ne 'HASH';
-    die "the report holds no run facts of permutl\n" if !exists $document->{permutl};
+    die "the text is no JSON document\n"                    if ref $document ne 'HASH';
+    die "the report holds no run facts of Test::Mutation\n" if !exists $document->{testMutation};
     my $problem = $DOCUMENT->validate_explain( $document, '$report' );
     die 'the report is malformed: no valid value at ' . _place($problem) . "\n" if $problem;
     my $result = eval { _result($document) };
@@ -166,7 +166,7 @@ sub _place ($explanation) {
 }
 
 sub _result ($document) {
-    my $facts = $document->{permutl};
+    my $facts = $document->{testMutation};
     my ( %sources, @entries );
     for my $path ( sort keys $document->{files}->%* ) {
         my $file = $document->{files}{$path};
@@ -203,7 +203,7 @@ sub _offset ( $source, $position ) {
 sub _entry ( $source, $mutant ) {
     my ( $start, $end ) = map { _offset( $source, $mutant->{location}{$_} ) } qw(start end);
     die 'a location ends before its start in ' . $source->path . "\n" if $end < $start;
-    my ( $extra, $duration ) = $mutant->@{qw(permutl duration)};
+    my ( $extra, $duration ) = $mutant->@{qw(testMutation duration)};
     return {
         mutant => Test::Mutation::Mutant->new(
             id          => $mutant->{id},
@@ -251,8 +251,8 @@ Tools that read that schema, such as the C<mutation-testing-elements> viewer, ca
 =head2 document
 
 Returns the report as a data structure.
-Each test file appears as one test, because permutl runs test files as units.
-The C<permutl> key of the document and of each mutant holds the facts that the schema has no place for.
+Each test file appears as one test, because a run treats a test file as one unit.
+The C<testMutation> key of the document and of each mutant holds the facts that the schema has no place for.
 The schema allows such keys, and C<mutation merge> reads them.
 
 =head2 render
@@ -266,6 +266,6 @@ Returns the report as JSON text with sorted keys.
 Rebuilds the L<Test::Mutation::Result> that a report describes.
 The spans and the original text of the mutants come from the sources in the report.
 The rebuilt result holds the sources that have mutants, and it names the failing tests of the unmodified run without their output.
-The function dies when the text is no report that permutl wrote.
+The function dies when the text is no report that Test::Mutation wrote.
 
 =cut

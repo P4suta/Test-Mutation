@@ -78,7 +78,8 @@ subtest 'the document has the required top-level fields' => sub {
       { high => 80, low => 60 },
       'the schema takes whole thresholds, so the report rounds them';
     is $document->{projectRoot}, '/project', 'project root';
-    is $document->{framework}, { name => 'permutl', version => Test::Mutation::Report::Json->VERSION }, 'framework';
+    is $document->{framework}, { name => 'Test::Mutation', version => Test::Mutation::Report::Json->VERSION },
+      'framework';
     is [ sort keys $document->{files}->%* ], ['lib/Calc.pm'], 'files with mutants';
 };
 
@@ -105,7 +106,7 @@ subtest 'a mutant maps to the schema' => sub {
         testsCompleted => 2,
         duration       => 750,
         static         => JSON::PP::false,
-        permutl        => { scope => [ 3, 3 ], suppressed => JSON::PP::false, comparable => JSON::PP::true },
+        testMutation   => { scope => [ 3, 3 ], suppressed => JSON::PP::false, comparable => JSON::PP::true },
       },
       'a killed mutant';
     ok !exists $survived->{killedBy},     'a survived mutant has no killing test';
@@ -124,7 +125,7 @@ subtest 'tests are listed as test files' => sub {
 };
 
 subtest 'the document carries the facts of the run that the schema has no place for' => sub {
-    is $document->{permutl},
+    is $document->{testMutation},
       {
         shard            => undef,
         inventory        => undef,

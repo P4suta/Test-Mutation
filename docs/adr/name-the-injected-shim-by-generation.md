@@ -6,7 +6,7 @@ date: 2026-11-22
 
 ## Context
 
-The tests of permutl start permutl, so a run of permutl on itself nests one run inside another.
+The tests of the tool start its command, so a run of the tool on itself nests one run inside another.
 A shim loaded as `Test::Mutation::Shim` would also occupy the `%INC` entry of the file under test, and no mutant of the shim could load.
 
 ## Decision
@@ -26,5 +26,5 @@ Tests that count hooks subtract the hooks of their own process.
 
 ## Confirmation
 
-`mise run mutation-gate` runs permutl on its own sources, and the nested end-to-end tests pass in that run.
+`mise run mutation-gate` runs the tool on its own sources, and the nested end-to-end tests pass in that run.
 `xt/release/self-mutation.t` fails when no test loads a mutant of `lib/Test/Mutation/Shim.pm`.

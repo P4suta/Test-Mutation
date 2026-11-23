@@ -2,10 +2,10 @@ use v5.36;
 use Test2::V0;
 use JSON::PP ();
 
-# The release gate reads the report of a run of permutl on its own sources.
+# The release gate reads the report of a run of the tool on its own sources.
 # `mise run mutation-gate` writes the report and then runs this file.
 
-my $path = 'permutl-report/mutation.json';
+my $path = 'mutation-report/mutation.json';
 open my $handle, '<:raw', $path or bail_out("no report at $path: run `mise run mutation-gate`");
 my $report = JSON::PP->new->utf8->decode( do { local $/ = undef; readline $handle } );
 close $handle or die "close $path: $!";

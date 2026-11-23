@@ -70,7 +70,7 @@ Test::Mutation::Cache - results of earlier runs, keyed by what each result depen
 
 =head1 SYNOPSIS
 
-    my $records = Test::Mutation::Cache::load('.permutl/cache.json');
+    my $records = Test::Mutation::Cache::load('.mutation/cache.json');
     my $key     = Test::Mutation::Cache::key( $version, $source_text, @test_digests );
     my $reuse   = $records->{$id} && $records->{$id}{inputs} eq $key;
 

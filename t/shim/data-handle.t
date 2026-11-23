@@ -48,7 +48,7 @@ for my $trace ( 0, 1 ) {
         );
         my $run = run_perl(
             root => $root,
-            env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
+            env  => { TEST_MUTATION_SPEC => "$root/spec", TEST_MUTATION_RECORD => "$root/records" },
             args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
         );
         is $run->{status}, 0,                              'exit status' or diag $run->{stderr};
