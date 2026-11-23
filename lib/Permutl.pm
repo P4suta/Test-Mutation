@@ -54,6 +54,7 @@ Permutl - mutation testing for Perl that leaves the source tree untouched
     permutl list
     permutl show 4769d125ff17
     permutl exec 4769d125ff17 -- prove -l t/sign.t
+    permutl merge part-1/mutation.json part-2/mutation.json
 
     use Permutl;
     my $result = Permutl::run( root => q{.}, jobs => 4 );
@@ -86,6 +87,8 @@ Equal code means no test can tell the two apart, so the mutant leaves the score.
 A mutant in a field or in an C<ADJUST> block skips the comparison, because L<B::Deparse> prints neither.
 
 C<permutl run --since origin/main> covers the changed lines, and C<--shard 2/4> covers one of four equal parts.
+C<permutl merge> reads the C<mutation.json> of every part and reports the whole run, with its score and its exit status.
+It refuses a set of files that misses a part or mixes two runs.
 C<--cache> reuses the results of an earlier run for every mutant whose file and tests are unchanged.
 L<Test::Permutl> asserts a score from a test file.
 

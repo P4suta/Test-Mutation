@@ -124,6 +124,7 @@ subtest 'version, help, and stray arguments' => sub {
     is $help->{exit}, 0, '--help succeeds';
     like $help->{stdout}, qr/^Usage: permutl \[run\] \[options\]$/m, 'the usage line';
     like $help->{stdout}, qr/^\s+permutl exec ID -- COMMAND/m,       'the commands';
+    like $help->{stdout}, qr/^\s+permutl merge FILE/m,               'the merge command';
     my @undocumented = grep { $help->{stdout} !~ /^\s+--\Q$_\E\b/m }
       qw(jobs min-score format report-dir perl source test profile enable disable coverage timeout-factor timeout-floor
       keep-work mutant since shard no-equivalence cache config);
