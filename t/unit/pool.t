@@ -4,7 +4,7 @@ use Digest::SHA ();
 use File::Temp  ();
 use POSIX       ();
 use Time::HiRes ();
-use Permutl::Pool;
+use Test::Mutation::Pool;
 
 my $dir = File::Temp::tempdir( CLEANUP => 1 );
 
@@ -33,7 +33,7 @@ sub task ( $path, %fields ) {
 
 sub run_one ( $path, %fields ) {
     my $result;
-    Permutl::Pool::run(
+    Test::Mutation::Pool::run(
         jobs => 1,
         next => do {
             my @queue = ( task( $path, %fields ) );
@@ -60,10 +60,11 @@ subtest 'a failing test and a nonzero exit' => sub {
 };
 
 subtest 'the environment and the working directory reach the test' => sub {
-    local $ENV{PERMUTL_POOL_REMOVED} = 'present';
+    local $ENV{TEST_MUTATION_POOL_REMOVED} = 'present';
     my $path = script( 'env.t',
-        q{use Cwd; print "$ENV{PERMUTL_POOL_ADDED}|", ( $ENV{PERMUTL_POOL_REMOVED} // 'gone' ), '|', getcwd(), "\n";} );
-    my $result = run_one( $path, env => { PERMUTL_POOL_ADDED => 'added', PERMUTL_POOL_REMOVED => undef } );
+        q{use Cwd; print "$ENV{TEST_MUTATION_POOL_ADDED}|", ( $ENV{TEST_MUTATION_POOL_REMOVED} // 'gone' ), '|', getcwd(), "\n";}
+    );
+    my $result = run_one( $path, env => { TEST_MUTATION_POOL_ADDED => 'added', TEST_MUTATION_POOL_REMOVED => undef } );
     like $result->{output}, qr{\Aadded[|]gone[|].*\Q$dir\E\n\z},
       'variables are set and removed, and the directory is changed';
 };
@@ -125,7 +126,7 @@ subtest 'stop_on_failure ends the test at the first failure' => sub {
 
 subtest 'a command that cannot start fails' => sub {
     my $result;
-    Permutl::Pool::run(
+    Test::Mutation::Pool::run(
         jobs => 1,
         next => do {
             my @queue = ( { task('x')->%*, command => ["$dir/no-such-program"] } );
@@ -141,7 +142,7 @@ subtest 'tasks run in parallel and follow-up tasks run first' => sub {
     my @queue   = map { task( $sleeper, payload => "first-$_" ) } 1 .. 4;
     my @order;
     my $started = Time::HiRes::time();
-    my $count   = Permutl::Pool::run(
+    my $count   = Test::Mutation::Pool::run(
         jobs => 4,
         next => sub { shift @queue },
         done => sub ( $task, $result ) {
@@ -171,7 +172,7 @@ unlink "$running/\$\$";
 PERL
     my @queue  = map { task($path) } 1 .. 6;
     my @passed = ();
-    Permutl::Pool::run(
+    Test::Mutation::Pool::run(
         jobs => 2,
         next => sub { shift @queue },
         done => sub ( $task, $result ) { push @passed, $result->{passed}; return },
@@ -246,7 +247,7 @@ subtest 'a signal ends the polite tasks, the stubborn tasks, and their children'
         close $read;
         my @queue = map { task($_) } $polite, $stubborn, $family, $loose;
         my $ended = eval {
-            Permutl::Pool::run( jobs => 4, next => sub { shift @queue }, done => sub { return } );
+            Test::Mutation::Pool::run( jobs => 4, next => sub { shift @queue }, done => sub { return } );
             1;
         };
         my $error = $@;
@@ -341,7 +342,7 @@ subtest 'a test that ended within its time limit keeps its result when the pool 
     my $brief = script( 'in-time.t', qq{select undef, undef, undef, 0.5; print "1..1\\nok 1\\n";\n} );
     my @queue = ( task( $quick, payload => 'first' ), task( $brief, payload => 'second', timeout => 1.5 ) );
     my %result;
-    Permutl::Pool::run(
+    Test::Mutation::Pool::run(
         jobs => 2,
         next => sub { shift @queue },
         done => sub ( $task, $got ) {
@@ -358,7 +359,7 @@ subtest 'a test that ended within its time limit keeps its result when the pool 
 
 subtest 'a malformed task is refused' => sub {
     like dies {
-        Permutl::Pool::run(
+        Test::Mutation::Pool::run(
             jobs => 1,
             next => do {
                 my @queue = ( { command => 'perl' } );

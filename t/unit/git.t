@@ -4,8 +4,8 @@ use Cwd            ();
 use File::Basename ();
 use File::Path     ();
 use File::Temp     ();
-use Permutl::Diff;
-use Permutl::Git;
+use Test::Mutation::Diff;
+use Test::Mutation::Git;
 
 skip_all 'the test needs the git command' if !length qx{git --version 2>/dev/null};
 
@@ -36,31 +36,32 @@ git( 'init',   '-q' );
 git( 'add',    q{.} );
 git( 'commit', '-q', '-m', 'initial' );
 
-is Permutl::Git::changed( $root, 'HEAD' ), {}, 'an unchanged tree has no changed line';
+is Test::Mutation::Git::changed( $root, 'HEAD' ), {}, 'an unchanged tree has no changed line';
 
 $lines[2]  = 'another third line';
 $lines[69] = 'another line seventy';
 write_lines( 'lib/Kept.pm',  @lines );
 write_lines( 'lib/Added.pm', map { "new $_" } 1 .. 100 );
-my $changed = Permutl::Git::changed( $root, 'HEAD' );
+my $changed = Test::Mutation::Git::changed( $root, 'HEAD' );
 is $changed->{'lib/Kept.pm'}, [ [ 3, 3 ], [ 70, 70 ] ], 'the changed lines of a tracked file';
 is [ sort keys $changed->%* ], [ 'lib/Added.pm', 'lib/Kept.pm' ], 'a file that git does not track is changed too';
-ok Permutl::Diff::touches( $changed->{'lib/Added.pm'}, 100_000, 100_000 ), 'and every line of it counts as changed';
+ok Test::Mutation::Diff::touches( $changed->{'lib/Added.pm'}, 100_000, 100_000 ),
+  'and every line of it counts as changed';
 
-like dies { Permutl::Git::changed( $root, 'no-such-revision' ) },
+like dies { Test::Mutation::Git::changed( $root, 'no-such-revision' ) },
   qr/\Agit diff failed: [^\n]*no-such-revision[^\n]*\n\z/, 'an unknown revision gives one line with the reason of git';
 
 # The temporary directory may lie inside a work tree, so the search of git for a repository stops at its parent.
 my $plain = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
 {
     local $ENV{GIT_CEILING_DIRECTORIES} = File::Basename::dirname($plain);
-    like dies { Permutl::Git::changed( $plain, 'HEAD' ) }, qr/\Agit diff failed: [^\n]+\n\z/,
+    like dies { Test::Mutation::Git::changed( $plain, 'HEAD' ) }, qr/\Agit diff failed: [^\n]+\n\z/,
       'a directory outside a repository gives the reason of git';
 }
 
 {
     local $ENV{PATH} = $plain;
-    like dies { Permutl::Git::changed( $root, 'HEAD' ) }, qr/\Agit diff failed: cannot start git: [^\n]+\n\z/,
+    like dies { Test::Mutation::Git::changed( $root, 'HEAD' ) }, qr/\Agit diff failed: cannot start git: [^\n]+\n\z/,
       'a machine without git gets a message that names the command';
 }
 

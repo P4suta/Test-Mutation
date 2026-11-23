@@ -1,15 +1,15 @@
 use v5.36;
 use Test2::V0;
-use Permutl::Mutator::Catalog;
-use Permutl::Site;
+use Test::Mutation::Mutator::Catalog;
+use Test::Mutation::Site;
 
 # A mutator is a function of a site.
 # Each one must read the kind and the role of the site, and never trust the text alone.
 
-my %mutator = map { $_->name => $_ } Permutl::Mutator::Catalog::mutators()->@*;
+my %mutator = map { $_->name => $_ } Test::Mutation::Mutator::Catalog::mutators()->@*;
 
 sub replacements ( $name, %site ) {
-    my $site = Permutl::Site->new( start => 0, end => length $site{text}, scope => [ 1, 1 ], %site );
+    my $site = Test::Mutation::Site->new( start => 0, end => length $site{text}, scope => [ 1, 1 ], %site );
     return [ map { $_->{replacement} } $mutator{$name}->mutations($site)->@* ];
 }
 

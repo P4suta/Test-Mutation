@@ -42,7 +42,7 @@ for my $path (@files) {
     is \@mismatches, [], "$path token locations address their own text";
 
     note PPI::Dumper->new( $document, whitespace => 0, comments => 0 )->string
-      if $ENV{PERMUTL_DUMP_PPI};
+      if $ENV{TEST_MUTATION_DUMP_PPI};
 }
 
 done_testing;

@@ -3,14 +3,14 @@ use Test2::V0;
 use lib 't/e2e/lib';
 use Cwd        ();
 use File::Temp ();
-use Fixture    qw(copy_of permutl permutl_from tree_digest write_file);
-use Permutl::Mutator::Catalog;
+use Fixture    qw(copy_of mutation mutation_from tree_digest write_file);
+use Test::Mutation::Mutator::Catalog;
 
 my $root = copy_of('calc');
 
 subtest 'list prints every mutant without running a test' => sub {
     my $before = tree_digest($root);
-    my $run    = permutl( $root, 'list' );
+    my $run    = mutation( $root, 'list' );
     is $run->{exit}, 0, 'exit status' or diag $run->{stderr};
     my @lines = split /\n/, $run->{stdout};
     is scalar(@lines), 20, 'one line for each mutant and a count';
@@ -22,22 +22,22 @@ subtest 'list prints every mutant without running a test' => sub {
 
 subtest '--root runs the command as if it had started in the named directory' => sub {
     my $elsewhere = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
-    my $listed    = permutl( $elsewhere, '--root', $root, 'list' );
-    is $listed->{stdout}, permutl( $root, 'list' )->{stdout},                   'list names the mutants of the project';
-    is permutl( $elsewhere, 'list', '-C', $root )->{stdout}, $listed->{stdout}, 'the option may follow the command';
+    my $listed    = mutation( $elsewhere, '--root', $root, 'list' );
+    is $listed->{stdout}, mutation( $root, 'list' )->{stdout}, 'list names the mutants of the project';
+    is mutation( $elsewhere, 'list', '-C', $root )->{stdout}, $listed->{stdout}, 'the option may follow the command';
 
-    my $inside = permutl( $elsewhere, '--root', $root, 'exec', identifier('replaced + with -'),
+    my $inside = mutation( $elsewhere, '--root', $root, 'exec', identifier('replaced + with -'),
         '--', $^X, '-MCwd', '-e', 'print Cwd::getcwd()' );
     is $inside->{stdout}, $root, 'exec starts its command in the project';
 
-    my $missing = permutl( $elsewhere, '--root', "$elsewhere/none", 'list' );
+    my $missing = mutation( $elsewhere, '--root', "$elsewhere/none", 'list' );
     is [ $missing->@{qw(exit stdout)} ], [ 2, q{} ], 'a directory that does not exist is a usage error';
-    like $missing->{stderr}, qr/\Apermutl: cannot enter \Q$elsewhere\E\/none: [^\n]+\n\z/, 'with one line';
+    like $missing->{stderr}, qr/\Amutation: cannot enter \Q$elsewhere\E\/none: [^\n]+\n\z/, 'with one line';
     is [ glob "$elsewhere/*" ], [], 'the directory of the caller gets no file';
 
     my $library = Cwd::abs_path('lib');
     local $ENV{PERL5LIB} = join q{:}, grep { $_ ne $library } split /:/, defined $ENV{PERL5LIB} ? $ENV{PERL5LIB} : q{};
-    my $relative = permutl_from( 'lib', Cwd::getcwd(), '--root', $root, '--jobs', 2, '--format', 'terminal' );
+    my $relative = mutation_from( 'lib', Cwd::getcwd(), '--root', $root, '--jobs', 2, '--format', 'terminal' );
     is $relative->{exit}, 0, 'a relative library directory of the caller still serves the run'
       or diag $relative->{stderr};
     like $relative->{stdout}, qr/^Score: 68\.4%/m, 'and the run measures the project';
@@ -46,20 +46,20 @@ subtest '--root runs the command as if it had started in the named directory' =>
 subtest 'list marks suppressed mutants and honors the mutator options' => sub {
     my $copy = copy_of('calc');
     write_file( "$copy/lib/Quiet.pm", "package Quiet;\nsub sum { return \$_[0] + \$_[1] }    ## no mutate\n1;\n" );
-    my $run = permutl( $copy, 'list', '--disable', 'sub-body', '--source', 'lib/Quiet.pm' );
+    my $run = mutation( $copy, 'list', '--disable', 'sub-body', '--source', 'lib/Quiet.pm' );
     like $run->{stdout}, qr/^[0-9a-f]{12}  lib\/Quiet\.pm:2:\d+  arithmetic  replaced \+ with -  \(suppressed\)$/m,
       'a suppressed mutant';
     unlike $run->{stdout}, qr/sub-body/, 'a disabled mutator is absent';
 };
 
 sub identifier ($description) {
-    my ($id) = permutl( $root, 'list' )->{stdout} =~ /^([0-9a-f]{12})  \S+  \S+  \Q$description\E$/m;
+    my ($id) = mutation( $root, 'list' )->{stdout} =~ /^([0-9a-f]{12})  \S+  \S+  \Q$description\E$/m;
     return $id;
 }
 
 subtest 'show prints a mutant as a patch' => sub {
     my $id  = identifier('replaced > with >=');
-    my $run = permutl( $root, 'show', $id );
+    my $run = mutation( $root, 'show', $id );
     is $run->{exit}, 0, 'exit status' or diag $run->{stderr};
     is [ split /\n/, $run->{stdout} ],
       [
@@ -78,7 +78,7 @@ subtest 'show prints a mutant as a patch' => sub {
 };
 
 subtest 'show prints a mutant that removes lines' => sub {
-    my $run = permutl( $root, 'show', identifier('removed the body of add') );
+    my $run = mutation( $root, 'show', identifier('removed the body of add') );
     is [ grep { /\A[-+@]/ } split /\n/, $run->{stdout} ],
       [
         '--- lib/Calc.pm',
@@ -94,44 +94,44 @@ subtest 'show prints a mutant that removes lines' => sub {
 
 subtest 'show accepts a unique prefix and refuses an unknown or ambiguous identifier' => sub {
     my $id = identifier('replaced + with -');
-    is permutl( $root, 'show', substr $id, 0, 6 )->{exit}, 0, 'a unique prefix';
-    my $unknown = permutl( $root, 'show', 'zzzzzz' );
-    is $unknown->{exit},   2,                                                'an unknown identifier';
-    is $unknown->{stderr}, "permutl: no mutant has the identifier zzzzzz\n", 'the message';
-    my $missing = permutl( $root, 'show' );
-    is $missing->{exit},   2,                                           'no identifier';
-    is $missing->{stderr}, "permutl: show needs a mutant identifier\n", 'the message';
+    is mutation( $root, 'show', substr $id, 0, 6 )->{exit}, 0, 'a unique prefix';
+    my $unknown = mutation( $root, 'show', 'zzzzzz' );
+    is $unknown->{exit},   2,                                                 'an unknown identifier';
+    is $unknown->{stderr}, "mutation: no mutant has the identifier zzzzzz\n", 'the message';
+    my $missing = mutation( $root, 'show' );
+    is $missing->{exit},   2,                                            'no identifier';
+    is $missing->{stderr}, "mutation: show needs a mutant identifier\n", 'the message';
 };
 
 subtest 'exec runs a command with one mutant active' => sub {
-    my $detected = permutl( $root, 'exec', identifier('replaced + with -'), '--', $^X, '-Ilib', 't/add.t' );
+    my $detected = mutation( $root, 'exec', identifier('replaced + with -'), '--', $^X, '-Ilib', 't/add.t' );
     isnt $detected->{exit}, 0, 'the test fails with the mutant';
     like $detected->{stdout}, qr/^not ok 1 - adds$/m, 'the output of the command passes through';
 
     my ($survivor) =
-      permutl( $root, 'list' )->{stdout} =~ /^([0-9a-f]{12})  lib\/Calc\.pm:12:\d+  comparison  replaced > with >=$/m;
-    my $survived = permutl( $root, 'exec', $survivor, '--', $^X, '-Ilib', 't/sign.t' );
+      mutation( $root, 'list' )->{stdout} =~ /^([0-9a-f]{12})  lib\/Calc\.pm:12:\d+  comparison  replaced > with >=$/m;
+    my $survived = mutation( $root, 'exec', $survivor, '--', $^X, '-Ilib', 't/sign.t' );
     is $survived->{exit}, 0, 'the test passes with a mutant it does not detect';
 
-    is permutl( $root, 'exec', identifier('replaced + with -'), '--', $^X, '-e', 'exit 7' )->{exit}, 7,
+    is mutation( $root, 'exec', identifier('replaced + with -'), '--', $^X, '-e', 'exit 7' )->{exit}, 7,
       'the exit status of the command is returned';
-    is permutl( $root, 'exec', identifier('replaced + with -'), '--', "$root/no-such-command" )->{exit}, 127,
+    is mutation( $root, 'exec', identifier('replaced + with -'), '--', "$root/no-such-command" )->{exit}, 127,
       'a command that cannot start gives the status of a shell';
-    is permutl( $root, 'exec', identifier('replaced + with -'), '--', $^X, '-e', 'kill TERM => $$; sleep 5' )->{exit},
+    is mutation( $root, 'exec', identifier('replaced + with -'), '--', $^X, '-e', 'kill TERM => $$; sleep 5' )->{exit},
       143, 'a command that a signal ended gives 128 plus the signal';
-    ok !-e "$root/.permutl", 'the work directory is removed';
+    ok !-e "$root/.mutation", 'the work directory is removed';
 };
 
 subtest 'exec refuses a missing identifier or command' => sub {
-    my $no_command = permutl( $root, 'exec', identifier('replaced + with -') );
-    is $no_command->{exit},   2,                                                         'no command';
-    is $no_command->{stderr}, "permutl: exec needs a mutant identifier and a command\n", 'the message';
-    is permutl( $root, 'exec', 'zzzzzz', '--', $^X, '-e', '1' )->{exit}, 2,              'an unknown identifier';
+    my $no_command = mutation( $root, 'exec', identifier('replaced + with -') );
+    is $no_command->{exit},   2,                                                          'no command';
+    is $no_command->{stderr}, "mutation: exec needs a mutant identifier and a command\n", 'the message';
+    is mutation( $root, 'exec', 'zzzzzz', '--', $^X, '-e', '1' )->{exit}, 2,              'an unknown identifier';
 };
 
 subtest '--shard splits the mutants into disjoint parts' => sub {
     my $ids = sub (@arguments) {
-        return [ map { /\A([0-9a-f]{12})  / ? $1 : () } split /\n/, permutl( $root, 'list', @arguments )->{stdout} ];
+        return [ map { /\A([0-9a-f]{12})  / ? $1 : () } split /\n/, mutation( $root, 'list', @arguments )->{stdout} ];
     };
     my @all    = $ids->()->@*;
     my @shards = map { $ids->( '--shard', "$_/3" ) } 1 .. 3;
@@ -140,16 +140,16 @@ subtest '--shard splits the mutants into disjoint parts' => sub {
     is $ids->( '--shard', '1/1' ),        \@all,         'one part is the whole';
 
     for my $invalid (qw(0/3 4/3 2 a/b)) {
-        my $run = permutl( $root, 'list', '--shard', $invalid );
+        my $run = mutation( $root, 'list', '--shard', $invalid );
         is $run->{exit}, 2, "--shard $invalid is a usage error";
     }
 };
 
 subtest 'mutators names every mutator with its profile and its description' => sub {
-    my $run = permutl( $root, 'mutators' );
+    my $run = mutation( $root, 'mutators' );
     is $run->{exit}, 0, 'exit status' or diag $run->{stderr};
     my @lines = split /\n/, $run->{stdout};
-    is scalar(@lines), scalar( Permutl::Mutator::Catalog::mutators()->@* ), 'one line for each mutator';
+    is scalar(@lines), scalar( Test::Mutation::Mutator::Catalog::mutators()->@* ), 'one line for each mutator';
     like $run->{stdout}, qr/^arithmetic +default +Replaces an arithmetic operator with its counterpart$/m,
       'a mutator of the default profile';
     like $run->{stdout}, qr/^regex-anchor +extended +Removes an anchor from a pattern$/m,
@@ -159,27 +159,27 @@ subtest 'mutators names every mutator with its profile and its description' => s
 };
 
 subtest 'version, help, and stray arguments' => sub {
-    my $version = permutl( $root, '--version' );
+    my $version = mutation( $root, '--version' );
     is $version->{exit}, 0, '--version succeeds';
-    like $version->{stdout}, qr/\Apermutl \d+[.]\d+\n\z/, 'the version line';
+    like $version->{stdout}, qr/\Amutation \d+[.]\d+\n\z/, 'the version line';
 
-    my $help = permutl( $root, '--help' );
+    my $help = mutation( $root, '--help' );
     is $help->{exit}, 0, '--help succeeds';
-    like $help->{stdout}, qr/^Usage: permutl \[run\] \[options\]$/m, 'the usage line';
-    like $help->{stdout}, qr/^\s+permutl exec ID -- COMMAND/m,       'the commands';
-    like $help->{stdout}, qr/^\s+permutl merge FILE/m,               'the merge command';
-    like $help->{stdout}, qr/^\s+permutl mutators$/m,                'the mutators command';
+    like $help->{stdout}, qr/^Usage: mutation \[run\] \[options\]$/m, 'the usage line';
+    like $help->{stdout}, qr/^\s+mutation exec ID -- COMMAND/m,       'the commands';
+    like $help->{stdout}, qr/^\s+mutation merge FILE/m,               'the merge command';
+    like $help->{stdout}, qr/^\s+mutation mutators$/m,                'the mutators command';
     my @undocumented = grep { $help->{stdout} !~ /^\s+--\Q$_\E\b/m }
       qw(root jobs min-score format report-dir perl source test profile enable disable coverage timeout-factor timeout-floor
       in-place keep-work mutant since shard no-equivalence cache config);
     is \@undocumented, [], 'every option is described';
 
-    my $stray = permutl( $root, 'run', 'surplus' );
-    is $stray->{exit},   2,                                        'a stray argument is a usage error';
-    is $stray->{stderr}, "permutl: unexpected argument surplus\n", 'the message';
+    my $stray = mutation( $root, 'run', 'surplus' );
+    is $stray->{exit},   2,                                         'a stray argument is a usage error';
+    is $stray->{stderr}, "mutation: unexpected argument surplus\n", 'the message';
 
-    my $listed = permutl( $root, 'mutators', 'surplus' );
-    is [ $listed->@{qw(exit stdout stderr)} ], [ 2, q{}, "permutl: unexpected argument surplus\n" ],
+    my $listed = mutation( $root, 'mutators', 'surplus' );
+    is [ $listed->@{qw(exit stdout stderr)} ], [ 2, q{}, "mutation: unexpected argument surplus\n" ],
       'mutators refuses a stray argument and prints no list';
 };
 

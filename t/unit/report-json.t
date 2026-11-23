@@ -1,15 +1,15 @@
 use v5.36;
 use Test2::V0;
 use JSON::PP ();
-use Permutl::Mutant;
-use Permutl::Report::Json;
-use Permutl::Result;
+use Test::Mutation::Mutant;
+use Test::Mutation::Report::Json;
+use Test::Mutation::Result;
 
 my $source = "sub is_positive {\n    my (\$n) = \@_;\n    return \$n > 0 ? 1 : 0;\n}\n";
 
 sub entry ( $status, %fields ) {
     my $id     = delete $fields{id};
-    my $mutant = Permutl::Mutant->new(
+    my $mutant = Test::Mutation::Mutant->new(
         id          => defined $id ? $id : 'abcdefabcdef',
         path        => 'lib/Calc.pm',
         mutator     => 'comparison',
@@ -34,7 +34,7 @@ sub entry ( $status, %fields ) {
     };
 }
 
-my $result = Permutl::Result->new(
+my $result = Test::Mutation::Result->new(
     root    => '/project',
     sources => { 'lib/Calc.pm' => $source, 'lib/Unmutated.pm' => "1;\n" },
     tests   => [ { name => 't/sign.t', duration => 0.5 }, { name => 't/add.t', duration => 0.25 } ],
@@ -69,15 +69,17 @@ my $result = Permutl::Result->new(
     finished          => 103.5,
 );
 
-my $document = Permutl::Report::Json::document( $result, high => 80, low => 60 );
+my $document = Test::Mutation::Report::Json::document( $result, high => 80, low => 60 );
 
 subtest 'the document has the required top-level fields' => sub {
     is $document->{schemaVersion}, '2', 'schema version';
     is $document->{thresholds}, { high => 80, low => 60 }, 'thresholds';
-    is Permutl::Report::Json::document( $result, high => 79.5, low => 60.25 )->{thresholds}, { high => 80, low => 60 },
+    is Test::Mutation::Report::Json::document( $result, high => 79.5, low => 60.25 )->{thresholds},
+      { high => 80, low => 60 },
       'the schema takes whole thresholds, so the report rounds them';
     is $document->{projectRoot}, '/project', 'project root';
-    is $document->{framework}, { name => 'permutl', version => Permutl::Report::Json->VERSION }, 'framework';
+    is $document->{framework}, { name => 'Test::Mutation', version => Test::Mutation::Report::Json->VERSION },
+      'framework';
     is [ sort keys $document->{files}->%* ], ['lib/Calc.pm'], 'files with mutants';
 };
 
@@ -104,7 +106,7 @@ subtest 'a mutant maps to the schema' => sub {
         testsCompleted => 2,
         duration       => 750,
         static         => JSON::PP::false,
-        permutl        => { scope => [ 3, 3 ], suppressed => JSON::PP::false, comparable => JSON::PP::true },
+        testMutation   => { scope => [ 3, 3 ], suppressed => JSON::PP::false, comparable => JSON::PP::true },
       },
       'a killed mutant';
     ok !exists $survived->{killedBy},     'a survived mutant has no killing test';
@@ -123,7 +125,7 @@ subtest 'tests are listed as test files' => sub {
 };
 
 subtest 'the document carries the facts of the run that the schema has no place for' => sub {
-    is $document->{permutl},
+    is $document->{testMutation},
       {
         shard            => undef,
         inventory        => undef,
@@ -142,13 +144,13 @@ subtest 'the document carries the facts of the run that the schema has no place 
 };
 
 subtest 'render writes canonical JSON with numbers as numbers' => sub {
-    my $text = Permutl::Report::Json::render( $result, high => 80, low => 60 );
+    my $text = Test::Mutation::Report::Json::render( $result, high => 80, low => 60 );
     is JSON::PP->new->decode($text), JSON::PP->new->decode( JSON::PP->new->canonical->encode($document) ),
       'the text decodes to the document';
     like $text, qr/"line"\s*:\s*3\b/,       'a line is a JSON number';
     like $text, qr/"duration"\s*:\s*750\b/, 'a duration is a JSON number';
     like $text, qr/"static"\s*:\s*false\b/, 'static is a JSON boolean';
-    is $text, Permutl::Report::Json::render( $result, high => 80, low => 60 ), 'the output is stable';
+    is $text, Test::Mutation::Report::Json::render( $result, high => 80, low => 60 ), 'the output is stable';
 };
 
 done_testing;

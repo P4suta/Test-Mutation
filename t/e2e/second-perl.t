@@ -5,11 +5,11 @@ use Fixture qw(copy_of run_fixture);
 
 # The driver and the tests may run on different interpreters, and the shim must work in the second one.
 
-# PERMUTL_SECOND_PERL names the interpreter, and a wrong name there must fail the test and never skip it.
-my $named = $ENV{PERMUTL_SECOND_PERL};
+# TEST_MUTATION_SECOND_PERL names the interpreter, and a wrong name there must fail the test and never skip it.
+my $named = $ENV{TEST_MUTATION_SECOND_PERL};
 my $other = $named || '/usr/bin/perl';
-die "PERMUTL_SECOND_PERL names no interpreter: $named\n" if $named && !-x $named;
-skip_all "no second interpreter at $other"               if !-x $other;
+die "TEST_MUTATION_SECOND_PERL names no interpreter: $named\n" if $named && !-x $named;
+skip_all "no second interpreter at $other"                     if !-x $other;
 
 my $version = qx{$other -e 'print \$]'};
 skip_all 'the second interpreter is the one that runs this test' if $version == $];

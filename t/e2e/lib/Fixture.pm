@@ -6,10 +6,10 @@ use File::Find  ();
 use File::Path  ();
 use File::Temp  ();
 use Exporter 'import';
-use Permutl::Config;
-use Permutl::Runner;
+use Test::Mutation::Config;
+use Test::Mutation::Runner;
 
-our @EXPORT_OK = qw(copy_of run_fixture tree_digest statuses permutl permutl_from write_file);
+our @EXPORT_OK = qw(copy_of run_fixture tree_digest statuses mutation mutation_from write_file);
 
 sub write_file ( $path, $content ) {
     my ($directory) = $path =~ m{\A(.*)/};
@@ -21,13 +21,13 @@ sub write_file ( $path, $content ) {
 }
 
 my $LIBRARY = Cwd::abs_path('lib');
-my $COMMAND = Cwd::abs_path('bin') . '/permutl';
+my $COMMAND = Cwd::abs_path('bin') . '/mutation';
 
-sub permutl ( $root, @arguments ) {
-    return permutl_from( $LIBRARY, $root, @arguments );
+sub mutation ( $root, @arguments ) {
+    return mutation_from( $LIBRARY, $root, @arguments );
 }
 
-sub permutl_from ( $library, $root, @arguments ) {
+sub mutation_from ( $library, $root, @arguments ) {
     my $output = File::Temp->new;
     my $errors = File::Temp->new;
     my $pid    = fork;
@@ -87,9 +87,9 @@ sub tree_digest ($root) {
 }
 
 sub run_fixture ( $root, %settings ) {
-    my $config = Permutl::Config->new( root => $root, jobs => 2, %settings );
+    my $config = Test::Mutation::Config->new( root => $root, jobs => 2, %settings );
     my @events;
-    my $result = Permutl::Runner::run( $config, sub ( $event, $data ) { push @events, $event } );
+    my $result = Test::Mutation::Runner::run( $config, sub ( $event, $data ) { push @events, $event } );
     return ( $result, \@events );
 }
 

@@ -3,7 +3,7 @@ use Test2::V0;
 use File::Temp  ();
 use POSIX       ();
 use Time::HiRes ();
-use Permutl::Pool;
+use Test::Mutation::Pool;
 
 my $dir = File::Temp::tempdir( CLEANUP => 1 );
 
@@ -32,7 +32,7 @@ sub task ( $path, %fields ) {
 
 sub run_all ( $jobs, @tasks ) {
     my %result;
-    Permutl::Pool::run(
+    Test::Mutation::Pool::run(
         jobs => $jobs,
         next => sub { shift @tasks },
         done => sub ( $task, $got ) { $result{ $task->{command}[1] } = $got; return },
@@ -67,7 +67,7 @@ subtest 'the pool asks for a task once more after the last one and then never ag
     my @queue = map { task( script( "plain-$_.t", qq{print "1..1\\nok 1\\n";\n} ) ) } 1 .. 3;
     push @queue, task( script( 'last.t', qq{sleep 1;\nprint "1..1\\nok 1\\n";\n} ) );
     my $calls = 0;
-    Permutl::Pool::run( jobs => 2, next => sub { $calls++; shift @queue }, done => sub { return } );
+    Test::Mutation::Pool::run( jobs => 2, next => sub { $calls++; shift @queue }, done => sub { return } );
     is $calls, 5, 'four tasks and the one call that returns nothing, also while a test still runs';
 };
 
@@ -76,7 +76,7 @@ subtest 'an error of a callback ends the tests that still run' => sub {
     my $sleeper = script( 'sleeper.t', q{open my $out, '>', "$0.pid"; print {$out} $$; close $out; sleep 30;} );
     my @queue   = ( task($sleeper), task($quick) );
     like dies {
-        Permutl::Pool::run(
+        Test::Mutation::Pool::run(
             jobs => 2,
             next => sub { shift @queue },
             done => sub ( $task, $result ) { wait_for("$sleeper.pid"); die "the callback broke\n" },
@@ -159,7 +159,7 @@ subtest 'a command that cannot start leaves its reason in standard error' => sub
     my $missing = "$dir/no-such-program";
     my $result  = run_all( 1, { task('absent')->%*, command => [$missing], stderr => "$dir/absent.err" } );
     is [ values $result->%* ]->[0]{exit}, 127, 'the exit status of a command that was not found';
-    like text_of("$dir/absent.err"), qr/\Apermutl: exec \Q$missing\E: \S/,
+    like text_of("$dir/absent.err"), qr/\Amutation: exec \Q$missing\E: \S/,
       'the message names the command and the reason';
 };
 
@@ -201,7 +201,7 @@ sub interrupted (%setup) {
         local $ENV{PATH} = $setup{path} if defined $setup{path};
         my @queue = map { task($_) } $setup{tasks}->@*;
         my $ended = eval {
-            Permutl::Pool::run( jobs => 4, next => sub { shift @queue }, done => sub { return } );
+            Test::Mutation::Pool::run( jobs => 4, next => sub { shift @queue }, done => sub { return } );
             1;
         };
         print {$write} $ended ? 'completed' : ref $@ ? $@->signal : "died: $@", "\n";

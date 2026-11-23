@@ -5,7 +5,7 @@ use JSON::PP           ();
 use JSON::Schema::Tiny ();
 use lib 't/e2e/lib';
 use Fixture qw(copy_of run_fixture);
-use Permutl::Report::Json;
+use Test::Mutation::Report::Json;
 
 # The schema file is the one that the pinned release of the viewer publishes; `mise run schema` fetches it.
 my $path = 'xt/schema/mutation-testing-report-schema.json';
@@ -21,7 +21,7 @@ sub errors ($document) {
 }
 
 sub report ( $result, %thresholds ) {
-    return JSON::PP->new->decode( Permutl::Report::Json::render( $result, high => 80, low => 60, %thresholds ) );
+    return JSON::PP->new->decode( Test::Mutation::Report::Json::render( $result, high => 80, low => 60, %thresholds ) );
 }
 
 for my $fixture (qw(calc mechanics equivalent)) {
@@ -32,7 +32,7 @@ for my $fixture (qw(calc mechanics equivalent)) {
 is [
     sort $schema->{properties}{files}{additionalProperties}{properties}{mutants}{items}{properties}{status}{enum}->@* ],
   [qw(CompileError Ignored Killed NoCoverage Pending RuntimeError Survived Timeout)],
-  'the schema and permutl name the same statuses';
+  'the schema and the verdict rules name the same statuses';
 
 subtest 'the gate rejects a report that breaks the schema' => sub {
     my ($result) = run_fixture( copy_of('calc') );

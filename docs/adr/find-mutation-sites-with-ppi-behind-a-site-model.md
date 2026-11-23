@@ -11,7 +11,7 @@ A mutation tool needs exact spans of operators and statements.
 
 ## Decision
 
-`Permutl::Syntax::PPI` parses with `PPI` and converts the tree to parser-independent sites.
+`Test::Mutation::Syntax::PPI` parses with `PPI` and converts the tree to parser-independent sites.
 Mutators read sites and return replacement text.
 A mutant replaces a span of the original text without the serializer of the parser.
 The analysis drops any span whose text differs from the token the parser reported.

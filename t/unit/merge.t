@@ -1,13 +1,13 @@
 use v5.36;
 use Test2::V0;
-use Permutl::Merge;
-use Permutl::Mutant;
-use Permutl::Result;
+use Test::Mutation::Merge;
+use Test::Mutation::Mutant;
+use Test::Mutation::Result;
 
 my $digest = 'ab' x 32;
 
 sub entry ( $number, $status ) {
-    my $mutant = Permutl::Mutant->new(
+    my $mutant = Test::Mutation::Mutant->new(
         id          => sprintf( '%012d', $number ),
         path        => $number > 4 ? 'lib/B.pm' : 'lib/A.pm',
         mutator     => 'arithmetic',
@@ -32,7 +32,7 @@ sub entry ( $number, $status ) {
 }
 
 sub part ( $shard, $entries, %fields ) {
-    return Permutl::Result->new(
+    return Test::Mutation::Result->new(
         root              => '/project',
         sources           => { map { $_->{mutant}->path => "1 + 2 + 3 + 4 + 5;\n" } $entries->@* },
         tests             => [ { name => 't/a.t', duration => 0.5 } ],
@@ -52,7 +52,7 @@ sub part ( $shard, $entries, %fields ) {
 
 sub merged (@parts) {
     my $number = 0;
-    return Permutl::Merge::merge( [ map { { name => 'report ' . ++$number, result => $_ } } @parts ] );
+    return Test::Mutation::Merge::merge( [ map { { name => 'report ' . ++$number, result => $_ } } @parts ] );
 }
 
 my @first  = ( entry( 1, 'Killed' ),  entry( 3, 'Survived' ), entry( 5, 'Killed' ) );

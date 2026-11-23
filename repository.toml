@@ -1,7 +1,7 @@
-name = "permutl"
+name = "Test-Mutation"
 summary = "Mutation testing for Perl that never rewrites a source file"
-install = "cpanm https://github.com/P4suta/permutl.git"
-usage = "permutl run"
+install = "cpanm https://github.com/P4suta/Test-Mutation.git"
+usage = "mutation run"
 copyright = "Yasunobu Sakashita"
 license = "MIT OR Apache-2.0"
 

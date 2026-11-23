@@ -29,8 +29,8 @@ run = "perltidy --backup-and-modify-in-place --backup-file-extension=/ $({{vars.
 [tasks.fmt-check]
 description = "Fail when a Perl file differs from its formatted form"
 run = [
-  "mkdir -p .permutl/tidy",
-  "perltidy --assert-tidy --output-path=.permutl/tidy $({{vars.perl_files}})",
+  "mkdir -p .mutation/tidy",
+  "perltidy --assert-tidy --output-path=.mutation/tidy $({{vars.perl_files}})",
 ]
 
 [tasks.lint]
@@ -54,8 +54,8 @@ description = "Run the structural gates over the library"
 run = "prove -l xt"
 
 [tasks.mutation]
-description = "Measure the tests of permutl with permutl"
-run = "perl -Ilib bin/permutl"
+description = "Measure the tests of Test::Mutation with its own command"
+run = "perl -Ilib bin/mutation"
 
 [tasks.schema]
 description = "Fetch the report schema of the pinned viewer release"
@@ -66,8 +66,8 @@ description = "Analyze every installed module and check each site and mutant"
 run = "prove -l xt/corpus"
 
 [tasks.mutation-gate]
-description = "Measure permutl with itself and check the release conditions"
-run = ["perl -Ilib bin/permutl", "prove -l xt/release", "prove -l xt/corpus"]
+description = "Measure Test::Mutation with itself and check the release conditions"
+run = ["perl -Ilib bin/mutation", "prove -l xt/release", "prove -l xt/corpus"]
 
 [tasks.dist]
 description = "Pack the distribution archive"

@@ -1,6 +1,6 @@
 /local/
-/.permutl/
-/permutl-report/
+/.mutation/
+/mutation-report/
 /blib/
 /Makefile
 /Makefile.old
@@ -8,5 +8,5 @@
 /pm_to_blib
 /MANIFEST
 /MANIFEST.bak
-/Permutl-*/
-/Permutl-*.tar.gz
+/Test-Mutation-*/
+/Test-Mutation-*.tar.gz

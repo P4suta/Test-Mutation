@@ -2,13 +2,13 @@ use v5.36;
 use Test2::V0;
 use File::Path ();
 use File::Temp ();
-use Permutl::Runner;
+use Test::Mutation::Runner;
 
 # The run copies the source of the shim from the first entry of @INC that supplies it.
-# An entry is a directory or a hook, and an outer run of permutl serves the file through its own hook.
+# An entry is a directory or a hook, and an outer run serves the file through its own hook.
 
-my $SHIM  = "package Permutl::Shim;\nmy \$GENERATION = 0;\n1;\n";
-my $THIRD = "package Permutl::Shim::G3;\nmy \$GENERATION = 3;\n1;\n";
+my $SHIM  = "package Test::Mutation::Shim;\nmy \$GENERATION = 0;\n1;\n";
+my $THIRD = "package Test::Mutation::Shim::G3;\nmy \$GENERATION = 3;\n1;\n";
 
 sub handle_of ($text) {
     open my $handle, '<', \$text or die "open: $!";
@@ -17,8 +17,8 @@ sub handle_of ($text) {
 
 sub directory_with ($text) {
     my $directory = File::Temp::tempdir( CLEANUP => 1 );
-    File::Path::make_path("$directory/Permutl");
-    open my $handle, '>', "$directory/Permutl/Shim.pm" or die "write: $!";
+    File::Path::make_path("$directory/Test/Mutation");
+    open my $handle, '>', "$directory/Test/Mutation/Shim.pm" or die "write: $!";
     print {$handle} $text or die "write: $!";
     close $handle         or die "close: $!";
     return $directory;
@@ -28,19 +28,19 @@ sub directory_with ($text) {
 # A hook of the tests answers for the shim alone, as the hook of an outer run answers for its targets alone.
 sub shim_through (@entries) {
     local @INC = @entries;
-    my $text = eval { Permutl::Runner::shim_text(3) };
+    my $text = eval { Test::Mutation::Runner::shim_text(3) };
     return defined $text ? $text : "died: $@";
 }
 
 sub hook ($answer) {
-    return sub ( $self, $file ) { return $file eq 'Permutl/Shim.pm' ? $answer->() : () };
+    return sub ( $self, $file ) { return $file eq 'Test/Mutation/Shim.pm' ? $answer->() : () };
 }
 
 subtest 'the shim of the distribution is renamed for its generation' => sub {
-    my $text = Permutl::Runner::shim_text(3);
-    like $text,   qr/^package Permutl::Shim::G3;$/m, 'the package carries the generation';
-    like $text,   qr/^my \$GENERATION = 3;$/m,       'the generation number is set';
-    unlike $text, qr/^package Permutl::Shim;$/m,     'the original package line is gone';
+    my $text = Test::Mutation::Runner::shim_text(3);
+    like $text,   qr/^package Test::Mutation::Shim::G3;$/m, 'the package carries the generation';
+    like $text,   qr/^my \$GENERATION = 3;$/m,              'the generation number is set';
+    unlike $text, qr/^package Test::Mutation::Shim;$/m,     'the original package line is gone';
 };
 
 subtest 'a directory supplies the text, and the text gets the generation' => sub {
@@ -61,8 +61,8 @@ subtest 'entries without the file are passed over' => sub {
         directory_with($SHIM),
         @INC,
     );
-    is $text,   $THIRD,              'the text comes from the first directory that has the file';
-    is \@asked, ['Permutl/Shim.pm'], 'a hook is asked for the file by its name';
+    is $text,   $THIRD,                    'the text comes from the first directory that has the file';
+    is \@asked, ['Test/Mutation/Shim.pm'], 'a hook is asked for the file by its name';
 };
 
 subtest 'a hook supplies the text through a file handle' => sub {
@@ -78,8 +78,8 @@ subtest 'a hook supplies the text through a file handle' => sub {
 };
 
 subtest 'a missing file and an unexpected text stop the run' => sub {
-    is shim_through( sub { return } ), "died: cannot find Permutl/Shim.pm\n", 'no entry has the file';
-    for my $text ( "package Permutl::Shim;\n1;\n", "package Other;\nmy \$GENERATION = 0;\n1;\n" ) {
+    is shim_through( sub { return } ), "died: cannot find Test/Mutation/Shim.pm\n", 'no entry has the file';
+    for my $text ( "package Test::Mutation::Shim;\n1;\n", "package Other;\nmy \$GENERATION = 0;\n1;\n" ) {
         is shim_through( directory_with($text), @INC ), "died: cannot prepare the shim for generation 3\n",
           'a text without ' . ( $text =~ /GENERATION/ ? 'the package line' : 'the generation line' );
     }

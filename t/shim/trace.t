@@ -58,8 +58,8 @@ sub trace_run {
     write_spec( "$root/spec", trace => 1, targets => [ [ "$root/lib/Foo/Traced.pm", "$root/lib/Foo/Traced.pm" ] ] );
     my $run = run_perl(
         root => $root,
-        env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
-        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+        env  => { TEST_MUTATION_SPEC => "$root/spec", TEST_MUTATION_RECORD => "$root/records" },
+        args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
     my %lines = ( hits => [], lines => [] );
 
@@ -126,8 +126,8 @@ PERL
     );
     my $run = run_perl(
         root => $root,
-        env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
-        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+        env  => { TEST_MUTATION_SPEC => "$root/spec", TEST_MUTATION_RECORD => "$root/records" },
+        args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
     is $run->{stdout}, "script=0\n", 'code compiled after the target is not traced';
 };
@@ -143,8 +143,8 @@ PERL
     write_spec( "$root/spec", trace => 1, targets => [ [ "$root/lib/Foo/Late.pm", "$root/lib/Foo/Late.pm" ] ] );
     my $run = run_perl(
         root => $root,
-        env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
-        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+        env  => { TEST_MUTATION_SPEC => "$root/spec", TEST_MUTATION_RECORD => "$root/records" },
+        args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
     is $run->{stdout}, "flags=0 value=1\n", 'the start of the shim leaves the debugger flags as they were';
 };
@@ -174,8 +174,8 @@ PERL
     write_spec( "$root/spec", trace => 1, targets => [ [ "$root/lib/Foo/Errors.pm", "$root/lib/Foo/Errors.pm" ] ] );
     my $run = run_perl(
         root => $root,
-        env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
-        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+        env  => { TEST_MUTATION_SPEC => "$root/spec", TEST_MUTATION_RECORD => "$root/records" },
+        args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
     is $run->{stdout}, "7 kept\n", 'the error number and the error of an eval reach the next line';
 };

@@ -2,10 +2,10 @@ use v5.36;
 use Test2::V0;
 use File::Path ();
 use File::Temp ();
-use Permutl::Project;
+use Test::Mutation::Project;
 
 sub matches ( $pattern, $path ) {
-    return $path =~ Permutl::Project::pattern_regex($pattern) ? 1 : 0;
+    return $path =~ Test::Mutation::Project::pattern_regex($pattern) ? 1 : 0;
 }
 
 subtest 'patterns' => sub {
@@ -45,28 +45,29 @@ subtest 'files' => sub {
         close $handle or die "close $path: $!";
     }
 
-    is Permutl::Project::files( $root, ['lib/**/*.pm'], [] ), [ 'lib/A.pm', 'lib/Deep/B.pm', 'lib/local/F.pm' ],
+    is Test::Mutation::Project::files( $root, ['lib/**/*.pm'], [] ), [ 'lib/A.pm', 'lib/Deep/B.pm', 'lib/local/F.pm' ],
       'sources, without hidden directories';
-    is Permutl::Project::files( $root, ['t/**/*.t'], [] ), [ 't/one.t', 't/sub/two.t' ], 'tests';
-    is Permutl::Project::files( $root, ['lib/**/*.pm'], ['lib/Deep/**'] ), [ 'lib/A.pm', 'lib/local/F.pm' ],
+    is Test::Mutation::Project::files( $root, ['t/**/*.t'], [] ), [ 't/one.t', 't/sub/two.t' ], 'tests';
+    is Test::Mutation::Project::files( $root, ['lib/**/*.pm'], ['lib/Deep/**'] ), [ 'lib/A.pm', 'lib/local/F.pm' ],
       'an exclude pattern';
-    is Permutl::Project::files( $root, [ 'lib/*.pm', 'script/*.pl', 'lib/*.pm' ], [] ),
+    is Test::Mutation::Project::files( $root, [ 'lib/*.pm', 'script/*.pl', 'lib/*.pm' ], [] ),
       [ 'lib/A.pm', 'script/tool.pl' ],
       'several patterns, each file once';
-    is Permutl::Project::files( $root, ['**/*.pm'], [] ),
+    is Test::Mutation::Project::files( $root, ['**/*.pm'], [] ),
       [ 'lib/A.pm', 'lib/Deep/B.pm', 'lib/local/F.pm', 't/lib/Helper.pm' ],
       'a pattern without a directory skips vendor directories at the root';
-    is Permutl::Project::files( $root, ['missing/**/*.pm'], [] ),      [], 'a directory that does not exist';
-    is warnings { Permutl::Project::files( $root, ['**/*.pm'], [] ) }, [], 'a walk from the root raises no warning';
-    is Permutl::Project::files( $root, [ 'missing/**/*.pm', 'lib/*.pm' ], [] ), ['lib/A.pm'],
+    is Test::Mutation::Project::files( $root, ['missing/**/*.pm'], [] ), [], 'a directory that does not exist';
+    is warnings { Test::Mutation::Project::files( $root, ['**/*.pm'], [] ) }, [],
+      'a walk from the root raises no warning';
+    is Test::Mutation::Project::files( $root, [ 'missing/**/*.pm', 'lib/*.pm' ], [] ), ['lib/A.pm'],
       'a directory that does not exist before a pattern that matches';
 
   SKIP: {
         skip 'the superuser reads every directory', 2 if $> == 0;
         mkdir "$root/forbidden" or die "mkdir: $!";
         chmod 0, "$root/forbidden" or die "chmod: $!";
-        my @warnings = warnings { Permutl::Project::files( $root, ['lib/**/*.pm'], [] ) }->@*;
-        my @walked   = warnings { Permutl::Project::files( $root, ['**/*.pm'],     [] ) }->@*;
+        my @warnings = warnings { Test::Mutation::Project::files( $root, ['lib/**/*.pm'], [] ) }->@*;
+        my @walked   = warnings { Test::Mutation::Project::files( $root, ['**/*.pm'],     [] ) }->@*;
         chmod 0700, "$root/forbidden" or die "chmod: $!";
         is \@warnings, [], 'a pattern under one directory reads no other directory';
         ok scalar(@walked), 'and a walk from the root does try the unreadable directory';
@@ -90,14 +91,14 @@ subtest 'processors reads the count from the text of the platform' => sub {
     );
     for my $case (@cases) {
         my ( $name, $text, $answer, $expected ) = $case->@*;
-        is Permutl::Project::processors( cpuinfo => $text, sysctl => $answer ), $expected, $name;
+        is Test::Mutation::Project::processors( cpuinfo => $text, sysctl => $answer ), $expected, $name;
     }
 };
 
 subtest 'cpu_count asks the platform' => sub {
     my $expected = qx{getconf _NPROCESSORS_ONLN 2>/dev/null};
     skip_all 'getconf reports no processor count' if $expected !~ /\A[1-9][0-9]*\n\z/;
-    is Permutl::Project::cpu_count(), $expected + 0, 'the count of the platform';
+    is Test::Mutation::Project::cpu_count(), $expected + 0, 'the count of the platform';
 };
 
 subtest 'cpu_count runs the command only where the list of processors is missing' => sub {
@@ -112,16 +113,17 @@ subtest 'cpu_count runs the command only where the list of processors is missing
     my $command = $write->( 'sysctl',  "#!/bin/sh\necho \"\$@\" >> $dir/asked\necho 8\n" );
     chmod 0755, $command or die "chmod: $!";
 
-    is Permutl::Project::cpu_count( cpuinfo => $list, sysctl => $command ), 2, 'the list gives the count';
+    is Test::Mutation::Project::cpu_count( cpuinfo => $list, sysctl => $command ), 2, 'the list gives the count';
     ok !-e "$dir/asked", 'and the command stays quiet, because it knows no such key on a system with the list';
-    is Permutl::Project::cpu_count( cpuinfo => "$dir/missing", sysctl => $command ), 8,
+    is Test::Mutation::Project::cpu_count( cpuinfo => "$dir/missing", sysctl => $command ), 8,
       'without the list the command answers';
-    is Permutl::Project::cpu_count( cpuinfo => "$dir/missing", sysctl => "$dir/absent" ), 1,
+    is Test::Mutation::Project::cpu_count( cpuinfo => "$dir/missing", sysctl => "$dir/absent" ), 1,
       'without the list and the command the count is one';
 };
 
 subtest 'default_jobs leaves one processor free' => sub {
-    is [ map { Permutl::Project::default_jobs($_) } 1, 2, 3, 8 ], [ 1, 1, 2, 7 ], 'one less, and never below one';
+    is [ map { Test::Mutation::Project::default_jobs($_) } 1, 2, 3, 8 ], [ 1, 1, 2, 7 ],
+      'one less, and never below one';
 };
 
 done_testing;

@@ -31,15 +31,15 @@ die "OS unsupported\n" if $^O eq 'MSWin32';
 
 # An installation runs the quick tests, and EXTENDED_TESTING adds the end-to-end tests, which start many processes.
 my @tests = ( 't/unit/*.t', 't/shim/*.t', 't/assumptions/*.t', $ENV{EXTENDED_TESTING} ? 't/e2e/*.t' : () );
-my $home  = 'https://github.com/P4suta/permutl';
+my $home  = 'https://github.com/P4suta/Test-Mutation';
 
 WriteMakefile(
-    NAME             => 'Permutl',
+    NAME             => 'Test::Mutation',
     ABSTRACT         => 'Mutation testing for Perl that never rewrites a source file',
     AUTHOR           => 'Yasunobu Sakashita',
-    VERSION_FROM     => 'lib/Permutl.pm',
+    VERSION_FROM     => 'lib/Test/Mutation.pm',
     MIN_PERL_VERSION => delete $requirements{runtime}{perl},
-    EXE_FILES        => ['bin/permutl'],
+    EXE_FILES        => ['bin/mutation'],
     PREREQ_PM        => $requirements{runtime},
     TEST_REQUIRES    => $requirements{test},
     META_MERGE       => {

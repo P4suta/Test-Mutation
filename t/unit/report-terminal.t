@@ -1,13 +1,13 @@
 use v5.36;
 use Test2::V0;
-use Permutl::Mutant;
-use Permutl::Report::Terminal;
-use Permutl::Result;
+use Test::Mutation::Mutant;
+use Test::Mutation::Report::Terminal;
+use Test::Mutation::Result;
 
 my $source = "sub is_positive {\n    my (\$n) = \@_;\n    return \$n > 0 ? 1 : 0;\n}\n";
 
 sub mutant (%fields) {
-    return Permutl::Mutant->new(
+    return Test::Mutation::Mutant->new(
         id          => 'abcdefabcdef',
         path        => 'lib/Calc.pm',
         mutator     => 'comparison',
@@ -37,7 +37,7 @@ sub entry ( $status, %fields ) {
 }
 
 sub result ( $entries, %fields ) {
-    return Permutl::Result->new(
+    return Test::Mutation::Result->new(
         root              => '/project',
         sources           => { 'lib/Calc.pm' => $source },
         tests             => [ { name => 't/sign.t', duration => 0.5 } ],
@@ -54,7 +54,7 @@ sub result ( $entries, %fields ) {
 }
 
 subtest 'the summary counts every status and states the score' => sub {
-    my $text = Permutl::Report::Terminal::render(
+    my $text = Test::Mutation::Report::Terminal::render(
         result( [ entry('Killed'), entry('Killed'), entry('Survived'), entry('Timeout') ] ),
         color => 0 );
     like $text, qr/^4 mutants: 2 killed, 1 survived, 1 timeout$/m, 'counts leave out statuses with no mutant';
@@ -65,17 +65,19 @@ subtest 'the summary counts every status and states the score' => sub {
 
 subtest 'the summary of a part names the part and the size of the whole run' => sub {
     my %part = ( shard => '2/4', inventory => { mutants => 7, digest => 'ab' x 32 } );
-    my $text = Permutl::Report::Terminal::render( result( [ entry('Killed'), entry('Survived') ], %part ), color => 0 );
+    my $text =
+      Test::Mutation::Report::Terminal::render( result( [ entry('Killed'), entry('Survived') ], %part ), color => 0 );
     like $text, qr/^2 mutants: 1 killed, 1 survived\nPart 2 of 4 of a run with 7 mutants\.\nScore: /m,
       'the part follows the counts';
-    unlike Permutl::Report::Terminal::render( result( [ entry('Killed') ] ), color => 0 ), qr/^Part /m,
+    unlike Test::Mutation::Report::Terminal::render( result( [ entry('Killed') ] ), color => 0 ), qr/^Part /m,
       'a whole run names no part';
-    unlike Permutl::Report::Terminal::render( result( [ entry('Killed') ], shard => '2/4' ), color => 0 ), qr/^Part /m,
+    unlike Test::Mutation::Report::Terminal::render( result( [ entry('Killed') ], shard => '2/4' ), color => 0 ),
+      qr/^Part /m,
       'a part without an inventory names no part either';
 };
 
 subtest 'a survived mutant shows its place, change, and tests' => sub {
-    my $text = Permutl::Report::Terminal::render( result( [ entry('Survived') ] ), color => 0 );
+    my $text = Test::Mutation::Report::Terminal::render( result( [ entry('Survived') ] ), color => 0 );
     like $text, qr/^Survived \(1\)$/m,                                             'section heading';
     like $text, qr/^  lib\/Calc\.pm:3:15  replaced > with >=  \[abcdefabcdef\]$/m, 'place, description, identifier';
     like $text, qr/^    -     return \$n > 0 \? 1 : 0;$/m,                         'the original line';
@@ -94,13 +96,14 @@ subtest 'a mutant that spans lines shows its first line' => sub {
         to          => [ 4, 1 ],
         scope       => [ 1, 4 ]
     );
-    my $text = Permutl::Report::Terminal::render( result( [ entry( 'Survived', mutant => $body ) ] ), color => 0 );
+    my $text =
+      Test::Mutation::Report::Terminal::render( result( [ entry( 'Survived', mutant => $body ) ] ), color => 0 );
     like $text, qr/^    - sub is_positive \{ \.\.\.$/m, 'the first original line with an ellipsis';
     like $text, qr/^    \+ sub is_positive \{$/m,       'the first mutated line';
 };
 
 subtest 'sections appear for the statuses that need attention' => sub {
-    my $text = Permutl::Report::Terminal::render(
+    my $text = Test::Mutation::Report::Terminal::render(
         result(
             [
                 entry('Killed'),
@@ -118,7 +121,7 @@ subtest 'sections appear for the statuses that need attention' => sub {
 };
 
 subtest 'warnings, problems, and baseline failures are reported' => sub {
-    my $text = Permutl::Report::Terminal::render(
+    my $text = Test::Mutation::Report::Terminal::render(
         result(
             [],
             warnings          => ['the tests fail when they run side by side'],
@@ -139,7 +142,7 @@ subtest 'warnings, problems, and baseline failures are reported' => sub {
 subtest 'a failing unmodified run shows the lines that explain the failure' => sub {
     my $output =
       "ok 1 - loads\n    ok 1 - inner step\n    1..1\nok 2 - a subtest\nnot ok 3 - adds\nok 4 # skip no network\n1..4\n";
-    my $text = Permutl::Report::Terminal::render(
+    my $text = Test::Mutation::Report::Terminal::render(
         result(
             [], baseline_failures => [ { test => 't/add.t', output => $output, errors => "#   Failed test 'adds'\n" } ]
         ),
@@ -149,7 +152,7 @@ subtest 'a failing unmodified run shows the lines that explain the failure' => s
       "The unmodified run fails, so no mutant ran.\n  t/add.t\n    not ok 3 - adds\n    1..4\n    #   Failed test 'adds'\n",
       'the passing assertions and the plan of a subtest are left out';
 
-    my $copied = Permutl::Report::Terminal::render(
+    my $copied = Test::Mutation::Report::Terminal::render(
         result(
             [],
             in_copies         => 1,
@@ -165,14 +168,14 @@ subtest 'a failing unmodified run shows the lines that explain the failure' => s
 };
 
 subtest 'color wraps the score when asked' => sub {
-    my $plain = Permutl::Report::Terminal::render( result( [ entry('Killed') ] ), color => 0 );
-    my $color = Permutl::Report::Terminal::render( result( [ entry('Killed') ] ), color => 1 );
+    my $plain = Test::Mutation::Report::Terminal::render( result( [ entry('Killed') ] ), color => 0 );
+    my $color = Test::Mutation::Report::Terminal::render( result( [ entry('Killed') ] ), color => 1 );
     unlike $plain, qr/\e\[/,                  'no escape sequence without color';
     like $color,   qr/\e\[32mScore: 100\.0%/, 'a full score is green';
 };
 
 subtest 'the whole report keeps its order' => sub {
-    my $text = Permutl::Report::Terminal::render(
+    my $text = Test::Mutation::Report::Terminal::render(
         result(
             [
                 entry('Killed'),
@@ -201,7 +204,7 @@ subtest 'the whole report keeps its order' => sub {
       ),
       'summary, sections, and notes';
 
-    my $failed = Permutl::Report::Terminal::render(
+    my $failed = Test::Mutation::Report::Terminal::render(
         result(
             [],
             baseline_failures => [
@@ -217,9 +220,8 @@ subtest 'the whole report keeps its order' => sub {
 
 subtest 'the list of tests is cut after the third' => sub {
     my $listed = sub (@tests) {
-        my ($line) =
-          Permutl::Report::Terminal::render( result( [ entry( 'Survived', covered_by => \@tests ) ] ), color => 0 ) =~
-          /^    reached by (.*)$/m;
+        my ($line) = Test::Mutation::Report::Terminal::render( result( [ entry( 'Survived', covered_by => \@tests ) ] ),
+            color => 0 ) =~ /^    reached by (.*)$/m;
         return $line;
     };
     is $listed->(qw(t/a.t t/b.t t/c.t)),       't/a.t, t/b.t, t/c.t',            'three tests are listed in full';
@@ -230,7 +232,7 @@ subtest 'the color follows the thresholds at their boundaries' => sub {
     my $at = sub ( $killed, %thresholds ) {
         my @entries = ( ( map { entry('Killed') } 1 .. $killed ), ( map { entry('Survived') } $killed + 1 .. 5 ) );
         my ($code) =
-          Permutl::Report::Terminal::render( result( \@entries ), color => 1, %thresholds ) =~ /\e\[(\d+)mScore/;
+          Test::Mutation::Report::Terminal::render( result( \@entries ), color => 1, %thresholds ) =~ /\e\[(\d+)mScore/;
         return $code;
     };
     is $at->(4),                          32, 'a score at the high threshold is green';

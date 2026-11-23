@@ -1,11 +1,11 @@
 use v5.36;
 use Test2::V0;
-use Permutl::Source;
-use Permutl::Syntax::PPI;
+use Test::Mutation::Source;
+use Test::Mutation::Syntax::PPI;
 
 sub analyze ($code) {
-    my $source = Permutl::Source->new( path => 'lib/X.pm', text => $code, encoding => 'UTF-8' );
-    return Permutl::Syntax::PPI::analyze($source);
+    my $source = Test::Mutation::Source->new( path => 'lib/X.pm', text => $code, encoding => 'UTF-8' );
+    return Test::Mutation::Syntax::PPI::analyze($source);
 }
 
 sub sites_of ( $code, $kind ) {

@@ -15,7 +15,7 @@ The JSON report follows version 2 of `mutation-testing-report-schema`.
 The HTML report is one file that embeds the data and version 3.9.0 of the `mutation-testing-elements` viewer.
 A test pins the digest of the bundled viewer file.
 Each test file appears as one test, because the runner treats a test file as a unit.
-Reports go to `permutl-report/`, because the artifact upload of GitHub Actions leaves hidden directories out by default.
+Reports go to `mutation-report/`, because the artifact upload of GitHub Actions leaves hidden directories out by default.
 
 ## Alternatives
 

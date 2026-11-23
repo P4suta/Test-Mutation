@@ -1,17 +1,18 @@
 use v5.36;
 use Test2::V0;
-use Permutl::Mutant::Generator;
-use Permutl::Mutator::Catalog;
-use Permutl::Source;
-use Permutl::Syntax::PPI;
+use Test::Mutation::Mutant::Generator;
+use Test::Mutation::Mutator::Catalog;
+use Test::Mutation::Source;
+use Test::Mutation::Syntax::PPI;
 
 sub mutants ( $code, %select ) {
-    my $source   = Permutl::Source->new( path => 'lib/X.pm', text => $code, encoding => 'UTF-8' );
-    my @perl     = exists $select{perl} ? ( perl => delete $select{perl} ) : ();
-    my $mutators = Permutl::Mutator::Catalog::choose( profile => 'default', enable => [], disable => [], %select );
-    return Permutl::Mutant::Generator::generate(
+    my $source = Test::Mutation::Source->new( path => 'lib/X.pm', text => $code, encoding => 'UTF-8' );
+    my @perl   = exists $select{perl} ? ( perl => delete $select{perl} ) : ();
+    my $mutators =
+      Test::Mutation::Mutator::Catalog::choose( profile => 'default', enable => [], disable => [], %select );
+    return Test::Mutation::Mutant::Generator::generate(
         source   => $source,
-        analysis => Permutl::Syntax::PPI::analyze($source),
+        analysis => Test::Mutation::Syntax::PPI::analyze($source),
         mutators => $mutators,
         @perl,
     );
@@ -83,7 +84,7 @@ subtest 'extended mutators' => sub {
       [ [ '0', '1' ], [ '1', '0' ], [ '41', '42' ] ],
       'integer literals';
     is changes( q{my @s = ( 'abc', "", q{def} );}, 'string-literal', %extended ),
-      [ [ q{'abc'}, q{''} ], [ q{""}, q{"permutl"} ] ],
+      [ [ q{'abc'}, q{''} ], [ q{""}, q{"mutant"} ] ],
       'string literals';
     is changes( 'if ($a) { f() } while ($b) { g() } until ($c) { h() }', 'condition-fixed', %extended ),
       [ [ '$a', '1' ], [ '$a', '0' ], [ '$b', '0' ], [ '$c', '1' ] ], 'fixed conditions avoid endless loops';
@@ -152,15 +153,15 @@ subtest 'two mutators with the same replacement yield one mutant' => sub {
     is [ map { [ $_->mutator, $_->original, $_->replacement ] } grep { $_->original eq '1' } @mutants ],
       [ [ 'return-value', '1', '0' ] ], 'the first mutator is credited';
 
-    my $source    = Permutl::Source->new( path => 'lib/X.pm', text => '$a + $b;', encoding => 'UTF-8' );
+    my $source    = Test::Mutation::Source->new( path => 'lib/X.pm', text => '$a + $b;', encoding => 'UTF-8' );
     my @proposed  = ( [ first => [q{-}] ], [ second => [ q{-}, q{*} ] ], [ third => [ q{*}, q{/} ] ] );
-    my $generated = Permutl::Mutant::Generator::generate(
+    my $generated = Test::Mutation::Mutant::Generator::generate(
         source   => $source,
-        analysis => Permutl::Syntax::PPI::analyze($source),
+        analysis => Test::Mutation::Syntax::PPI::analyze($source),
         mutators => [
             map {
                 my ( $name, $replacements ) = $_->@*;
-                Permutl::Mutator->new(
+                Test::Mutation::Mutator->new(
                     name        => $name,
                     profile     => 'default',
                     description => 'a test mutator',
@@ -179,19 +180,21 @@ subtest 'two mutators with the same replacement yield one mutant' => sub {
 
 subtest 'selection' => sub {
     my @default =
-      map { $_->name } Permutl::Mutator::Catalog::choose( profile => 'default', enable => [], disable => [] )->@*;
+      map { $_->name }
+      Test::Mutation::Mutator::Catalog::choose( profile => 'default', enable => [], disable => [] )->@*;
     my @extended =
-      map { $_->name } Permutl::Mutator::Catalog::choose( profile => 'extended', enable => [], disable => [] )->@*;
-    is scalar(@extended), scalar( Permutl::Mutator::Catalog::mutators()->@* ),
+      map { $_->name }
+      Test::Mutation::Mutator::Catalog::choose( profile => 'extended', enable => [], disable => [] )->@*;
+    is scalar(@extended), scalar( Test::Mutation::Mutator::Catalog::mutators()->@* ),
       'the extended profile holds every mutator';
     ok scalar(@default) < scalar(@extended), 'the default profile is a subset';
     is [
         grep { $_ eq 'arithmetic' }
         map  { $_->name }
-          Permutl::Mutator::Catalog::choose( profile => 'default', enable => [], disable => ['arithmetic'] )->@*
+          Test::Mutation::Mutator::Catalog::choose( profile => 'default', enable => [], disable => ['arithmetic'] )->@*
       ],
       [], 'a disabled mutator is removed';
-    like dies { Permutl::Mutator::Catalog::choose( profile => 'default', enable => ['nope'], disable => [] ) },
+    like dies { Test::Mutation::Mutator::Catalog::choose( profile => 'default', enable => ['nope'], disable => [] ) },
       qr/unknown mutator: nope/, 'an unknown name is refused';
 };
 
@@ -201,12 +204,12 @@ subtest 'every mutant of the corpus changes its span alone' => sub {
     for my $path ( sort glob 't/corpus/modern/*.pm' ) {
         open my $handle, '<:raw', $path or die "open $path: $!";
         my $bytes   = do { local $/ = undef; readline $handle };
-        my $source  = Permutl::Source->from_bytes( path => $path, bytes => $bytes );
+        my $source  = Test::Mutation::Source->from_bytes( path => $path, bytes => $bytes );
         my $text    = $source->text;
-        my $mutants = Permutl::Mutant::Generator::generate(
+        my $mutants = Test::Mutation::Mutant::Generator::generate(
             source   => $source,
-            analysis => Permutl::Syntax::PPI::analyze($source),
-            mutators => Permutl::Mutator::Catalog::mutators(),
+            analysis => Test::Mutation::Syntax::PPI::analyze($source),
+            mutators => Test::Mutation::Mutator::Catalog::mutators(),
         );
         for my $mutant ( $mutants->@* ) {
             $count++;

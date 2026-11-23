@@ -19,10 +19,10 @@ BEGIN {
 
 use lib 't/e2e/lib';
 use Fixture qw(copy_of run_fixture);
-use Permutl::CLI;
-use Permutl::Config;
-use Permutl::Git;
-use Permutl::Runner;
+use Test::Mutation::CLI;
+use Test::Mutation::Config;
+use Test::Mutation::Git;
+use Test::Mutation::Runner;
 
 sub failing_in ( $pattern, $code ) {
     local $failing = $pattern;
@@ -32,7 +32,8 @@ sub failing_in ( $pattern, $code ) {
 my $root = copy_of('calc');
 
 like dies {
-    failing_in( qr/::Runner::_slurp\z/, sub { Permutl::Runner::analyze( Permutl::Config->new( root => $root ) ) } )
+    failing_in( qr/::Runner::_slurp\z/,
+        sub { Test::Mutation::Runner::analyze( Test::Mutation::Config->new( root => $root ) ) } )
 },
   qr/\Acannot close \Q$root\E\/lib\/Calc[.]pm: /,
   'a source file that does not close stops the analysis';
@@ -52,7 +53,7 @@ sub command (@arguments) {
         local *STDERR;
         open STDOUT, '>', \$output or die "stdout: $!";
         open STDERR, '>', \$errors or die "stderr: $!";
-        Permutl::CLI::main(@arguments);
+        Test::Mutation::CLI::main(@arguments);
     };
     chdir $here or die "chdir: $!";
     return ( $status, $errors, $output );
@@ -65,26 +66,26 @@ for my $part ( 1, 2 ) {
 my @reports = ( 'part1/mutation.json', 'part2/mutation.json' );
 
 my ( $status, $errors ) = failing_in( qr/::CLI::_read_report\z/, sub { command( 'merge', @reports ) } );
-is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 2, 'permutl: cannot close part1/mutation.json' ],
+is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 2, 'mutation: cannot close part1/mutation.json' ],
   'a report that does not close is a usage error';
 
 ( $status, $errors ) =
   failing_in( qr/::CLI::_report\z/, sub { command( 'merge', @reports, '--format', 'json', '--report-dir', 'whole' ) } );
-is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 4, 'permutl: cannot close whole/mutation.json' ],
+is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 4, 'mutation: cannot close whole/mutation.json' ],
   'a report file that does not close after the write fails the command';
 
 {
     local $ENV{GITHUB_STEP_SUMMARY} = "$root/summary.md";
     ( $status, $errors ) =
       failing_in( qr/::CLI::_report_to_github\z/, sub { command( 'merge', @reports, '--format', 'github' ) } );
-    is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 4, "permutl: cannot close $root/summary.md" ],
+    is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 4, "mutation: cannot close $root/summary.md" ],
       'a job summary that does not close fails the command';
 }
 
 SKIP: {
     skip 'the case needs the git command', 1 if !length qx{git --version 2>/dev/null};
     is dies {
-        failing_in( qr/::Git::_git\z/, sub { Permutl::Git::changed( $root, 'HEAD' ) } )
+        failing_in( qr/::Git::_git\z/, sub { Test::Mutation::Git::changed( $root, 'HEAD' ) } )
     }, "git diff failed\n", 'a git answer that does not close fails without a reason';
 }
 

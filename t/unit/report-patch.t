@@ -1,13 +1,13 @@
 use v5.36;
 use Test2::V0;
-use Permutl::Mutant;
-use Permutl::Report::Patch;
+use Test::Mutation::Mutant;
+use Test::Mutation::Report::Patch;
 
 my $text = join q{}, map { "line $_\n" } 1 .. 10;
 
 sub patch ( $source, $original, $replacement ) {
     my $start  = index $source, $original;
-    my $mutant = Permutl::Mutant->new(
+    my $mutant = Test::Mutation::Mutant->new(
         id          => 'abcdefabcdef',
         path        => 'lib/X.pm',
         mutator     => 'string-literal',
@@ -20,7 +20,7 @@ sub patch ( $source, $original, $replacement ) {
         to          => [ 1, 2 ],
         scope       => [ 1, 1 ],
     );
-    return Permutl::Report::Patch::render( mutant => $mutant, text => $source );
+    return Test::Mutation::Report::Patch::render( mutant => $mutant, text => $source );
 }
 
 sub hunk ( $header, @lines ) {

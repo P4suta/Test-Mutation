@@ -25,7 +25,7 @@ BEGIN {
     };
 }
 
-use Permutl::Pool;
+use Test::Mutation::Pool;
 
 my $dir = File::Temp::tempdir( CLEANUP => 1 );
 
@@ -43,7 +43,7 @@ sub script ( $name, $code ) {
 sub pool_error (%task) {
     my @queue = ( { env => {}, cwd => $dir, timeout => 20, stop_on_failure => 0, %task } );
     return dies {
-        Permutl::Pool::run( jobs => 1, next => sub { shift @queue }, done => sub { return } )
+        Test::Mutation::Pool::run( jobs => 1, next => sub { shift @queue }, done => sub { return } )
     };
 }
 

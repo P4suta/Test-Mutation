@@ -1,17 +1,17 @@
-# Permutl
+# Test-Mutation
 
 Mutation testing for Perl that never rewrites a source file.
 
 ## Installation
 
 ```sh
-cpanm https://github.com/P4suta/permutl.git
+cpanm https://github.com/P4suta/Test-Mutation.git
 ```
 
 ## Usage
 
 ```sh
-permutl run
+mutation run
 ```
 
 ## License

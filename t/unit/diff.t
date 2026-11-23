@@ -1,6 +1,6 @@
 use v5.36;
 use Test2::V0;
-use Permutl::Diff;
+use Test::Mutation::Diff;
 
 my $diff = <<'DIFF';
 diff --git a/lib/Calc.pm b/lib/Calc.pm
@@ -36,10 +36,10 @@ index 4444444..0000000
 DIFF
 
 subtest 'changed_lines reads the new side of every hunk' => sub {
-    is Permutl::Diff::changed_lines($diff),
+    is Test::Mutation::Diff::changed_lines($diff),
       { 'lib/Calc.pm' => [ [ 7, 7 ], [ 13, 15 ] ], 'lib/New File.pm' => [ [ 1, 2 ] ] },
       'modified and added lines by file, without deleted lines and deleted files';
-    is Permutl::Diff::changed_lines(q{}), {}, 'an empty diff';
+    is Test::Mutation::Diff::changed_lines(q{}), {}, 'an empty diff';
 };
 
 subtest 'touches tells whether a line range meets a changed range' => sub {
@@ -47,9 +47,9 @@ subtest 'touches tells whether a line range meets a changed range' => sub {
     my @cases  = ( [ 7, 7, 1 ], [ 6, 6, 0 ], [ 8, 12, 0 ], [ 1, 30, 1 ], [ 15, 20, 1 ], [ 16, 20, 0 ], [ 12, 13, 1 ] );
     for my $case (@cases) {
         my ( $first, $last, $expected ) = $case->@*;
-        is Permutl::Diff::touches( $ranges, $first, $last ), $expected, "lines $first to $last";
+        is Test::Mutation::Diff::touches( $ranges, $first, $last ), $expected, "lines $first to $last";
     }
-    is Permutl::Diff::touches( [], 1, 100 ), 0, 'no changed range';
+    is Test::Mutation::Diff::touches( [], 1, 100 ), 0, 'no changed range';
 };
 
 done_testing;
