@@ -1,6 +1,7 @@
 package Permutl::Git;
 use v5.36;
 use File::Temp      ();
+use POSIX           ();
 use Types::Standard qw(ArrayRef HashRef Int Str Tuple);
 use Type::Params    qw(signature_for);
 use Permutl::Diff;
@@ -25,11 +26,17 @@ sub changed ( $root, $revision ) {
 
 sub _git ( $root, @arguments ) {
     my $errors = File::Temp->new;
-    my $pid    = open my $output, q{-|};
+    my $pid    = open my $output, q{-|};    ## no critic (InputOutput::RequireBriefOpen)
     die "cannot start git: $!\n" if !defined $pid;
     if ( !$pid ) {
-        open STDERR, '>', $errors->filename or die "stderr: $!\n";
-        exec {'git'} 'git', '-C', $root, @arguments or die "cannot start git: $!\n";
+
+        # The child must end here: an exception would run the rest of the caller in a second process.
+        if ( open my $log, '>', $errors->filename ) {    ## no critic (InputOutput::RequireBriefOpen)
+            POSIX::dup2( fileno $log, 2 );
+            no warnings 'exec';                          ## no critic (TestingAndDebugging::ProhibitNoWarnings)
+            exec {'git'} 'git', '-C', $root, @arguments or syswrite $log, "cannot start git: $!\n";
+        }
+        POSIX::_exit(127);
     }
     my $text = do { local $/ = undef; readline $output };
     return defined $text ? $text : q{} if close $output;
