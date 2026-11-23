@@ -34,14 +34,15 @@ subtest 'load failures, bypasses, and errors' => sub {
                 [ 'served',   '/p/A.pm' ],
                 [ 'loadfail', '/p/A.pm' ],
                 [ 'bypass',   '/p/B.pm' ],
-                [ 'error',    '/p/C.pm', 'cannot open' ]
+                [ 'error',    '/p/C.pm', 'cannot open' ],
+                [ 'error',    '/p/D.pm', 'cannot read' ],
             )
         ]
     );
     is $record->{load_failed}, { '/p/A.pm' => 1 }, 'load failure';
     is $record->{bypassed},    { '/p/B.pm' => 1 }, 'bypass';
-    is $record->{errors},                    ['/p/C.pm: cannot open'], 'error';
-    is $record->{served}{'/p/A.pm'}{traced}, 0,                        'an untraced process marks the file as untraced';
+    is $record->{errors}, [ '/p/C.pm: cannot open', '/p/D.pm: cannot read' ], 'errors in the order of the record';
+    is $record->{served}{'/p/A.pm'}{traced}, 0, 'an untraced process marks the file as untraced';
 };
 
 subtest 'several processes of one test run' => sub {
@@ -61,6 +62,10 @@ subtest 'unknown and malformed lines are ignored' => sub {
     is $record, { served => {}, compiled => {}, load_failed => {}, bypassed => {}, breakable => {}, errors => [] },
       'an unknown kind, a line without a path, and a hit without a line number leave nothing';
     is Permutl::Record::parse( [] )->{served}, {}, 'no record files';
+
+    my $after = Permutl::Record::parse( ["begin\t1\nserved\nbypass\t/p/A.pm\nmystery\t/p/B.pm\nloadfail\t/p/C.pm\n"] );
+    is [ $after->{bypassed}, $after->{load_failed} ], [ { '/p/A.pm' => 1 }, { '/p/C.pm' => 1 } ],
+      'the lines after a malformed line and after an unknown kind still count';
 };
 
 subtest 'a compiled line marks a target that compiled' => sub {
@@ -72,8 +77,8 @@ subtest 'a compiled line marks a target that compiled' => sub {
 subtest 'read_directory reads every record file' => sub {
     my $directory = File::Temp::tempdir( CLEANUP => 1 );
     for my $file (
-        [ 'one.rec',  lines( [ 'begin', 1 ], [ 'served', '/p/A.pm' ] ) ],
-        [ 'two.rec',  lines( [ 'begin', 1 ], [ 'bypass', '/p/B.pm' ] ) ],
+        [ 'one.rec',  lines( [ 'begin', 1 ], [ 'served', '/p/A.pm' ], [ 'error', '/p/A.pm', 'first' ] ) ],
+        [ 'two.rec',  lines( [ 'begin', 1 ], [ 'bypass', '/p/B.pm' ], [ 'error', '/p/B.pm', 'second' ] ) ],
         [ 'note.txt', 'served' ]
       )
     {
@@ -82,8 +87,9 @@ subtest 'read_directory reads every record file' => sub {
         close $handle              or die "close: $!";
     }
     my $record = Permutl::Record::read_directory($directory);
-    is [ sort keys $record->{served}->%* ],   ['/p/A.pm'], 'served';
-    is [ sort keys $record->{bypassed}->%* ], ['/p/B.pm'], 'bypassed';
+    is [ sort keys $record->{served}->%* ],   ['/p/A.pm'],         'served';
+    is [ sort keys $record->{bypassed}->%* ], ['/p/B.pm'],         'bypassed';
+    is $record->{errors}, [ '/p/A.pm: first', '/p/B.pm: second' ], 'the errors follow the names of the files';
 };
 
 done_testing;
