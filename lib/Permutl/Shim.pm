@@ -118,17 +118,17 @@ sub _resolve {
 }
 
 # The file itself wins over a copy with the same text, such as the copy in blib.
+# Among several targets with the text of a copy, the one whose path ends in the required name wins.
 sub _target_at {
-    my ( $path, $candidates ) = @_;
+    my ( $path, $file, $candidates ) = @_;
     my @stat = stat $path or return;
     for my $target ( @{$candidates} ) {
         return $target if defined $target->{inode} && $stat[1] == $target->{inode} && $stat[0] == $target->{device};
     }
-    my $text = _slurp($path);
-    for my $target ( @{$candidates} ) {
-        return $target if $text eq _slurp( $target->{original} );
-    }
-    return;
+    my $text    = _slurp($path);
+    my @equal   = grep { $text eq _slurp( $_->{original} ) } @{$candidates};
+    my ($named) = grep { substr( "/$_->{original}", -length("/$file") ) eq "/$file" } @equal;
+    return $named || $equal[0];
 }
 
 sub _slurp {
@@ -145,9 +145,9 @@ sub _serve {
     my ( undef, $file ) = @_;
     _trace_compile(0) if $STATE{trace};
 
-    my $candidates = $STATE{by_base}{ _basename($file) } or return;
-    my $path       = _resolve($file)                     or return;
-    my $target     = _target_at( $path, $candidates )    or return;
+    my $candidates = $STATE{by_base}{ _basename($file) }     or return;
+    my $path       = _resolve($file)                         or return;
+    my $target     = _target_at( $path, $file, $candidates ) or return;
 
     open my $handle, '<', $target->{serve} or do {    ## no critic (InputOutput::RequireBriefOpen)
         _record( 'error', $target->{original}, "cannot open $target->{serve}: $!" );

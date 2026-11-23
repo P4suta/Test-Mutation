@@ -63,15 +63,31 @@ subtest 'a different file of the same name and size is left alone' => sub {
 
 subtest 'two targets with one name and the same text keep their own replacements' => sub {
     my $root = project();
-    write_file( "$root/lib/$_/Twin.pm", "1;\n" ) for qw(One Two);
-    write_file( "$root/one.pm",         "print 'one';\n1;\n" );
-    write_file( "$root/two.pm",         "print 'two';\n1;\n" );
-    write_spec( "$root/spec",
-        targets => [ [ "$root/lib/One/Twin.pm", "$root/one.pm" ], [ "$root/lib/Two/Twin.pm", "$root/two.pm" ] ] );
+    write_file( "$root/lib/$_/Twin.pm",     "1;\n" ) for qw(One Two);
+    write_file( "$root/second/Two/Twin.pm", "1;\n" );
+    write_file( "$root/$_.pm",              "print '$_';\n1;\n" ) for qw(one two second);
+    write_spec(
+        "$root/spec",
+        targets => [
+            [ "$root/lib/One/Twin.pm",    "$root/one.pm" ],
+            [ "$root/lib/Two/Twin.pm",    "$root/two.pm" ],
+            [ "$root/second/Two/Twin.pm", "$root/second.pm" ],
+        ]
+    );
+    write_file( "$root/script.pl", "require Two::Twin;\n" );
+    is shim_run( $root, before => ['-Isecond'] )->{stdout}, 'second',
+      'a target with the name and the text of an earlier target gets its own replacement';
+    write_file( "$root/blib/lib/$_/Twin.pm", "1;\n" ) for qw(One Two);
+
     for my $name (qw(One Two)) {
         write_file( "$root/script.pl", "require $name\::Twin;\n" );
         is shim_run($root)->{stdout}, lc $name, "the file of $name gets the replacement of $name";
+        is shim_run( $root, before => ['-Iblib/lib'] )->{stdout}, lc $name, "and so does its copy in blib";
     }
+    write_file( "$root/blib/lib/Other/Twin.pm", "1;\n" );
+    write_file( "$root/script.pl",              "require Other::Twin;\n" );
+    is shim_run( $root, before => ['-Iblib/lib'] )->{stdout}, 'one',
+      'a copy under a third name gets the replacement of the first target in the spec';
 };
 
 subtest 'a replacement that cannot be opened leaves the original and an error record' => sub {
