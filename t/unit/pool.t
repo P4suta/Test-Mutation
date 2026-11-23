@@ -336,6 +336,26 @@ subtest 'a test that exits cleanly after its time limit does not pass' => sub {
       'the time limit decides';
 };
 
+subtest 'a test that ended within its time limit keeps its result when the pool looks late' => sub {
+    my $quick = script( 'at-once.t', qq{print "1..1\\nok 1\\n";\n} );
+    my $brief = script( 'in-time.t', qq{select undef, undef, undef, 0.5; print "1..1\\nok 1\\n";\n} );
+    my @queue = ( task( $quick, payload => 'first' ), task( $brief, payload => 'second', timeout => 1.5 ) );
+    my %result;
+    Permutl::Pool::run(
+        jobs => 2,
+        next => sub { shift @queue },
+        done => sub ( $task, $got ) {
+            $result{ $task->{payload} } = $got;
+
+            # The callback of the first task holds the pool until the limit of the second task is over.
+            Time::HiRes::sleep(2.5) if $task->{payload} eq 'first';
+            return;
+        },
+    );
+    is $result{second}, hash { field timed_out => 0; field passed => 1; field signal => 0; etc },
+      'the test that ended on its own has its own result';
+};
+
 subtest 'a malformed task is refused' => sub {
     like dies {
         Permutl::Pool::run(
