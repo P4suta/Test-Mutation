@@ -1,8 +1,12 @@
 package Permutl::Report::Json;
 use v5.36;
-use JSON::PP        ();
-use Types::Standard qw(HashRef InstanceOf Num Str);
-use Type::Params    qw(signature_for);
+use JSON::PP               ();
+use Types::Standard        qw(ArrayRef Dict HashRef InstanceOf Int Maybe Num Optional Slurpy Str Tuple);
+use Types::Common::Numeric qw(PositiveInt);
+use Type::Params           qw(signature_for);
+use Permutl::Mutant;
+use Permutl::Result;
+use Permutl::Source;
 
 our $VERSION = '0.001';
 
@@ -95,6 +99,121 @@ sub render ( $result, $arg ) {
     return JSON::PP->new->canonical->pretty->encode($document);
 }
 
+my $FLAG     = InstanceOf ['JSON::PP::Boolean'];
+my $POSITION = Dict [ line => PositiveInt, column => PositiveInt ];
+my $MUTANT   = Dict [
+    id             => Str,
+    mutatorName    => Str,
+    replacement    => Str,
+    description    => Str,
+    location       => Dict [ start => $POSITION, end => $POSITION ],
+    status         => Str,
+    statusReason   => Optional [Str],
+    coveredBy      => ArrayRef [Str],
+    killedBy       => Optional [ ArrayRef [Str] ],
+    testsCompleted => Int,
+    duration       => Num,
+    static         => $FLAG,
+    permutl        => Dict [ scope => Tuple [ Int, Int ], suppressed => $FLAG, comparable => $FLAG ],
+];
+my $DOCUMENT = Dict [
+    projectRoot => Str,
+    files       => HashRef [ Dict [ language => Str, source => Str, mutants => ArrayRef [$MUTANT] ] ],
+    permutl     => Dict [
+        shard            => Maybe [Str],
+        inventory        => Maybe [ Dict [ mutants => Int, digest => Str ] ],
+        jobs             => Int,
+        parallelSafe     => $FLAG,
+        interrupted      => Maybe [Str],
+        reused           => Int,
+        started          => Num,
+        finished         => Num,
+        warnings         => ArrayRef [Str],
+        problems         => ArrayRef [ Dict [ path => Str, problem => Str ] ],
+        baselineFailures => ArrayRef [Str],
+        tests            => ArrayRef [ Dict [ name => Str, duration => Num ] ],
+    ],
+    Slurpy [HashRef],
+];
+
+signature_for parse => ( positional => [Str], returns => InstanceOf ['Permutl::Result'] );
+
+sub parse ($text) {
+    my $document = eval { JSON::PP->new->decode($text) };
+    die "the text is no JSON document\n"             if ref $document ne 'HASH';
+    die "the report holds no run facts of permutl\n" if !exists $document->{permutl};
+    my $problem = $DOCUMENT->validate_explain( $document, 'the report' );
+    die 'the report is malformed: ' . ( grep { /did not pass|constrains/ } reverse $problem->@* )[0] . "\n" if $problem;
+    my $result = eval { _result($document) };
+    return $result if $result;
+    my ($reason) = split /\n/, "$@";
+    die 'the report is malformed: ' . $reason =~ s/ at \S+ line \d+[.]?\z//r . "\n";
+}
+
+sub _result ($document) {
+    my $facts = $document->{permutl};
+    my ( %sources, @entries );
+    for my $path ( sort keys $document->{files}->%* ) {
+        my $file = $document->{files}{$path};
+        $sources{$path} = $file->{source};
+        my $source = Permutl::Source->new( path => $path, text => $file->{source}, encoding => 'UTF-8' );
+        push @entries, map { _entry( $source, $_ ) } $file->{mutants}->@*;
+    }
+    return Permutl::Result->new(
+        root              => $document->{projectRoot},
+        sources           => \%sources,
+        tests             => $facts->{tests},
+        entries           => \@entries,
+        problems          => $facts->{problems},
+        warnings          => $facts->{warnings},
+        baseline_failures => [ map { { test => $_, output => q{}, errors => q{} } } $facts->{baselineFailures}->@* ],
+        jobs              => $facts->{jobs},
+        parallel_safe     => $facts->{parallelSafe} ? 1 : 0,
+        interrupted       => $facts->{interrupted},
+        reused            => $facts->{reused},
+        shard             => $facts->{shard},
+        inventory         => $facts->{inventory},
+        started           => $facts->{started},
+        finished          => $facts->{finished},
+    );
+}
+
+sub _offset ( $source, $position ) {
+    my $text   = $source->text;
+    my $offset = $position->{line} <= 1 + $text =~ tr/\n// ? $source->offset_of( $position->@{qw(line column)} ) : -1;
+    die 'a location lies outside the source of ' . $source->path . "\n" if $offset < 0 || $offset > length $text;
+    return $offset;
+}
+
+sub _entry ( $source, $mutant ) {
+    my ( $start, $end ) = map { _offset( $source, $mutant->{location}{$_} ) } qw(start end);
+    die 'a location ends before its start in ' . $source->path . "\n" if $end < $start;
+    my ( $extra, $duration ) = $mutant->@{qw(permutl duration)};
+    return {
+        mutant => Permutl::Mutant->new(
+            id          => $mutant->{id},
+            path        => $source->path,
+            mutator     => $mutant->{mutatorName},
+            start       => $start,
+            end         => $end,
+            original    => substr( $source->text, $start, $end - $start ),
+            replacement => $mutant->{replacement},
+            description => $mutant->{description},
+            from        => [ $mutant->{location}{start}->@{qw(line column)} ],
+            to          => [ $mutant->{location}{end}->@{qw(line column)} ],
+            scope       => $extra->{scope},
+            suppressed  => $extra->{suppressed} ? 1 : 0,
+            comparable  => $extra->{comparable} ? 1 : 0,
+        ),
+        status     => $mutant->{status},
+        reason     => $mutant->{statusReason},
+        by         => $mutant->{killedBy} ? $mutant->{killedBy}[0] : undef,
+        covered_by => $mutant->{coveredBy},
+        tests_run  => $mutant->{testsCompleted},
+        duration   => $duration / $MILLISECONDS,
+    };
+}
+
 1;
 
 __END__
@@ -123,6 +242,15 @@ The schema allows such keys, and C<permutl merge> reads them.
 
 =head2 render
 
-Returns the report as JSON text with sorted keys, encoded as UTF-8.
+Returns the report as JSON text with sorted keys.
+
+=head2 parse
+
+    my $result = Permutl::Report::Json::parse($text);
+
+Rebuilds the L<Permutl::Result> that a report describes.
+The spans and the original text of the mutants come from the sources in the report.
+The rebuilt result holds the sources that have mutants, and it names the failing tests of the unmodified run without their output.
+The function dies when the text is no report that permutl wrote.
 
 =cut
