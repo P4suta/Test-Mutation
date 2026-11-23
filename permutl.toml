@@ -1,2 +1,5 @@
+[mutators]
+enable = ["close-removal"]
+
 [test]
 exclude = ["t/fixtures/**", "t/corpus/**"]

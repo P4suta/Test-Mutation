@@ -210,8 +210,21 @@ sub _return_value ($site) {
     return { replacement => _blank( $site->text ), description => 'removed the return value' };
 }
 
+# A lexical handle closes at the end of its scope, so few test suites detect a missing close.
+my %CLOSES = map { $_ => 1 } qw(close closedir);
+
+sub _closes ($site) {
+    my $head = $site->detail->{head};
+    return defined $head && $CLOSES{$head} ? 1 : 0;
+}
+
 sub _statement_removal ($site) {
-    return if $site->kind ne 'statement';
+    return if $site->kind ne 'statement' || _closes($site);
+    return { replacement => _blank( $site->text ), description => 'removed the statement' };
+}
+
+sub _close_removal ($site) {
+    return if $site->kind ne 'statement' || !_closes($site);
     return { replacement => _blank( $site->text ), description => 'removed the statement' };
 }
 
@@ -276,6 +289,7 @@ my @CODED = (
     [ 'return-value',      'default',  'Removes a return value or flips a literal 0 or 1', \&_return_value ],
     [ 'statement-removal', 'default',  'Removes an expression statement',                  \&_statement_removal ],
     [ 'sub-body',          'default',  'Removes the body of a subroutine',                 \&_sub_body ],
+    [ 'close-removal',     'extended', 'Removes a close or closedir statement',            \&_close_removal ],
     [ 'number-literal',    'extended', 'Changes an integer literal',                       \&_number_literal ],
     [ 'string-literal',    'extended', 'Empties a string literal',                         \&_string_literal ],
     [ 'condition-fixed',   'extended', 'Replaces a condition with a constant',             \&_condition_fixed ],
@@ -347,6 +361,10 @@ The operator and its replacement give the same value there, apart from the sign 
 The C<comparison> mutator keeps the boundary of a comparison between C<$]> and a number, as in C<< $] < 5.010 >>.
 The boundary matters on the one interpreter whose version equals the number, and the tests of other interpreters cannot detect its change.
 The negation of such a comparison stays a mutant.
+
+The C<statement-removal> mutator leaves a C<close> or C<closedir> statement in place.
+A lexical handle closes at the end of its scope, so few test suites detect the removal.
+The C<close-removal> mutator of the extended profile removes those statements for a project that checks its closes.
 
 =head1 FUNCTIONS
 
