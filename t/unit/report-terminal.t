@@ -63,6 +63,15 @@ subtest 'the summary counts every status and states the score' => sub {
     like $text, qr/^1 test, 2 jobs, 3\.5 s$/m,                                    'the run facts';
 };
 
+subtest 'the summary of a part names the part and the size of the whole run' => sub {
+    my %part = ( shard => '2/4', inventory => { mutants => 7, digest => 'ab' x 32 } );
+    my $text = Permutl::Report::Terminal::render( result( [ entry('Killed'), entry('Survived') ], %part ), color => 0 );
+    like $text, qr/^2 mutants: 1 killed, 1 survived\nPart 2 of 4 of a run with 7 mutants\.\nScore: /m,
+      'the part follows the counts';
+    unlike Permutl::Report::Terminal::render( result( [ entry('Killed') ] ), color => 0 ), qr/^Part /m,
+      'a whole run names no part';
+};
+
 subtest 'a survived mutant shows its place, change, and tests' => sub {
     my $text = Permutl::Report::Terminal::render( result( [ entry('Survived') ] ), color => 0 );
     like $text, qr/^Survived \(1\)$/m,                                             'section heading';

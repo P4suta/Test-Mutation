@@ -55,6 +55,10 @@ sub _summary ( $result, $arg ) {
     my $counts = $tally->{counts};
     my @parts  = map { "$counts->{ $_->[0] } $_->[1]" } grep { $counts->{ $_->[0] } } @COUNTED;
     my @lines  = ( _plural( $tally->{total}, 'mutant' ) . ( @parts ? ': ' . join ', ', @parts : q{} ) );
+    if ( defined $result->shard && $result->inventory ) {
+        my ( $part, $of ) = split m{/}, $result->shard;
+        push @lines, "Part $part of $of of a run with " . _plural( $result->inventory->{mutants}, 'mutant' ) . q{.};
+    }
 
     my $score = 'Score: none (no valid mutant)';
     if ( defined $tally->{score} ) {
