@@ -1,13 +1,13 @@
 requires 'perl', '5.036';
 
-requires 'Moo',         '2.004000';
-requires 'PPI',         '1.281';
-requires 'PPIx::Regexp', '0.080';
-requires 'TOML::Tiny',  '0.15';
-requires 'Type::Tiny',  '2.000000';
+requires 'Moo',         '2.005005';
+requires 'PPI',         '1.291';
+requires 'PPIx::Regexp', '0.092';
+requires 'TOML::Tiny',  '0.22';
+requires 'Type::Tiny',  '2.010001';
 
 on test => sub {
-    requires 'Test2::Suite', '0.000155';
+    requires 'Test2::Suite', '0.000162';
 };
 
 on develop => sub {
