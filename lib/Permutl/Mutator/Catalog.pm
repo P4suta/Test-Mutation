@@ -185,7 +185,7 @@ sub _negation ($site) {
 }
 
 sub _match ($site) {
-    return if $site->kind ne 'operator';
+    return if $site->kind ne 'operator' || $site->role ne 'binary';
     my $text = $site->text;
     return if $text ne '=~' && $text ne '!~';
     my $operand = $site->detail->{operand};
