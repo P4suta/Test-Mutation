@@ -518,9 +518,10 @@ sub _is_whole_list_block ($statement) {
 # A variable that the statement declares and later code of the block names needs its declaration under strict.
 sub _declares_for_later ( $context, $statement, $tokens, $end ) {
     my @names = map { $_->content =~ /\A[\$\@%](\w+)\z/ } grep {
-        my $before = $_->sprevious_sibling;
-        $before = $_->parent->parent->sprevious_sibling if !$before && $_->parent->parent->isa('PPI::Structure::List');
-        $_->isa('PPI::Token::Symbol') && _is_word( $before, \%DECLARATION )
+        my $list = $_->parent->parent;
+        $_->isa('PPI::Token::Symbol')
+          && ( _is_word( scalar $_->sprevious_sibling, \%DECLARATION )
+            || ( $list->isa('PPI::Structure::List') && _is_word( scalar $list->sprevious_sibling, \%DECLARATION ) ) )
     } $tokens->@*;
 
     # The block of the statement bounds the variable, and a file has no closing brace.

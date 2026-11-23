@@ -220,6 +220,8 @@ sub f {
     my %seen = map { my $key = lc; note($key); ( $key => 1 ) } @kept;
     open( my $in, '<', $data[0] ) or die;
     close $in;
+    split_pair( my ( $left, $right ) = @data );
+    note($right);
     ( my $name = $data[1] ) =~ s/x/y/;
     bless \( my $unused = 1 ), 'Flag';
     push @kept, do { my $inner = 1; note($inner) };
@@ -241,6 +243,7 @@ PERL
         'note($key);',
         '( $key => 1 )',
         'close $in;',
+        'note($right);',
         q{bless \( my $unused = 1 ), 'Flag';},
         'note($inner)',
         q{bless \( my $late = 1 ), 'Flag';},
