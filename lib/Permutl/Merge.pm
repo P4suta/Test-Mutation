@@ -1,6 +1,6 @@
 package Permutl::Merge;
 use v5.36;
-use List::Util      qw(all first max min sum0);
+use List::Util      qw(all first max min sum0 uniq);
 use Types::Standard qw(ArrayRef Dict InstanceOf Str);
 use Type::Params    qw(signature_for);
 use Permutl::Result;
@@ -22,7 +22,8 @@ sub merge ($reports) {
     my %seen;
     for my $entry ( map { $_->entries->@* } @results ) {
         my $id = $entry->{mutant}->id;
-        die "mutant $id appears in more than one part\n" if $seen{$id}++;
+        die "mutant $id appears in more than one part\n" if $seen{$id};
+        $seen{$id} = 1;
     }
     for my $index ( 0 .. $#parts ) {
         my $rounded  = $count - $index + $parts - 1;
@@ -35,17 +36,17 @@ sub merge ($reports) {
 
     my %duration;
     for my $test ( map { $_->tests->@* } @results ) {
-        $duration{ $test->{name} } = max( $test->{duration}, $duration{ $test->{name} } || 0 );
+        my $name = $test->{name};
+        $duration{$name} = max( $test->{duration}, exists $duration{$name} ? $duration{$name} : () );
     }
     my %problem = map { $_->{path} => $_ } reverse map { $_->problems->@* } @results;
-    my %warned;
     return Permutl::Result->new(
         root              => $results[0]->root,
         sources           => { map { $_->sources->%* } @results },
         tests             => [ map { { name => $_, duration => $duration{$_} } } sort keys %duration ],
         entries           => [ map { $results[ $_ % $parts ]->entries->[ int( $_ / $parts ) ] } 0 .. $count - 1 ],
         problems          => [ map { $problem{$_} } sort keys %problem ],
-        warnings          => [ grep { !$warned{$_}++ } map { $_->warnings->@* } @results ],
+        warnings          => [ uniq map { $_->warnings->@* } @results ],
         baseline_failures => [],
         jobs              => max( map { $_->jobs } @results ),
         parallel_safe     => ( all { $_->parallel_safe } @results ) ? 1 : 0,

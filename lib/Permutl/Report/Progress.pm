@@ -1,5 +1,6 @@
 package Permutl::Report::Progress;
 use v5.36;
+use List::Util      qw(max);
 use Types::Standard qw(Bool HashRef Int Str);
 use Type::Params    qw(signature_for);
 
@@ -26,9 +27,8 @@ sub line ( $done, $total, $counts ) {
 signature_for due => ( positional => [ Int, Int ], returns => Bool );
 
 sub due ( $done, $total ) {
-    return 1 if $done == $total || $total <= $LOG_LINES;
-    my $step = int $total / $LOG_LINES;
-    return $done % $step == 0 ? 1 : 0;
+    my $step = max( 1, int $total / $LOG_LINES );
+    return $done == $total || $done % $step == 0 ? 1 : 0;
 }
 
 1;

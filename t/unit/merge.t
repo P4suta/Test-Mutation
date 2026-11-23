@@ -61,9 +61,14 @@ my @second = ( entry( 2, 'Timeout' ), entry( 4, 'Killed' ),   entry( 6, 'NoCover
 subtest 'the parts of one run merge into the result of the whole run' => sub {
     my $whole = merged(
         part(
-            '2/2', \@second,
-            tests    => [ { name => 't/b.t', duration => 2 }, { name => 't/a.t', duration => 0.75 } ],
-            warnings => [ 'shared warning',                   'second warning' ],
+            '2/2',
+            \@second,
+            tests => [
+                { name => 't/b.t', duration => 2 },
+                { name => 't/a.t', duration => 0.75 },
+                { name => 't/c.t', duration => 1 }
+            ],
+            warnings => [ 'shared warning', 'second warning' ],
             problems => [ { path => 'lib/Odd.pm', problem => 'the file has carriage returns' } ],
             jobs     => 4,
             reused   => 2,
@@ -72,6 +77,7 @@ subtest 'the parts of one run merge into the result of the whole run' => sub {
         ),
         part(
             '1/2', \@first,
+            tests    => [ { name => 't/a.t', duration => 0.5 }, { name => 't/c.t', duration => 3 } ],
             warnings => ['shared warning'],
             problems => [ { path => 'lib/Odd.pm', problem => 'the file has carriage returns' } ],
             reused   => 1,
@@ -85,7 +91,8 @@ subtest 'the parts of one run merge into the result of the whole run' => sub {
     is $whole->shard,                                          undef, 'the result is a whole run';
     is $whole->inventory, { mutants => 6, digest => $digest }, 'the inventory stays';
     is [ sort keys $whole->sources->%* ],                      [ 'lib/A.pm', 'lib/B.pm' ], 'the sources of every part';
-    is $whole->tests, [ { name => 't/a.t', duration => 0.75 }, { name => 't/b.t', duration => 2 } ],
+    is $whole->tests,
+      [ { name => 't/a.t', duration => 0.75 }, { name => 't/b.t', duration => 2 }, { name => 't/c.t', duration => 3 } ],
       'each test appears once with its longest duration';
     is $whole->warnings, [ 'shared warning', 'second warning' ], 'each warning appears once';
     is $whole->problems, [ { path => 'lib/Odd.pm', problem => 'the file has carriage returns' } ],
