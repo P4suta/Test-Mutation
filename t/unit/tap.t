@@ -1,10 +1,10 @@
 use v5.36;
 use Test2::V0;
-use Permutl::Tap;
+use Test::Mutation::Tap;
 
 sub fold (@lines) {
-    my $state = Permutl::Tap::start();
-    $state = Permutl::Tap::feed( $state, $_ ) for @lines;
+    my $state = Test::Mutation::Tap::start();
+    $state = Test::Mutation::Tap::feed( $state, $_ ) for @lines;
     return $state;
 }
 
@@ -31,8 +31,8 @@ my @cases = (
 for my $case (@cases) {
     my ( $name, $lines, $exit, $passed, $early ) = $case->@*;
     my $state = fold( $lines->@* );
-    is Permutl::Tap::passed( $state, $exit ), $passed, "$name: passed";
-    is Permutl::Tap::failed_already($state),  $early,  "$name: failed already";
+    is Test::Mutation::Tap::passed( $state, $exit ), $passed, "$name: passed";
+    is Test::Mutation::Tap::failed_already($state),  $early,  "$name: failed already";
 }
 
 subtest 'an early failure never becomes a pass' => sub {
@@ -42,13 +42,13 @@ subtest 'an early failure never becomes a pass' => sub {
         for my $second ( 0 .. $#lines ) {
             for my $third ( 0 .. $#lines ) {
                 my @stream = @lines[ $first, $second, $third ];
-                my $state  = Permutl::Tap::start();
+                my $state  = Test::Mutation::Tap::start();
                 my $early  = 0;
                 for my $line (@stream) {
-                    $state = Permutl::Tap::feed( $state, $line );
-                    $early ||= Permutl::Tap::failed_already($state);
+                    $state = Test::Mutation::Tap::feed( $state, $line );
+                    $early ||= Test::Mutation::Tap::failed_already($state);
                 }
-                push @broken, "@stream" if $early && Permutl::Tap::passed( $state, 0 );
+                push @broken, "@stream" if $early && Test::Mutation::Tap::passed( $state, 0 );
             }
         }
     }
@@ -56,20 +56,20 @@ subtest 'an early failure never becomes a pass' => sub {
 };
 
 subtest 'arguments are checked' => sub {
-    my $state = Permutl::Tap::start();
-    like dies { Permutl::Tap::start('extra') }, qr/Wrong number of parameters/, 'start takes no argument';
-    like dies { Permutl::Tap::feed( { planned => 1 }, 'ok 1' ) }, qr/did not pass type constraint/,
+    my $state = Test::Mutation::Tap::start();
+    like dies { Test::Mutation::Tap::start('extra') }, qr/Wrong number of parameters/, 'start takes no argument';
+    like dies { Test::Mutation::Tap::feed( { planned => 1 }, 'ok 1' ) }, qr/did not pass type constraint/,
       'feed needs a whole state';
-    like dies { Permutl::Tap::failed_already('state') }, qr/did not pass type constraint/,
+    like dies { Test::Mutation::Tap::failed_already('state') }, qr/did not pass type constraint/,
       'failed_already needs a state';
-    like dies { Permutl::Tap::passed( $state, 'zero' ) }, qr/did not pass type constraint/,
+    like dies { Test::Mutation::Tap::passed( $state, 'zero' ) }, qr/did not pass type constraint/,
       'passed needs a numeric status';
-    is Permutl::Tap::feed( $state, '1..12' )->{planned}, 12, 'the plan is a number';
+    is Test::Mutation::Tap::feed( $state, '1..12' )->{planned}, 12, 'the plan is a number';
 };
 
 subtest 'feed returns a new state' => sub {
-    my $before = Permutl::Tap::start();
-    my $after  = Permutl::Tap::feed( $before, 'not ok 1' );
+    my $before = Test::Mutation::Tap::start();
+    my $after  = Test::Mutation::Tap::feed( $before, 'not ok 1' );
     is $before->{failed}, 0, 'the earlier state is unchanged';
     is $after->{failed},  1, 'the later state has the failure';
 };

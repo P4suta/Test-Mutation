@@ -25,10 +25,10 @@ subtest 'a child perl started through PERL5OPT gets the mutant' => sub {
         env  => {
             PERMUTL_SPEC   => "$root/spec",
             PERMUTL_RECORD => "$root/records",
-            PERL5OPT       => '-MPermutl::Shim',
+            PERL5OPT       => '-MTest::Mutation::Shim',
             PERL5LIB       => lib_dir(),
         },
-        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+        args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
     is $run->{status},                                             0,            'exit status' or diag $run->{stderr};
     is $run->{stdout},                                             "child=41\n", 'the child ran the mutant';
@@ -48,7 +48,7 @@ PERL
     my $run = run_perl(
         root => $root,
         env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
-        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+        args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
     is $run->{status},                                             0,             'exit status' or diag $run->{stderr};
     is $run->{stdout},                                             "forked=41\n", 'the forked child ran the mutant';
@@ -60,7 +60,7 @@ subtest 'taint mode works with explicit switches' => sub {
     my $run  = run_perl(
         root => $root,
         env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
-        args => [ '-T', '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+        args => [ '-T', '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
     is $run->{status}, 0,                     'exit status' or diag $run->{stderr};
     is $run->{stdout}, "taint=1 answer=41\n", 'the mutant runs under taint mode';
@@ -75,10 +75,10 @@ subtest 'loading the shim twice activates it once' => sub {
         env  => {
             PERMUTL_SPEC   => "$root/spec",
             PERMUTL_RECORD => "$root/records",
-            PERL5OPT       => '-MPermutl::Shim',
+            PERL5OPT       => '-MTest::Mutation::Shim',
             PERL5LIB       => lib_dir(),
         },
-        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+        args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
     is $run->{stdout}, "hooks=1\n", 'one hook is installed';
 };
@@ -87,7 +87,7 @@ subtest 'without a spec the shim stays inactive' => sub {
     my $root = prepare(
         "use Foo::Bar;\nprint 'hooks=', scalar( grep { ref } \@INC ) - \$ENV{OUTER_HOOKS}, ' answer=', Foo::Bar::answer(), \"\\n\";\n"
     );
-    my $run = run_perl( root => $root, args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ] );
+    my $run = run_perl( root => $root, args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ] );
     is $run->{stdout}, "hooks=0 answer=42\n", 'no hook and the original behavior';
 };
 

@@ -1,8 +1,8 @@
 use v5.36;
 use Test2::V0;
-use Permutl::Mutant;
-use Permutl::Report::GitHub;
-use Permutl::Result;
+use Test::Mutation::Mutant;
+use Test::Mutation::Report::GitHub;
+use Test::Mutation::Result;
 
 sub entry ( $status, %fields ) {
     my %mutant = (
@@ -20,7 +20,7 @@ sub entry ( $status, %fields ) {
         ( $fields{mutant} ? ( delete $fields{mutant} )->%* : () ),
     );
     return {
-        mutant     => Permutl::Mutant->new(%mutant),
+        mutant     => Test::Mutation::Mutant->new(%mutant),
         status     => $status,
         reason     => undef,
         by         => undef,
@@ -32,7 +32,7 @@ sub entry ( $status, %fields ) {
 }
 
 sub result ($entries) {
-    return Permutl::Result->new(
+    return Test::Mutation::Result->new(
         root              => '/project',
         sources           => {},
         tests             => [ { name => 't/a.t', duration => 1 } ],
@@ -48,7 +48,7 @@ sub result ($entries) {
 }
 
 subtest 'annotations name the place of each undetected mutant' => sub {
-    my $text = Permutl::Report::GitHub::annotations(
+    my $text = Test::Mutation::Report::GitHub::annotations(
         result(
             [
                 entry('Killed'), entry('Survived'),
@@ -67,7 +67,7 @@ subtest 'annotations name the place of each undetected mutant' => sub {
 };
 
 subtest 'annotation text is escaped' => sub {
-    my $text = Permutl::Report::GitHub::annotations(
+    my $text = Test::Mutation::Report::GitHub::annotations(
         result( [ entry( 'Survived', mutant => { path => 'lib/A,B:C.pm', description => "100% of\nit" } ) ] ) );
     is $text,
       "::warning file=lib/A%2CB%3AC.pm,line=3,col=15,endLine=3,endColumn=16,title=Survived mutant::100%25 of%0Ait (abcdefabcdef)\n",
@@ -75,13 +75,13 @@ subtest 'annotation text is escaped' => sub {
 };
 
 subtest 'the summary states the score and the counts' => sub {
-    my $text = Permutl::Report::GitHub::summary(
+    my $text = Test::Mutation::Report::GitHub::summary(
         result( [ entry('Killed'), entry('Killed'), entry('Survived'), entry('Timeout') ] ) );
-    like $text, qr/^## Mutation testing$/m,                                    'heading';
-    like $text, qr/^Score: \*\*66\.7%\*\* \(2 of 3 valid mutants\)$/m,         'score';
-    like $text, qr/^\| Killed \| Survived \| No coverage \| Timeout \|$/m,     'table heading';
-    like $text, qr/^\| 2 \| 1 \| 0 \| 1 \|$/m,                                 'table row';
-    like Permutl::Report::GitHub::summary( result( [] ) ), qr/^Score: none$/m, 'no score without a valid mutant';
+    like $text, qr/^## Mutation testing$/m,                                           'heading';
+    like $text, qr/^Score: \*\*66\.7%\*\* \(2 of 3 valid mutants\)$/m,                'score';
+    like $text, qr/^\| Killed \| Survived \| No coverage \| Timeout \|$/m,            'table heading';
+    like $text, qr/^\| 2 \| 1 \| 0 \| 1 \|$/m,                                        'table row';
+    like Test::Mutation::Report::GitHub::summary( result( [] ) ), qr/^Score: none$/m, 'no score without a valid mutant';
 };
 
 done_testing;

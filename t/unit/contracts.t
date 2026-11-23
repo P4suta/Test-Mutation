@@ -5,7 +5,8 @@ use Test2::V0;
 # A lone scalar reference fits no declared signature, so each call must end in a type error.
 
 my @files =
-  sort grep { $_ ne 'lib/Permutl/Shim.pm' } glob 'lib/Permutl.pm lib/Permutl/*.pm lib/Permutl/*/*.pm lib/Test/*.pm';
+  sort grep { $_ ne 'lib/Test/Mutation/Shim.pm' }
+  glob 'lib/Test/Mutation.pm lib/Test/Mutation/*.pm lib/Test/Mutation/*/*.pm lib/Test/*.pm';
 my $count = 0;
 
 for my $file (@files) {

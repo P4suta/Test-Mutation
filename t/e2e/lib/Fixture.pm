@@ -6,8 +6,8 @@ use File::Find  ();
 use File::Path  ();
 use File::Temp  ();
 use Exporter 'import';
-use Permutl::Config;
-use Permutl::Runner;
+use Test::Mutation::Config;
+use Test::Mutation::Runner;
 
 our @EXPORT_OK = qw(copy_of run_fixture tree_digest statuses permutl permutl_from write_file);
 
@@ -87,9 +87,9 @@ sub tree_digest ($root) {
 }
 
 sub run_fixture ( $root, %settings ) {
-    my $config = Permutl::Config->new( root => $root, jobs => 2, %settings );
+    my $config = Test::Mutation::Config->new( root => $root, jobs => 2, %settings );
     my @events;
-    my $result = Permutl::Runner::run( $config, sub ( $event, $data ) { push @events, $event } );
+    my $result = Test::Mutation::Runner::run( $config, sub ( $event, $data ) { push @events, $event } );
     return ( $result, \@events );
 }
 

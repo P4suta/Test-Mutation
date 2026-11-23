@@ -9,6 +9,6 @@
 ^MYMETA\.
 ^pm_to_blib$
 ^MANIFEST\.bak$
-^Permutl-
+^Test-Mutation-
 \.log$
 \.tar\.gz$

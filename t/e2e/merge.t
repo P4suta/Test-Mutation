@@ -2,7 +2,7 @@ use v5.36;
 use Test2::V0;
 use lib 't/e2e/lib';
 use Fixture qw(copy_of permutl run_fixture statuses);
-use Permutl::Report::Json;
+use Test::Mutation::Report::Json;
 
 my $root    = copy_of('calc');
 my ($whole) = run_fixture($root);
@@ -34,7 +34,7 @@ subtest 'the merge command reports the whole run from the reports of its parts' 
     my $merge =
       permutl( $root, 'merge', @reports, '--report-dir', 'whole', '--format', 'json', '--format', 'terminal' );
     is $merge->{exit}, 0, 'exit status' or diag $merge->{stderr};
-    my $merged = Permutl::Report::Json::parse( slurp("$root/whole/mutation.json") );
+    my $merged = Test::Mutation::Report::Json::parse( slurp("$root/whole/mutation.json") );
     is statuses($merged),                      statuses($whole), 'every mutant has the status of the unsplit run';
     is [ $merged->shard, $merged->inventory ], [ undef, $whole->inventory ], 'the merged report is a whole run';
     my $tally = $whole->tally;

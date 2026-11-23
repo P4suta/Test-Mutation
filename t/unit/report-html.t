@@ -3,13 +3,13 @@ use Test2::V0;
 use Digest::SHA ();
 use Encode      ();
 use JSON::PP    ();
-use Permutl::Mutant;
-use Permutl::Report::Html;
-use Permutl::Report::Json;
-use Permutl::Result;
+use Test::Mutation::Mutant;
+use Test::Mutation::Report::Html;
+use Test::Mutation::Report::Json;
+use Test::Mutation::Result;
 
 my $source = "my \$tag = '</script><script>alert(1)</script>';\nmy \$n = 1 + 2;\n";
-my $mutant = Permutl::Mutant->new(
+my $mutant = Test::Mutation::Mutant->new(
     id          => 'abcdefabcdef',
     path        => 'lib/Page.pm',
     mutator     => 'arithmetic',
@@ -22,7 +22,7 @@ my $mutant = Permutl::Mutant->new(
     to          => [ 2, 13 ],
     scope       => [ 2, 2 ],
 );
-my $result = Permutl::Result->new(
+my $result = Test::Mutation::Result->new(
     root    => '/project',
     sources => { 'lib/Page.pm' => $source },
     tests   => [ { name => 't/page.t', duration => 0.5 } ],
@@ -46,7 +46,7 @@ my $result = Permutl::Result->new(
     finished          => 2,
 );
 
-my $html = Permutl::Report::Html::render( $result, high => 80, low => 60 );
+my $html = Test::Mutation::Report::Html::render( $result, high => 80, low => 60 );
 
 subtest 'the page is one self-contained document' => sub {
     like $html,   qr/\A<!DOCTYPE html>\n<html lang="en">/, 'doctype and language';
@@ -58,10 +58,10 @@ subtest 'the page is one self-contained document' => sub {
 };
 
 subtest 'the viewer is the pinned build' => sub {
-    my $bundle = Permutl::Report::Html::viewer_script();
-    is Digest::SHA::sha256_hex( Encode::encode( 'UTF-8', $bundle ) ), Permutl::Report::Html::viewer_digest(),
+    my $bundle = Test::Mutation::Report::Html::viewer_script();
+    is Digest::SHA::sha256_hex( Encode::encode( 'UTF-8', $bundle ) ), Test::Mutation::Report::Html::viewer_digest(),
       'the bundled file has the recorded digest';
-    is Permutl::Report::Html::viewer_version(), '3.9.0', 'the recorded version';
+    is Test::Mutation::Report::Html::viewer_version(), '3.9.0', 'the recorded version';
     ok index( $html, $bundle ) >= 0, 'the page embeds the bundle';
 };
 
@@ -69,7 +69,7 @@ subtest 'the report data is embedded without ending its script element' => sub {
     my ($data) = $html =~ m{<script id="report" type="application/json">(.*?)</script>}s;
     ok defined $data, 'a data element holds the report';
     unlike $data, qr/</, 'no left angle bracket appears in the data';
-    is JSON::PP->new->decode($data), Permutl::Report::Json::document( $result, high => 80, low => 60 ),
+    is JSON::PP->new->decode($data), Test::Mutation::Report::Json::document( $result, high => 80, low => 60 ),
       'the data decodes to the report document';
     is JSON::PP->new->decode($data)->{files}{'lib/Page.pm'}{source}, $source, 'the source survives the escaping';
 };

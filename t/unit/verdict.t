@@ -1,7 +1,7 @@
 use v5.36;
 use Test2::V0;
-use Permutl::Score;
-use Permutl::Verdict;
+use Test::Mutation::Score;
+use Test::Mutation::Verdict;
 
 sub outcome (%fields) {
     return {
@@ -16,9 +16,9 @@ sub outcome (%fields) {
 }
 
 sub verdict (@outcomes) {
-    my $state = Permutl::Verdict::start();
-    $state = Permutl::Verdict::step( $state, $_ ) for @outcomes;
-    return Permutl::Verdict::final($state);
+    my $state = Test::Mutation::Verdict::start();
+    $state = Test::Mutation::Verdict::step( $state, $_ ) for @outcomes;
+    return Test::Mutation::Verdict::final($state);
 }
 
 subtest 'single outcomes over the whole input domain' => sub {
@@ -92,9 +92,9 @@ subtest 'a timeout waits for a later test to decide' => sub {
     is verdict( outcome(%timeout), outcome(%early) ), 'Timeout', 'in either order';
 
     my $twice = sub ( $first, $second ) {
-        my $state = Permutl::Verdict::start();
-        $state = Permutl::Verdict::step( $state, outcome( test => 't/first.t',  $first->%* ) );
-        $state = Permutl::Verdict::step( $state, outcome( test => 't/second.t', $second->%* ) );
+        my $state = Test::Mutation::Verdict::start();
+        $state = Test::Mutation::Verdict::step( $state, outcome( test => 't/first.t',  $first->%* ) );
+        $state = Test::Mutation::Verdict::step( $state, outcome( test => 't/second.t', $second->%* ) );
         return [ $state->@{qw(status by reason)} ];
     };
     is $twice->( \%timeout, \%timeout ), [ 'Timeout', 't/first.t', 't/first.t exceeded its time limit' ],
@@ -107,27 +107,28 @@ subtest 'a timeout waits for a later test to decide' => sub {
     is $twice->( \%timeout, \%early ), [ 'Timeout', 't/first.t', 't/first.t exceeded its time limit' ],
       'and keeps its place against a later one before the load';
 
-    my $state = Permutl::Verdict::start();
-    $state = Permutl::Verdict::step( $state, outcome( test => 't/slow.t', %timeout ) );
+    my $state = Test::Mutation::Verdict::start();
+    $state = Test::Mutation::Verdict::step( $state, outcome( test => 't/slow.t', %timeout ) );
     is [ $state->@{qw(status tests)} ], [ undef, 1 ], 'the state stays open after the first timeout';
-    is Permutl::Verdict::conclude($state), hash {
+    is Test::Mutation::Verdict::conclude($state), hash {
         field status => 'Timeout';
         field by     => 't/slow.t';
         field reason => 't/slow.t exceeded its time limit';
         etc
     }, 'the conclusion names the test that ran out of time';
-    $state = Permutl::Verdict::step( $state, outcome( test => 't/sure.t', result => 'fail' ) );
-    is Permutl::Verdict::conclude($state), hash {
+    $state = Test::Mutation::Verdict::step( $state, outcome( test => 't/sure.t', result => 'fail' ) );
+    is Test::Mutation::Verdict::conclude($state), hash {
         field status => 'Killed';
         field by     => 't/sure.t';
         field reason => 't/sure.t failed';
         field tests  => 2;
         etc
     }, 'and after a failure the test that failed';
-    is Permutl::Verdict::conclude( Permutl::Verdict::start() ),
+    is Test::Mutation::Verdict::conclude( Test::Mutation::Verdict::start() ),
       hash { field status => 'NoCoverage'; field by => undef; etc },
       'a state without a decision concludes by what the tests loaded';
-    is Permutl::Verdict::conclude( Permutl::Verdict::step( Permutl::Verdict::start(), outcome() ) )->{status},
+    is Test::Mutation::Verdict::conclude( Test::Mutation::Verdict::step( Test::Mutation::Verdict::start(), outcome() ) )
+      ->{status},
       'Survived',
       'a loaded mutant that every test passes survives';
 };
@@ -175,10 +176,10 @@ subtest 'pairs of outcomes over the whole input domain' => sub {
 };
 
 subtest 'the state records the deciding test' => sub {
-    my $state = Permutl::Verdict::start();
-    $state = Permutl::Verdict::step( $state, outcome( test => 't/one.t' ) );
-    $state = Permutl::Verdict::step( $state, outcome( test => 't/two.t',   result => 'fail' ) );
-    $state = Permutl::Verdict::step( $state, outcome( test => 't/three.t', result => 'fail' ) );
+    my $state = Test::Mutation::Verdict::start();
+    $state = Test::Mutation::Verdict::step( $state, outcome( test => 't/one.t' ) );
+    $state = Test::Mutation::Verdict::step( $state, outcome( test => 't/two.t',   result => 'fail' ) );
+    $state = Test::Mutation::Verdict::step( $state, outcome( test => 't/three.t', result => 'fail' ) );
     is $state->{by},    't/two.t', 'the deciding test';
     is $state->{tests}, 2,         'outcomes after the decision are not counted';
     like $state->{reason}, qr{t/two\.t failed}, 'the reason names the test';
@@ -189,27 +190,31 @@ subtest 'a load failure without a syntax check is a contract violation' => sub {
 };
 
 subtest 'arguments are checked' => sub {
-    like dies { Permutl::Verdict::start('extra') }, qr/Wrong number of parameters/, 'start takes no argument';
-    like dies { Permutl::Verdict::step( {}, outcome() ) }, qr/did not pass type constraint/, 'step needs a whole state';
-    like dies { Permutl::Verdict::step( Permutl::Verdict::start(), { test => 't/a.t' } ) },
+    like dies { Test::Mutation::Verdict::start('extra') }, qr/Wrong number of parameters/, 'start takes no argument';
+    like dies { Test::Mutation::Verdict::step( {}, outcome() ) }, qr/did not pass type constraint/,
+      'step needs a whole state';
+    like dies { Test::Mutation::Verdict::step( Test::Mutation::Verdict::start(), { test => 't/a.t' } ) },
       qr/did not pass type constraint/, 'step needs a whole outcome';
-    like dies { Permutl::Verdict::final('state') },    qr/did not pass type constraint/, 'final needs a state';
-    like dies { Permutl::Verdict::conclude('state') }, qr/did not pass type constraint/, 'conclude needs a state';
-    like dies { Permutl::Verdict::final() },           qr/Wrong number of parameters/,   'final takes one argument';
-    like dies { Permutl::Verdict::conclude() },        qr/Wrong number of parameters/,   'and so does conclude';
-    like dies { Permutl::Score::tally('Killed') }, qr/did not pass type constraint/, 'tally needs a list of statuses';
+    like dies { Test::Mutation::Verdict::final('state') }, qr/did not pass type constraint/, 'final needs a state';
+    like dies { Test::Mutation::Verdict::conclude('state') }, qr/did not pass type constraint/,
+      'conclude needs a state';
+    like dies { Test::Mutation::Verdict::final() },    qr/Wrong number of parameters/, 'final takes one argument';
+    like dies { Test::Mutation::Verdict::conclude() }, qr/Wrong number of parameters/, 'and so does conclude';
+    like dies { Test::Mutation::Score::tally('Killed') }, qr/did not pass type constraint/,
+      'tally needs a list of statuses';
 };
 
 subtest 'score' => sub {
     my $tally =
-      Permutl::Score::tally( [qw(Killed Killed Killed Survived NoCoverage Timeout CompileError RuntimeError Ignored)] );
+      Test::Mutation::Score::tally(
+        [qw(Killed Killed Killed Survived NoCoverage Timeout CompileError RuntimeError Ignored)] );
     is $tally->{total},           9,  'total';
     is $tally->{valid},           5,  'valid mutants';
     is $tally->{score},           60, 'score leaves out inconclusive and invalid mutants';
     is $tally->{counts}{Timeout}, 1,  'timeouts are counted on their own';
     is $tally->{counts}{Pending}, 0,  'absent statuses count zero';
-    is Permutl::Score::tally( [qw(Timeout CompileError)] )->{score}, undef, 'no valid mutant, no score';
-    is Permutl::Score::tally( [] )->{score},                         undef, 'no mutant, no score';
+    is Test::Mutation::Score::tally( [qw(Timeout CompileError)] )->{score}, undef, 'no valid mutant, no score';
+    is Test::Mutation::Score::tally( [] )->{score},                         undef, 'no mutant, no score';
 };
 
 done_testing;

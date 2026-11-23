@@ -1,9 +1,9 @@
 use v5.36;
 use Test2::V0;
-use Permutl::Config;
+use Test::Mutation::Config;
 
 sub layers (%layers) {
-    return Permutl::Config->from_layers( root => '/project', defaults => {}, file => {}, cli => {}, %layers );
+    return Test::Mutation::Config->from_layers( root => '/project', defaults => {}, file => {}, cli => {}, %layers );
 }
 
 subtest 'defaults' => sub {

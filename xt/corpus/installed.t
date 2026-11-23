@@ -2,11 +2,11 @@ use v5.36;
 use Test2::V0;
 use File::Find ();
 use POSIX      ();
-use Permutl::Mutant::Generator;
-use Permutl::Mutator::Catalog;
-use Permutl::Project;
-use Permutl::Source;
-use Permutl::Syntax::PPI;
+use Test::Mutation::Mutant::Generator;
+use Test::Mutation::Mutator::Catalog;
+use Test::Mutation::Project;
+use Test::Mutation::Source;
+use Test::Mutation::Syntax::PPI;
 
 # The installed dependencies are a corpus of real code that nobody wrote with this tool in mind.
 # Every file must analyze without an exception, and every site and mutant must address its own text.
@@ -20,10 +20,10 @@ ok scalar(@files) > 500, 'the corpus holds the installed modules (' . scalar(@fi
 sub findings ($path) {
     open my $handle, '<:raw', $path or return "cannot read: $!";
     my $bytes  = do { local $/ = undef; readline $handle };
-    my $source = eval { Permutl::Source->from_bytes( path => $path, bytes => $bytes ) } or return 'undecodable';
+    my $source = eval { Test::Mutation::Source->from_bytes( path => $path, bytes => $bytes ) } or return 'undecodable';
     my $text   = $source->text;
     my ( @found, $mutants );
-    my $analysis = eval { Permutl::Syntax::PPI::analyze($source) } or return "analysis died: $@";
+    my $analysis = eval { Test::Mutation::Syntax::PPI::analyze($source) } or return "analysis died: $@";
     return "problem: $analysis->{problem}" if defined $analysis->{problem};
 
     for my $site ( $analysis->{sites}->@* ) {
@@ -31,10 +31,10 @@ sub findings ($path) {
           if substr( $text, $site->start, $site->end - $site->start ) ne $site->text;
     }
     my $generated = eval {
-        $mutants = Permutl::Mutant::Generator::generate(
+        $mutants = Test::Mutation::Mutant::Generator::generate(
             source   => $source,
             analysis => $analysis,
-            mutators => Permutl::Mutator::Catalog::mutators(),
+            mutators => Test::Mutation::Mutator::Catalog::mutators(),
         );
         1;
     };
@@ -48,7 +48,7 @@ sub findings ($path) {
     return ( @found, sprintf 'counted %d %d', scalar $analysis->{sites}->@*, scalar $mutants->@* );
 }
 
-my $workers = Permutl::Project::cpu_count();
+my $workers = Test::Mutation::Project::cpu_count();
 my @readers;
 for my $worker ( 0 .. $workers - 1 ) {
     pipe my $read, my $write or die "pipe: $!";

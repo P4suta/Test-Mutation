@@ -1,10 +1,10 @@
 use v5.36;
 use Test2::V0;
-use Permutl::Coverage;
-use Permutl::Mutant;
+use Test::Mutation::Coverage;
+use Test::Mutation::Mutant;
 
 sub mutant ( $path, $first, $last ) {
-    return Permutl::Mutant->new(
+    return Test::Mutation::Mutant->new(
         id          => 'abcdefabcdef',
         path        => $path,
         mutator     => 'arithmetic',
@@ -33,7 +33,7 @@ my %tests = (
 my %breakable = ( 'lib/A.pm' => { map { $_ => 1 } 10, 11, 20, 40 }, 'lib/B.pm' => { 5 => 1 } );
 
 sub coverage ($mode) {
-    return Permutl::Coverage->new( mode => $mode, tests => \%tests, breakable => \%breakable );
+    return Test::Mutation::Coverage->new( mode => $mode, tests => \%tests, breakable => \%breakable );
 }
 
 subtest 'file mode selects every test that loaded the file' => sub {
@@ -63,13 +63,13 @@ subtest 'a statement without runtime lines falls back to the file' => sub {
 };
 
 subtest 'a line that a test ran is observable without the list of statement lines' => sub {
-    my $coverage = Permutl::Coverage->new( mode => 'line', tests => \%tests, breakable => {} );
+    my $coverage = Test::Mutation::Coverage->new( mode => 'line', tests => \%tests, breakable => {} );
     is $coverage->tests_for( mutant( 'lib/A.pm', 10, 10 ) ), [ 't/untraced.t', 't/slow.t' ],
       'the tests that ran the line, and no other test that loaded the file';
 };
 
 subtest 'equal durations are ordered by name' => sub {
-    my $coverage = Permutl::Coverage->new(
+    my $coverage = Test::Mutation::Coverage->new(
         mode      => 'file',
         breakable => {},
         tests     => { map { $_ => { duration => 1, files => { 'lib/A.pm' => file() } } } 't/b.t', 't/a.t', 't/c.t' },

@@ -16,7 +16,7 @@ sub run_with_mutant {
     my $run = run_perl(
         root => $root,
         env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
-        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+        args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
     return ( $run, [ map { $_->[0] } @{ records($root) } ], $root );
 }

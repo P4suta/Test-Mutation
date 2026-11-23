@@ -4,7 +4,7 @@ use lib 't/e2e/lib';
 use Cwd        ();
 use File::Temp ();
 use Fixture    qw(copy_of permutl permutl_from tree_digest write_file);
-use Permutl::Mutator::Catalog;
+use Test::Mutation::Mutator::Catalog;
 
 my $root = copy_of('calc');
 
@@ -149,7 +149,7 @@ subtest 'mutators names every mutator with its profile and its description' => s
     my $run = permutl( $root, 'mutators' );
     is $run->{exit}, 0, 'exit status' or diag $run->{stderr};
     my @lines = split /\n/, $run->{stdout};
-    is scalar(@lines), scalar( Permutl::Mutator::Catalog::mutators()->@* ), 'one line for each mutator';
+    is scalar(@lines), scalar( Test::Mutation::Mutator::Catalog::mutators()->@* ), 'one line for each mutator';
     like $run->{stdout}, qr/^arithmetic +default +Replaces an arithmetic operator with its counterpart$/m,
       'a mutator of the default profile';
     like $run->{stdout}, qr/^regex-anchor +extended +Removes an anchor from a pattern$/m,

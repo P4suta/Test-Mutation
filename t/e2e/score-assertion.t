@@ -15,7 +15,7 @@ my $root = copy_of('calc');
 
 subtest 'the assertion passes when the score reaches the minimum' => sub {
     write_file( "$root/xt/mutation.t",
-        "use Test::More tests => 1;\nuse Permutl;\nprint q{# returned }, mutation_score_ok( min => 60, jobs => 2 ), qq{\\n};\n"
+        "use Test::More tests => 1;\nuse Test::Mutation;\nprint q{# returned }, mutation_score_ok( min => 60, jobs => 2 ), qq{\\n};\n"
     );
     my ( $status, $output ) = run_test( $root, 'xt/mutation.t' );
     is $status, 0, 'the test passes' or diag $output;
@@ -23,7 +23,7 @@ subtest 'the assertion passes when the score reaches the minimum' => sub {
     like $output, qr/^# returned 1$/m,                              'the assertion returns true';
 
     write_file( "$root/xt/exact.t",
-        "use Test::More tests => 1;\nuse Permutl;\nmutation_score_ok( min => 13 / 19 * 100, jobs => 2, name => q{exact} );\n"
+        "use Test::More tests => 1;\nuse Test::Mutation;\nmutation_score_ok( min => 13 / 19 * 100, jobs => 2, name => q{exact} );\n"
     );
     ( $status, $output ) = run_test( $root, 'xt/exact.t' );
     is $status, 0, 'a score equal to the minimum passes' or diag $output;
@@ -31,7 +31,7 @@ subtest 'the assertion passes when the score reaches the minimum' => sub {
 
 subtest 'the assertion fails below the minimum and shows the undetected mutants' => sub {
     write_file( "$root/xt/strict.t",
-        "use Test::More tests => 1;\nuse Permutl;\nprint q{# returned }, mutation_score_ok( min => 90, jobs => 2, name => 'strong tests' ), qq{\\n};\n"
+        "use Test::More tests => 1;\nuse Test::Mutation;\nprint q{# returned }, mutation_score_ok( min => 90, jobs => 2, name => 'strong tests' ), qq{\\n};\n"
     );
     my ( $status, $output ) = run_test( $root, 'xt/strict.t' );
     isnt $status, 0, 'the test fails';
@@ -43,7 +43,7 @@ subtest 'the assertion fails below the minimum and shows the undetected mutants'
 
 subtest 'settings pass through to the run' => sub {
     write_file( "$root/xt/narrow.t",
-        "use Test::More tests => 1;\nuse Permutl;\nmutation_score_ok( min => 100, jobs => 2, disable => [ 'comparison', 'sub-body', 'return-value' ], source_include => ['lib/Calc.pm'], coverage => 'file' );\n"
+        "use Test::More tests => 1;\nuse Test::Mutation;\nmutation_score_ok( min => 100, jobs => 2, disable => [ 'comparison', 'sub-body', 'return-value' ], source_include => ['lib/Calc.pm'], coverage => 'file' );\n"
     );
     my ( $status, $output ) = run_test( $root, 'xt/narrow.t' );
     isnt $status, 0, 'the mutants without a detecting test still fail the assertion' or diag $output;
@@ -56,9 +56,9 @@ subtest 'the assertion reads permutl.toml, and a setting overrides the file' => 
         "package Extra;\nuse strict;\nuse warnings;\nsub twice { my (\$n) = \@_; return \$n * 2 + 1 - 1 }\n1;\n" );
     write_file( "$project/permutl.toml", "[source]\nexclude = [\"lib/Extra.pm\"]\n" );
     write_file( "$project/xt/file.t",
-        "use Test::More tests => 1;\nuse Permutl;\nmutation_score_ok( min => 60, jobs => 2 );\n" );
+        "use Test::More tests => 1;\nuse Test::Mutation;\nmutation_score_ok( min => 60, jobs => 2 );\n" );
     write_file( "$project/xt/override.t",
-        "use Test::More tests => 1;\nuse Permutl;\nmutation_score_ok( min => 60, jobs => 2, source_exclude => [] );\n"
+        "use Test::More tests => 1;\nuse Test::Mutation;\nmutation_score_ok( min => 60, jobs => 2, source_exclude => [] );\n"
     );
     my ( $status, $output ) = run_test( $project, 'xt/file.t' );
     is $status, 0, 'the excluded file leaves the score above the minimum' or diag $output;
@@ -88,7 +88,7 @@ subtest 'the assertion is skipped inside a permutl run of the same project' => s
 
     my $project = copy_of('calc');
     write_file( "$project/t/score.t",
-        "use Test::More tests => 1;\nuse Permutl;\nmutation_score_ok( min => 100, jobs => 2 );\n" );
+        "use Test::More tests => 1;\nuse Test::Mutation;\nmutation_score_ok( min => 100, jobs => 2 );\n" );
     my ($result) = run_fixture( $project, switches => [ '-Ilib', "-I$library" ] );
     is $result->baseline_failures,       [], 'a copy among the tests of a run passes as a skip';
     is $result->tally->{counts}{Killed}, 13, 'and the run measures the project';

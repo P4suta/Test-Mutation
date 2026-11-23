@@ -4,9 +4,9 @@ use Cwd        ();
 use File::Temp ();
 use lib 't/e2e/lib';
 use Fixture qw(run_fixture statuses write_file);
-use Permutl::Config;
-use Permutl::Runner;
-use Permutl::Tree;
+use Test::Mutation::Config;
+use Test::Mutation::Runner;
+use Test::Mutation::Tree;
 
 my $MODULE = "package Small;\nuse strict;\nuse warnings;\nsub next_one { return \$_[0] + 1 }\n1;\n";
 my $TEST   = "use Test::More tests => 1;\nuse Small;\nis Small::next_one(2), 3, 'the next one';\n";
@@ -19,8 +19,8 @@ sub project (%files) {
 
 sub listened ( $root, %settings ) {
     my @events;
-    my $config = Permutl::Config->new( root => $root, jobs => 1, %settings );
-    my $result = Permutl::Runner::run( $config, sub ( $event, $data ) { push @events, [ $event, $data ] } );
+    my $config = Test::Mutation::Config->new( root => $root, jobs => 1, %settings );
+    my $result = Test::Mutation::Runner::run( $config, sub ( $event, $data ) { push @events, [ $event, $data ] } );
     return ( $result, [ map { $_->[1] } grep { $_->[0] eq 'mutant' } @events ] );
 }
 
@@ -40,7 +40,7 @@ subtest 'the analysis keeps the files in the order of their paths and names each
         'lib/Odd.pm'    => "package Odd;\r\n1;\r\n",
         'lib/Second.pm' => $second,
     );
-    my $analysis = Permutl::Runner::analyze( Permutl::Config->new( root => $root ) );
+    my $analysis = Test::Mutation::Runner::analyze( Test::Mutation::Config->new( root => $root ) );
     is [ map { $_->{path} } $analysis->{problems}->@* ], [ 'lib/Bad.pm', 'lib/Odd.pm' ], 'the files with a problem';
     is [ map { $_->path } $analysis->{mutants}->@* ], [ ('lib/First.pm') x 3, ('lib/Second.pm') x 3 ],
       'the mutants of the other files';
@@ -90,9 +90,10 @@ subtest 'a suppressed mutant among others is ignored, and the others run in the 
 
 subtest 'an error of the listener stops the run and leaves no work directory' => sub {
     my $root   = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $TEST );
-    my $config = Permutl::Config->new( root => $root, jobs => 1 );
+    my $config = Test::Mutation::Config->new( root => $root, jobs => 1 );
     is dies {
-        Permutl::Runner::run( $config, sub ( $event, $data ) { die "the listener broke\n" if $event eq 'mutant' } )
+        Test::Mutation::Runner::run( $config,
+            sub ( $event, $data ) { die "the listener broke\n" if $event eq 'mutant' } )
     }, "the listener broke\n", 'the error passes through unchanged';
     ok !glob("$root/.permutl/run-*"), 'the work directory is removed';
 };
@@ -167,7 +168,7 @@ subtest 'the time limit grows with the duration of the unmodified test' => sub {
 subtest 'the tests inherit the library path and the options of the interpreter' => sub {
     my $environment =
         "use Test::More tests => 3;\nuse Small;\nis Small::next_one(2), 3, 'the next one';\n"
-      . "like \$ENV{PERL5OPT}, qr/\\A%s-MPermutl::Shim::G\\d+\\z/, 'the options';\n"
+      . "like \$ENV{PERL5OPT}, qr/\\A%s-MTest::Mutation::Shim::G\\d+\\z/, 'the options';\n"
       . "like \$ENV{PERL5LIB}, qr{\\A[^:]+/shim%s\\z}, 'the library path';\n";
     my $run = sub ( $options, $library, @expected ) {
         my $root = project( 'lib/Small.pm' => $MODULE, 't/small.t' => sprintf $environment, @expected );
@@ -235,7 +236,7 @@ sub status_by_line ($result) {
 }
 
 sub project_state ($root) {
-    return Permutl::Tree::snapshot( root => $root, skip => ['.permutl'] );
+    return Test::Mutation::Tree::snapshot( root => $root, skip => ['.permutl'] );
 }
 
 subtest 'a mutant that leaves a file changes a copy, and the project and the later mutants stay clear of it' => sub {
@@ -256,7 +257,7 @@ subtest 'a mutant that leaves a file changes a copy, and the project and the lat
           },
           'every mutant has the verdict of its own tests';
         ok $result->conclusive, 'the run is conclusive';
-        is Permutl::Tree::changes( $before, project_state($root) ), [], 'the project is as it was';
+        is Test::Mutation::Tree::changes( $before, project_state($root) ), [], 'the project is as it was';
     }
 };
 
@@ -358,7 +359,7 @@ subtest 'a directory without any right in the temporary directory of a test goes
 subtest 'a work directory that resists removal stays, and a warning names it' => sub {
     my $root = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $TEST );
     no warnings 'redefine';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
-    local *Permutl::Tree::remove = sub { die "stuck\n" };
+    local *Test::Mutation::Tree::remove = sub { die "stuck\n" };
     my ($result) = run_fixture( $root, jobs => 1, in_place => 1 );
     my ($work)   = glob "$root/.permutl/run-*";
     is $result->warnings, ["the work directory $work stays, because a file in it resists removal"], 'the warning';
@@ -384,8 +385,8 @@ subtest 'a temporary directory inside the project is no part of a copy' => sub {
     local $ENV{TMPDIR} = "$root/tmp";
     my $before = project_state($root);
     my ($result) = run_fixture( $root, jobs => 2 );
-    is [ sort values statuses($result)->%* ],                   [ ('Killed') x 3 ], 'the mutants are measured';
-    is Permutl::Tree::changes( $before, project_state($root) ), [],                 'and the project is as it was';
+    is [ sort values statuses($result)->%* ],                          [ ('Killed') x 3 ], 'the mutants are measured';
+    is Test::Mutation::Tree::changes( $before, project_state($root) ), [], 'and the project is as it was';
 };
 
 subtest 'a project that cannot be copied stops the run with the name of the other place' => sub {
@@ -493,7 +494,7 @@ subtest 'a comparison with the version of Perl follows the interpreter of the te
         return "$root/$name";
     };
     my $boundary = sub (%settings) {
-        my $analysis = Permutl::Runner::analyze( Permutl::Config->new( root => $root, %settings ) );
+        my $analysis = Test::Mutation::Runner::analyze( Test::Mutation::Config->new( root => $root, %settings ) );
         return scalar grep { $_->description eq 'replaced < with <=' } $analysis->{mutants}->@*;
     };
     is $boundary->(), 0, 'the interpreter of this test has another version, so the boundary yields no mutant';
@@ -529,7 +530,7 @@ subtest 'a test that fails decides a mutant that ran another test into its time 
 
 subtest 'a source that holds a single zero keeps its text' => sub {
     my $root     = project( 'lib/Zero.pm' => '0', 'lib/Small.pm' => $MODULE );
-    my $analysis = Permutl::Runner::analyze( Permutl::Config->new( root => $root ) );
+    my $analysis = Test::Mutation::Runner::analyze( Test::Mutation::Config->new( root => $root ) );
     is $analysis->{sources}{'lib/Zero.pm'}->text, '0', 'the text';
 };
 

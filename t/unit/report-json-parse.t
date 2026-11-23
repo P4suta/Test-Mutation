@@ -1,13 +1,13 @@
 use v5.36;
 use Test2::V0;
-use Permutl::Mutant;
-use Permutl::Report::Json;
-use Permutl::Result;
+use Test::Mutation::Mutant;
+use Test::Mutation::Report::Json;
+use Test::Mutation::Result;
 
 my $source = "sub is_positive {\n    my (\$n) = \@_;\n    return \$n > 0 ? 1 : 0;\n}\n";
 
 sub entry ( $status, %fields ) {
-    my $mutant = Permutl::Mutant->new(
+    my $mutant = Test::Mutation::Mutant->new(
         id          => delete $fields{id},
         path        => 'lib/Calc.pm',
         mutator     => 'comparison',
@@ -34,7 +34,7 @@ sub entry ( $status, %fields ) {
     };
 }
 
-my $result = Permutl::Result->new(
+my $result = Test::Mutation::Result->new(
     root    => '/project',
     sources => { 'lib/Calc.pm' => $source },
     tests   => [ { name => 't/sign.t', duration => 0.5 } ],
@@ -62,11 +62,12 @@ my $result = Permutl::Result->new(
     started           => 100,
     finished          => 103.5,
 );
-my $text = Permutl::Report::Json::render( $result, high => 80, low => 60 );
-my $back = Permutl::Report::Json::parse($text);
+my $text = Test::Mutation::Report::Json::render( $result, high => 80, low => 60 );
+my $back = Test::Mutation::Report::Json::parse($text);
 
-is Permutl::Report::Json::document( $back, high => 80, low => 60 ),
-  Permutl::Report::Json::document( $result, high => 80, low => 60 ), 'the rebuilt result renders the same document';
+is Test::Mutation::Report::Json::document( $back, high => 80, low => 60 ),
+  Test::Mutation::Report::Json::document( $result, high => 80, low => 60 ),
+  'the rebuilt result renders the same document';
 
 my ( $killed, $ignored, $pending ) = map { $_->{mutant} } $back->entries->@*;
 is [ $killed->start, $killed->end, $killed->original, $killed->path ], [ 50, 51, q{>}, 'lib/Calc.pm' ],
@@ -79,16 +80,17 @@ is $back->baseline_failures, [ { test => 't/broken.t', output => q{}, errors => 
   'a failing test of the unmodified run keeps its name';
 is $back->sources, { 'lib/Calc.pm' => $source }, 'the sources';
 
-like dies { Permutl::Report::Json::parse('{') }, qr/\Athe text is no JSON document/, 'broken JSON is refused';
-like dies { Permutl::Report::Json::parse('{"schemaVersion":"2","thresholds":{"high":80,"low":60},"files":{}}') },
+like dies { Test::Mutation::Report::Json::parse('{') }, qr/\Athe text is no JSON document/, 'broken JSON is refused';
+like dies { Test::Mutation::Report::Json::parse('{"schemaVersion":"2","thresholds":{"high":80,"low":60},"files":{}}') },
   qr/\Athe report holds no run facts of permutl/, 'a report of another tool is refused';
 
-like dies { Permutl::Report::Json::parse(undef) }, qr/did not pass type constraint "Str"/, 'the text is a string';
+like dies { Test::Mutation::Report::Json::parse(undef) }, qr/did not pass type constraint "Str"/,
+  'the text is a string';
 
 sub refusal ($change) {
     my $changed = $change->($text);
     die 'the change matches nothing' if $changed eq $text;
-    return dies { Permutl::Report::Json::parse($changed) };
+    return dies { Test::Mutation::Report::Json::parse($changed) };
 }
 
 subtest 'a value of the wrong type is refused with its place in the report' => sub {
@@ -135,7 +137,7 @@ subtest 'a location outside the source is refused' => sub {
 };
 
 sub read_back (%fields) {
-    my $written = Permutl::Result->new(
+    my $written = Test::Mutation::Result->new(
         root              => '/project',
         sources           => { 'lib/Calc.pm' => $source },
         tests             => [],
@@ -149,7 +151,8 @@ sub read_back (%fields) {
         finished          => 2,
         %fields,
     );
-    return Permutl::Report::Json::parse( Permutl::Report::Json::render( $written, high => 80, low => 60 ) );
+    return Test::Mutation::Report::Json::parse(
+        Test::Mutation::Report::Json::render( $written, high => 80, low => 60 ) );
 }
 
 subtest 'locations at the edges of a source are read, and the entries keep the order of the report' => sub {
@@ -157,7 +160,7 @@ subtest 'locations at the edges of a source are read, and the entries keep the o
     my $at   = sub ( $id, $path, $start, $end, $from, $to ) {
         return {
             entry( 'Survived', id => $id )->%*,
-            mutant => Permutl::Mutant->new(
+            mutant => Test::Mutation::Mutant->new(
                 id          => $id,
                 path        => $path,
                 mutator     => 'statement',

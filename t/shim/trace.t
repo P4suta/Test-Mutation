@@ -59,7 +59,7 @@ sub trace_run {
     my $run = run_perl(
         root => $root,
         env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
-        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+        args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
     my %lines = ( hits => [], lines => [] );
 
@@ -127,7 +127,7 @@ PERL
     my $run = run_perl(
         root => $root,
         env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
-        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+        args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
     is $run->{stdout}, "script=0\n", 'code compiled after the target is not traced';
 };
@@ -144,7 +144,7 @@ PERL
     my $run = run_perl(
         root => $root,
         env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
-        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+        args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
     is $run->{stdout}, "flags=0 value=1\n", 'the start of the shim leaves the debugger flags as they were';
 };
@@ -175,7 +175,7 @@ PERL
     my $run = run_perl(
         root => $root,
         env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
-        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+        args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
     is $run->{stdout}, "7 kept\n", 'the error number and the error of an eval reach the next line';
 };

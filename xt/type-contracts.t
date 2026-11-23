@@ -27,8 +27,8 @@ PERL
     is TypeContractGate::violations($code), [], 'no violation';
 };
 
-my @files = sort grep { -f && $_ ne 'lib/Permutl/Shim.pm' }
-  glob 'lib/Permutl.pm lib/Permutl/*.pm lib/Permutl/*/*.pm lib/Test/*.pm';
+my @files = sort grep { -f && $_ ne 'lib/Test/Mutation/Shim.pm' }
+  glob 'lib/Test/Mutation.pm lib/Test/Mutation/*.pm lib/Test/Mutation/*/*.pm';
 ok scalar(@files) > 10, 'library files exist';
 for my $file (@files) {
     open my $handle, '<:encoding(UTF-8)', $file or die "read $file: $!";

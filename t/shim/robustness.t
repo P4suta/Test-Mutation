@@ -14,7 +14,7 @@ sub shim_run {
     return run_perl(
         root => $root,
         env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records", %{ $run{env} || {} } },
-        args => [ '-I' . lib_dir(), @{ $run{before} || [] }, '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+        args => [ '-I' . lib_dir(), @{ $run{before} || [] }, '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
 }
 
@@ -55,7 +55,7 @@ subtest 'a different file of the same name and size is left alone' => sub {
     my $run = run_perl(
         root => $root,
         env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
-        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Iother', 'script.pl' ],
+        args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Iother', 'script.pl' ],
     );
     is $run->{stdout}, '5', 'the other file runs unmodified';
     is_deeply [ map { $_->[0] } @{ records($root) } ], ['end'], 'nothing is served and nothing bypasses the hook';
@@ -117,15 +117,15 @@ subtest 'another debugger keeps its hook and tracing stays off' => sub {
 
 subtest 'a debugger that takes over after an outer shim turns tracing off' => sub {
     my $root = project();
-    open my $handle, '<', lib_dir() . '/Permutl/Shim.pm' or die "read the shim: $!";
+    open my $handle, '<', lib_dir() . '/Test/Mutation/Shim.pm' or die "read the shim: $!";
     my $outer = do { local $/ = undef; <$handle> };
     close $handle or die "close the shim: $!";
 
     # The copy takes a generation that no run of permutl around this test uses.
     my $number = 500 + ( $ENV{PERMUTL_GENERATION} || 0 );
-    $outer =~ s/^package Permutl::Shim;/package Permutl::Shim::G$number;/m or die 'no package line';
-    $outer =~ s/^my \$GENERATION = 0;/my \$GENERATION = $number;/m         or die 'no generation line';
-    write_file( "$root/gen/Permutl/Shim/G$number.pm", $outer );
+    $outer =~ s/^package Test::Mutation::Shim;/package Test::Mutation::Shim::G$number;/m or die 'no package line';
+    $outer =~ s/^my \$GENERATION = 0;/my \$GENERATION = $number;/m                       or die 'no generation line';
+    write_file( "$root/gen/Test/Mutation/Shim/G$number.pm", $outer );
     write_file( "$root/gen/Takeover.pm", "package Takeover;\nno warnings;\n*DB::DB = sub { return };\n1;\n" );
     write_file( "$root/lib/One.pm",      module( 'One', 1 ) );
     write_file( "$root/script.pl",       "use One;\nprint One::value();\n" );
@@ -134,7 +134,7 @@ subtest 'a debugger that takes over after an outer shim turns tracing off' => su
     my $run = shim_run(
         $root,
         env    => { "PERMUTL_SPEC_G$number" => "$root/spec", "PERMUTL_RECORD_G$number" => "$root/outer" },
-        before => [ "-I$root/gen", "-MPermutl::Shim::G$number", '-MTakeover' ],
+        before => [ "-I$root/gen", "-MTest::Mutation::Shim::G$number", '-MTakeover' ],
     );
     is $run->{stdout}, '1', 'the program runs' or diag $run->{stderr};
     my @all = @{ all_records($root) };
@@ -184,10 +184,10 @@ subtest 'a tab in a path stays inside its field' => sub {
         env  => { PERMUTL_RECORD => "$root/records" },
         args => [
             '-I' . lib_dir(),
-            '-MPermutl::Shim',
+            '-MTest::Mutation::Shim',
             '-Ilib',
             '-e',
-            "Permutl::Shim::activate( { trace => 0, targets => [ { original => qq{$root/lib/Odd\\tName.pm}, serve => qq{$root/lib/Odd\\tName.pm} } ] }, \$ENV{PERMUTL_RECORD} ); do './script.pl' or die \$@;",
+            "Test::Mutation::Shim::activate( { trace => 0, targets => [ { original => qq{$root/lib/Odd\\tName.pm}, serve => qq{$root/lib/Odd\\tName.pm} } ] }, \$ENV{PERMUTL_RECORD} ); do './script.pl' or die \$@;",
         ],
     );
     is $run->{stdout}, '1', 'the program runs' or diag $run->{stderr};

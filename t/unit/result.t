@@ -1,9 +1,9 @@
 use v5.36;
 use Test2::V0;
-use Permutl::Mutant;
-use Permutl::Result;
+use Test::Mutation::Mutant;
+use Test::Mutation::Result;
 
-my $mutant = Permutl::Mutant->new(
+my $mutant = Test::Mutation::Mutant->new(
     id          => 'abcdefabcdef',
     path        => 'lib/A.pm',
     mutator     => 'arithmetic',
@@ -18,7 +18,7 @@ my $mutant = Permutl::Mutant->new(
 );
 
 sub result ( $statuses, %fields ) {
-    return Permutl::Result->new(
+    return Test::Mutation::Result->new(
         root    => '/project',
         sources => { 'lib/A.pm' => 'a + b' },
         tests   => [ { name => 't/a.t', duration => 0.5 } ],

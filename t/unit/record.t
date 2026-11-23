@@ -1,14 +1,14 @@
 use v5.36;
 use Test2::V0;
 use File::Temp ();
-use Permutl::Record;
+use Test::Mutation::Record;
 
 sub lines (@rows) {
     return join q{}, map { join( "\t", $_->@* ) . "\n" } @rows;
 }
 
 subtest 'a traced process' => sub {
-    my $record = Permutl::Record::parse(
+    my $record = Test::Mutation::Record::parse(
         [
             lines(
                 [ 'begin',  1 ],
@@ -27,7 +27,7 @@ subtest 'a traced process' => sub {
 };
 
 subtest 'load failures, bypasses, and errors' => sub {
-    my $record = Permutl::Record::parse(
+    my $record = Test::Mutation::Record::parse(
         [
             lines(
                 [ 'begin',    0 ],
@@ -49,27 +49,29 @@ subtest 'several processes of one test run' => sub {
     my $traced   = lines( [ 'begin', 1 ], [ 'served', '/p/A.pm' ], [ 'hit', '/p/A.pm', 2 ] );
     my $untraced = lines( [ 'begin', 0 ], [ 'served', '/p/A.pm' ] );
     my $other    = lines( [ 'begin', 1 ], [ 'served', '/p/B.pm' ], [ 'hit', '/p/B.pm', 9 ] );
-    is Permutl::Record::parse( [ $traced, $other ] )->{served},
+    is Test::Mutation::Record::parse( [ $traced, $other ] )->{served},
       { '/p/A.pm' => { traced => 1, hits => { 2 => 1 } }, '/p/B.pm' => { traced => 1, hits => { 9 => 1 } } },
       'files of different processes are merged';
-    is Permutl::Record::parse( [ $traced, $untraced ] )->{served}{'/p/A.pm'}, { traced => 0, hits => { 2 => 1 } },
+    is Test::Mutation::Record::parse( [ $traced, $untraced ] )->{served}{'/p/A.pm'},
+      { traced => 0, hits => { 2 => 1 } },
       'one untraced process makes the file untraced';
-    is Permutl::Record::parse( [ $untraced, $traced ] )->{served}{'/p/A.pm'}{traced}, 0, 'whatever the order';
+    is Test::Mutation::Record::parse( [ $untraced, $traced ] )->{served}{'/p/A.pm'}{traced}, 0, 'whatever the order';
 };
 
 subtest 'unknown and malformed lines are ignored' => sub {
-    my $record = Permutl::Record::parse( ["begin\t1\nmystery\t/p/A.pm\nserved\n\nhit\t/p/A.pm\n"] );
+    my $record = Test::Mutation::Record::parse( ["begin\t1\nmystery\t/p/A.pm\nserved\n\nhit\t/p/A.pm\n"] );
     is $record, { served => {}, compiled => {}, load_failed => {}, bypassed => {}, breakable => {}, errors => [] },
       'an unknown kind, a line without a path, and a hit without a line number leave nothing';
-    is Permutl::Record::parse( [] )->{served}, {}, 'no record files';
+    is Test::Mutation::Record::parse( [] )->{served}, {}, 'no record files';
 
-    my $after = Permutl::Record::parse( ["begin\t1\nserved\nbypass\t/p/A.pm\nmystery\t/p/B.pm\nloadfail\t/p/C.pm\n"] );
+    my $after =
+      Test::Mutation::Record::parse( ["begin\t1\nserved\nbypass\t/p/A.pm\nmystery\t/p/B.pm\nloadfail\t/p/C.pm\n"] );
     is [ $after->{bypassed}, $after->{load_failed} ], [ { '/p/A.pm' => 1 }, { '/p/C.pm' => 1 } ],
       'the lines after a malformed line and after an unknown kind still count';
 };
 
 subtest 'a compiled line marks a target that compiled' => sub {
-    my $record = Permutl::Record::parse(
+    my $record = Test::Mutation::Record::parse(
         [ lines( [ 'begin', 0 ], [ 'served', '/p/A.pm' ], [ 'compiled', '/p/A.pm' ], [ 'served', '/p/B.pm' ] ) ] );
     is $record->{compiled}, { '/p/A.pm' => 1 }, 'the compiled target, without the one that failed';
 };
@@ -86,7 +88,7 @@ subtest 'read_directory reads every record file' => sub {
         print {$handle} $file->[1] or die "print: $!";
         close $handle              or die "close: $!";
     }
-    my $record = Permutl::Record::read_directory($directory);
+    my $record = Test::Mutation::Record::read_directory($directory);
     is [ sort keys $record->{served}->%* ],   ['/p/A.pm'],         'served';
     is [ sort keys $record->{bypassed}->%* ], ['/p/B.pm'],         'bypassed';
     is $record->{errors}, [ '/p/A.pm: first', '/p/B.pm: second' ], 'the errors follow the names of the files';

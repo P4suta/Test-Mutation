@@ -49,7 +49,7 @@ for my $trace ( 0, 1 ) {
         my $run = run_perl(
             root => $root,
             env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
-            args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+            args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
         );
         is $run->{status}, 0,                              'exit status' or diag $run->{stderr};
         is $run->{stderr}, q{},                            'no warnings';

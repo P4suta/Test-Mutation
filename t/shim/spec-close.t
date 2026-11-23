@@ -17,15 +17,15 @@ BEGIN {
     };
 }
 
-use Permutl::Shim;
+use Test::Mutation::Shim;
 
 my ( $handle, $path ) = File::Temp::tempfile( UNLINK => 1 );
 print {$handle} "trace\t1\n" or die "write: $!";
 close $handle                or die "close: $!";
 
-is_deeply Permutl::Shim::read_spec($path), { trace => 1, targets => [] }, 'a spec that closes is read';
+is_deeply Test::Mutation::Shim::read_spec($path), { trace => 1, targets => [] }, 'a spec that closes is read';
 
 $failing = 1;
-my $read = eval { Permutl::Shim::read_spec($path) };
+my $read = eval { Test::Mutation::Shim::read_spec($path) };
 $failing = 0;
 like $@, qr/\Apermutl: cannot close spec \Q$path\E: \S/, 'a spec that does not close stops the process';

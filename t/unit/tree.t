@@ -2,7 +2,7 @@ use v5.36;
 use Test2::V0;
 use File::Path ();
 use File::Temp ();
-use Permutl::Tree;
+use Test::Mutation::Tree;
 
 # The modes of the trees below follow from one mask, whatever mask the caller of the test has.
 umask oct '022';
@@ -20,7 +20,7 @@ sub tree (%files) {
 }
 
 sub snapshot ( $root, @skip ) {
-    return Permutl::Tree::snapshot( root => $root, skip => \@skip );
+    return Test::Mutation::Tree::snapshot( root => $root, skip => \@skip );
 }
 
 subtest 'the state names every file, directory, and link below the root' => sub {
@@ -44,13 +44,13 @@ subtest 'changes names what was created, removed, and changed' => sub {
     my $root =
       tree( 'lib/A.pm' => "1;\n", 'data/kept.txt' => 'kept', 'data/gone.txt' => 'gone', 'data/grown.txt' => 'a' );
     my $before = snapshot($root);
-    is Permutl::Tree::changes( $before, snapshot($root) ), [], 'an untouched tree has no change';
+    is Test::Mutation::Tree::changes( $before, snapshot($root) ), [], 'an untouched tree has no change';
 
     unlink "$root/data/gone.txt" or die "unlink: $!";
     tree_file( "$root/data/grown.txt", 'longer text' );
     tree_file( "$root/stray",          q{} );
     mkdir "$root/made" or die "mkdir: $!";
-    is Permutl::Tree::changes( $before, snapshot($root) ),
+    is Test::Mutation::Tree::changes( $before, snapshot($root) ),
       [ 'removed data/gone.txt', 'changed data/grown.txt', 'created made', 'created stray' ],
       'one line for each path, in the order of the paths';
 };
@@ -67,7 +67,7 @@ subtest 'a file with new content of the same size counts by its time' => sub {
     my $before = snapshot($root);
     tree_file( "$root/data.txt", 'other' );
     utime 1_000_000_000, 1_000_000_000, "$root/data.txt" or die "utime: $!";
-    is Permutl::Tree::changes( $before, snapshot($root) ), ['changed data.txt'],
+    is Test::Mutation::Tree::changes( $before, snapshot($root) ), ['changed data.txt'],
       'another modification time is a change';
 };
 
@@ -78,7 +78,7 @@ subtest 'another mode of a file or a directory is a change' => sub {
     my $before = snapshot($root);
     chmod oct '755', "$root/bin/tool" or die "chmod: $!";
     chmod oct '700', "$root/data"     or die "chmod: $!";
-    is Permutl::Tree::changes( $before, snapshot($root) ), [ 'changed bin/tool', 'changed data' ],
+    is Test::Mutation::Tree::changes( $before, snapshot($root) ), [ 'changed bin/tool', 'changed data' ],
       'a file that may run now and a directory that others may not read';
 };
 
@@ -87,14 +87,14 @@ subtest 'a path that changes its kind is a change' => sub {
     my $before = snapshot($root);
     unlink "$root/thing" or die "unlink: $!";
     mkdir "$root/thing"  or die "mkdir: $!";
-    is Permutl::Tree::changes( $before, snapshot($root) ), ['changed thing'], 'a file that became a directory';
+    is Test::Mutation::Tree::changes( $before, snapshot($root) ), ['changed thing'], 'a file that became a directory';
 
     my $linked = tree( 'target' => 'x' );
     symlink 'target', "$linked/link" or die "symlink: $!";
     my $earlier = snapshot($linked);
     unlink "$linked/link" or die "unlink: $!";
     symlink 'elsewhere', "$linked/link" or die "symlink: $!";
-    is Permutl::Tree::changes( $earlier, snapshot($linked) ), ['changed link'], 'a link with another target';
+    is Test::Mutation::Tree::changes( $earlier, snapshot($linked) ), ['changed link'], 'a link with another target';
 };
 
 # The kind of every path below a root with the content of a file and the target of a link.
@@ -141,7 +141,7 @@ sub project_tree () {
 
 sub copy_of ( $root, %arg ) {
     my $to = File::Temp::tempdir( CLEANUP => 1 ) . '/deep/copy';
-    Permutl::Tree::copy( from => $root, to => $to, skip => [], link => [], %arg );
+    Test::Mutation::Tree::copy( from => $root, to => $to, skip => [], link => [], %arg );
     return $to;
 }
 
@@ -157,7 +157,7 @@ subtest 'copy reproduces the files, directories, and links of a tree' => sub {
     ok !-e "$copy/absent" && !-l "$copy/absent", 'a linked name that the tree lacks adds nothing';
     is content( copy_of($root) ), content($root), 'without a skip or a link, the copy holds everything';
     my $counted = File::Temp::tempdir( CLEANUP => 1 ) . '/copy';
-    is Permutl::Tree::copy( from => $root, to => $counted, skip => [ '.git', '.permutl' ], link => ['local'] ),
+    is Test::Mutation::Tree::copy( from => $root, to => $counted, skip => [ '.git', '.permutl' ], link => ['local'] ),
       scalar( keys content( $counted, 'local' )->%* ), 'the number of the copied paths, without the linked one';
 };
 
@@ -178,7 +178,7 @@ subtest 'copy keeps a link as a link and leaves out what is no file' => sub {
       'a link to a directory stays one link, a dangling link stays, and a pipe is left out';
     my $counted = File::Temp::tempdir( CLEANUP => 1 ) . '/copy';
     my $count;
-    is warns { $count = Permutl::Tree::copy( from => $root, to => $counted, skip => [], link => [] ) }, 0,
+    is warns { $count = Test::Mutation::Tree::copy( from => $root, to => $counted, skip => [], link => [] ) }, 0,
       'the pipe draws no warning';
     is $count, 4, 'and is no copied path';
 };
@@ -222,13 +222,14 @@ subtest 'restore undoes what was created, removed, and changed' => sub {
     unlink "$slot/link" or die "unlink: $!";
     symlink 'elsewhere', "$slot/link" or die "symlink: $!";
 
-    my $changes = Permutl::Tree::changes( $before, snapshot($slot) );
-    is scalar $changes->@*,                                                         23, 'the changes of the trial';
-    is Permutl::Tree::restore( from => $master, to => $slot, changes => $changes ), 23, 'one restored path for each';
-    is content($slot),                                                              $wanted, 'the tree is as it was';
-    is [ grep { !/\Achanged / } Permutl::Tree::changes( $before, snapshot($slot) )->@* ], [],
+    my $changes = Test::Mutation::Tree::changes( $before, snapshot($slot) );
+    is scalar $changes->@*, 23, 'the changes of the trial';
+    is Test::Mutation::Tree::restore( from => $master, to => $slot, changes => $changes ), 23,
+      'one restored path for each';
+    is content($slot), $wanted, 'the tree is as it was';
+    is [ grep { !/\Achanged / } Test::Mutation::Tree::changes( $before, snapshot($slot) )->@* ], [],
       'and no path is missing or left over';
-    is Permutl::Tree::restore( from => $master, to => $slot, changes => [] ), 0, 'no change, no work';
+    is Test::Mutation::Tree::restore( from => $master, to => $slot, changes => [] ), 0, 'no change, no work';
     is content($project), $original, 'and the tree behind the link keeps every file';
 };
 
@@ -238,30 +239,32 @@ subtest 'remove takes a tree away, whatever rights its directories give' => sub 
     chmod 0,         "$root/gone/inner" or die "chmod: $!";
     chmod oct '500', "$root/gone"       or die "chmod: $!";
     my $kept = content( $root, 'gone' );
-    is Permutl::Tree::remove("$root/gone"), 5,     'the number of removed paths';
-    is content($root),                      $kept, 'the tree is gone, and the target of its link stays';
-    is Permutl::Tree::remove("$root/gone"), 0,     'an absent path counts nothing';
+    is Test::Mutation::Tree::remove("$root/gone"), 5,     'the number of removed paths';
+    is content($root),                             $kept, 'the tree is gone, and the target of its link stays';
+    is Test::Mutation::Tree::remove("$root/gone"), 0,     'an absent path counts nothing';
 
     symlink 'keep',         "$root/alias"    or die "symlink: $!";
     symlink '/nonexistent', "$root/dangling" or die "symlink: $!";
-    is [ map { Permutl::Tree::remove("$root/$_") } 'alias', 'dangling' ], [ 1, 1 ], 'a link counts once';
-    is content($root),                               $kept,    'and a link to a directory leaves the directory';
-    is Permutl::Tree::remove("$root/keep/file.txt"), 1,        'a single file';
-    is [ sort keys content($root)->%* ],             ['keep'], 'and nothing else';
+    is [ map { Test::Mutation::Tree::remove("$root/$_") } 'alias', 'dangling' ], [ 1, 1 ], 'a link counts once';
+    is content($root),                                      $kept,    'and a link to a directory leaves the directory';
+    is Test::Mutation::Tree::remove("$root/keep/file.txt"), 1,        'a single file';
+    is [ sort keys content($root)->%* ],                    ['keep'], 'and nothing else';
 };
 
-like dies { Permutl::Tree::remove() },             qr/Wrong number of parameters/, 'remove checks its arguments';
-like dies { Permutl::Tree::copy( from => 1 ) },    qr/Wrong number of parameters/, 'copy checks its arguments';
-like dies { Permutl::Tree::restore( from => 1 ) }, qr/Wrong number of parameters/, 'restore checks its arguments';
+like dies { Test::Mutation::Tree::remove() },          qr/Wrong number of parameters/, 'remove checks its arguments';
+like dies { Test::Mutation::Tree::copy( from => 1 ) }, qr/Wrong number of parameters/, 'copy checks its arguments';
+like dies { Test::Mutation::Tree::restore( from => 1 ) }, qr/Wrong number of parameters/,
+  'restore checks its arguments';
 like dies {
-    Permutl::Tree::copy(
+    Test::Mutation::Tree::copy(
         from => '/nonexistent/at/all',
         to   => File::Temp::tempdir( CLEANUP => 1 ) . '/x',
         skip => [],
         link => []
     )
 }, qr{cannot read /nonexistent/at/all}, 'copy names a tree it cannot read';
-like dies { Permutl::Tree::snapshot( root => 1 ) }, qr/Wrong number of parameters/,   'snapshot checks its arguments';
-like dies { Permutl::Tree::changes( {}, [] ) },     qr/did not pass type constraint/, 'changes checks its arguments';
+like dies { Test::Mutation::Tree::snapshot( root => 1 ) }, qr/Wrong number of parameters/,
+  'snapshot checks its arguments';
+like dies { Test::Mutation::Tree::changes( {}, [] ) }, qr/did not pass type constraint/, 'changes checks its arguments';
 
 done_testing;

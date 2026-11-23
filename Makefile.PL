@@ -34,10 +34,10 @@ my @tests = ( 't/unit/*.t', 't/shim/*.t', 't/assumptions/*.t', $ENV{EXTENDED_TES
 my $home  = 'https://github.com/P4suta/permutl';
 
 WriteMakefile(
-    NAME             => 'Permutl',
+    NAME             => 'Test::Mutation',
     ABSTRACT         => 'Mutation testing for Perl that never rewrites a source file',
     AUTHOR           => 'Yasunobu Sakashita',
-    VERSION_FROM     => 'lib/Permutl.pm',
+    VERSION_FROM     => 'lib/Test/Mutation.pm',
     MIN_PERL_VERSION => delete $requirements{runtime}{perl},
     EXE_FILES        => ['bin/permutl'],
     PREREQ_PM        => $requirements{runtime},

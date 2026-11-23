@@ -1,8 +1,8 @@
 #!perl
 use v5.36;
-use Permutl::CLI;
+use Test::Mutation::CLI;
 
-exit Permutl::CLI::main(@ARGV);
+exit Test::Mutation::CLI::main(@ARGV);
 
 __END__
 
@@ -24,7 +24,7 @@ permutl - measure how many mutants the tests of a Perl project detect
 
 C<permutl> runs in the root of a distribution, or in the directory that C<--root> names.
 C<permutl --help> lists every option.
-L<Permutl> describes the configuration file, the reports, and the limits.
+L<Test::Mutation> describes the configuration file, the reports, and the limits.
 
 =head1 AUTHOR
 

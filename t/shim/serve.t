@@ -59,7 +59,7 @@ subtest 'the hook serves the mutant under the original identity' => sub {
     my $run = run_perl(
         root => $root,
         env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
-        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+        args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
     is $run->{status}, 0,   'exit status' or diag $run->{stderr};
     is $run->{stderr}, q{}, 'no warnings';
@@ -81,7 +81,7 @@ subtest 'the shim serves without a record directory' => sub {
     my $run = run_perl(
         root => $root,
         env  => { PERMUTL_SPEC => "$root/spec" },
-        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+        args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
     is $run->{status},                  0,   'exit status';
     is $run->{stderr},                  q{}, 'no warnings';
@@ -98,7 +98,7 @@ subtest 'use lib after activation leaves the hook first' => sub {
     my $run = run_perl(
         root => $root,
         env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
-        args => [ '-I' . lib_dir(), '-MPermutl::Shim', 'script.pl' ],
+        args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', 'script.pl' ],
     );
     is $run->{status},                  0, 'exit status' or diag $run->{stderr};
     is fields( $run->{stdout} )->{add}, 2, 'the mutant is served';
@@ -114,7 +114,7 @@ subtest 'a file with the same name elsewhere is left alone' => sub {
     my $run = run_perl(
         root => $root,
         env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
-        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Iother', 'script.pl' ],
+        args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Iother', 'script.pl' ],
     );
     is $run->{status},                  0, 'exit status' or diag $run->{stderr};
     is fields( $run->{stdout} )->{add}, 8, 'the shadowing file runs unmodified';
@@ -131,7 +131,7 @@ subtest 'an identical copy in another directory is the same target' => sub {
     my $run = run_perl(
         root => $root,
         env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
-        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Iblib/lib', 'script.pl' ],
+        args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Iblib/lib', 'script.pl' ],
     );
     is $run->{status}, 0, 'exit status' or diag $run->{stderr};
     my $fields = fields( $run->{stdout} );
@@ -152,7 +152,7 @@ subtest 'a file that starts with a byte order mark is served without the mark' =
     my $run = run_perl(
         root => $root,
         env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
-        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+        args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
     is $run->{stdout}, '23', 'the mutant runs, and its lines keep their numbers' or diag $run->{stderr};
 };
@@ -166,7 +166,7 @@ subtest 'the exit status of the program is preserved' => sub {
     my $run = run_perl(
         root => $root,
         env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
-        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+        args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
     is $run->{status}, 7, 'exit status';
 };
