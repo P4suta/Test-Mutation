@@ -99,6 +99,49 @@ subtest 'another debugger keeps its hook and tracing stays off' => sub {
     is scalar( grep { $_->[0] eq 'hit' || $_->[0] eq 'lines' } @all ), 0, 'no line is recorded';
 };
 
+subtest 'a debugger that takes over after an outer shim turns tracing off' => sub {
+    my $root = project();
+    open my $handle, '<', lib_dir() . '/Permutl/Shim.pm' or die "read the shim: $!";
+    my $outer = do { local $/ = undef; <$handle> };
+    close $handle or die "close the shim: $!";
+
+    # The copy takes a generation that no run of permutl around this test uses.
+    my $number = 500 + ( $ENV{PERMUTL_GENERATION} || 0 );
+    $outer =~ s/^package Permutl::Shim;/package Permutl::Shim::G$number;/m or die 'no package line';
+    $outer =~ s/^my \$GENERATION = 0;/my \$GENERATION = $number;/m         or die 'no generation line';
+    write_file( "$root/gen/Permutl/Shim/G$number.pm", $outer );
+    write_file( "$root/gen/Takeover.pm", "package Takeover;\nno warnings;\n*DB::DB = sub { return };\n1;\n" );
+    write_file( "$root/lib/One.pm",      module( 'One', 1 ) );
+    write_file( "$root/script.pl",       "use One;\nprint One::value();\n" );
+    write_spec( "$root/spec", trace => 1, targets => [ [ "$root/lib/One.pm", "$root/lib/One.pm" ] ] );
+    mkdir "$root/outer" or die "mkdir: $!";
+    my $run = shim_run(
+        $root,
+        env    => { "PERMUTL_SPEC_G$number" => "$root/spec", "PERMUTL_RECORD_G$number" => "$root/outer" },
+        before => [ "-I$root/gen", "-MPermutl::Shim::G$number", '-MTakeover' ],
+    );
+    is $run->{stdout}, '1', 'the program runs' or diag $run->{stderr};
+    my @all = @{ all_records($root) };
+    is_deeply [ map { $_->[1] } grep { $_->[0] eq 'begin' } @all ], [0], 'the record marks the process as untraced';
+    is scalar( grep { $_->[0] eq 'hit' } @all ), 0, 'no line is recorded';
+};
+
+subtest 'the records at the end follow the order of the spec' => sub {
+    my $root = project();
+    write_file( "$root/lib/$_.pm", module( $_, 1 ) ) for qw(Aa Bb Cc);
+    write_file( "$root/script.pl", "use Cc;\nuse Aa;\nprint Aa::value();\n" );
+    write_spec(
+        "$root/spec",
+        trace   => 1,
+        targets => [ map { [ "$root/lib/$_.pm", "$root/lib/$_.pm" ] } qw(Aa Bb Cc) ]
+    );
+    my $run = shim_run($root);
+    is $run->{stdout}, '1', 'the program runs';
+    is_deeply [ map { $_->[1] } grep { $_->[0] eq 'lines' } @{ records($root) } ],
+      [ "$root/lib/Aa.pm", "$root/lib/Cc.pm" ],
+      'the first target of the spec reports first, whatever the load order';
+};
+
 subtest 'use lib keeps other hooks and directories in place' => sub {
     my $root = project();
     write_file( "$root/lib/One.pm", module( 'One', 1 ) );
