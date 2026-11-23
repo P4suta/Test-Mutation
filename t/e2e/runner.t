@@ -314,6 +314,21 @@ subtest 'a copy has the name of the project, links the installed modules, and ho
     ok !$inside->in_copies, 'and a run in the project itself names none';
 };
 
+subtest 'a project that cannot be copied stops the run with the name of the other place' => sub {
+    skip_all 'the superuser reads every file' if $> == 0;
+    my $root = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $TEST, 'private/key.txt' => 'secret' );
+    chmod 0, "$root/private/key.txt" or die "chmod: $!";
+    my $scratch = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    local $ENV{TMPDIR} = $scratch;
+    like dies { run_fixture( $root, jobs => 1 ) },
+      qr{\Acannot copy the project: cannot copy \Q$root\E/private/key[.]txt to \S+: [^;]+; --in-place runs the tests in the project itself\n\z},
+      'the error names the file and the option';
+    is [ glob "$scratch/*" ], [], 'and no copy is left';
+    my ($inside) = run_fixture( $root, jobs => 1, in_place => 1 );
+    is [ sort values statuses($inside)->%* ], [ ('Killed') x 3 ], 'the run in the project itself measures the mutants';
+    chmod oct '600', "$root/private/key.txt" or die "chmod: $!";
+};
+
 subtest 'a change of the project during the run reaches no test' => sub {
 
     # The test stands for an edit of the user: after its first run, the test file of the project fails at once.

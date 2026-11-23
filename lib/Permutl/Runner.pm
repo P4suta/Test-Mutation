@@ -138,9 +138,11 @@ sub _copy_project ($run) {
     my $name    = File::Basename::basename($project);
     $run->{name}   = length $name && $name !~ m{/} ? $name : q{project};
     $run->{copies} = Cwd::abs_path( File::Temp::tempdir( q{permutl-XXXXXX}, TMPDIR => 1 ) );
-    my @skip = ( q{.git}, map { _inside( $project, $_ ) } $config->work_directory, $config->report_directory );
-    $run->{root} = _new_copy( $run, $project, \@skip, $config->link );
-    return;
+    my @skip   = ( q{.git}, map { _inside( $project, $_ ) } $config->work_directory, $config->report_directory );
+    my $copied = eval { $run->{root} = _new_copy( $run, $project, \@skip, $config->link ); 1 };
+    return if $copied;
+    chomp( my $reason = "$@" );
+    die "cannot copy the project: $reason; --in-place runs the tests in the project itself\n";
 }
 
 # The path from the project to a place inside it, and nothing for a place outside.
