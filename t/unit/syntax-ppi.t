@@ -153,6 +153,29 @@ PERL
       'the adjust block, a method with an attribute, and a sub that follows a method';
 };
 
+subtest 'a joined statement keeps the rules of its own kind' => sub {
+    my $code = <<'PERL';
+sub f {
+    defer { cleanup() }
+    return compute() + 1;
+}
+method a { one() }
+use constant LIMIT => 2 * 3;
+method b { two() }
+our $VERSION = '1.0' - 0;
+method c { three() }
+my $kept = four();
+method d { five() }
+package Other;
+PERL
+    is [ map { [ $_->text, $_->scope ] } sites_of( $code, 'return' )->@* ], [ [ 'compute() + 1', [ 3, 3 ] ] ],
+      'a return after a defer block has a return site';
+    is [ map { $_->text } sites_of( $code, 'statement' )->@* ], [ 'cleanup()', 'one()', 'two()', 'three()', 'five()' ],
+      'a declaration after a method stays, and the method before a version keeps its sites';
+    is [ map { $_->text } grep { $_->role eq 'binary' } sites_of( $code, 'operator' )->@* ], [ q{+}, q{=} ],
+      'a use statement and a version after a method produce no sites';
+};
+
 subtest 'declaration headers produce no sites' => sub {
     my $code = <<'PERL';
 class Counter 1.0 :isa(Base) {
