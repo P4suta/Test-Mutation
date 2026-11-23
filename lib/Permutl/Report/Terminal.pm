@@ -30,20 +30,16 @@ signature_for render => (
 );
 
 sub render ( $result, $arg ) {
-    my @blocks;
-    if ( $result->baseline_failures->@* ) {
-        push @blocks, _baseline($result);
-    }
-    else {
-        push @blocks, _summary( $result, $arg );
-        push @blocks, map { _section( $result, $_->@* ) } @SECTIONS;
-    }
+    my @blocks =
+      $result->baseline_failures->@*
+      ? _baseline($result)
+      : ( _summary( $result, $arg ), map { _section( $result, $_->@* ) } @SECTIONS );
     my @notes = (
         ( map { "warning: $_" } $result->warnings->@* ),
         ( map { "skipped $_->{path}: $_->{problem}" } $result->problems->@* ),
     );
     push @blocks, join "\n", @notes if @notes;
-    return join( "\n\n", grep { length } @blocks ) . "\n";
+    return join( "\n\n", @blocks ) . "\n";
 }
 
 sub _plural ( $count, $noun ) {
@@ -86,7 +82,7 @@ sub _colored ( $text, $score, $arg ) {
 
 sub _section ( $result, $status, $title ) {
     my @entries = grep { $_->{status} eq $status } $result->entries->@*;
-    return q{} if !@entries;
+    return if !@entries;
     return join "\n", sprintf( '%s (%d)', $title, scalar @entries ), map { _entry( $result, $_ ) } @entries;
 }
 
