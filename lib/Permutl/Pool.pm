@@ -216,6 +216,9 @@ sub _ask_to_end ($slot) {
 sub _supervise ($slot) {
     my $now = Time::HiRes::time();
     return if defined $slot->{status};
+
+    # A test that ended keeps its own result, however late the pool looks at it.
+    return if _reaped($slot);
     if ( $now > $slot->{deadline} && !$slot->{stopped} ) {
         $slot->{timed_out} = 1;
         _ask_to_end($slot);
@@ -225,13 +228,16 @@ sub _supervise ($slot) {
         _ask_to_end($slot);
     }
     _signal_group( $slot, 'KILL' ) if defined $slot->{asked} && $now - $slot->{asked} > $GRACE_SECONDS;
-    if ( waitpid( $slot->{pid}, POSIX::WNOHANG ) == $slot->{pid} ) {
-        $slot->{status} = $?;
-        $slot->{ended}  = Time::HiRes::time();
-        _signal_group( $slot, 'KILL' );
-        _end_escaped( $slot->{escaped}->@* ) if $slot->{escaped};
-    }
     return;
+}
+
+sub _reaped ($slot) {
+    return 0 if waitpid( $slot->{pid}, POSIX::WNOHANG ) != $slot->{pid};
+    $slot->{status} = $?;
+    $slot->{ended}  = Time::HiRes::time();
+    _signal_group( $slot, 'KILL' );
+    _end_escaped( $slot->{escaped}->@* ) if $slot->{escaped};
+    return 1;
 }
 
 sub _finished ($slot) {
