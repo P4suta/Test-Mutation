@@ -7,6 +7,7 @@ use Types::Standard qw(ArrayRef Int Slurpy Str);
 use Type::Params    qw(signature_for);
 use Permutl::Config;
 use Permutl::Interrupted;
+use Permutl::Merge;
 use Permutl::Project;
 use Permutl::Report::GitHub;
 use Permutl::Report::Html;
@@ -18,7 +19,7 @@ use Permutl::Runner;
 
 our $VERSION = '0.001';
 
-my %COMMAND = ( run => \&_run, list => \&_list, show => \&_show, exec => \&_exec );
+my %COMMAND = ( run => \&_run, list => \&_list, show => \&_show, exec => \&_exec, merge => \&_merge );
 
 signature_for main => ( positional => [ Slurpy [ ArrayRef [Str] ] ], returns => Int );
 
@@ -27,12 +28,14 @@ Usage: permutl [run] [options]
        permutl list [options]
        permutl show ID [options]
        permutl exec ID -- COMMAND [ARGUMENT...]
+       permutl merge FILE... [options]
 
 Commands:
   run     Measure how many mutants the tests detect (the default)
   list    Print the mutants without running a test
   show    Print one mutant as a unified diff
   exec    Run a command with one mutant active
+  merge   Report one run from the mutation.json of every part of --shard
 
 Options:
   --jobs, -j N          Test processes to run side by side
@@ -272,6 +275,26 @@ sub _exec (@arguments) {
     my $analysis = Permutl::Runner::analyze($config);
     my $mutant   = eval { _find( $analysis, $identifier ) } or return _usage( _first_line($@) );
     return Permutl::Runner::run_command( $config, $analysis->{sources}{ $mutant->path }, $mutant, \@command );
+}
+
+sub _read_report ($path) {
+    open my $handle, '<:encoding(UTF-8)', $path or die "cannot read $path: $!\n";
+    local $/ = undef;
+    my $text   = readline $handle;
+    my $result = eval { Permutl::Report::Json::parse( defined $text ? $text : q{} ) };
+    return $result if $result;
+    die "$path: " . _first_line($@) . "\n";
+}
+
+sub _merge (@arguments) {
+    my $config = _config( \@arguments ) or return 2;
+    return _usage('merge needs the report of every part') if !@arguments;
+    my $result = eval {
+        Permutl::Merge::merge( [ map { { name => $_, result => _read_report($_) } } @arguments ] );
+    }
+      or return _usage( _first_line($@) );
+    _report( $result, $config );
+    return _exit_status( $result, $config );
 }
 
 sub _plural ( $count, $noun ) {
