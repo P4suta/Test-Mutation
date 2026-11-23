@@ -11,7 +11,8 @@ my @OPERATOR_FAMILIES = (
         name        => 'arithmetic',
         description => 'Replaces an arithmetic operator with its counterpart',
         role        => 'binary',
-        table       => { '+' => ['-'], '-' => ['+'], '*' => ['/'], '/' => ['*'], '%' => ['*'], '**' => ['*'] },
+        table       => { '+' => ['-'], '-' => ['+'], '*' => ['/'], '/' => ['*'], '%'  => ['*'], '**' => ['*'] },
+        idle        => { '+' => 0,     '-' => 0,     '*' => 1,     '/' => 1,     '**' => 1 },
     },
     {
         name        => 'comparison',
@@ -138,8 +139,12 @@ sub _blank ($text) {
     return join q{}, $text =~ /\n/g;
 }
 
+# An operand in the idle table leaves the value as it is under the operator and under its replacement.
+# Zero added or subtracted never differs, and neither does one as an exponent.
+# One as a factor differs from one as a divisor for negative zero alone.
 sub _operator_mutator ($family) {
     my ( $role, $table ) = $family->@{qw(role table)};
+    my $idle = $family->{idle} || {};
     return Permutl::Mutator->new(
         name        => $family->{name},
         profile     => 'default',
@@ -148,6 +153,8 @@ sub _operator_mutator ($family) {
             return if $site->kind ne 'operator' || $site->role ne $role;
             my $text         = $site->text;
             my $replacements = $table->{$text} or return;
+            my $operand      = $site->detail->{right};
+            return if defined $operand && defined $idle->{$text} && $operand == $idle->{$text};
             return map { { replacement => $_, description => "replaced $text with $_" } } $replacements->@*;
         },
     );
@@ -323,6 +330,13 @@ Permutl::Mutator::Catalog - the built-in mutators
         enable  => ['number-literal'],
         disable => ['sub-body'],
     );
+
+=head1 DESCRIPTION
+
+C<permutl mutators> prints the name, the profile, and the description of every mutator.
+
+The C<arithmetic> mutator leaves C<+ 0>, C<- 0>, C<* 1>, C</ 1>, and C<** 1> alone.
+The operator and its replacement give the same value there, apart from the sign of a negative zero under C<* 1> and C</ 1>.
 
 =head1 FUNCTIONS
 

@@ -103,6 +103,14 @@ subtest 'a mutant knows whether the compiled code shows it' => sub {
       [ [ '+', 0 ], [ '-', 1 ] ], 'a mutant of a field is not comparable';
 };
 
+subtest 'an arithmetic change without effect yields no mutant' => sub {
+    is changes( '$a + 0; $b - 0; $c * 1; $d / 1; $e ** 1; $f + 0.0;', 'arithmetic' ), [],
+      'zero added or subtracted, and one as a factor, a divisor, or an exponent';
+    is changes( '$a + 1; $b * 0; 0 + $c; 1 * $d; $e % 1; $f + 0 * $g; $h - 0 if $i;', 'arithmetic' ),
+      [ [ '+', '-' ], [ '*', '/' ], [ '+', '-' ], [ '*', '/' ], [ '%', '*' ], [ '+', '-' ], [ '*', '/' ] ],
+      'another number, another side, another operator, and a number that belongs to a tighter operator';
+};
+
 subtest 'two mutators with the same replacement yield one mutant' => sub {
     my @mutants = mutants( 'sub f { return 1 }', profile => 'extended' )->@*;
     is [ map { [ $_->mutator, $_->original, $_->replacement ] } grep { $_->original eq '1' } @mutants ],
