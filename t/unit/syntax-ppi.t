@@ -176,6 +176,44 @@ PERL
       'a use statement and a version after a method produce no sites';
 };
 
+subtest 'a compound statement and a loop control after an open block keep their roles' => sub {
+    my $code = <<'PERL';
+for my $item (@list) {
+    defer { done() }
+    next if $item;
+    last;
+}
+sub f {
+    defer { done() }
+    if ( $a > 1 ) { g() } elsif ($b) { h() } else { i() }
+    while ($c) { j() }
+    k();
+}
+PERL
+    is summary( $code, 'word' ),
+      [
+        [ 'done',  'call' ],
+        [ 'next',  'control' ],
+        [ 'if',    'modifier' ],
+        [ 'last',  'control' ],
+        [ 'done',  'call' ],
+        [ 'if',    'compound' ],
+        [ 'g',     'call' ],
+        [ 'h',     'call' ],
+        [ 'i',     'call' ],
+        [ 'while', 'compound' ],
+        [ 'j',     'call' ],
+        [ 'k',     'call' ],
+      ],
+      'the keywords lead their own statements';
+    is [ map { [ $_->text, $_->detail->{keyword}, $_->scope ] } sites_of( $code, 'condition' )->@* ],
+      [ [ ' $a > 1 ', 'if', [ 8, 8 ] ], [ '$b', 'elsif', [ 8, 8 ] ], [ '$c', 'while', [ 9, 9 ] ] ],
+      'the conditions are condition sites';
+    is [ map { $_->text } sites_of( $code, 'statement' )->@* ],
+      [ 'done()', 'done()', 'g()', 'h()', 'i()', 'j()', 'k();' ],
+      'the call after the loop is its own statement';
+};
+
 subtest 'declaration headers produce no sites' => sub {
     my $code = <<'PERL';
 class Counter 1.0 :isa(Base) {

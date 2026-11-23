@@ -265,7 +265,7 @@ sub _token_site ( $context, $token ) {
     my $scope = _scope( $context, $token ) or return;
     my ( $role, $detail ) =
         $kind eq 'operator' ? _operator_role($token)
-      : $kind eq 'word'     ? ( _word_role($token), {} )
+      : $kind eq 'word'     ? ( _word_role( $context, $token ), {} )
       :                       ( q{}, {} );
     return if $kind eq 'word' && $role eq q{};
     _add(
@@ -304,7 +304,7 @@ sub _operator_role ($token) {
     return ( 'binary', {} );
 }
 
-sub _word_role ($token) {
+sub _word_role ( $context, $token ) {
     my $content  = $token->content;
     my $previous = $token->sprevious_sibling;
     my $next     = $token->snext_sibling;
@@ -312,13 +312,15 @@ sub _word_role ($token) {
 
     return q{} if _is_data_word( $previous, $next, $parent );
 
-    my $leads = !$previous || $previous->isa('PPI::Token::Label');
+    my $segment = ref $parent eq 'PPI::Statement' ? $context->{segment_of}{ refaddr $token } : undef;
+    my $heads   = $segment && refaddr( $segment->{children}[0] ) == refaddr $token;
+    my $leads   = !$previous || $previous->isa('PPI::Token::Label') || $heads;
     if ( $CONDITIONAL{$content} ) {
-        return 'compound' if $leads && $parent->isa('PPI::Statement::Compound');
+        return 'compound' if $leads && ( $heads || $parent->isa('PPI::Statement::Compound') );
         return 'modifier' if !$leads;
         return q{};
     }
-    return 'control' if $LOOP_CONTROL{$content} && $leads && $parent->isa('PPI::Statement::Break');
+    return 'control' if $LOOP_CONTROL{$content} && $leads && ( $heads || $parent->isa('PPI::Statement::Break') );
     return q{}       if $NEVER_A_CALL{$content} || $LOOP_CONTROL{$content};
     return 'call';
 }
@@ -339,18 +341,13 @@ sub _is_name ($element) {
     return $element->isa('PPI::Token::Word') || ( $element->isa('PPI::Token::Operator') && $element->content eq 'x' );
 }
 
-sub _closes_segment ( $context, $block ) {
-    my $segment = _segment_of( $context, $block->parent, $block ) or return 0;
-    return $segment->{closes} && refaddr( $segment->{children}[-1] ) == refaddr $block ? 1 : 0;
-}
-
 sub _is_code_block ( $context, $block ) {
     my $parent = $block->parent;
     return 1
       if $parent->isa('PPI::Statement::Compound')
       || $parent->isa('PPI::Statement::Sub')
       || $parent->isa('PPI::Statement::Scheduled');
-    return 1 if ref $parent eq 'PPI::Statement' && _closes_segment( $context, $block );
+    return 1 if ref $parent eq 'PPI::Statement' && _segment_of( $context, $parent, $block )->{closes};
     my $previous = $block->sprevious_sibling;
     return 1 if !$previous;
     return 1 if $previous->isa('PPI::Structure::List') || $previous->isa('PPI::Structure::Signature');
