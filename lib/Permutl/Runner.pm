@@ -27,9 +27,10 @@ our $VERSION = '0.001';
 my $SHIM_FILE = 'Permutl/Shim.pm';
 
 my $ANALYSIS = Dict [
-    sources  => HashRef [ InstanceOf ['Permutl::Source'] ],
-    mutants  => ArrayRef [ InstanceOf ['Permutl::Mutant'] ],
-    problems => ArrayRef [ Dict [ path => Str, problem => Str ] ],
+    sources   => HashRef [ InstanceOf ['Permutl::Source'] ],
+    mutants   => ArrayRef [ InstanceOf ['Permutl::Mutant'] ],
+    problems  => ArrayRef [ Dict [ path => Str, problem => Str ] ],
+    inventory => Dict [ mutants => Int, digest => Str ],
 ];
 
 signature_for analyze => ( positional => [ InstanceOf ['Permutl::Config'] ], returns => $ANALYSIS );
@@ -58,11 +59,13 @@ sub analyze ($config) {
         push @mutants, grep { !$changed || _in_changed_lines( $changed->{$path}, $_ ) }
           grep { !%only || $only{ $_->id } } $generated->@*;
     }
+    my $inventory =
+      { mutants => scalar @mutants, digest => Digest::SHA::sha256_hex( join "\n", map { $_->id } @mutants ) };
     if ( defined $config->shard ) {
         my ( $part, $parts ) = split m{/}, $config->shard;
         @mutants = @mutants[ grep { $_ % $parts == $part - 1 } 0 .. $#mutants ];
     }
-    return { sources => \%sources, mutants => \@mutants, problems => \@problems };
+    return { sources => \%sources, mutants => \@mutants, problems => \@problems, inventory => $inventory };
 }
 
 sub _in_changed_lines ( $ranges, $mutant ) {
@@ -106,6 +109,8 @@ sub run ( $config, $listener ) {
         warnings          => $run->{warnings},
         baseline_failures => [],
         parallel_safe     => 1,
+        shard             => $config->shard,
+        inventory         => $analysis->{inventory},
         started           => $started,
     );
 
@@ -726,6 +731,7 @@ It writes temporary files under the work directory and leaves the project files 
 =head2 analyze
 
 Returns the sources, the mutants, and the files that could not be analyzed, without running a test.
+The C<inventory> key holds the count and the digest of the mutants before C<shard> takes its part.
 
 =head2 run
 

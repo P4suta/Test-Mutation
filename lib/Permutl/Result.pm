@@ -1,7 +1,7 @@
 package Permutl::Result;
 use v5.36;
 use Moo;
-use Types::Standard        qw(ArrayRef Bool Dict Enum HashRef InstanceOf Int Maybe Num Str);
+use Types::Standard        qw(ArrayRef Bool Dict Enum HashRef InstanceOf Int Maybe Num Str StrMatch);
 use Types::Common::Numeric qw(PositiveInt);
 use Type::Params           qw(signature_for);
 use Permutl::Score;
@@ -30,9 +30,12 @@ has baseline_failures =>
 has jobs          => ( is => 'ro', isa => PositiveInt, required => 1 );
 has parallel_safe => ( is => 'ro', isa => Bool,        required => 1 );
 has interrupted   => ( is => 'ro', isa => Maybe [ Enum [qw(HUP INT TERM)] ], default => undef );
-has reused        => ( is => 'ro', isa => Int, default  => 0 );
-has started       => ( is => 'ro', isa => Num, required => 1 );
-has finished      => ( is => 'ro', isa => Num, required => 1 );
+has reused        => ( is => 'ro', isa => Int, default => 0 );
+has shard         => ( is => 'ro', isa => Maybe [ StrMatch [qr{\A[1-9][0-9]*/[1-9][0-9]*\z}] ], default => undef );
+has inventory =>
+  ( is => 'ro', isa => Maybe [ Dict [ mutants => Int, digest => StrMatch [qr/\A[0-9a-f]{64}\z/] ] ], default => undef );
+has started  => ( is => 'ro', isa => Num, required => 1 );
+has finished => ( is => 'ro', isa => Num, required => 1 );
 
 signature_for tally => (
     method     => 1,
@@ -109,6 +112,15 @@ The mutants that did not finish have the status C<Pending>.
 =head2 reused
 
 The number of entries that came from the cache of an earlier run.
+
+=head2 shard
+
+The part of the mutants that the run covered, such as C<2/4>, or undefined for a whole run.
+
+=head2 inventory
+
+The count of the mutants before the split into parts, and the SHA-256 digest of their identifiers.
+Two results with the same inventory measured the same mutants of the same sources.
 
 =head2 started, finished
 
