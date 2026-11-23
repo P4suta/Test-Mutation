@@ -587,7 +587,7 @@ sub _ignore_repeated_code ( $run, $entries ) {
 }
 
 sub _next_code ( $run, $job ) {
-    return if !$run->{config}->equivalence || defined $job->{code};
+    return if !$run->{config}->equivalence || defined $job->{code} || !$job->{mutant}->comparable;
     return if Permutl::Verdict::final( $job->{verdict} ) ne 'Survived';
     my $path  = $job->{mutant}->path;
     my $known = $run->{code_of_original}{$path} ||= [];

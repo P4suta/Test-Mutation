@@ -83,6 +83,7 @@ The score is the percentage of C<Killed> among C<Killed>, C<Survived>, and C<NoC
 
 A mutant that passed every test compiles once more next to the original, and the run compares the two with L<B::Deparse>.
 Equal code means no test can tell the two apart, so the mutant leaves the score.
+A mutant in a field or in an C<ADJUST> block skips the comparison, because L<B::Deparse> prints neither.
 
 C<permutl run --since origin/main> covers the changed lines, and C<--shard 2/4> covers one of four equal parts.
 C<--cache> reuses the results of an earlier run for every mutant whose file and tests are unchanged.
