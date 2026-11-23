@@ -58,6 +58,19 @@ subtest 'files' => sub {
       'a pattern without a directory skips vendor directories at the root';
     is Permutl::Project::files( $root, ['missing/**/*.pm'], [] ),      [], 'a directory that does not exist';
     is warnings { Permutl::Project::files( $root, ['**/*.pm'], [] ) }, [], 'a walk from the root raises no warning';
+    is Permutl::Project::files( $root, [ 'missing/**/*.pm', 'lib/*.pm' ], [] ), ['lib/A.pm'],
+      'a directory that does not exist before a pattern that matches';
+
+  SKIP: {
+        skip 'the superuser reads every directory', 2 if $> == 0;
+        mkdir "$root/forbidden" or die "mkdir: $!";
+        chmod 0, "$root/forbidden" or die "chmod: $!";
+        my @warnings = warnings { Permutl::Project::files( $root, ['lib/**/*.pm'], [] ) }->@*;
+        my @walked   = warnings { Permutl::Project::files( $root, ['**/*.pm'],     [] ) }->@*;
+        chmod 0700, "$root/forbidden" or die "chmod: $!";
+        is \@warnings, [], 'a pattern under one directory reads no other directory';
+        ok scalar(@walked), 'and a walk from the root does try the unreadable directory';
+    }
 };
 
 subtest 'processors reads the count from the text of the platform' => sub {

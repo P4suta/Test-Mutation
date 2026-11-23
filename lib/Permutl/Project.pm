@@ -26,10 +26,8 @@ sub pattern_regex ($pattern) {
 }
 
 sub _static_directory ($pattern) {
-    my ($prefix) = $pattern =~ m{\A([^*?]*/)};
-    return q{} if !defined $prefix;
-    $prefix =~ s{/\z}{};
-    return $prefix;
+    my ($prefix) = $pattern =~ m{\A([^*?]*)/};
+    return defined $prefix ? $prefix : q{};
 }
 
 signature_for files => (
