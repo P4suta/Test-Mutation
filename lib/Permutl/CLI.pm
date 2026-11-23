@@ -280,7 +280,8 @@ sub _exec (@arguments) {
 sub _read_report ($path) {
     open my $handle, '<:encoding(UTF-8)', $path or die "cannot read $path: $!\n";
     local $/ = undef;
-    my $text   = readline $handle;
+    my $text = readline $handle;
+    close $handle or die "cannot close $path: $!\n";
     my $result = eval { Permutl::Report::Json::parse( defined $text ? $text : q{} ) };
     return $result if $result;
     die "$path: " . _first_line($@) . "\n";
