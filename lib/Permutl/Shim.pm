@@ -157,7 +157,8 @@ sub _serve {
     _record( 'served', $target->{original} );
 
     $INC{$file} = $path;                              ## no critic (Variables::RequireLocalizedPunctuationVars)
-    my $prepend = sprintf "UNITCHECK { %s::mark_compiled(%d) }\n", __PACKAGE__, $target->{index};
+        # Code in package DB compiles without trace points, so the block adds no hit to the first line of the file.
+    my $prepend = sprintf "UNITCHECK { package DB; %s::mark_compiled(%d) }\n", __PACKAGE__, $target->{index};
     $prepend .= qq{#line 1 "$path"\n} if $path !~ /["\n]/;
     return ( \$prepend, $handle )     if !$STATE{trace};
 
@@ -166,6 +167,9 @@ sub _serve {
         _trace_compile( $more && !/\A__(?:END|DATA)__\s*\z/ ? 1 : 0 );
         return $more;
     };
+
+    # Perl before 5.16 keeps the lines of a file only when the flags are set before it starts to read the file.
+    _trace_compile(1);
     return ( \$prepend, $handle, $filter );
 }
 
@@ -196,6 +200,10 @@ sub _install_tracer {
         _record( 'hit', $target->{original}, $line );
         return;
     };
+
+    # The first nonzero value of $^P starts the debugger, and Perl before 5.20 resets $DB::trace at that moment.
+    _trace_compile(1);
+    _trace_compile(0);
     $DB::trace = 1;    ## no critic (Variables::ProhibitPackageVars)
     return 1;
 }
