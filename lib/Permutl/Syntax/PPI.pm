@@ -24,6 +24,7 @@ my %OPEN_BLOCK_HEAD  = map { $_ => 1 } qw(ADJUST if unless while until for forea
 my %BLOCK_FIRST_HEAD = map { $_ => 1 } qw(finally defer try);
 my %NAMED_BLOCK_HEAD = map { $_ => 1 } qw(class role method sub);
 my %CONTINUATION     = map { $_ => 1 } qw(elsif else continue catch finally);
+my %BODY_HEAD        = map { $_ => 1 } qw(method sub ADJUST);
 my %NEVER_A_CALL =
   map { $_ => 1 }
   qw(my our local state sub package class role field method use no return do eval else elsif for foreach
@@ -121,7 +122,7 @@ sub _ends_at_block ( $head, $next, $after ) {
 
     # PPI reads a name before an attribute, as in "method name :lvalue", as a label.
     return 1 if $next->isa('PPI::Token::Label');
-    return $next->isa('PPI::Token::Word') && !_is_operator( $after, '=>', q{,} ) ? 1 : 0;
+    return _is_name($next) && !_is_operator( $after, '=>', q{,} ) ? 1 : 0;
 }
 
 # PPI ends a statement it does not know, such as a method or a defer block, at the next semicolon.
@@ -405,15 +406,12 @@ sub _sub_body_sites ( $context, $statement ) {
         my $block = $statement->block;
         push @bodies, [ $block, $statement->name // q{} ] if $block;
     }
-    else {
-        my @children = $statement->schildren;
-        for my $index ( 0 .. $#children ) {
-            my $child = $children[$index];
-            next if !$child->isa('PPI::Token::Word') || $child->content ne 'method';
-            my $name = $children[ $index + 1 ];
-            next if !$name || !_is_name($name);
-            my ($block) = grep { $_->isa('PPI::Structure::Block') } @children[ $index + 2 .. $#children ];
-            push @bodies, [ $block, $name->content, $child ] if $block;
+    elsif ( ref $statement eq 'PPI::Statement' ) {
+        for my $segment ( _segments( $context, $statement )->@* ) {
+            my ( $head, $name ) = $segment->{children}->@*;
+            my $block = $segment->{children}[-1];
+            next if !$segment->{closes} || !_is_word( $head, \%BODY_HEAD ) || !$block->isa('PPI::Structure::Block');
+            push @bodies, [ $block, $head->content eq 'ADJUST' ? 'ADJUST' : $name->content =~ s/\s*:\z//r, $head ];
         }
     }
 

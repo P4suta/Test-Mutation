@@ -131,6 +131,28 @@ PERL
       'a call in the class body is deletable';
 };
 
+subtest 'every named body of a class is a body site' => sub {
+    my $code = <<'PERL';
+class Counter {
+    ADJUST {
+        setup();
+    }
+    method bump :lvalue ($by = 1) { $count }
+    sub helper { return 1 }
+    method read { $count }
+    my $anonymous = method { 2 };
+}
+PERL
+    is [ map { [ $_->detail->{name}, $_->scope, $_->text ] } sites_of( $code, 'sub_body' )->@* ],
+      [
+        [ 'ADJUST', [ 2, 4 ], "\n        setup();\n    " ],
+        [ 'bump',   [ 5, 5 ], ' $count ' ],
+        [ 'helper', [ 6, 6 ], ' return 1 ' ],
+        [ 'read',   [ 7, 7 ], ' $count ' ],
+      ],
+      'the adjust block, a method with an attribute, and a sub that follows a method';
+};
+
 subtest 'declaration headers produce no sites' => sub {
     my $code = <<'PERL';
 class Counter 1.0 :isa(Base) {
