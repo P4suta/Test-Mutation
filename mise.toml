@@ -56,9 +56,13 @@ run = "prove -l xt"
 description = "Measure the tests of permutl with permutl"
 run = "perl -Ilib bin/permutl"
 
+[tasks.corpus]
+description = "Analyze every installed module and check each site and mutant"
+run = "prove -l xt/corpus"
+
 [tasks.mutation-gate]
 description = "Measure permutl with itself and check the release conditions"
-run = ["perl -Ilib bin/permutl", "prove -l xt/release"]
+run = ["perl -Ilib bin/permutl", "prove -l xt/release", "prove -l xt/corpus"]
 
 [tasks.dist]
 description = "Pack the distribution archive"
