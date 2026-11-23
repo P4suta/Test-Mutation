@@ -119,15 +119,15 @@ sub run ( $config, $listener ) {
         sequence => 0,
         taint    => {},
         warnings => {},
-        free     => [],
+        free     => {},
     };
     my $result = eval {
         _copy_project($run) if !$config->in_place;
         _measure( $run, $started );
     };
     my $error = $@;
-    File::Path::remove_tree( $run->{copies} ) if defined $run->{copies};
-    die $error                                if !$result;                 ## no critic (ErrorHandling::RequireCarping)
+    _discard( $run->{copies} ) if defined $run->{copies};
+    die $error                 if !$result;                 ## no critic (ErrorHandling::RequireCarping)
     return $result;
 }
 
@@ -135,8 +135,7 @@ sub run ( $config, $listener ) {
 sub _copy_project ($run) {
     my $config  = $run->{config};
     my $project = $run->{project};
-    my $name    = File::Basename::basename($project);
-    $run->{name}   = length $name && $name !~ m{/} ? $name : q{project};
+    $run->{name}   = File::Basename::basename($project);
     $run->{copies} = Cwd::abs_path( File::Temp::tempdir( q{permutl-XXXXXX}, TMPDIR => 1 ) );
 
     # A temporary directory inside the project holds the copies, which are no part of a copy.
@@ -151,42 +150,47 @@ sub _copy_project ($run) {
 # The path from the project to a place inside it, and nothing for a place outside.
 sub _inside ( $project, $path ) {
     my $absolute = File::Spec->canonpath( File::Spec->rel2abs( $path, $project ) );
-    return index( $absolute, "$project/" ) == 0 ? substr $absolute, 1 + length $project : ();
+    my $prefix   = "$project/";
+    return substr( $absolute, 0, length $prefix ) eq $prefix ? substr $absolute, length $prefix : ();
 }
 
+# Each copy has the name of the project inside a directory of its own.
 sub _new_copy ( $run, $from, $skip, $link ) {
-    my $to = join q{/}, $run->{copies}, $run->{copied}++, $run->{name};
+    my $to = File::Temp::tempdir( q{XXXXXX}, DIR => $run->{copies} ) . "/$run->{name}";
     Permutl::Tree::copy( from => $from, to => $to, skip => $skip, link => $link );
     return $to;
 }
 
 # Every mutant starts from the state that the unmodified run left, so each job works in a copy of its own.
+# A job takes a copy that no job uses, or a new one, and records the state it finds.
 sub _job_root ( $run, $job ) {
     return $run->{root} if !defined $run->{copies};
-    if ( !$job->{slot} ) {
-        my $slot = shift $run->{free}->@*;
-        if ( !$slot ) {
-            my $root = _new_copy( $run, $run->{root}, [], [] );
-            $slot = { root => $root, state => Permutl::Tree::snapshot( root => $root, skip => [] ) };
-        }
-        $job->{slot} = $slot;
+    if ( !$job->{copy} ) {
+        my ($free) = sort keys $run->{free}->%*;
+        my $root = defined $free ? $free : _new_copy( $run, $run->{root}, [], [] );
+        delete $run->{free}{$root};
+        $job->{copy} = { root => $root, state => Permutl::Tree::snapshot( root => $root, skip => [] ) };
     }
-    return $job->{slot}{root};
+    return $job->{copy}{root};
 }
 
-# A mutant may leave a changed copy behind, so the copy returns to its state before the next mutant gets it.
+# A mutant may leave a changed copy behind, so the copy returns to its state before the next job takes it.
+# A copy that fails to return stays out of use, and the next job makes a new one.
 sub _release ( $run, $job ) {
-    my $slot    = delete $job->{slot} or return;
-    my $root    = $slot->{root};
-    my $changes = Permutl::Tree::changes( $slot->{state}, Permutl::Tree::snapshot( root => $root, skip => [] ) );
-    if ( $changes->@* ) {
-
-        # A copy that cannot return to its state is left alone, and the next job makes a new one.
-        return if !eval { Permutl::Tree::restore( from => $run->{root}, to => $root, changes => $changes ); 1 };
-        $slot->{state} = Permutl::Tree::snapshot( root => $root, skip => [] );
-    }
-    push $run->{free}->@*, $slot;
+    my $copy    = delete $job->{copy} or return;
+    my $root    = $copy->{root};
+    my $changes = Permutl::Tree::changes( $copy->{state}, Permutl::Tree::snapshot( root => $root, skip => [] ) );
+    return
+      if $changes->@* && !eval { Permutl::Tree::restore( from => $run->{root}, to => $root, changes => $changes ); 1 };
+    $run->{free}{$root} = 1;
     return;
+}
+
+# A test may leave a directory without any right, and such a leftover must not end the run.
+sub _discard (@paths) {
+    return scalar grep {
+        !eval { Permutl::Tree::remove($_); 1 }
+    } @paths;
 }
 
 sub _measure ( $run, $started ) {
@@ -231,8 +235,9 @@ sub _measure ( $run, $started ) {
             1;
         };
         my $error = $@;
-        File::Path::remove_tree( $run->{work} ) if !$config->keep_work;
-        die $error                              if !$measured;            ## no critic (ErrorHandling::RequireCarping)
+        _warn( $run, "the work directory $run->{work} stays, because a file in it resists removal" )
+          if !$config->keep_work && _discard( $run->{work} );
+        die $error if !$measured;    ## no critic (ErrorHandling::RequireCarping)
     }
     else {
         _warn( $run, 'no test files match' ) if @active && !@tests;
@@ -410,7 +415,7 @@ sub run_command ( $config, $source, $mutant, $command ) {
         local %ENV = ( %ENV, _environment( $run, $spec, $root ) );
         system { $command->[0] } $command->@*;
     };
-    File::Path::remove_tree( $run->{work} );
+    _discard( $run->{work} );
     return 127                     if $status == -1;
     return 128 + ( $status & 127 ) if $status & 127;
     return $status >> 8;
@@ -455,7 +460,7 @@ sub _collect ($task) {
     my $payload = $task->{payload};
     my $record  = Permutl::Record::read_directory( $payload->{record} );
     my $errors  = -f $task->{stderr} ? _slurp( $task->{stderr} ) : q{};
-    File::Path::remove_tree( $payload->{record}, $payload->{tmp} );
+    _discard( $payload->{record}, $payload->{tmp} );
     unlink $task->{stderr};
     return ( $record, $errors );
 }

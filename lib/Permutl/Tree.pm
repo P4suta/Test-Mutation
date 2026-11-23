@@ -70,7 +70,7 @@ sub copy ($arg) {
     my %skip = map { $_ => 1 } $arg->skip->@*;
     my %link = map { $_ => 1 } $arg->link->@*;
     File::Path::make_path($to);
-    my @copied;
+    my ( $count, %directory ) = (0);
     File::Find::find(
         {
             no_chdir => 1,
@@ -83,7 +83,9 @@ sub copy ($arg) {
                     symlink $File::Find::name, "$to/$path" or die "cannot link $to/$path: $!\n";
                     return;
                 }
-                push @copied, $path if _copy_node( $File::Find::name, "$to/$path" );
+                my $kind = _copy_node( $File::Find::name, "$to/$path" );
+                $count++              if length $kind;
+                $directory{$path} = 1 if $kind eq q{directory};
                 return;
             },
         },
@@ -91,26 +93,31 @@ sub copy ($arg) {
     );
 
     # A directory may forbid new entries, so each one gets its mode after its content.
-    _copy_mode( "$from/$_", "$to/$_" ) for grep { -d "$to/$_" && !-l "$to/$_" } reverse @copied;
-    return scalar @copied;
+    _copy_mode( "$from/$_", "$to/$_" ) for sort keys %directory;
+    return $count;
 }
 
-# Copies one file, directory, or link without the content of a directory, and returns whether the path has such a kind.
+# Copies one file, directory, or link without the content of a directory, and returns its kind.
+# A pipe, a socket, or a device has no kind and stays out.
 sub _copy_node ( $source, $target ) {
     my @status = Time::HiRes::lstat($source) or die "cannot read $source: $!\n";
     if ( -l _ ) {
         symlink readlink($source), $target or die "cannot link $target: $!\n";
-        return 1;
+        return q{link};
     }
     if ( -d _ ) {
         mkdir $target or die "cannot create $target: $!\n";
-        return 1;
+        return q{directory};
     }
-    return 0 if !-f _;
+    return q{} if !-f _;
     File::Copy::copy( $source, $target ) or die "cannot copy $source to $target: $!\n";
     _copy_mode( $source, $target );
     Time::HiRes::utime( $status[8], $status[9], $target ) or die "cannot set the time of $target: $!\n";
-    return 1;
+    return q{file};
+}
+
+sub _is_directory ($path) {
+    return -d $path && !-l $path ? 1 : 0;
 }
 
 sub _copy_mode ( $source, $target ) {
@@ -129,26 +136,43 @@ sub restore ($arg) {
 
     # A directory sorts before its content, so a removed directory returns before its files.
     my @paths = sort map { s/\A\w+[ ]//r } $arg->changes->@*;
+    my %directory;
     for my $path (@paths) {
         my ( $source, $target ) = ( "$from/$path", "$to/$path" );
-        if ( -d $source && !-l $source && -d $target && !-l $target ) {
-            _copy_mode( $source, $target );
-            next;
+        if ( _is_directory($source) && _is_directory($target) ) {
+
+            # A directory that stays may forbid new entries, so its own mode waits for its content.
+            chmod oct q{700}, $target or die "cannot open $target: $!\n";
         }
-        _remove($target);
-        _copy_node( $source, $target ) if -e $source || -l $source;
+        else {
+            remove($target);
+            next if !-e $source && !-l $source;
+            next if _copy_node( $source, $target ) ne q{directory};
+        }
+        $directory{$path} = 1;
     }
+    _copy_mode( "$from/$_", "$to/$_" ) for sort keys %directory;
     return scalar @paths;
 }
 
-sub _remove ($path) {
-    if ( -d $path && !-l $path ) {
-        File::Path::remove_tree($path);
+signature_for remove => ( positional => [Str], returns => Int );
+
+sub remove ($path) {
+    if ( _is_directory($path) ) {
+
+        # A test may take the rights of a directory away, and its content is out of reach without them.
+        chmod oct q{700}, $path or die "cannot open $path: $!\n";
+        opendir my $handle, $path or die "cannot read $path: $!\n";
+        my @names = grep { $_ ne q{.} && $_ ne q{..} } readdir $handle;
+        closedir $handle or die "cannot close $path: $!\n";
+        my $count = 1;
+        $count += remove("$path/$_") for @names;
+        rmdir $path or die "cannot remove $path: $!\n";
+        return $count;
     }
-    elsif ( -e $path || -l $path ) {
-        unlink $path or die "cannot remove $path: $!\n";
-    }
-    return;
+    return 0 if !-e $path && !-l $path;
+    unlink $path or die "cannot remove $path: $!\n";
+    return 1;
 }
 
 1;
@@ -197,5 +221,10 @@ A path in C<skip> is left out with all it holds, and a path in C<link> becomes a
 
 Returns the paths that C<changes> names in the tree C<to> to their state in the tree C<from>, and returns their number.
 C<changes> takes the lines of the function C<changes>.
+
+=head2 remove
+
+Removes a file, a link, or a directory with all it holds, and returns the number of removed paths.
+A directory without any right for its owner is removed too, and the target of a link stays.
 
 =cut

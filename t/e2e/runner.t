@@ -262,16 +262,21 @@ subtest 'a mutant that leaves a file changes a copy, and the project and the lat
 
 subtest 'the tests of each mutant start from the state that the unmodified run left' => sub {
     my $counting =
-        "use Test::More tests => 1;\nuse Small;\nopen my \$count, '>>', 'count.txt' or die \$!;\n"
+        "use Test::More tests => 1;\nuse Cwd ();\nuse Small;\nopen my \$count, '>>', 'count.txt' or die \$!;\n"
       . "print {\$count} \"run\\n\";\nclose \$count;\nopen my \$log, '>>', \$ENV{RUN_LOG} or die \$!;\n"
-      . "print {\$log} -s 'count.txt', \"\\n\";\nclose \$log;\nis Small::next_one(2), 3, 'the next one';\n";
+      . "print {\$log} -s 'count.txt', q{ }, Cwd::getcwd(), \"\\n\";\nclose \$log;\n"
+      . "is Small::next_one(2), 3, 'the next one';\n";
     my $root = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $counting );
     my $log  = File::Temp->new;
     local $ENV{RUN_LOG} = $log->filename;
     my ($result) = run_fixture( $root, jobs => 1 );
     open my $handle, '<', $log->filename or die "read: $!";
-    chomp( my @sizes = readline $handle );
+    chomp( my @lines = readline $handle );
+    my @sizes       = map { ( split q{ } )[0] } @lines;
+    my @directories = map { ( split q{ } )[1] } @lines;
     is \@sizes, [ 4, 8, 8, 8 ], 'each mutant finds the one line that the unmodified run wrote';
+    is [ map { $_ eq $directories[1] ? 'same' : 'other' } @directories ], [qw(other same same same)],
+      'one job at a time uses one copy again and again, apart from the copy of the unmodified run';
     ok !-e "$root/count.txt", 'and the project gets no such file';
 
     my $place = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $counting );
@@ -279,7 +284,7 @@ subtest 'the tests of each mutant start from the state that the unmodified run l
     local $ENV{RUN_LOG} = $other->filename;
     run_fixture( $place, jobs => 1, in_place => 1 );
     open my $read, '<', $other->filename or die "read: $!";
-    chomp( my @grown = readline $read );
+    chomp( my @grown = map { ( split q{ } )[0] } readline $read );
     is \@grown, [ 4, 8, 12, 16, 20 ],
       'in the project itself, the file grows with every run and with the check at the end';
     ok -e "$place/count.txt", 'and stays there';
@@ -314,6 +319,50 @@ subtest 'a copy has the name of the project, links the installed modules, and ho
     ok $result->in_copies, 'the result names the copies';
     my ($inside) = run_fixture( $root, jobs => 1, in_place => 1 );
     ok !$inside->in_copies, 'and a run in the project itself names none';
+};
+
+subtest 'two jobs never work in one copy' => sub {
+    my $module = "package Small;\nuse strict;\nuse warnings;\nsub next_one { return \$_[0] + 1 }\n"
+      . "sub size { return \$_[0] > 5 ? 'big' : 'small' }\n1;\n";
+
+    # The test holds a directory of its own while it runs, so a second test in the same place finds it taken.
+    my $holding =
+        "use Test::More tests => 2;\nuse Small;\nopen my \$log, '>>', \$ENV{RUN_LOG} or die \$!;\n"
+      . "print {\$log} mkdir('held') ? \"alone\\n\" : \"taken\\n\";\nclose \$log;\n"
+      . "select undef, undef, undef, 0.3;\nrmdir 'held';\n"
+      . "is Small::next_one(2), 3, 'the next one';\nis Small::size(9), 'big', 'a size';\n";
+    my $root = project( 'lib/Small.pm' => $module, 't/small.t' => $holding );
+    my $log  = File::Temp->new;
+    local $ENV{RUN_LOG} = $log->filename;
+    my ($result) = run_fixture( $root, jobs => 2 );
+    open my $handle, '<', $log->filename or die "read: $!";
+    chomp( my @lines = readline $handle );
+    is \@lines, [ ('alone') x ( 1 + scalar $result->entries->@* ) ],
+      'every run of the test has its directory to itself';
+    is scalar $result->entries->@*, 7, 'for the unmodified run and seven mutants';
+};
+
+subtest 'a directory without any right in the temporary directory of a test goes with the work directory' => sub {
+    my $sealing =
+        "use Test::More tests => 1;\nuse Small;\nmkdir \"\$ENV{TMPDIR}/sealed\" or die \$!;\n"
+      . "mkdir \"\$ENV{TMPDIR}/sealed/inner\" or die \$!;\n"
+      . "open my \$out, '>', \"\$ENV{TMPDIR}/sealed/inner/file.txt\" or die \$!;\nclose \$out;\n"
+      . "chmod 0, \"\$ENV{TMPDIR}/sealed\" or die \$!;\nis Small::next_one(2), 3, 'the next one';\n";
+    my $root = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $sealing );
+    my ($result) = run_fixture( $root, jobs => 1 );
+    is [ sort values statuses($result)->%* ], [ ('Killed') x 3 ], 'the mutants are measured';
+    is $result->warnings,                     [],                 'without a warning';
+    is [ glob "$root/.permutl/*" ],           [],                 'and the work directory is gone';
+};
+
+subtest 'a work directory that resists removal stays, and a warning names it' => sub {
+    my $root = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $TEST );
+    no warnings 'redefine';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
+    local *Permutl::Tree::remove = sub { die "stuck\n" };
+    my ($result) = run_fixture( $root, jobs => 1, in_place => 1 );
+    my ($work)   = glob "$root/.permutl/run-*";
+    is $result->warnings, ["the work directory $work stays, because a file in it resists removal"], 'the warning';
+    is [ sort values statuses($result)->%* ], [ ('Killed') x 3 ], 'and the mutants are measured';
 };
 
 subtest 'a temporary directory inside the project is no part of a copy' => sub {
