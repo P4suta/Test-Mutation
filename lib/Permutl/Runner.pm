@@ -21,12 +21,14 @@ use Permutl::Record;
 use Permutl::Result;
 use Permutl::Source;
 use Permutl::Syntax::PPI;
+use Permutl::Tree;
 use Permutl::Verdict;
 
 our $VERSION = '0.001';
 
-my $SHIM_FILE  = 'Permutl/Shim.pm';
-my %UNDETECTED = ( Survived => 1, NoCoverage => 1 );
+my $SHIM_FILE     = 'Permutl/Shim.pm';
+my %UNDETECTED    = ( Survived => 1, NoCoverage => 1 );
+my $CHANGES_NAMED = 5;
 
 my $ANALYSIS = Dict [
     sources   => HashRef [ InstanceOf ['Permutl::Source'] ],
@@ -128,6 +130,7 @@ sub run ( $config, $listener ) {
               [ map { { name => $_, duration => $baseline->{tests}{$_}{duration} } } sort keys $baseline->{tests}->%* ];
             if ( !$baseline->{failures}->@* ) {
                 $listener->( 'baseline', { tests => scalar(@tests), jobs => $run->{jobs} } );
+                $run->{tree} = _tree($run);
                 $result{entries} = _mutants( $run, $analysis->{mutants}, $baseline );
             }
             1;
@@ -356,33 +359,38 @@ sub _collect ($task) {
     return ( $record, $errors );
 }
 
+# Runs tests against the unmodified sources, which the hook serves as it serves a mutant.
+sub _unmodified ( $run, $name, $trace, $jobs, $tests ) {
+    my $root  = $run->{root};
+    my $spec  = _spec( $run, $name, $trace, [ map { [ "$root/$_", "$root/$_" ] } $run->{targets}->@* ] );
+    my @queue = $tests->@*;
+    my %outcome;
+    Permutl::Pool::run(
+        jobs => $jobs,
+        next => sub {
+            my $test = shift @queue or return;
+            return _test_task(
+                $run,
+                test            => $test,
+                spec            => $spec,
+                timeout         => $run->{config}->baseline_timeout,
+                stop_on_failure => 0,
+                payload         => {},
+            );
+        },
+        done => sub ( $task, $result ) {
+            my ( $record, $errors ) = _collect($task);
+            $outcome{ $task->{payload}{test} } = { result => $result, record => $record, errors => $errors };
+            return;
+        },
+    );
+    return \%outcome;
+}
+
 sub _baseline ( $run, $tests, $targets ) {
     my $root = $run->{root};
-    my $spec = _spec( $run, 'baseline', $run->{config}->coverage eq 'line',
-        [ map { [ "$root/$_", "$root/$_" ] } $targets->@* ] );
     my $pass = sub ( $jobs, $names ) {
-        my @queue = $names->@*;
-        my %outcome;
-        Permutl::Pool::run(
-            jobs => $jobs,
-            next => sub {
-                my $test = shift @queue or return;
-                return _test_task(
-                    $run,
-                    test            => $test,
-                    spec            => $spec,
-                    timeout         => $run->{config}->baseline_timeout,
-                    stop_on_failure => 0,
-                    payload         => {},
-                );
-            },
-            done => sub ( $task, $result ) {
-                my ( $record, $errors ) = _collect($task);
-                $outcome{ $task->{payload}{test} } = { result => $result, record => $record, errors => $errors };
-                return;
-            },
-        );
-        return \%outcome;
+        return _unmodified( $run, 'baseline', $run->{config}->coverage eq 'line', $jobs, $names );
     };
 
     my $outcome       = $pass->( $run->{jobs}, $tests );
@@ -483,9 +491,32 @@ sub _mutants ( $run, $mutants, $baseline ) {
     }
 
     my @entries = map { $entry_of{ $_->id } } $mutants->@*;
-    _save_cache( $run, $cache, \@entries ) if $cache;
+    my $changes = $completed ? Permutl::Tree::changes( $run->{tree}, _tree($run) ) : [];
+    _recheck( $run, [ sort keys $baseline->{tests}->%* ], \@entries, $changes ) if $changes->@*;
+    _save_cache( $run, $cache, \@entries )                                      if $cache && !$changes->@*;
     _ignore_repeated_code( $run, \@entries );
     return \@entries;
+}
+
+sub _tree ($run) {
+    return Permutl::Tree::snapshot( root => $run->{root}, skip => [ '.git', $run->{config}->work_directory ] );
+}
+
+# A mutant runs with the rights of the tests, so it may leave a file that makes a test fail from then on.
+# A kill by such a test proves nothing about the mutant, so the unmodified tests run once more to find them.
+sub _recheck ( $run, $tests, $entries, $changes ) {
+    my @named = $changes->@[ 0 .. List::Util::min( $changes->$#*, $CHANGES_NAMED - 1 ) ];
+    my $rest  = $changes->@* - @named;
+    _warn( $run, 'the mutants changed the project: ' . join( ', ', @named ) . ( $rest ? " and $rest more" : q{} ) );
+
+    my $outcome = _unmodified( $run, 'recheck', 0, $run->{jobs}, $tests );
+    my %broken  = map { $_ => 1 } grep { !$outcome->{$_}{result}{passed} } $tests->@*;
+    for my $entry ( grep { $_->{status} eq 'Killed' && $broken{ $_->{by} } } $entries->@* ) {
+        $entry->@{qw(status reason)} =
+          ( 'RuntimeError', "$entry->{by} fails without a mutant since the mutants changed the project" );
+    }
+    _warn( $run, "$_ fails without a mutant now, so the mutants it detected have no verdict" ) for sort keys %broken;
+    return;
 }
 
 sub _after_task ( $run, $baseline, $task, $result ) {

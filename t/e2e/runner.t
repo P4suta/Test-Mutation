@@ -211,6 +211,60 @@ subtest 'warnings come once each and in the order of their text' => sub {
       'a load failure of the file that fails the check counts as a compile error';
 };
 
+subtest 'a mutant that leaves a file in the project takes the verdict from the tests it breaks' => sub {
+    my $module = "package Small;\nuse strict;\nuse warnings;\nsub next_one { return \$_[0] + 1 }\n"
+      . "sub size { return \$_[0] > 5 ? 'big' : 'small' }\n1;\n";
+
+    # The first test stands for code that writes a file when it goes wrong, and the second test trips over that file.
+    my $writer =
+        "use Test::More tests => 1;\nuse Small;\nmy \$next = Small::next_one(2);\n"
+      . "if ( \$next != 3 ) { open my \$out, '>', 'left-behind.txt' or die \$!; close \$out }\n"
+      . "is \$next, 3, 'the next one';\n";
+    my $reader = "use Test::More tests => 2;\nuse Small;\nok !-e 'left-behind.txt', 'no file is in the way';\n"
+      . "is Small::size(9), 'big', 'a size';\n";
+    my $root = project( 'lib/Small.pm' => $module, 't/reader.t' => $reader, 't/writer.t' => $writer );
+    my ($result) = run_fixture( $root, jobs => 1 );
+
+    is $result->warnings,
+      [
+        't/reader.t fails without a mutant now, so the mutants it detected have no verdict',
+        'the mutants changed the project: created left-behind.txt',
+      ],
+      'the warnings name the change and the test that it breaks';
+    my %entry = map { $_->{mutant}->from->[0] . q{ } . $_->{mutant}->description => $_ } $result->entries->@*;
+    is {
+        map { $_ => $entry{$_}{status} } sort keys %entry
+    },
+      {
+        '4 removed the body of next_one' => 'Killed',
+        '4 removed the return value'     => 'Killed',
+        '4 replaced + with -'            => 'Killed',
+        '5 removed the body of size'     => 'RuntimeError',
+        '5 removed the return value'     => 'RuntimeError',
+        '5 replaced > with <='           => 'RuntimeError',
+        '5 replaced > with >='           => 'RuntimeError',
+      },
+      'a kill by the broken test is no kill, and a kill by a sound test stays';
+    is $entry{'5 replaced > with >='}{reason},
+      't/reader.t fails without a mutant since the mutants changed the project',
+      'the reason of a mutant without a verdict';
+    ok !$result->conclusive,       'the run is not conclusive';
+    ok -e "$root/left-behind.txt", 'the file stays for the user to judge';
+};
+
+subtest 'a project that the mutants leave alone is not checked again' => sub {
+    my $counted = "use Test::More tests => 1;\nuse Small;\nopen my \$log, '>>', \"\$ENV{RUN_LOG}\" or die \$!;\n"
+      . "print {\$log} \"run\\n\";\nclose \$log;\nis Small::next_one(2), 3, 'the next one';\n";
+    my $root = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $counted );
+    my $log  = File::Temp->new;
+    local $ENV{RUN_LOG} = $log->filename;
+    my ($result) = run_fixture( $root, jobs => 1 );
+    is $result->warnings, [], 'no warning';
+    open my $handle, '<', $log->filename or die "read: $!";
+    my @runs = readline $handle;
+    is scalar(@runs), 1 + 3, 'one unmodified run and one run for each of the three mutants';
+};
+
 subtest 'a source that holds a single zero keeps its text' => sub {
     my $root     = project( 'lib/Zero.pm' => '0', 'lib/Small.pm' => $MODULE );
     my $analysis = Permutl::Runner::analyze( Permutl::Config->new( root => $root ) );
