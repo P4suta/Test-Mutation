@@ -6,6 +6,7 @@ use lib 't/e2e/lib';
 use Fixture qw(run_fixture statuses write_file);
 use Permutl::Config;
 use Permutl::Runner;
+use Permutl::Tree;
 
 my $MODULE = "package Small;\nuse strict;\nuse warnings;\nsub next_one { return \$_[0] + 1 }\n1;\n";
 my $TEST   = "use Test::More tests => 1;\nuse Small;\nis Small::next_one(2), 3, 'the next one';\n";
@@ -114,23 +115,27 @@ subtest 'tests that fail side by side run one at a time' => sub {
 };
 
 subtest 'a test that fails on its own is not blamed on the parallel run' => sub {
-    my $counted = "use Test::More tests => 1;\nuse Small;\nopen my \$log, '>>', 'runs.txt' or die \$!;\n"
+    my $counted = "use Test::More tests => 1;\nuse Small;\nopen my \$log, '>>', \$ENV{RUN_LOG} or die \$!;\n"
       . "print {\$log} \"run\\n\";\nclose \$log;\nis Small::next_one(2), 4, 'never equal';\n";
-    my $runs = sub ($root) {
-        open my $handle, '<', "$root/runs.txt" or return 0;
+    my $runs = sub ($log) {
+        open my $handle, '<', $log->filename or die "read: $!";
         my @lines = readline $handle;
         return scalar @lines;
     };
 
     my $alone = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $counted );
+    my $first = File::Temp->new;
+    local $ENV{RUN_LOG} = $first->filename;
     my ($serial) = run_fixture( $alone, jobs => 1 );
     is [ map { $_->{test} } $serial->baseline_failures->@* ], ['t/small.t'], 'the failure is reported with one job';
-    is $runs->($alone),                                       1,             'and the test ran once';
+    is $runs->($first),                                       1,             'and the test ran once';
 
     my $beside = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $counted );
+    my $second = File::Temp->new;
+    local $ENV{RUN_LOG} = $second->filename;
     my ($parallel) = run_fixture( $beside, jobs => 2 );
     is [ map { $_->{test} } $parallel->baseline_failures->@* ], ['t/small.t'], 'the failure is reported with two jobs';
-    is $runs->($beside),                                        2,             'after a second attempt on its own';
+    is $runs->($second),                                        2,             'after a second attempt on its own';
     is [ $parallel->parallel_safe, $parallel->warnings ],       [ 1, [] ],     'and the parallel run gets no blame';
 };
 
@@ -211,7 +216,102 @@ subtest 'warnings come once each and in the order of their text' => sub {
       'a load failure of the file that fails the check counts as a compile error';
 };
 
-subtest 'a mutant that leaves a file in the project takes the verdict from the tests it breaks' => sub {
+# A module with two subs, a test that writes files when the first sub goes wrong, and a test that trips over one of them.
+sub writing_project () {
+    my $module = "package Small;\nuse strict;\nuse warnings;\nsub next_one { return \$_[0] + 1 }\n"
+      . "sub size { return \$_[0] > 5 ? 'big' : 'small' }\n1;\n";
+    my $writer =
+        "use Test::More tests => 1;\nuse Small;\nmy \$next = Small::next_one(2);\n"
+      . "if ( \$next != 3 ) { for my \$name ( 'left-behind.txt', map { \"more-\$_.txt\" } 1 .. 6 ) {"
+      . " open my \$out, '>', \$name or die \$!; close \$out } }\n"
+      . "is \$next, 3, 'the next one';\n";
+    my $reader = "use Test::More tests => 2;\nuse Small;\nok !-e 'left-behind.txt', 'no file is in the way';\n"
+      . "is Small::size(9), 'big', 'a size';\n";
+    return project( 'lib/Small.pm' => $module, 't/reader.t' => $reader, 't/writer.t' => $writer );
+}
+
+sub status_by_line ($result) {
+    return { map { $_->{mutant}->from->[0] . q{ } . $_->{mutant}->description => $_->{status} } $result->entries->@* };
+}
+
+sub project_state ($root) {
+    return Permutl::Tree::snapshot( root => $root, skip => ['.permutl'] );
+}
+
+subtest 'a mutant that leaves a file changes a copy, and the project and the later mutants stay clear of it' => sub {
+    for my $jobs ( 1, 4 ) {
+        my $root     = writing_project();
+        my $before   = project_state($root);
+        my ($result) = run_fixture( $root, jobs => $jobs );
+        is $result->warnings, [], "no warning with $jobs side by side";
+        is status_by_line($result),
+          {
+            '4 removed the body of next_one' => 'Killed',
+            '4 removed the return value'     => 'Killed',
+            '4 replaced + with -'            => 'Killed',
+            '5 removed the body of size'     => 'Killed',
+            '5 removed the return value'     => 'Killed',
+            '5 replaced > with <='           => 'Killed',
+            '5 replaced > with >='           => 'Survived',
+          },
+          'every mutant has the verdict of its own tests';
+        ok $result->conclusive, 'the run is conclusive';
+        is Permutl::Tree::changes( $before, project_state($root) ), [], 'the project is as it was';
+    }
+};
+
+subtest 'the tests of each mutant start from the state that the unmodified run left' => sub {
+    my $counting =
+        "use Test::More tests => 1;\nuse Small;\nopen my \$count, '>>', 'count.txt' or die \$!;\n"
+      . "print {\$count} \"run\\n\";\nclose \$count;\nopen my \$log, '>>', \$ENV{RUN_LOG} or die \$!;\n"
+      . "print {\$log} -s 'count.txt', \"\\n\";\nclose \$log;\nis Small::next_one(2), 3, 'the next one';\n";
+    my $root = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $counting );
+    my $log  = File::Temp->new;
+    local $ENV{RUN_LOG} = $log->filename;
+    my ($result) = run_fixture( $root, jobs => 1 );
+    open my $handle, '<', $log->filename or die "read: $!";
+    chomp( my @sizes = readline $handle );
+    is \@sizes, [ 4, 8, 8, 8 ], 'each mutant finds the one line that the unmodified run wrote';
+    ok !-e "$root/count.txt", 'and the project gets no such file';
+
+    my $place = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $counting );
+    my $other = File::Temp->new;
+    local $ENV{RUN_LOG} = $other->filename;
+    run_fixture( $place, jobs => 1, in_place => 1 );
+    open my $read, '<', $other->filename or die "read: $!";
+    chomp( my @grown = readline $read );
+    is \@grown, [ 4, 8, 12, 16, 20 ],
+      'in the project itself, the file grows with every run and with the check at the end';
+    ok -e "$place/count.txt", 'and stays there';
+};
+
+subtest 'a copy has the name of the project, links the installed modules, and holds no repository data' => sub {
+    my $looking =
+        "use Test::More tests => 1;\nuse Cwd ();\nuse lib 'local/lib/perl5';\nuse Helper;\nuse Small;\n"
+      . "open my \$log, '>', \$ENV{RUN_LOG} or die \$!;\n"
+      . "print {\$log} join \"\\n\", Cwd::getcwd(), ( -e '.git' ? 'git' : 'no git' ), ( -l 'local' ? 'link' : 'no link' ),"
+      . " ( -e 'permutl-report' ? 'report' : 'no report' ), Helper::name(), q{};\nclose \$log;\n"
+      . "is Small::next_one(2), 3, 'the next one';\n";
+    my $root = project(
+        'lib/Small.pm'              => $MODULE,
+        't/small.t'                 => $looking,
+        '.git/HEAD'                 => "ref: refs/heads/main\n",
+        'permutl-report/old.json'   => '{}',
+        'local/lib/perl5/Helper.pm' => "package Helper;\nsub name { return 'helper' }\n1;\n",
+    );
+    my $log = File::Temp->new;
+    local $ENV{RUN_LOG} = $log->filename;
+    my ($result) = run_fixture( $root, jobs => 1 );
+    is statuses($result), hash { all_vals 'Killed'; etc }, 'the tests pass in the copy and detect the mutants';
+    open my $handle, '<', $log->filename or die "read: $!";
+    chomp( my ( $directory, @facts ) = readline $handle );
+    is \@facts,      [ 'no git', 'link', 'no report', 'helper' ], 'what a test finds in its directory';
+    isnt $directory, $root, 'the directory of a test is another one than the project';
+    is [ ( split m{/}, $directory )[-1] ], [ ( split m{/}, $root )[-1] ], 'and has its name';
+    ok !-e $directory, 'the copies are gone after the run';
+};
+
+subtest 'in the project itself, a mutant that leaves a file takes the verdict from the tests it breaks' => sub {
     my $module = "package Small;\nuse strict;\nuse warnings;\nsub next_one { return \$_[0] + 1 }\n"
       . "sub size { return \$_[0] > 5 ? 'big' : 'small' }\n1;\n";
 
@@ -224,7 +324,7 @@ subtest 'a mutant that leaves a file in the project takes the verdict from the t
     my $reader = "use Test::More tests => 2;\nuse Small;\nok !-e 'left-behind.txt', 'no file is in the way';\n"
       . "is Small::size(9), 'big', 'a size';\n";
     my $root = project( 'lib/Small.pm' => $module, 't/reader.t' => $reader, 't/writer.t' => $writer );
-    my ($result) = run_fixture( $root, jobs => 1 );
+    my ($result) = run_fixture( $root, jobs => 1, in_place => 1 );
 
     is $result->warnings,
       [
