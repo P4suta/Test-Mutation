@@ -19,6 +19,8 @@ subtest 'defaults' => sub {
     is $config->report_directory, 'permutl-report',         'report directory';
     is $config->threshold_break,  undef,                    'no failing threshold';
     is $config->jobs,             1,                        'jobs';
+    is $config->in_place,         0,                        'the tests run in copies of the project';
+    is $config->link,             ['local'],                'the copies link the directory of installed modules';
 };
 
 subtest 'the file sets attributes through sections' => sub {
@@ -30,7 +32,9 @@ subtest 'the file sets attributes through sections' => sub {
                 include          => ['xt/**/*.t'],
                 switches         => [ '-Ilib', '-Mblib' ],
                 'timeout-factor' => 2.5,
-                coverage         => 'file'
+                coverage         => 'file',
+                'in-place'       => 1,
+                link             => [ 'local', 'vendor' ],
             },
             mutators   => { profile   => 'extended', disable => ['sub-body'] },
             report     => { directory => 'out',      formats => ['json'] },
@@ -49,6 +53,8 @@ subtest 'the file sets attributes through sections' => sub {
     is $config->report_directory, 'out',                 'report directory';
     is $config->formats,          ['json'],              'formats';
     is $config->threshold_break,  75,                    'failing threshold';
+    is $config->in_place,         1,                     'tests in the project itself';
+    is $config->link,             [ 'local', 'vendor' ], 'linked directories';
 };
 
 subtest 'priority rises from defaults to the file to the command line' => sub {

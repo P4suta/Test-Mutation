@@ -79,6 +79,23 @@ subtest 'a test that fails without any mutant stops the run' => sub {
     unlike $run->{stdout}, qr/^Score:/m,                                        'no score';
 };
 
+subtest 'tests that need the repository data fail in a copy and pass in the project itself' => sub {
+    my $root = copy_of('calc');
+    write_file( "$root/.git/HEAD", "ref: refs/heads/main\n" );
+    write_file( "$root/t/repository.t",
+        "use Test::More tests => 1;\nok -e '.git', 'the repository data is at hand';\n" );
+    my $run = permutl( $root, '--jobs', 2 );
+    is $run->{exit}, 3, 'the unmodified run fails in the copy';
+    like $run->{stdout}, qr/^    not ok 1 - the repository data is at hand$/m, 'the output of the test';
+    like $run->{stdout},
+      qr/^The tests ran in a copy of the project, which holds no [.]git directory[.]\n--in-place runs them in the project itself[.]$/m,
+      'the report names the other place for the tests';
+
+    my $inside = permutl( $root, '--jobs', 2, '--in-place' );
+    is $inside->{exit}, 0, '--in-place runs the tests in the project' or diag $inside->{stdout}, $inside->{stderr};
+    like $inside->{stdout}, qr/^19 mutants: 13 killed, 3 survived, 3 no coverage$/m, 'and the mutants are measured';
+};
+
 subtest 'a usage error exits with status 2 and one line' => sub {
     my $root    = copy_of('calc');
     my $unknown = permutl( $root, '--no-such-option' );

@@ -2,8 +2,10 @@ package Permutl::Runner;
 use v5.36;
 use Cwd             ();
 use Digest::SHA     ();
+use File::Basename  ();
 use File::Find      ();
 use File::Path      ();
+use File::Spec      ();
 use File::Temp      ();
 use List::Util      ();
 use Time::HiRes     ();
@@ -40,7 +42,12 @@ my $ANALYSIS = Dict [
 signature_for analyze => ( positional => [ InstanceOf ['Permutl::Config'] ], returns => $ANALYSIS );
 
 sub analyze ($config) {
-    my $root     = Cwd::abs_path( $config->root );
+    my $root = Cwd::abs_path( $config->root );
+    return _analysis( $config, $root, $root );
+}
+
+# Git answers for the project, and the files come from the tree that the tests run in.
+sub _analysis ( $config, $project, $root ) {
     my $mutators = Permutl::Mutator::Catalog::choose(
         profile => $config->profile,
         enable  => $config->enable,
@@ -48,7 +55,7 @@ sub analyze ($config) {
     );
     my ( %sources, @mutants, @problems );
     my %only    = map { $_ => 1 } $config->only->@*;
-    my $changed = defined $config->since ? Permutl::Git::changed( $root, $config->since ) : undef;
+    my $changed = defined $config->since ? Permutl::Git::changed( $project, $config->since ) : undef;
     my $perl    = _perl_version( $config->perl );
     for my $path ( Permutl::Project::files( $root, $config->source_include, $config->source_exclude )->@* ) {
         next if $changed && !$changed->{$path};
@@ -101,28 +108,105 @@ signature_for run => (
 );
 
 sub run ( $config, $listener ) {
-    my $started  = Time::HiRes::time();
-    my $root     = Cwd::abs_path( $config->root );
-    my $analysis = analyze($config);
-    my @tests    = Permutl::Project::files( $root, $config->test_include, $config->test_exclude )->@*;
-    my @active   = grep { !$_->suppressed } $analysis->{mutants}->@*;
-    my %targets  = map  { $_->path => 1 } @active;
-
-    my $run = {
+    my $started = Time::HiRes::time();
+    my $project = Cwd::abs_path( $config->root );
+    my $run     = {
         config   => $config,
-        root     => $root,
+        project  => $project,
+        root     => $project,
         listener => $listener,
-        sources  => $analysis->{sources},
         jobs     => $config->jobs,
         sequence => 0,
         taint    => {},
         warnings => {},
+        free     => {},
     };
+    my $result = eval {
+        _copy_project($run) if !$config->in_place;
+        _measure( $run, $started );
+    };
+    my $error = $@;
+    _discard( $run->{copies} ) if defined $run->{copies};
+    die $error                 if !$result;                 ## no critic (ErrorHandling::RequireCarping)
+    return $result;
+}
+
+# The tests run in a copy of the project, so a file that a test writes or removes leaves the project as it was.
+sub _copy_project ($run) {
+    my $config  = $run->{config};
+    my $project = $run->{project};
+    $run->{name}   = File::Basename::basename($project);
+    $run->{copies} = Cwd::abs_path( File::Temp::tempdir( q{permutl-XXXXXX}, TMPDIR => 1 ) );
+
+    # A temporary directory inside the project holds the copies, which are no part of a copy.
+    my @skip =
+      ( q{.git}, map { _inside( $project, $_ ) } $config->work_directory, $config->report_directory, $run->{copies} );
+    my $copied = eval { $run->{root} = _new_copy( $run, $project, \@skip, $config->link ); 1 };
+    return if $copied;
+    chomp( my $reason = "$@" );
+    die "cannot copy the project: $reason; --in-place runs the tests in the project itself\n";
+}
+
+# The path from the project to a place inside it, and nothing for a place outside.
+sub _inside ( $project, $path ) {
+    my $absolute = File::Spec->canonpath( File::Spec->rel2abs( $path, $project ) );
+    my $prefix   = "$project/";
+    return substr( $absolute, 0, length $prefix ) eq $prefix ? substr $absolute, length $prefix : ();
+}
+
+# Each copy has the name of the project inside a directory of its own.
+sub _new_copy ( $run, $from, $skip, $link ) {
+    my $to = File::Temp::tempdir( q{XXXXXX}, DIR => $run->{copies} ) . "/$run->{name}";
+    Permutl::Tree::copy( from => $from, to => $to, skip => $skip, link => $link );
+    return $to;
+}
+
+# Every mutant starts from the state that the unmodified run left, so each job works in a copy of its own.
+# A job takes a copy that no job uses, or a new one, and records the state it finds.
+sub _job_root ( $run, $job ) {
+    return $run->{root} if !defined $run->{copies};
+    if ( !$job->{copy} ) {
+        my ($free) = sort keys $run->{free}->%*;
+        my $root = defined $free ? $free : _new_copy( $run, $run->{root}, [], [] );
+        delete $run->{free}{$root};
+        $job->{copy} = { root => $root, state => Permutl::Tree::snapshot( root => $root, skip => [] ) };
+    }
+    return $job->{copy}{root};
+}
+
+# A mutant may leave a changed copy behind, so the copy returns to its state before the next job takes it.
+# A copy that fails to return stays out of use, and the next job makes a new one.
+sub _release ( $run, $job ) {
+    my $copy    = delete $job->{copy} or return;
+    my $root    = $copy->{root};
+    my $changes = Permutl::Tree::changes( $copy->{state}, Permutl::Tree::snapshot( root => $root, skip => [] ) );
+    return
+      if $changes->@* && !eval { Permutl::Tree::restore( from => $run->{root}, to => $root, changes => $changes ); 1 };
+    $run->{free}{$root} = 1;
+    return;
+}
+
+# A test may leave a directory without any right, and such a leftover must not end the run.
+sub _discard (@paths) {
+    return scalar grep {
+        !eval { Permutl::Tree::remove($_); 1 }
+    } @paths;
+}
+
+sub _measure ( $run, $started ) {
+    my $config   = $run->{config};
+    my $listener = $run->{listener};
+    my $root     = $run->{root};
+    my $analysis = _analysis( $config, $run->{project}, $root );
+    my @tests    = Permutl::Project::files( $root, $config->test_include, $config->test_exclude )->@*;
+    my @active   = grep { !$_->suppressed } $analysis->{mutants}->@*;
+    my %targets  = map  { $_->path => 1 } @active;
+    $run->{sources} = $analysis->{sources};
     $listener->( 'analyzed',
         { mutants => scalar(@active), files => scalar( keys %targets ), tests => scalar(@tests) } );
 
     my %result = (
-        root              => $root,
+        root              => $run->{project},
         sources           => { map { $_ => $analysis->{sources}{$_}->text } keys $analysis->{sources}->%* },
         tests             => [],
         entries           => [],
@@ -145,14 +229,15 @@ sub run ( $config, $listener ) {
               [ map { { name => $_, duration => $baseline->{tests}{$_}{duration} } } sort keys $baseline->{tests}->%* ];
             if ( !$baseline->{failures}->@* ) {
                 $listener->( 'baseline', { tests => scalar(@tests), jobs => $run->{jobs} } );
-                $run->{tree} = _tree($run);
+                $run->{tree} = _tree($run) if !defined $run->{copies};
                 $result{entries} = _mutants( $run, $analysis->{mutants}, $baseline );
             }
             1;
         };
         my $error = $@;
-        File::Path::remove_tree( $run->{work} ) if !$config->keep_work;
-        die $error                              if !$measured;            ## no critic (ErrorHandling::RequireCarping)
+        _warn( $run, "the work directory $run->{work} stays, because a file in it resists removal" )
+          if !$config->keep_work && _discard( $run->{work} );
+        die $error if !$measured;    ## no critic (ErrorHandling::RequireCarping)
     }
     else {
         _warn( $run, 'no test files match' ) if @active && !@tests;
@@ -167,6 +252,7 @@ sub run ( $config, $listener ) {
         jobs        => $run->{jobs},
         interrupted => $run->{interrupted},
         reused      => $run->{reused} || 0,
+        in_copies   => defined $run->{copies} ? 1 : 0,
         finished    => Time::HiRes::time(),
     );
 }
@@ -209,7 +295,7 @@ sub _warn ( $run, $text ) {
 }
 
 sub _prepare_work ($run) {
-    my $base = $run->{root} . q{/} . $run->{config}->work_directory;
+    my $base = $run->{project} . q{/} . $run->{config}->work_directory;
     File::Path::make_path($base);
     my $work       = File::Temp::tempdir( 'run-XXXXXX', DIR => $base );
     my $outer      = $ENV{PERMUTL_GENERATION};
@@ -283,12 +369,12 @@ sub _inherited ($name) {
     return defined $value && length $value ? ($value) : ();
 }
 
-sub _environment ( $run, $spec ) {
+sub _environment ( $run, $spec, $root ) {
     my $generation = $run->{generation};
     return (
         "PERMUTL_SPEC_G$generation" => $spec,
         PERMUTL_GENERATION          => $generation,
-        PERMUTL_ROOT                => $run->{root},
+        PERMUTL_ROOT                => $root,
         PERL5OPT                    => join( q{ }, _inherited('PERL5OPT'), '-M' . $run->{package} ),
         PERL5LIB                    => join( q{:}, "$run->{work}/shim",    _inherited('PERL5LIB') ),
     );
@@ -305,10 +391,10 @@ sub target_pairs ( $root, $paths, $mutated, $file ) {
     return [ map { [ "$root/$_", $_ eq $mutated ? $file : "$root/$_" ] } @paths ];
 }
 
-sub _write_mutant ( $run, $source, $mutant ) {
+sub _write_mutant ( $run, $source, $mutant, $root ) {
     my $file = "$run->{work}/mutants/" . $mutant->id . '.pm';
     _spew( $file, $source->to_bytes( $source->replace_span( $mutant->start, $mutant->end, $mutant->replacement ) ) );
-    my $targets = target_pairs( $run->{root}, $run->{targets} ? $run->{targets} : [], $mutant->path, $file );
+    my $targets = target_pairs( $root, $run->{targets} ? $run->{targets} : [], $mutant->path, $file );
     my $spec    = _spec( $run, 'mutants/' . $mutant->id, 0, $targets );
     return ( $file, $spec );
 }
@@ -321,22 +407,23 @@ signature_for run_command => (
 );
 
 sub run_command ( $config, $source, $mutant, $command ) {
-    my $run = { config => $config, root => Cwd::abs_path( $config->root ) };
+    my $root = Cwd::abs_path( $config->root );
+    my $run  = { config => $config, project => $root, root => $root };
     _prepare_work($run);
-    my ( undef, $spec ) = _write_mutant( $run, $source, $mutant );
+    my ( undef, $spec ) = _write_mutant( $run, $source, $mutant, $root );
     my $status = do {
-        local %ENV = ( %ENV, _environment( $run, $spec ) );
+        local %ENV = ( %ENV, _environment( $run, $spec, $root ) );
         system { $command->[0] } $command->@*;
     };
-    File::Path::remove_tree( $run->{work} );
+    _discard( $run->{work} );
     return 127                     if $status == -1;
     return 128 + ( $status & 127 ) if $status & 127;
     return $status >> 8;
 }
 
 # prove names its library directories in full, so a test may change its directory before it loads a module.
-sub _switches ($run) {
-    return map { s{\A-I(?=[^/])}{-I$run->{root}/}r } $run->{config}->switches->@*;
+sub _switches ( $run, $root ) {
+    return map { s{\A-I(?=[^/])}{-I$root/}r } $run->{config}->switches->@*;
 }
 
 sub _test_task ( $run, %arg ) {
@@ -349,15 +436,19 @@ sub _test_task ( $run, %arg ) {
     my $taint = _taint_switch( $run, $arg{test} );
     my $load  = '-M' . $run->{package};
     return {
-        command =>
-          [ $run->{config}->perl, _switches($run), ( $taint ? $taint : () ), "-I$work/shim", $load, $arg{test}, ],
+        command => [
+            $run->{config}->perl,     _switches( $run, $arg{root} ),
+            ( $taint ? $taint : () ), "-I$work/shim",
+            $load,                    $arg{test},
+        ],
         env => {
-            _environment( $run, $arg{spec} ),
+            _environment( $run, $arg{spec}, $arg{root} ),
             "PERMUTL_RECORD_G$generation" => $record,
             HARNESS_ACTIVE                => 1,
+            PWD                           => $arg{root},
             TMPDIR                        => $tmp,
         },
-        cwd             => $run->{root},
+        cwd             => $arg{root},
         timeout         => $arg{timeout},
         stop_on_failure => $arg{stop_on_failure},
         stderr          => "$work/stderr/$sequence.txt",
@@ -369,7 +460,7 @@ sub _collect ($task) {
     my $payload = $task->{payload};
     my $record  = Permutl::Record::read_directory( $payload->{record} );
     my $errors  = -f $task->{stderr} ? _slurp( $task->{stderr} ) : q{};
-    File::Path::remove_tree( $payload->{record}, $payload->{tmp} );
+    _discard( $payload->{record}, $payload->{tmp} );
     unlink $task->{stderr};
     return ( $record, $errors );
 }
@@ -386,6 +477,7 @@ sub _unmodified ( $run, $name, $trace, $jobs, $tests ) {
             my $test = shift @queue or return;
             return _test_task(
                 $run,
+                root            => $root,
                 test            => $test,
                 spec            => $spec,
                 timeout         => $run->{config}->baseline_timeout,
@@ -473,6 +565,7 @@ sub _mutants ( $run, $mutants, $baseline ) {
     my @waiting = @jobs;
     my $finish  = sub ($job) {
         $entry_of{ $job->{mutant}->id } = _finish( $run, $job );
+        _release( $run, $job );
         return;
     };
     my $completed = eval {
@@ -506,7 +599,7 @@ sub _mutants ( $run, $mutants, $baseline ) {
     }
 
     my @entries = map { $entry_of{ $_->id } } $mutants->@*;
-    my $changes = $completed ? Permutl::Tree::changes( $run->{tree}, _tree($run) ) : [];
+    my $changes = $completed && $run->{tree} ? Permutl::Tree::changes( $run->{tree}, _tree($run) ) : [];
     _recheck( $run, [ sort keys $baseline->{tests}->%* ], \@entries, $changes ) if $changes->@*;
     _save_cache( $run, $cache, \@entries )                                      if $cache && !$changes->@*;
     _ignore_repeated_code( $run, \@entries );
@@ -579,6 +672,7 @@ sub _support_files ( $run, $tracked ) {
 sub _open_cache ( $run, $baseline ) {
     my $config = $run->{config};
     my $root   = $run->{root};
+    my $file   = join q{/}, $run->{project}, $config->work_directory, 'cache.json';
     my %digest;
     my $digest_of = sub ($path) {
         $digest{$path} = Digest::SHA::sha256_hex( _slurp("$root/$path") ) if !defined $digest{$path};
@@ -597,8 +691,8 @@ sub _open_cache ( $run, $baseline ) {
         map { ( $_, $digest_of->($_) ) } _support_files( $run, [ @tests, keys $run->{sources}->%* ] ),
     );
     return {
-        path    => "$root/" . $config->work_directory . '/cache.json',
-        records => Permutl::Cache::load( "$root/" . $config->work_directory . '/cache.json' ),
+        path    => $file,
+        records => Permutl::Cache::load($file),
         keys    => {},
         key_of  => sub ($job) {
             my $mutant = $job->{mutant};
@@ -658,7 +752,8 @@ sub _next_code ( $run, $job ) {
     return if !$UNDETECTED{ Permutl::Verdict::final( $job->{verdict} ) };
     my $mutant = $job->{mutant};
     my $path   = $mutant->path;
-    $job->@{qw(file spec)} = _write_mutant( $run, $run->{sources}{$path}, $mutant ) if !defined $job->{spec};
+    $job->@{qw(file spec)} = _write_mutant( $run, $run->{sources}{$path}, $mutant, _job_root( $run, $job ) )
+      if !defined $job->{spec};
 
     # Two runs of the original show whether its compiled code has a stable text.
     my ( $once, $again ) = ( $run->{code_of_original}{$path} ||= [] )->@*;
@@ -687,7 +782,7 @@ sub _after_test ( $run, $task, $result ) {
     my $payload  = $task->{payload};
     my $job      = $payload->{job};
     my $path     = $job->{mutant}->path;
-    my $absolute = "$run->{root}/$path";
+    my $absolute = _job_root( $run, $job ) . "/$path";
     my ($record) = _collect($task);
     $job->{duration} += $result->{duration};
     $job->{outcome} = {
@@ -701,8 +796,8 @@ sub _after_test ( $run, $task, $result ) {
     return if !$job->{outcome}{served} || !$job->{outcome}{load_failed} || defined $job->{syntax_ok};
 
     my $known = $run->{syntax_of_original}{$path};
-    return _compile_task( $run, $job, 'syntax-original', $absolute,    '-c' ) if !defined $known;
-    return _compile_task( $run, $job, 'syntax-mutant',   $job->{file}, '-c' ) if $known;
+    return _compile_task( $run, $job, 'syntax-original', "$run->{root}/$path", '-c' ) if !defined $known;
+    return _compile_task( $run, $job, 'syntax-mutant',   $job->{file},         '-c' ) if $known;
     $job->{outcome}{syntax_ok} = $job->{syntax_ok} = 0;
     return;
 }
@@ -725,12 +820,14 @@ sub _next_test ( $run, $job, $baseline ) {
     my $config = $run->{config};
     my $mutant = $job->{mutant};
     if ( !defined $job->{spec} ) {
-        $job->@{qw(file spec)} = _write_mutant( $run, $run->{sources}{ $mutant->path }, $mutant );
+        $job->@{qw(file spec)} =
+          _write_mutant( $run, $run->{sources}{ $mutant->path }, $mutant, _job_root( $run, $job ) );
     }
     my $test     = $job->{tests}[ $job->{index} ];
     my $duration = $baseline->{tests}{$test}{duration} * $config->timeout_factor;
     return _test_task(
         $run,
+        root            => _job_root( $run, $job ),
         test            => $test,
         spec            => $job->{spec},
         timeout         => List::Util::max( $duration, $config->timeout_floor ),
@@ -742,10 +839,11 @@ sub _next_test ( $run, $job, $baseline ) {
 sub _compile_task ( $run, $job, $kind, $file, $switch ) {
     my $sequence = ++$run->{sequence};
     my $config   = $run->{config};
+    my $root     = _job_root( $run, $job );
     return {
         command         => [ $config->perl, $config->switches->@*, $switch, $file ],
-        env             => { PERL_HASH_SEED => '0', PERL_PERTURB_KEYS => '0' },
-        cwd             => $run->{root},
+        env             => { PERL_HASH_SEED => '0', PERL_PERTURB_KEYS => '0', PWD => $root },
+        cwd             => $root,
         timeout         => $config->baseline_timeout,
         stop_on_failure => 0,
         stderr          => "$run->{work}/stderr/$sequence.txt",
@@ -788,6 +886,8 @@ It first runs every test against the unmodified sources through the same hook th
 That run proves the hook leaves the tests passing, times each test, and records which test reaches which line.
 The runner then serves one mutant at a time to the tests that reach it, fastest first, until a test fails.
 It writes temporary files under the work directory and leaves the project files unchanged.
+The tests run in copies of the project: the unmodified run in one copy, and each job in a copy of the result.
+After every mutant, the runner restores a copy that the tests changed.
 
 =head1 FUNCTIONS
 

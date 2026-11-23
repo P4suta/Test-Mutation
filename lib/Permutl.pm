@@ -68,6 +68,12 @@ A test suite that keeps passing has missed the change, and the report shows wher
 The source files on disk stay as they are.
 Each test process loads a mutated copy through a hook in C<@INC>, so an interrupted run leaves nothing to restore.
 
+The tests run in copies of the project inside the temporary directory.
+A file that a test writes or removes under a mutant changes a copy, and the project stays as it was.
+Each mutant starts from the state that the unmodified run left, so no mutant sees what another one left behind.
+A copy leaves out C<.git>, the work directory, and the report directory, and it holds C<local> as a link.
+C<--in-place> runs the tests in the project itself, for tests that need the repository data.
+
 The unmodified sources run first through the same hook.
 That run times every test and records the lines it reaches, and later each mutant runs the tests that reach its statement.
 
@@ -112,6 +118,8 @@ A file named C<permutl.toml> in the project directory changes the defaults.
     timeout-factor = 4
     timeout-floor = 10
     coverage = "line"
+    in-place = false
+    link = ["local"]
 
     [mutators]
     profile = "default"
@@ -161,8 +169,11 @@ Returns the L<Permutl::Mutant> objects of the project without running a test.
 A file that a test loads by absolute path, and a script that a test runs as a program, run unmutated.
 A child process in taint mode ignores C<PERL5OPT> and runs the original code.
 The run reports a test that loads a source file around the hook.
-A mutant runs with the rights of the tests, so it may create, change, or remove a file of the project.
-The run reports such a change and gives no verdict to a mutant that a test broken by the change detected.
+A mutant runs with the rights of the tests.
+An absolute path, a link that points out of the project, and a linked directory such as C<local> lead a test out of its copy.
+With C<--in-place>, a mutant may create, change, or remove a file of the project.
+The run then reports such a change and gives no verdict to a mutant that a test broken by the change detected.
+C<permutl exec> runs its command in the project itself.
 Linux and macOS are supported.
 
 =head1 AUTHOR

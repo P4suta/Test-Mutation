@@ -14,7 +14,7 @@ write_file( "$root/t/late.t",
         "use Test::More tests => 4;\nuse File::Temp ();\n"
       . "chdir File::Temp::tempdir( CLEANUP => 1 ) or die \$!;\n"
       . "require Late;\nis Late::next_one(2), 3, 'the next one';\n"
-      . "is scalar( grep { \$_ eq '$root/lib' } \@INC ), 1, 'the relative directory is named in full';\n"
+      . "is scalar( grep { m{\\A/.+/lib\\z} && -f \"\$_/Late.pm\" } \@INC ), 1, 'the relative directory is named in full';\n"
       . "is scalar( grep { \$_ eq '$root/elsewhere' } \@INC ), 1, 'a directory named in full stays';\n"
       . "ok \$^W, 'another switch stays';\n" );
 

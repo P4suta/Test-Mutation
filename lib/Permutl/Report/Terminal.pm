@@ -119,6 +119,9 @@ sub _baseline ($result) {
         push @lines, map { "    $_" } grep { length && !/\A\s*ok\b/ && !/\A\s+\d+[.][.]\d+/ } split /\n/,
           $failure->{output} . $failure->{errors};
     }
+    push @lines, 'The tests ran in a copy of the project, which holds no .git directory.',
+      '--in-place runs them in the project itself.'
+      if $result->in_copies;
     return join "\n", @lines;
 }
 

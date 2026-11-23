@@ -171,7 +171,7 @@ subtest 'version, help, and stray arguments' => sub {
     like $help->{stdout}, qr/^\s+permutl mutators$/m,                'the mutators command';
     my @undocumented = grep { $help->{stdout} !~ /^\s+--\Q$_\E\b/m }
       qw(root jobs min-score format report-dir perl source test profile enable disable coverage timeout-factor timeout-floor
-      keep-work mutant since shard no-equivalence cache config);
+      in-place keep-work mutant since shard no-equivalence cache config);
     is \@undocumented, [], 'every option is described';
 
     my $stray = permutl( $root, 'run', 'surplus' );
