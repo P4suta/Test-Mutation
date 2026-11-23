@@ -60,6 +60,10 @@ subtest 'a mutant that no test reaches is compared too' => sub {
         q{    return 'none' if !$_[0];},
         q{    return 'some';},
         '}',
+        'sub other {',
+        q{    return 'zero' if !$_[1];},
+        q{    return 'more';},
+        '}',
         '1;',
         q{},
     );
@@ -67,27 +71,35 @@ subtest 'a mutant that no test reaches is compared too' => sub {
     my ($result) = run_fixture($project);
     is statuses($result),
       {
-        'lib/Idle.pm:4 removed the body of size'  => 'NoCoverage',
-        'lib/Idle.pm:4 removed the return value'  => 'NoCoverage',
-        'lib/Idle.pm:4 replaced > with <='        => 'NoCoverage',
-        'lib/Idle.pm:4 replaced > with >='        => 'Ignored',
-        'lib/Idle.pm:5 removed the body of hour'  => 'NoCoverage',
-        'lib/Idle.pm:5 removed the return value'  => 'NoCoverage',
-        'lib/Idle.pm:5 replaced * with /'         => 'NoCoverage',
-        'lib/Idle.pm:6 removed the body of used'  => 'Killed',
-        'lib/Idle.pm:6 removed the return value'  => 'Killed',
-        'lib/Idle.pm:7 removed the body of label' => 'NoCoverage',
-        'lib/Idle.pm:8 removed the return value'  => 'NoCoverage',
-        'lib/Idle.pm:8 replaced if with unless'   => 'NoCoverage',
-        'lib/Idle.pm:8 removed !'                 => 'Ignored',
-        'lib/Idle.pm:9 removed the return value'  => 'NoCoverage',
+        'lib/Idle.pm:4 removed the body of size'   => 'NoCoverage',
+        'lib/Idle.pm:4 removed the return value'   => 'NoCoverage',
+        'lib/Idle.pm:4 replaced > with <='         => 'NoCoverage',
+        'lib/Idle.pm:4 replaced > with >='         => 'Ignored',
+        'lib/Idle.pm:5 removed the body of hour'   => 'NoCoverage',
+        'lib/Idle.pm:5 removed the return value'   => 'NoCoverage',
+        'lib/Idle.pm:5 replaced * with /'          => 'NoCoverage',
+        'lib/Idle.pm:6 removed the body of used'   => 'Killed',
+        'lib/Idle.pm:6 removed the return value'   => 'Killed',
+        'lib/Idle.pm:7 removed the body of label'  => 'NoCoverage',
+        'lib/Idle.pm:8 removed the return value'   => 'NoCoverage',
+        'lib/Idle.pm:8 replaced if with unless'    => 'NoCoverage',
+        'lib/Idle.pm:8 removed !'                  => 'Ignored',
+        'lib/Idle.pm:9 removed the return value'   => 'NoCoverage',
+        'lib/Idle.pm:11 removed the body of other' => 'NoCoverage',
+        'lib/Idle.pm:12 removed the return value'  => 'NoCoverage',
+        'lib/Idle.pm:12 replaced if with unless'   => 'NoCoverage',
+        'lib/Idle.pm:12 removed !'                 => 'Ignored',
+        'lib/Idle.pm:13 removed the return value'  => 'NoCoverage',
       },
       'a change without effect leaves the score, and a real change stays uncovered';
-    my %entry = map { $_->{mutant}->description => $_ } grep { $_->{mutant}->from->[0] == 8 } $result->entries->@*;
-    is $entry{'removed !'}{reason},
-      'compiles to the same code as mutant ' . $entry{'replaced if with unless'}{mutant}->id,
-      'a repeated change names the mutant that stays';
-    is $result->tally->{score}, 2 / 12 * 100, 'the two ignored mutants leave the score';
+    for my $line ( 8, 12 ) {
+        my %entry =
+          map { $_->{mutant}->description => $_ } grep { $_->{mutant}->from->[0] == $line } $result->entries->@*;
+        is $entry{'removed !'}{reason},
+          'compiles to the same code as mutant ' . $entry{'replaced if with unless'}{mutant}->id,
+          "the repeated change on line $line names the mutant that stays";
+    }
+    is $result->tally->{score}, 2 / 16 * 100, 'the three ignored mutants leave the score';
 };
 
 subtest 'the comparison can be turned off' => sub {

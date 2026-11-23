@@ -23,9 +23,11 @@ subtest 'a second run reuses every measured result' => sub {
     ok -f "$root/.permutl/cache.json", 'and writes the cache file';
     is statuses($first)->{$boundary}, 'Survived', 'the boundary mutant survives';
 
-    my ($second) = run_fixture( $root, cache => 1 );
+    my ( $second, $events ) = run_fixture( $root, cache => 1 );
     is statuses($second), statuses($first), 'the statuses are unchanged';
-    is $second->reused,   $measured,        'every measured result comes from the cache';
+    is scalar( grep { $_ eq 'mutant' } $events->@* ), scalar( $second->entries->@* ),
+      'the listener hears of each mutant once, reused or not';
+    is $second->reused, $measured, 'every measured result comes from the cache';
     is [ map { $_->{by} } $second->entries->@* ], [ map { $_->{by} } $first->entries->@* ],
       'the detecting tests are unchanged';
     like Permutl::Report::Terminal::render( $second, color => 0 ), qr/, $measured results from the cache$/m,
