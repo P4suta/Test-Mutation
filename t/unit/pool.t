@@ -213,9 +213,11 @@ sub number_in ($path) {
     return $number;
 }
 
+# A container without an init process never reaps an orphan, so a process that ended can stay in the table.
 sub gone ($pid) {
     for ( 1 .. 60 ) {
         return 1 if !kill 0, $pid;
+        return 1 if qx{ps -o stat= -p $pid 2>/dev/null} =~ /\A\s*Z/;
         Time::HiRes::sleep(0.05);
     }
     return 0;
