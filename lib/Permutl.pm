@@ -13,7 +13,7 @@ sub _config (%settings) {
     my @unknown = sort grep { $NOT_A_SETTING{$_} || !Permutl::Config->can($_) } keys %settings;
     die 'unknown setting: ' . join( ', ', @unknown ) . "\n" if @unknown;
     my $root = delete $settings{root};
-    return Permutl::Config->new(%settings) if !defined $root;
+    $root = q{.} if !defined $root;
     my $file = "$root/permutl.toml";
     return Permutl::Config->from_layers(
         root     => $root,
@@ -146,6 +146,7 @@ A comment suppresses the mutants on its line, and a comment on a line of its own
 
 Measures the project and returns a L<Permutl::Result>.
 The settings are the attributes of L<Permutl::Config>, and C<on_event> receives the progress events of L<Permutl::Runner>.
+C<root> is the working directory when the call leaves it out.
 A C<permutl.toml> in the root directory supplies the settings that the call leaves out.
 
 =head2 mutants
