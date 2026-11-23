@@ -229,13 +229,21 @@ sub f {
 CODE
     return $name;
 }
+sub g {
+    bless \( my $late = 1 ), 'Flag';
+    return;
+}
+sub h { my $late = 2; return $late }
 PERL
     is [ map { $_->text } sites_of( $code, 'statement' )->@* ],
       [
         'print( {$fh} map { lc } @data );',
-        'note($key);', '( $key => 1 )',
-        'close $in;',  q{bless \( my $unused = 1 ), 'Flag';},
+        'note($key);',
+        '( $key => 1 )',
+        'close $in;',
+        q{bless \( my $unused = 1 ), 'Flag';},
         'note($inner)',
+        q{bless \( my $late = 1 ), 'Flag';},
       ],
       'no file handle block, no only statement of map or grep, no declaration that later code uses, no here-document';
 };

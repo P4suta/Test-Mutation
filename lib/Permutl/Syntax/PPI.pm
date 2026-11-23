@@ -522,10 +522,9 @@ sub _declares_for_later ( $context, $statement, $tokens, $end ) {
         $before = $_->parent->parent->sprevious_sibling if !$before && $_->parent->parent->isa('PPI::Structure::List');
         $_->isa('PPI::Token::Symbol') && _is_word( $before, \%DECLARATION )
     } $tokens->@*;
-    return 0 if !@names;
 
-    my $block = $statement->parent;
-    $block = $block->parent while !$block->isa('PPI::Structure::Block') && !$block->isa('PPI::Document');
+    # The block of the statement bounds the variable, and a file has no closing brace.
+    my $block  = $statement->parent;
     my $finish = $block->isa('PPI::Structure::Block') ? $block->finish               : undef;
     my $limit  = $finish                              ? _offset( $context, $finish ) : undef;
     my $later  = substr $context->{text}, $end, ( defined $limit ? $limit : length $context->{text} ) - $end;
