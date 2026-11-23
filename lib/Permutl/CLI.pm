@@ -121,12 +121,11 @@ sub _config ($arguments) {
         'config=s' => \my $file,
     ) or return;
     delete @cli{ grep { !defined $cli{$_} } keys %cli };
-    my $processors = Permutl::Project::cpu_count();
-    my $config     = eval {
+    my $config = eval {
         Permutl::Config->from_layers(
             root     => Cwd::getcwd(),
             defaults => {
-                jobs    => $processors > 1 ? $processors - 1 : 1,
+                jobs    => Permutl::Project::default_jobs( Permutl::Project::cpu_count() ),
                 formats => [ qw(terminal json html), _inside_github_actions() ? 'github' : () ],
             },
             file => _configuration_file($file),

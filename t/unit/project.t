@@ -60,8 +60,35 @@ subtest 'files' => sub {
     is warnings { Permutl::Project::files( $root, ['**/*.pm'], [] ) }, [], 'a walk from the root raises no warning';
 };
 
-subtest 'cpu_count' => sub {
-    ok Permutl::Project::cpu_count() >= 1, 'at least one processor';
+subtest 'processors reads the count from the text of the platform' => sub {
+    my $cpuinfo = join "\n", "processor\t: 0", 'model name : A', 'Processor : B', "processor\t: 1", 'processor: 2', q{};
+    my @cases   = (
+        [ 'the processor lines of cpuinfo',         $cpuinfo,           undef,    3 ],
+        [ 'cpuinfo before sysctl',                  $cpuinfo,           "8\n",    3 ],
+        [ 'sysctl when cpuinfo is absent',          undef,              "8\n",    8 ],
+        [ 'sysctl when cpuinfo lists no processor', "model name : A\n", "12\n",   12 ],
+        [ 'one processor',                          undef,              "1\n",    1 ],
+        [ 'a number with a suffix',                 undef,              "4 x\n",  4 ],
+        [ 'no source',                              undef,              undef,    1 ],
+        [ 'a count of zero',                        undef,              "0\n",    1 ],
+        [ 'text without a number',                  undef,              "none\n", 1 ],
+        [ 'a number after other text',              undef,              "x 4\n",  1 ],
+        [ 'an empty answer',                        undef,              q{},      1 ],
+    );
+    for my $case (@cases) {
+        my ( $name, $text, $answer, $expected ) = $case->@*;
+        is Permutl::Project::processors( cpuinfo => $text, sysctl => $answer ), $expected, $name;
+    }
+};
+
+subtest 'cpu_count asks the platform' => sub {
+    my $expected = qx{getconf _NPROCESSORS_ONLN 2>/dev/null};
+    skip_all 'getconf reports no processor count' if $expected !~ /\A[1-9][0-9]*\n\z/;
+    is Permutl::Project::cpu_count(), $expected + 0, 'the count of the platform';
+};
+
+subtest 'default_jobs leaves one processor free' => sub {
+    is [ map { Permutl::Project::default_jobs($_) } 1, 2, 3, 8 ], [ 1, 1, 2, 7 ], 'one less, and never below one';
 };
 
 done_testing;

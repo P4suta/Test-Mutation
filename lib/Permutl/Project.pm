@@ -1,7 +1,7 @@
 package Permutl::Project;
 use v5.36;
 use File::Find             ();
-use Types::Standard        qw(ArrayRef RegexpRef Str);
+use Types::Standard        qw(ArrayRef Maybe RegexpRef Str);
 use Types::Common::Numeric qw(PositiveInt);
 use Type::Params           qw(signature_for);
 
@@ -68,21 +68,39 @@ sub files ( $root, $include, $exclude ) {
     return [ sort keys %found ];
 }
 
+signature_for processors => (
+    named   => [ cpuinfo => Maybe [Str], sysctl => Maybe [Str] ],
+    returns => PositiveInt,
+);
+
+sub processors ($arg) {
+    my $listed = () = ( defined $arg->cpuinfo ? $arg->cpuinfo : q{} ) =~ /^processor\s*:/mg;
+    return $listed if $listed;
+    my ($answer) = ( defined $arg->sysctl ? $arg->sysctl : q{} ) =~ /\A([0-9]+)/;
+    return $answer ? 0 + $answer : 1;
+}
+
+sub _read ( $mode, @source ) {
+    open my $handle, $mode, @source or return;
+    local $/ = undef;
+    my $text = readline $handle;
+    close $handle or return;
+    return $text;
+}
+
 signature_for cpu_count => ( positional => [], returns => PositiveInt );
 
 sub cpu_count () {
-    if ( open my $handle, '<', '/proc/cpuinfo' ) {
-        my $count = grep { /\Aprocessor\s*:/ } readline $handle;
-        close $handle or die "cannot close /proc/cpuinfo: $!\n";
-        return $count if $count;
-    }
-    if ( -x '/usr/sbin/sysctl' ) {
-        open my $handle, q{-|}, '/usr/sbin/sysctl', '-n', 'hw.ncpu' or return 1;
-        my $count = readline $handle;
-        close $handle or return 1;
-        return $1 + 0 if defined $count && $count =~ /\A([0-9]+)/ && $1 > 0;
-    }
-    return 1;
+    return processors(
+        cpuinfo => scalar _read( '<', '/proc/cpuinfo' ),
+        sysctl  => -x '/usr/sbin/sysctl' ? scalar _read( q{-|}, '/usr/sbin/sysctl', '-n', 'hw.ncpu' ) : undef,
+    );
+}
+
+signature_for default_jobs => ( positional => [PositiveInt], returns => PositiveInt );
+
+sub default_jobs ($processors) {
+    return $processors > 1 ? $processors - 1 : 1;
 }
 
 1;
@@ -109,8 +127,20 @@ C<*> matches within one path segment, C<?> matches one character, and C<**> matc
 Returns the sorted relative paths under C<$root> that match an include pattern and no exclude pattern.
 Hidden directories are skipped, as are C<local>, C<blib>, C<_build>, and C<node_modules> at the root.
 
+=head2 processors
+
+    my $count = Permutl::Project::processors( cpuinfo => $text, sysctl => $answer );
+
+Returns the number of processors that the platform reports.
+C<cpuinfo> is the text of F</proc/cpuinfo> and C<sysctl> is the output of C<sysctl -n hw.ncpu>, each undefined when absent.
+The function returns 1 when neither names a count.
+
 =head2 cpu_count
 
-Returns the number of processors, or 1 when the platform does not report it.
+Reads the two sources of the platform and returns what L</processors> finds in them.
+
+=head2 default_jobs
+
+Returns the number of test processes for a machine with the given number of processors: one less, and at least one.
 
 =cut
