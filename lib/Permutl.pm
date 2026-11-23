@@ -46,7 +46,7 @@ __END__
 
 =head1 NAME
 
-Permutl - mutation testing for Perl that leaves the source tree untouched
+Permutl - mutation testing for Perl that never rewrites a source file
 
 =head1 SYNOPSIS
 
@@ -160,9 +160,17 @@ Returns the L<Permutl::Mutant> objects of the project without running a test.
 A file that a test loads by absolute path, and a script that a test runs as a program, run unmutated.
 A child process in taint mode ignores C<PERL5OPT> and runs the original code.
 The run reports a test that loads a source file around the hook.
+A mutant runs with the rights of the tests, so it may create, change, or remove a file of the project.
+The run reports such a change and gives no verdict to a mutant that a test broken by the change detected.
 Linux and macOS are supported.
 
+=head1 AUTHOR
+
+Yasunobu Sakashita
+
 =head1 LICENSE
+
+Copyright (c) Yasunobu Sakashita.
 
 MIT or Apache License 2.0, at your option.
 
