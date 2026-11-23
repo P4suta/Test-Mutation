@@ -214,6 +214,28 @@ PERL
       'the call after the loop is its own statement';
 };
 
+subtest 'a site that the compiled code leaves out is not comparable' => sub {
+    my $code = <<'PERL';
+class Counter {
+    field $step = 1 + 1;
+    field @list = map { $_ * 2 } 1 .. 3;
+    ADJUST {
+        setup( 4 - 4 );
+    }
+    method bump ($by = 5 / 5) { $step % $by }
+    register( 6 ** 6 );
+}
+sub plain { 7 x 7 }
+PERL
+    is [ map { $_->text . $_->comparable } grep { $_->role eq 'binary' } sites_of( $code, 'operator' )->@* ],
+      [qw(=0 +0 =0 *0 ..0 -0 =1 /1 %1 **1 x1)], 'the operators of a field and of an ADJUST block';
+    is [ map { [ $_->detail->{name}, $_->comparable ] } sites_of( $code, 'sub_body' )->@* ],
+      [ [ 'ADJUST', 0 ], [ 'bump', 1 ], [ 'plain', 1 ] ], 'the body of an ADJUST block';
+    is [ map { [ $_->text, $_->comparable ] } sites_of( $code, 'statement' )->@* ],
+      [ [ '$_ * 2', 0 ], [ 'setup( 4 - 4 );', 0 ], [ '$step % $by', 1 ], [ 'register( 6 ** 6 );', 1 ], [ '7 x 7', 1 ] ],
+      'a statement of a field and of an ADJUST block';
+};
+
 subtest 'declaration headers produce no sites' => sub {
     my $code = <<'PERL';
 class Counter 1.0 :isa(Base) {

@@ -26,6 +26,7 @@ my %NAMED_BLOCK_HEAD = map { $_ => 1 } qw(class role method sub);
 my %CONTINUATION     = map { $_ => 1 } qw(elsif else continue catch finally);
 my %BODY_HEAD        = map { $_ => 1 } qw(method sub ADJUST);
 my %EXCLUDED_HEAD    = map { $_ => 1 } qw(use no package);
+my %HIDDEN_HEAD      = map { $_ => 1 } qw(field ADJUST);
 my %NEVER_A_CALL =
   map { $_ => 1 }
   qw(my our local state sub package class role field method use no return do eval else elsif for foreach
@@ -90,6 +91,9 @@ sub _visit_segments ( $context, $statement, $excluded ) {
     for my $segment ( _segments( $context, $statement )->@* ) {
         my @children = $segment->{children}->@*;
         my $skip     = $excluded || _is_word( $children[0], \%EXCLUDED_HEAD ) || _holds_version(@children);
+
+        # B::Deparse prints neither a field nor an ADJUST block.
+        local $context->{hidden} = 1 if _is_word( $children[0], \%HIDDEN_HEAD );
         if ( !$skip ) {
             _body_site( $context, $segment );
             _return_site( $context, _segment_scope($segment), @children );
@@ -219,7 +223,8 @@ sub _span ( $context, $first, $last ) {
 }
 
 sub _add ( $context, %site ) {
-    $site{text} = substr $context->{text}, $site{start}, $site{end} - $site{start};
+    $site{text}       = substr $context->{text}, $site{start}, $site{end} - $site{start};
+    $site{comparable} = $context->{hidden} ? 0 : 1;
     push $context->{sites}->@*, Permutl::Site->new(%site);
     return;
 }
