@@ -500,10 +500,11 @@ sub _statement_site ( $context, $segment ) {
     my $scope = _segment_scope($segment) or return;
     _add(
         $context,
-        kind  => 'statement',
-        start => $start,
-        end   => $end,
-        scope => $scope,
+        kind   => 'statement',
+        start  => $start,
+        end    => $end,
+        scope  => $scope,
+        detail => { head => $children[0]->isa('PPI::Token::Word') ? $children[0]->content : q{} },
     );
     return;
 }

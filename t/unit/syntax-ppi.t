@@ -197,8 +197,9 @@ sub total {
     return $sum;
 }
 PERL
-    is [ map { $_->text } sites_of( $code, 'statement' )->@* ], [ q{log_call('total');}, '$sum += $n;' ],
-      'expression statements are deletable, declarations and returns are not';
+    is [ map { [ $_->text, $_->detail->{head} ] } sites_of( $code, 'statement' )->@* ],
+      [ [ q{log_call('total');}, 'log_call' ], [ '$sum += $n;', q{} ] ],
+      'expression statements are deletable, declarations and returns are not, and a leading word is named';
     is [ map { [ $_->text, $_->detail->{literal} ] } sites_of( $code, 'return' )->@* ],
       [ [ '0', '0' ], [ '$sum', undef ] ],
       'return expressions stop before a modifier';
