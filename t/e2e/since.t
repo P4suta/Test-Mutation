@@ -3,6 +3,8 @@ use Test2::V0;
 use lib 't/e2e/lib';
 use Fixture qw(copy_of permutl write_file);
 
+skip_all 'the test needs the git command' if !length qx{git --version 2>/dev/null};
+
 sub git ( $root, @arguments ) {
     my @command = (
         'git', '-C', $root, '-c', 'core.hooksPath=/dev/null', '-c', 'user.name=Test',
