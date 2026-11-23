@@ -40,6 +40,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # t/e2e/second-perl.t runs the tests of a fixture on this interpreter under the driver of the matrix.
+      - uses: shogo82148/actions-setup-perl@eebc5c886de14ebbfcd2493d49a12007d2c30477 # v1.44.5
+        with:
+          perl-version: "5.10"
+      - run: echo "PERMUTL_SECOND_PERL=$(command -v perl)" >> "$GITHUB_ENV"
       - uses: shogo82148/actions-setup-perl@eebc5c886de14ebbfcd2493d49a12007d2c30477 # v1.44.5
         with:
           perl-version: ${{ matrix.perl }}
