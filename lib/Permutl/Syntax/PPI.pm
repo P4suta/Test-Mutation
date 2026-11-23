@@ -33,6 +33,11 @@ my %NEVER_A_CALL =
   continue given when default try catch finally defer BEGIN END INIT CHECK UNITCHECK ADJUST
   __PACKAGE__ __FILE__ __LINE__ __SUB__ __CLASS__);
 
+my %TIGHTER_THAN_PRODUCT = map { $_ => 1 } qw(** =~ !~ ++ -- ->);
+my %TIGHTER_THAN_SUM     = ( %TIGHTER_THAN_PRODUCT, map { $_ => 1 } qw(* / % x) );
+my %BINDS_TIGHTER_THAN =
+  ( ( map { $_ => \%TIGHTER_THAN_SUM } qw(+ -) ), ( map { $_ => \%TIGHTER_THAN_PRODUCT } qw(* / % **) ), );
+
 my @REGEX_TOKEN = qw(PPI::Token::Regexp::Match PPI::Token::Regexp::Substitute PPI::Token::QuoteLike::Regexp);
 my %REGEX_ROLE  = (
     'PPIx::Regexp::Token::Assertion'  => 'anchor',
@@ -306,7 +311,18 @@ sub _operator_role ($token) {
       || ( $previous->isa('PPI::Token::Word') && $UNARY_AFTER{ $previous->content } );
     return ( 'unary',  {} ) if $unary && ( $content eq '-' || $content eq '+' );
     return ( 'unary',  {} ) if $content eq '!' || $content eq '~' || $content eq '\\' || $content eq 'not';
-    return ( 'binary', {} );
+    return ( 'binary', _right_number($token) );
+}
+
+# A number is the whole right operand unless the operator after it binds tighter.
+sub _right_number ($token) {
+    my $tighter = $BINDS_TIGHTER_THAN{ $token->content } or return {};
+    my $number  = $token->snext_sibling;
+    return {} if !$number || !$number->isa('PPI::Token::Number') || $number->isa('PPI::Token::Number::Version');
+    my $after = $number->snext_sibling;
+    return {} if $after && $after->isa('PPI::Token::Operator') && $tighter->{ $after->content };
+    my $value = $number->literal;
+    return defined $value ? { right => 0 + $value } : {};
 }
 
 sub _word_role ( $context, $token ) {

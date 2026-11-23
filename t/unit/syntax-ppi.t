@@ -40,6 +40,11 @@ subtest 'operators carry a role' => sub {
     is summary( 'return - $x;', 'operator' ), [ [ '-', 'unary' ] ], 'minus after return is unary';
     is [ map { $_->detail->{operand} } sites_of( '$a =~ /x/; $b =~ s/x/y/; $c !~ $re;', 'operator' )->@* ],
       [ 'match', 'substitute', 'match' ], 'binding operators name their operand';
+    my $code = '$a + 0; $b - 0.0; $c * 1 + $d; $e + 0 * $f; $g * 1 ** $h; $i / $j; 0 + $k; $l - 1 if $m; f( $n + 0 );';
+    is [ map { $_->text . ( defined $_->detail->{right} ? $_->detail->{right} : q{?} ) }
+          sites_of( $code, 'operator' )->@* ],
+      [qw(+0 -0 *1 +? +? *? *? **? /? +? -1 +0)],
+      'an arithmetic operator names a number that is its whole right operand';
 };
 
 subtest 'words carry a role and data words are left out' => sub {

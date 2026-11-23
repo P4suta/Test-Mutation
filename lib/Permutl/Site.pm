@@ -64,6 +64,7 @@ A test reaches the site when it runs a line in this range.
 =head2 detail
 
 Kind-specific facts, such as the operand class after a binding operator.
+C<right> holds the number that is the whole right operand of an arithmetic operator.
 
 =head2 comparable
 
