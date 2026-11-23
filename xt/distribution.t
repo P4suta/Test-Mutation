@@ -61,14 +61,33 @@ my $meta = JSON::PP->new->utf8->decode( do { local $/ = undef; readline $handle 
 close $handle or die "close MYMETA.json: $!";
 
 my $declared = Module::CPANfile->load("$root/cpanfile")->prereq_specs;
-is $meta->{name},                       'Permutl',                      'the distribution name';
-is $meta->{version},                    Permutl->VERSION,               'the version of the main module';
-is $meta->{license},                    [ 'mit', 'apache_2_0' ],        'the licenses of the repository';
+is $meta->{name},                       'Permutl',                                  'the distribution name';
+is $meta->{version},                    Permutl->VERSION,                           'the version of the main module';
+is $meta->{license},                    [ 'mit', 'apache_2_0' ],                    'the licenses of the repository';
+is $meta->{author},                     ['Yasunobu Sakashita'],                     'the author';
+is $meta->{resources}{repository}{web}, 'https://github.com/P4suta/permutl',        'the repository';
+is $meta->{resources}{bugtracker}{web}, 'https://github.com/P4suta/permutl/issues', 'the issue tracker';
+is $meta->{no_index}, { directory => [ 't', 'xt' ], package => ['DB'] },
+  'the index leaves out the tests and the debugger package that the shim extends';
 is $meta->{prereqs}{runtime}{requires}, $declared->{runtime}{requires}, 'runtime requirements match cpanfile';
 is $meta->{prereqs}{test}{requires},    $declared->{test}{requires},    'test requirements match cpanfile';
 
 my $version = qx{$^X -I$scratch/blib/lib $scratch/blib/script/permutl --version};
 is $version, 'permutl ' . Permutl->VERSION . "\n", 'the built command runs';
+
+sub test_files {
+    open my $makefile, '<', "$scratch/Makefile" or die "read Makefile: $!";
+    my ($line) = grep { /\ATEST_FILES = / } readline $makefile;
+    return $line;
+}
+is test_files(), "TEST_FILES = t/unit/*.t t/shim/*.t t/assumptions/*.t\n", 'an installation runs the quick tests';
+{
+    local $ENV{EXTENDED_TESTING} = 1;
+    ok in_scratch( $^X, 'Makefile.PL' ), 'Makefile.PL runs for extended testing' or diag build_log();
+    is test_files(), "TEST_FILES = t/unit/*.t t/shim/*.t t/assumptions/*.t t/e2e/*.t\n",
+      'extended testing adds the end-to-end tests';
+}
+ok in_scratch( $^X, 'Makefile.PL' ), 'Makefile.PL runs again' or diag build_log();
 
 ok in_scratch( 'make', 'test' ), 'make test passes' or diag build_log();
 my ($test_files) = build_log() =~ /^Files=(\d+), Tests=\d+/m;
@@ -80,7 +99,7 @@ ok in_scratch( 'make', 'dist' ),     'make packs the distribution' or diag build
 my $prefix = 'Permutl-' . Permutl->VERSION;
 my %packed = map { $_ => 1 } Archive::Tar->list_archive("$scratch/$prefix.tar.gz");
 my @wanted = qw(
-  Makefile.PL cpanfile META.json README.md LICENSE-MIT LICENSE-APACHE THIRD_PARTY_NOTICES.md bin/permutl
+  Makefile.PL cpanfile META.json README.md Changes LICENSE-MIT LICENSE-APACHE THIRD_PARTY_NOTICES.md bin/permutl
   lib/Permutl.pm lib/Permutl/Shim.pm lib/Test/Permutl.pm lib/Permutl/Report/resources/mutation-test-elements.js
   t/unit/tap.t t/shim/serve.t t/fixtures/calc/lib/Calc.pm
 );

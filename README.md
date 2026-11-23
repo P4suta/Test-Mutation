@@ -1,6 +1,6 @@
 # Permutl
 
-Mutation testing for Perl that leaves the source tree untouched.
+Mutation testing for Perl that never rewrites a source file.
 
 ## Installation
 
