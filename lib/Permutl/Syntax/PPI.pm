@@ -537,6 +537,11 @@ The module parses a source with PPI and reports the places a mutator can change.
 It verifies that every reported span holds the text PPI attributes to it, and it drops a span that fails the check.
 C<use>, C<no>, and C<package> statements, C<$VERSION> assignments, and text after C<__END__> produce no sites.
 
+PPI joins the code after a method, a C<defer> block, or a C<finally> block to the block.
+The module splits such a statement at the closing brace, so each part has its own scope and its own sites.
+The name, the version, and the attributes of a class, a field, or a method produce no sites.
+A site in a field or in an C<ADJUST> block is marked as not comparable.
+
 =head1 FUNCTIONS
 
 =head2 analyze
