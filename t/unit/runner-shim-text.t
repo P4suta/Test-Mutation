@@ -1,44 +1,83 @@
 use v5.36;
 use Test2::V0;
+use File::Path ();
+use File::Temp ();
 use Permutl::Runner;
 
-subtest 'the shim is renamed for its generation' => sub {
+# The run copies the source of the shim from the first entry of @INC that supplies it.
+# An entry is a directory or a hook, and an outer run of permutl serves the file through its own hook.
+
+my $SHIM  = "package Permutl::Shim;\nmy \$GENERATION = 0;\n1;\n";
+my $THIRD = "package Permutl::Shim::G3;\nmy \$GENERATION = 3;\n1;\n";
+
+sub handle_of ($text) {
+    open my $handle, '<', \$text or die "open: $!";
+    return $handle;
+}
+
+sub directory_with ($text) {
+    my $directory = File::Temp::tempdir( CLEANUP => 1 );
+    File::Path::make_path("$directory/Permutl");
+    open my $handle, '>', "$directory/Permutl/Shim.pm" or die "write: $!";
+    print {$handle} $text or die "write: $!";
+    close $handle         or die "close: $!";
+    return $directory;
+}
+
+subtest 'the shim of the distribution is renamed for its generation' => sub {
     my $text = Permutl::Runner::shim_text(3);
     like $text,   qr/^package Permutl::Shim::G3;$/m, 'the package carries the generation';
     like $text,   qr/^my \$GENERATION = 3;$/m,       'the generation number is set';
     unlike $text, qr/^package Permutl::Shim;$/m,     'the original package line is gone';
 };
 
-subtest 'a hook in the module search path supplies the source' => sub {
-    my $served = "package Permutl::Shim;\nmy \$GENERATION = 0;\n# served by a hook\n1;\n";
-    my @filtered;
-    local @INC = (
-        sub ( $self, $file ) {
-            return if $file ne 'Permutl/Shim.pm';
-            open my $handle, '<', \$served or die "open: $!";
-            my $prepend = "UNITCHECK { Outer::mark(0) }\n#line 1 \"lib/Permutl/Shim.pm\"\n";
-            return ( \$prepend, $handle, sub { push @filtered, $_; return length $_ ? 1 : 0 } );
-        },
-        @INC,
-    );
-    my $text = Permutl::Runner::shim_text(2);
-    like $text,   qr/^# served by a hook$/m,         'the text comes from the hook';
-    like $text,   qr/^package Permutl::Shim::G2;$/m, 'and is renamed';
-    unlike $text, qr/UNITCHECK|Outer::mark/,         'the text that the hook prepends for the compiler is left out';
-    is \@filtered, [ "package Permutl::Shim;\n", "my \$GENERATION = 0;\n", "# served by a hook\n", "1;\n", q{} ],
-      'the line filter of the hook sees every line and the end of the file';
+subtest 'a directory supplies the text, and the text gets the generation' => sub {
+    local @INC = ( directory_with($SHIM), @INC );
+    is Permutl::Runner::shim_text(3), $THIRD, 'the package and the generation carry the number';
 };
 
-subtest 'a source that cannot be renamed is refused' => sub {
-    my $served = "package Something::Else;\n1;\n";
+subtest 'entries without the file are passed over' => sub {
+    my @asked;
     local @INC = (
-        sub ( $self, $file ) {
-            return if $file ne 'Permutl/Shim.pm';
-            open my $handle, '<', \$served or die "open: $!";
-            return $handle;
+        sub ( $self, $file ) { push @asked, $file; return },
+        [ sub { die "an array entry is no source for the run\n" } ],
+        sub {
+            return sub { return 0 }
         },
+        File::Temp::tempdir( CLEANUP => 1 ),
+        directory_with($SHIM),
+        @INC,
     );
-    like dies { Permutl::Runner::shim_text(1) }, qr/cannot prepare the shim for generation 1/, 'refused';
+    is Permutl::Runner::shim_text(3), $THIRD,              'the text comes from the first directory that has the file';
+    is \@asked,                       ['Permutl/Shim.pm'], 'a hook is asked for the file by its name';
+};
+
+subtest 'a hook supplies the text through a file handle' => sub {
+    local @INC = ( sub { return ( \"a line that perl would compile first\n", handle_of($SHIM) ) }, @INC );
+    is Permutl::Runner::shim_text(3), $THIRD, 'the text of the handle, without the text that comes before it';
+
+    my @seen;
+    local @INC = (
+        sub {
+            return ( handle_of($SHIM), sub { push @seen, $_; return length $_ ? 1 : 0 } );
+        },
+        @INC
+    );
+    is Permutl::Runner::shim_text(3), $THIRD, 'the text of a handle with a filter';
+    is \@seen, [ ( split /^/, $SHIM ), q{} ], 'the filter sees each line and then the end, as it does when perl reads';
+};
+
+subtest 'a missing file and an unexpected text stop the run' => sub {
+    my $nowhere = sub { return };
+    {
+        local @INC = ($nowhere);
+        is dies { Permutl::Runner::shim_text(3) }, "cannot find Permutl/Shim.pm\n", 'no entry has the file';
+    }
+    for my $text ( "package Permutl::Shim;\n1;\n", "package Other;\nmy \$GENERATION = 0;\n1;\n" ) {
+        local @INC = ( directory_with($text), @INC );
+        is dies { Permutl::Runner::shim_text(3) }, "cannot prepare the shim for generation 3\n",
+          'a text without ' . ( $text =~ /GENERATION/ ? 'the package line' : 'the generation line' );
+    }
 };
 
 done_testing;
