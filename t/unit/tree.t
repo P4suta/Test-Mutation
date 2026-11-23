@@ -176,8 +176,10 @@ subtest 'copy keeps a link as a link and leaves out what is no file' => sub {
       },
       'a link to a directory stays one link, a dangling link stays, and a pipe is left out';
     my $counted = File::Temp::tempdir( CLEANUP => 1 ) . '/copy';
-    is Permutl::Tree::copy( from => $root, to => $counted, skip => [], link => [] ), 4,
-      'and the pipe is no copied path';
+    my $count;
+    is warns { $count = Permutl::Tree::copy( from => $root, to => $counted, skip => [], link => [] ) }, 0,
+      'the pipe draws no warning';
+    is $count, 4, 'and is no copied path';
 };
 
 subtest 'restore undoes what was created, removed, and changed' => sub {

@@ -155,6 +155,12 @@ sub restore ($arg) {
     return scalar @paths;
 }
 
+# The handle of the directory closes with the call, so a deep tree holds no handle open for each level.
+sub _names ($path) {
+    opendir my $handle, $path or die "cannot read $path: $!\n";
+    return grep { $_ ne q{.} && $_ ne q{..} } readdir $handle;
+}
+
 signature_for remove => ( positional => [Str], returns => Int );
 
 sub remove ($path) {
@@ -162,11 +168,8 @@ sub remove ($path) {
 
         # A test may take the rights of a directory away, and its content is out of reach without them.
         chmod oct q{700}, $path or die "cannot open $path: $!\n";
-        opendir my $handle, $path or die "cannot read $path: $!\n";
-        my @names = grep { $_ ne q{.} && $_ ne q{..} } readdir $handle;
-        closedir $handle or die "cannot close $path: $!\n";
         my $count = 1;
-        $count += remove("$path/$_") for @names;
+        $count += remove("$path/$_") for _names($path);
         rmdir $path or die "cannot remove $path: $!\n";
         return $count;
     }
