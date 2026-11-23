@@ -4,6 +4,9 @@ use File::Path ();
 use File::Temp ();
 use Permutl::Tree;
 
+# The modes of the trees below follow from one mask, whatever mask the caller of the test has.
+umask oct '022';
+
 sub tree (%files) {
     my $root = File::Temp::tempdir( CLEANUP => 1 );
     for my $path ( sort keys %files ) {
@@ -68,6 +71,17 @@ subtest 'a file with new content of the same size counts by its time' => sub {
       'another modification time is a change';
 };
 
+subtest 'another mode of a file or a directory is a change' => sub {
+    my $root = tree( 'bin/tool' => "#!perl\n", 'data/list.txt' => 'a' );
+    chmod oct '644', "$root/bin/tool" or die "chmod: $!";
+    chmod oct '755', "$root/data"     or die "chmod: $!";
+    my $before = snapshot($root);
+    chmod oct '755', "$root/bin/tool" or die "chmod: $!";
+    chmod oct '700', "$root/data"     or die "chmod: $!";
+    is Permutl::Tree::changes( $before, snapshot($root) ), [ 'changed bin/tool', 'changed data' ],
+      'a file that may run now and a directory that others may not read';
+};
+
 subtest 'a path that changes its kind is a change' => sub {
     my $root   = tree( 'thing' => 'a file' );
     my $before = snapshot($root);
@@ -92,7 +106,7 @@ sub content ( $root, @skip ) {
             $content{$path} = 'link to ' . readlink $full;
         }
         elsif ( -d $full ) {
-            $content{$path} = 'directory';
+            $content{$path} = sprintf 'directory %04o', ( stat $full )[2] & oct '7777';
         }
         else {
             open my $handle, '<', $full or die "read $path: $!";
@@ -148,8 +162,8 @@ subtest 'copy keeps a link as a link and leaves out what is no file' => sub {
     my $copy = copy_of($root);
     is content($copy),
       {
-        'real'          => 'directory',
-        'real/file.txt' => 'file 0644 x',
+        'real'          => content( $root, 'pipe' )->{real},
+        'real/file.txt' => sprintf( 'file %04o x', ( stat "$root/real/file.txt" )[2] & oct '7777' ),
         'inside'        => 'link to real',
         'dangles'       => 'link to /nonexistent/at'
       },
@@ -168,6 +182,8 @@ subtest 'restore undoes what was created, removed, and changed' => sub {
     unlink "$slot/t/a.t" or die "unlink: $!";
     File::Path::remove_tree("$slot/t/data");
     tree_file( "$slot/lib/A.pm", "0;\n# changed\n" );
+    chmod oct '700', "$slot/t"   or die "chmod: $!";
+    chmod oct '711', "$slot/lib" or die "chmod: $!";
     unlink "$slot/bin/tool" or die "unlink: $!";
     mkdir "$slot/bin/tool"  or die "mkdir: $!";
     tree_file( "$slot/bin/tool/inner", 'x' );
@@ -177,8 +193,8 @@ subtest 'restore undoes what was created, removed, and changed' => sub {
     symlink 'elsewhere', "$slot/link" or die "symlink: $!";
 
     my $changes = Permutl::Tree::changes( $before, snapshot($slot) );
-    is scalar $changes->@*,                                                         13, 'the changes of the trial';
-    is Permutl::Tree::restore( from => $master, to => $slot, changes => $changes ), 13, 'one restored path for each';
+    is scalar $changes->@*,                                                         15, 'the changes of the trial';
+    is Permutl::Tree::restore( from => $master, to => $slot, changes => $changes ), 15, 'one restored path for each';
     is content($slot),                                                              $wanted, 'the tree is as it was';
     is [ grep { !/\Achanged / } Permutl::Tree::changes( $before, snapshot($slot) )->@* ], [],
       'and no path is missing or left over';

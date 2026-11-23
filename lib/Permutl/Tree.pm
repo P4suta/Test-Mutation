@@ -41,8 +41,9 @@ sub snapshot ($arg) {
 sub _signature ($path) {
     my @status = Time::HiRes::lstat($path) or return 'gone';
     return 'link ' . readlink $path if -l _;
-    return 'directory'              if -d _;
-    return "file $status[7] $status[9]";
+    my $mode = sprintf '%04o', $status[2] & oct '7777';
+    return "directory $mode" if -d _;
+    return "file $status[7] $status[9] $mode";
 }
 
 signature_for changes => ( positional => [ HashRef [Str], HashRef [Str] ], returns => ArrayRef [Str] );
@@ -130,8 +131,10 @@ sub restore ($arg) {
     my @paths = sort map { s/\A\w+[ ]//r } $arg->changes->@*;
     for my $path (@paths) {
         my ( $source, $target ) = ( "$from/$path", "$to/$path" );
-        my $kept = -d $source && !-l $source && -d $target && !-l $target;
-        next if $kept;
+        if ( -d $source && !-l $source && -d $target && !-l $target ) {
+            _copy_mode( $source, $target );
+            next;
+        }
         _remove($target);
         _copy_node( $source, $target ) if -e $source || -l $source;
     }
@@ -177,7 +180,8 @@ The tests run in copies of the project, and a changed copy returns to the state 
 
 Returns a signature for every file, directory, and link below C<root>, keyed by its path from the root.
 A path in C<skip> is left out with all it holds.
-The signature of a file holds its size and its modification time, and no digest of its content.
+The signature of a file holds its size, its modification time, and its mode, and no digest of its content.
+The signature of a directory holds its mode.
 
 =head2 changes
 
