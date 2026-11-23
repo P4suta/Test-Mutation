@@ -59,4 +59,20 @@ subtest 'a revision that git does not know stops the run' => sub {
     like $run->{stderr}, qr/\Apermutl: git [^\n]*no-such-revision[^\n]*\n\z/, 'one line that names the revision';
 };
 
+subtest 'a change selects the mutants whose lines it touches' => sub {
+    my $wide = sub ( $second, $brace ) { "package Wide;\nsub wide {\n    return 1 +\n      2;$second\n}$brace\n1;\n" };
+    write_file( "$root/lib/Wide.pm", $wide->( q{}, q{} ) );
+    git( $root, 'add', '.' );
+    git( $root, 'commit', '-q', '-m', 'second' );
+    is listed( $root, '--since', 'HEAD' ), [], 'a committed tree has no mutant';
+
+    write_file( "$root/lib/Wide.pm", $wide->( '    # two', q{} ) );
+    is listed( $root, '--since', 'HEAD' ),
+      [ 'lib/Wide.pm:2:11 removed the body of wide', 'lib/Wide.pm:3:12 removed the return value' ],
+      'the last line of a statement selects the statement and the body around it, in a file after an unchanged one';
+
+    write_file( "$root/lib/Wide.pm", $wide->( q{}, '    # the end' ) );
+    is listed( $root, '--since', 'HEAD' ), [], 'the line of the closing brace selects nothing: the body ends before it';
+};
+
 done_testing;

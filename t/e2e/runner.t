@@ -31,6 +31,27 @@ subtest 'a project without a test gets a warning, and its mutants have no covera
     ok !-e "$root/.permutl", 'and no work directory appears';
 };
 
+subtest 'the analysis keeps the files in the order of their paths and names each file it cannot use' => sub {
+    my $second = $MODULE =~ s/Small/Second/r;
+    my $root   = project(
+        'lib/Bad.pm'    => "package Bad;\r\n1;\r\n",
+        'lib/First.pm'  => $MODULE =~ s/Small/First/r,
+        'lib/Odd.pm'    => "package Odd;\r\n1;\r\n",
+        'lib/Second.pm' => $second,
+    );
+    my $analysis = Permutl::Runner::analyze( Permutl::Config->new( root => $root ) );
+    is [ map { $_->{path} } $analysis->{problems}->@* ], [ 'lib/Bad.pm', 'lib/Odd.pm' ], 'the files with a problem';
+    is [ map { $_->path } $analysis->{mutants}->@* ], [ ('lib/First.pm') x 3, ('lib/Second.pm') x 3 ],
+      'the mutants of the other files';
+    is [ sort keys $analysis->{sources}->%* ], [ 'lib/First.pm', 'lib/Second.pm' ], 'and their sources';
+};
+
+subtest 'a project without a test and without a mutant to run gets no warning' => sub {
+    my $root = project( 'lib/Small.pm' => $MODULE =~ s/[+] 1 [}]/+ 1 }    ## no mutate/r );
+    my ($result) = run_fixture($root);
+    is $result->warnings, [], 'no test is missing where no mutant would run';
+};
+
 subtest 'a project whose mutants are all suppressed runs no test and gets no warning' => sub {
     my $root = project( 'lib/Small.pm' => $MODULE =~ s/[+] 1 [}]/+ 1 }    ## no mutate/r, 't/small.t' => $TEST );
     my ($result) = run_fixture($root);

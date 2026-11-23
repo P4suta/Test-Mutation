@@ -72,7 +72,9 @@ sub analyze ($config) {
 
 sub _in_changed_lines ( $ranges, $mutant ) {
     my ( $first, $last ) = ( $mutant->from->[0], $mutant->to->[0] );
-    $last-- if $last > $first && $mutant->to->[1] == 1;
+
+    # An end at the first column of a line leaves that line outside the mutant.
+    $last-- if $mutant->to->[1] == 1;
     return Permutl::Diff::touches( $ranges, $first, $last );
 }
 
