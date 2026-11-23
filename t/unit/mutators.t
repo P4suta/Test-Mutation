@@ -66,6 +66,12 @@ subtest 'structural mutators' => sub {
       [ [ q{close $out or die 'x';}, q{} ], [ 'closedir $dir;', q{} ] ],
       'the extended profile removes a close and a closedir statement';
     is changes( $closing, 'close-removal' ), [], 'and the default profile has no such mutator';
+    my $qualified = "sub f {\n    CORE::close(\$out);\n    CORE::closedir \$dir;\n    close_all();\n    return 1;\n}\n";
+    is changes( $qualified, 'statement-removal' ), [ [ 'close_all();', q{} ] ],
+      'a close under its qualified name stays in place, and a sub with a similar name is removed';
+    is changes( $qualified, 'close-removal', profile => 'extended' ),
+      [ [ 'CORE::close($out);', q{} ], [ 'CORE::closedir $dir;', q{} ] ],
+      'the extended profile removes the qualified forms';
     is changes( "sub f {\n    g();\n}\nsub h { 1 }\nsub empty { }\n", 'sub-body' ),
       [ [ "\n    g();\n", "\n\n" ], [ ' 1 ', q{} ] ],
       'sub bodies';

@@ -211,7 +211,7 @@ sub _return_value ($site) {
 }
 
 # A lexical handle closes at the end of its scope, so few test suites detect a missing close.
-my %CLOSES = map { $_ => 1 } qw(close closedir);
+my %CLOSES = map { $_ => 1 } qw(close closedir CORE::close CORE::closedir);
 
 sub _closes ($site) {
     my $head = $site->detail->{head};
