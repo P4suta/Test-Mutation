@@ -100,6 +100,26 @@ subtest 'cpu_count asks the platform' => sub {
     is Permutl::Project::cpu_count(), $expected + 0, 'the count of the platform';
 };
 
+subtest 'cpu_count runs the command only where the list of processors is missing' => sub {
+    my $dir   = File::Temp::tempdir( CLEANUP => 1 );
+    my $write = sub ( $name, $text ) {
+        open my $handle, '>', "$dir/$name" or die "write: $!";
+        print {$handle} $text or die "write: $!";
+        close $handle         or die "close: $!";
+        return "$dir/$name";
+    };
+    my $list    = $write->( 'cpuinfo', "processor\t: 0\nmodel\t: a\n\nprocessor\t: 1\nmodel\t: a\n" );
+    my $command = $write->( 'sysctl',  "#!/bin/sh\necho \"\$@\" >> $dir/asked\necho 8\n" );
+    chmod 0755, $command or die "chmod: $!";
+
+    is Permutl::Project::cpu_count( cpuinfo => $list, sysctl => $command ), 2, 'the list gives the count';
+    ok !-e "$dir/asked", 'and the command stays quiet, because it knows no such key on a system with the list';
+    is Permutl::Project::cpu_count( cpuinfo => "$dir/missing", sysctl => $command ), 8,
+      'without the list the command answers';
+    is Permutl::Project::cpu_count( cpuinfo => "$dir/missing", sysctl => "$dir/absent" ), 1,
+      'without the list and the command the count is one';
+};
+
 subtest 'default_jobs leaves one processor free' => sub {
     is [ map { Permutl::Project::default_jobs($_) } 1, 2, 3, 8 ], [ 1, 1, 2, 7 ], 'one less, and never below one';
 };

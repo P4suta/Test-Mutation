@@ -86,13 +86,16 @@ sub _read ( $mode, @source ) {
     return $text;
 }
 
-signature_for cpu_count => ( positional => [], returns => PositiveInt );
+signature_for cpu_count => (
+    named   => [ cpuinfo => Str, { default => '/proc/cpuinfo' }, sysctl => Str, { default => '/usr/sbin/sysctl' } ],
+    returns => PositiveInt,
+);
 
-sub cpu_count () {
-    return processors(
-        cpuinfo => scalar _read( '<', '/proc/cpuinfo' ),
-        sysctl  => -x '/usr/sbin/sysctl' ? scalar _read( q{-|}, '/usr/sbin/sysctl', '-n', 'hw.ncpu' ) : undef,
-    );
+# A system with the list has a sysctl command without the key, which would write an error for each call.
+sub cpu_count ($arg) {
+    my $cpuinfo = _read( '<', $arg->cpuinfo );
+    my $sysctl  = !defined $cpuinfo && -x $arg->sysctl ? _read( q{-|}, $arg->sysctl, '-n', 'hw.ncpu' ) : undef;
+    return processors( cpuinfo => $cpuinfo, sysctl => $sysctl );
 }
 
 signature_for default_jobs => ( positional => [PositiveInt], returns => PositiveInt );
@@ -135,7 +138,8 @@ The function returns 1 when neither names a count.
 
 =head2 cpu_count
 
-Reads the two sources of the platform and returns what L</processors> finds in them.
+Reads C</proc/cpuinfo>, or asks C<sysctl> where that file is missing, and returns what L</processors> finds.
+C<cpuinfo> and C<sysctl> name another file and another command.
 
 =head2 default_jobs
 
