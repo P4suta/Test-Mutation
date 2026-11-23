@@ -159,7 +159,7 @@ subtest 'a command that cannot start leaves its reason in standard error' => sub
     my $missing = "$dir/no-such-program";
     my $result  = run_all( 1, { task('absent')->%*, command => [$missing], stderr => "$dir/absent.err" } );
     is [ values $result->%* ]->[0]{exit}, 127, 'the exit status of a command that was not found';
-    like text_of("$dir/absent.err"), qr/\Apermutl: exec \Q$missing\E: \S/,
+    like text_of("$dir/absent.err"), qr/\Amutation: exec \Q$missing\E: \S/,
       'the message names the command and the reason';
 };
 

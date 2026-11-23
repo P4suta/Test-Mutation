@@ -27,12 +27,12 @@ sub command ( $failure, @arguments ) {
     return [ $status, $errors, $output ];
 }
 
-is command( sub { die 'the analysis broke' }, 'list' ), [ 4, "permutl: the analysis broke\n", q{} ],
+is command( sub { die 'the analysis broke' }, 'list' ), [ 4, "mutation: the analysis broke\n", q{} ],
   'an error with the place of its source loses the place';
-is command( sub { die "first line\nsecond line\n" }, 'list' ), [ 4, "permutl: first line\n", q{} ],
+is command( sub { die "first line\nsecond line\n" }, 'list' ), [ 4, "mutation: first line\n", q{} ],
   'an error of several lines keeps the first';
 is command( sub { die { code => 7 } }, 'list' )->[0], 4, 'an error that is no text and no object ends the command too';
 is command( sub { die Test::Mutation::Interrupted->new( signal => 'HUP' ) }, 'list' ),
-  [ 129, "permutl: interrupted by SIGHUP\n", q{} ], 'an interruption gives the status of its signal';
+  [ 129, "mutation: interrupted by SIGHUP\n", q{} ], 'an interruption gives the status of its signal';
 
 done_testing;

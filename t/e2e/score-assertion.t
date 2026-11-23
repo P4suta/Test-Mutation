@@ -72,13 +72,13 @@ subtest 'the assertion reads permutl.toml, and a setting overrides the file' => 
     like $output, qr/permutl[.]toml/, 'and the error names the file';
 };
 
-subtest 'the assertion is skipped inside a permutl run of the same project' => sub {
+subtest 'the assertion is skipped inside a mutation run of the same project' => sub {
     {
         local $ENV{PERMUTL_ROOT} = $root;
         my ( $status, $output ) = run_test( $root, 'xt/strict.t' );
         is $status, 0, 'the test passes';
-        like $output, qr/^ok 1 # skip inside a permutl run$/m, 'with a skip that states the reason';
-        like $output, qr/^# returned 1$/m,                     'and the assertion returns true';
+        like $output, qr/^ok 1 # skip inside a mutation run$/m, 'with a skip that states the reason';
+        like $output, qr/^# returned 1$/m,                      'and the assertion returns true';
     }
     {
         local $ENV{PERMUTL_ROOT} = "$root/lib";

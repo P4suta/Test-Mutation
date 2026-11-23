@@ -101,7 +101,7 @@ Test::Mutation::Merge - join the results of the parts of one run
 
 =head1 DESCRIPTION
 
-C<permutl run --shard K/N> measures one of C<N> parts of the mutants.
+C<mutation run --shard K/N> measures one of C<N> parts of the mutants.
 This module joins the results of all parts into the result that one run without C<--shard> returns.
 
 =head1 FUNCTIONS

@@ -135,7 +135,7 @@ sub _exec_child ( $task, $write ) {
         no warnings 'exec';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
         exec { $task->{command}[0] } $task->{command}->@* or die "exec $task->{command}[0]: $!\n";
     };
-    my $message = "permutl: $@";
+    my $message = "mutation: $@";
     POSIX::write( 2, $message, length $message ) if !$ok;
     POSIX::_exit(127);
     return;

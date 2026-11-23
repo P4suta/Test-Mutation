@@ -28,12 +28,12 @@ my %COMMAND =
 signature_for main => ( positional => [ Slurpy [ ArrayRef [Str] ] ], returns => Int );
 
 my $HELP = <<'TEXT';
-Usage: permutl [run] [options]
-       permutl list [options]
-       permutl show ID [options]
-       permutl exec ID -- COMMAND [ARGUMENT...]
-       permutl merge FILE... [options]
-       permutl mutators
+Usage: mutation [run] [options]
+       mutation list [options]
+       mutation show ID [options]
+       mutation exec ID -- COMMAND [ARGUMENT...]
+       mutation merge FILE... [options]
+       mutation mutators
 
 Commands:
   run       Measure how many mutants the tests detect (the default)
@@ -44,7 +44,7 @@ Commands:
   mutators  Print the name, the profile, and the description of every mutator
 
 Options:
-  --root, -C DIR        Run as if permutl had started in DIR
+  --root, -C DIR        Run as if mutation had started in DIR
   --jobs, -j N          Test processes to run side by side
   --min-score N         Fail when the score is below N percent
   --format NAME         Report to write: terminal, json, html; repeatable
@@ -85,7 +85,7 @@ sub main ($list) {
 
     my $first = @arguments ? $arguments[0] : q{};
     if ( $first eq '--version' ) {
-        say "permutl $VERSION";
+        say "mutation $VERSION";
         return 0;
     }
     if ( $first eq '--help' || $first eq '-h' ) {
@@ -97,10 +97,10 @@ sub main ($list) {
     return $status if defined $status;
     my $error = $@;
     if ( eval { $error->isa('Test::Mutation::Interrupted') } ) {
-        print {*STDERR} 'permutl: interrupted by SIG', $error->signal, "\n";
+        print {*STDERR} 'mutation: interrupted by SIG', $error->signal, "\n";
         return $error->exit_status;
     }
-    print {*STDERR} 'permutl: ', _first_line($error), "\n";
+    print {*STDERR} 'mutation: ', _first_line($error), "\n";
     return 4;
 }
 
@@ -147,7 +147,7 @@ sub _config ($arguments) {
             cli  => \%cli,
         );
     };
-    print {*STDERR} 'permutl: ', _first_line($@), "\n" if !$config;
+    print {*STDERR} 'mutation: ', _first_line($@), "\n" if !$config;
     return $config;
 }
 
@@ -175,7 +175,7 @@ sub _run (@arguments) {
     my $terminal = -t *STDERR ? 1 : 0;                                             ## no critic (InputOutput::ProhibitInteractiveTest)
     my $result   = Test::Mutation::Runner::run( $config, _progress($terminal) );
     _report( $result, $config );
-    print {*STDERR} 'permutl: interrupted by SIG', $result->interrupted, "\n" if defined $result->interrupted;
+    print {*STDERR} 'mutation: interrupted by SIG', $result->interrupted, "\n" if defined $result->interrupted;
     return _exit_status( $result, $config );
 }
 
@@ -262,7 +262,7 @@ sub _list (@arguments) {
 }
 
 sub _usage ($message) {
-    print {*STDERR} "permutl: $message\n";
+    print {*STDERR} "mutation: $message\n";
     return 2;
 }
 
@@ -334,7 +334,7 @@ __END__
 
 =head1 NAME
 
-Test::Mutation::CLI - the permutl command
+Test::Mutation::CLI - the mutation command
 
 =head1 SYNOPSIS
 

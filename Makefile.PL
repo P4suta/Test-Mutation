@@ -39,7 +39,7 @@ WriteMakefile(
     AUTHOR           => 'Yasunobu Sakashita',
     VERSION_FROM     => 'lib/Test/Mutation.pm',
     MIN_PERL_VERSION => delete $requirements{runtime}{perl},
-    EXE_FILES        => ['bin/permutl'],
+    EXE_FILES        => ['bin/mutation'],
     PREREQ_PM        => $requirements{runtime},
     TEST_REQUIRES    => $requirements{test},
     META_MERGE       => {

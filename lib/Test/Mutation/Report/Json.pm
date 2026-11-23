@@ -253,7 +253,7 @@ Tools that read that schema, such as the C<mutation-testing-elements> viewer, ca
 Returns the report as a data structure.
 Each test file appears as one test, because permutl runs test files as units.
 The C<permutl> key of the document and of each mutant holds the facts that the schema has no place for.
-The schema allows such keys, and C<permutl merge> reads them.
+The schema allows such keys, and C<mutation merge> reads them.
 
 =head2 render
 

@@ -57,7 +57,7 @@ sub mutation_score_ok ($settings) {
     my $outer   = defined $ENV{PERMUTL_ROOT} ? Cwd::abs_path( $ENV{PERMUTL_ROOT} ) : undef;
     my $own     = Cwd::abs_path( $settings{root} );
     if ( defined $outer && defined $own && $outer eq $own ) {
-        $builder->skip('inside a permutl run');
+        $builder->skip('inside a mutation run');
         return 1;
     }
 
@@ -79,11 +79,11 @@ Test::Mutation - mutation testing for Perl that never rewrites a source file
 
 =head1 SYNOPSIS
 
-    permutl run
-    permutl list
-    permutl show 4769d125ff17
-    permutl exec 4769d125ff17 -- prove -l t/sign.t
-    permutl merge part-1/mutation.json part-2/mutation.json
+    mutation run
+    mutation list
+    mutation show 4769d125ff17
+    mutation exec 4769d125ff17 -- prove -l t/sign.t
+    mutation merge part-1/mutation.json part-2/mutation.json
 
     use Test::Mutation;
     my $result = Test::Mutation::run( root => q{.}, jobs => 4 );
@@ -127,15 +127,15 @@ That covers a survivor and a mutant that no test reaches.
 Equal code means no test can tell the two apart, so the mutant leaves the score.
 A mutant in a field or in an C<ADJUST> block skips the comparison, because L<B::Deparse> prints neither.
 
-C<permutl run --since origin/main> covers the changed lines, and C<--shard 2/4> covers one of four equal parts.
-C<permutl merge> reads the C<mutation.json> of every part and reports the whole run, with its score and its exit status.
+C<mutation run --since origin/main> covers the changed lines, and C<--shard 2/4> covers one of four equal parts.
+C<mutation merge> reads the C<mutation.json> of every part and reports the whole run, with its score and its exit status.
 It refuses a set of files that misses a part or mixes two runs.
 C<--cache> reuses the results of an earlier run for every mutant whose file and tests are unchanged.
 C<mutation_score_ok> asserts a score from a test file.
 
 =head1 CONFIGURATION
 
-C<permutl run> works without configuration: it mutates C<lib/**/*.pm> and runs C<t/**/*.t> with C<-Ilib>.
+C<mutation run> works without configuration: it mutates C<lib/**/*.pm> and runs C<t/**/*.t> with C<-Ilib>.
 A file named C<permutl.toml> in the project directory changes the defaults.
 A run writes its reports into C<permutl-report>, and C<--cache> keeps its results in C<.permutl>.
 Both directories belong in C<.gitignore>.
@@ -172,8 +172,8 @@ Both directories belong in C<.gitignore>.
     break = 70
 
 The C<extended> profile adds mutators for literals, fixed conditions, sort order, range bounds, and patterns.
-C<permutl list --profile extended> shows what a profile produces.
-C<permutl mutators> prints the name, the profile, and the description of every mutator, for C<enable> and C<disable>.
+C<mutation list --profile extended> shows what a profile produces.
+C<mutation mutators> prints the name, the profile, and the description of every mutator, for C<enable> and C<disable>.
 
 A comment suppresses the mutants on its line, and a comment on a line of its own suppresses them until C<## use mutate>.
 
@@ -219,7 +219,7 @@ A mutant runs with the rights of the tests.
 An absolute path, a link that points out of the project, and a linked directory such as C<local> lead a test out of its copy.
 With C<--in-place>, a mutant may create, change, or remove a file of the project.
 The run then reports such a change and gives no verdict to a mutant that a test broken by the change detected.
-C<permutl exec> runs its command in the project itself.
+C<mutation exec> runs its command in the project itself.
 Linux and macOS are supported.
 
 =head1 AUTHOR

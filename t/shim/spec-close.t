@@ -28,4 +28,4 @@ is_deeply Test::Mutation::Shim::read_spec($path), { trace => 1, targets => [] },
 $failing = 1;
 my $read = eval { Test::Mutation::Shim::read_spec($path) };
 $failing = 0;
-like $@, qr/\Apermutl: cannot close spec \Q$path\E: \S/, 'a spec that does not close stops the process';
+like $@, qr/\Amutation: cannot close spec \Q$path\E: \S/, 'a spec that does not close stops the process';

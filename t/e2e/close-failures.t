@@ -66,19 +66,19 @@ for my $part ( 1, 2 ) {
 my @reports = ( 'part1/mutation.json', 'part2/mutation.json' );
 
 my ( $status, $errors ) = failing_in( qr/::CLI::_read_report\z/, sub { command( 'merge', @reports ) } );
-is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 2, 'permutl: cannot close part1/mutation.json' ],
+is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 2, 'mutation: cannot close part1/mutation.json' ],
   'a report that does not close is a usage error';
 
 ( $status, $errors ) =
   failing_in( qr/::CLI::_report\z/, sub { command( 'merge', @reports, '--format', 'json', '--report-dir', 'whole' ) } );
-is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 4, 'permutl: cannot close whole/mutation.json' ],
+is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 4, 'mutation: cannot close whole/mutation.json' ],
   'a report file that does not close after the write fails the command';
 
 {
     local $ENV{GITHUB_STEP_SUMMARY} = "$root/summary.md";
     ( $status, $errors ) =
       failing_in( qr/::CLI::_report_to_github\z/, sub { command( 'merge', @reports, '--format', 'github' ) } );
-    is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 4, "permutl: cannot close $root/summary.md" ],
+    is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 4, "mutation: cannot close $root/summary.md" ],
       'a job summary that does not close fails the command';
 }
 

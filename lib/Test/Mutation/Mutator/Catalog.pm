@@ -358,7 +358,7 @@ Test::Mutation::Mutator::Catalog - the built-in mutators
 
 =head1 DESCRIPTION
 
-C<permutl mutators> prints the name, the profile, and the description of every mutator.
+C<mutation mutators> prints the name, the profile, and the description of every mutator.
 
 The C<arithmetic> mutator leaves C<+ 0>, C<- 0>, C<* 1>, C</ 1>, and C<** 1> alone.
 The operator and its replacement give the same value there, apart from the sign of a negative zero under C<* 1> and C</ 1>.

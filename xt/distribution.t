@@ -51,7 +51,7 @@ sub build_log {
 ok in_scratch( $^X, 'Makefile.PL' ), 'Makefile.PL runs'             or diag build_log();
 ok in_scratch('make'),               'make builds the distribution' or diag build_log();
 
-ok -x "$scratch/blib/script/permutl",                                                    'the command is built';
+ok -x "$scratch/blib/script/mutation",                                                   'the command is built';
 ok -f "$scratch/blib/lib/Test/Mutation.pm",                                              'the main module is built';
 ok -f "$scratch/blib/lib/Test/Mutation/Report/resources/mutation-test-elements.js",      'the bundled viewer is built';
 ok -f "$scratch/blib/lib/Test/Mutation/Report/resources/mutation-test-elements.LICENSE", 'with its license text';
@@ -72,8 +72,8 @@ is $meta->{no_index}, { directory => [ 't', 'xt' ], package => ['DB'] },
 is $meta->{prereqs}{runtime}{requires}, $declared->{runtime}{requires}, 'runtime requirements match cpanfile';
 is $meta->{prereqs}{test}{requires},    $declared->{test}{requires},    'test requirements match cpanfile';
 
-my $version = qx{$^X -I$scratch/blib/lib $scratch/blib/script/permutl --version};
-is $version, 'permutl ' . Test::Mutation->VERSION . "\n", 'the built command runs';
+my $version = qx{$^X -I$scratch/blib/lib $scratch/blib/script/mutation --version};
+is $version, 'mutation ' . Test::Mutation->VERSION . "\n", 'the built command runs';
 
 sub test_files {
     open my $makefile, '<', "$scratch/Makefile" or die "read Makefile: $!";
@@ -99,7 +99,7 @@ ok in_scratch( 'make', 'dist' ),     'make packs the distribution' or diag build
 my $prefix = 'Test-Mutation-' . Test::Mutation->VERSION;
 my %packed = map { $_ => 1 } Archive::Tar->list_archive("$scratch/$prefix.tar.gz");
 my @wanted = qw(
-  Makefile.PL cpanfile META.json README.md Changes LICENSE-MIT LICENSE-APACHE THIRD_PARTY_NOTICES.md bin/permutl
+  Makefile.PL cpanfile META.json README.md Changes LICENSE-MIT LICENSE-APACHE THIRD_PARTY_NOTICES.md bin/mutation
   lib/Test/Mutation.pm lib/Test/Mutation/Shim.pm lib/Test/Mutation/Report/resources/mutation-test-elements.js
   t/unit/tap.t t/shim/serve.t t/fixtures/calc/lib/Calc.pm
 );

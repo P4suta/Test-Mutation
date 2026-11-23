@@ -32,9 +32,9 @@ sub import {
 
 sub read_spec {
     my ($path) = @_;
-    open my $handle, '<', $path or die "permutl: cannot read spec $path: $!\n";
+    open my $handle, '<', $path or die "mutation: cannot read spec $path: $!\n";
     my @lines = <$handle>;
-    close $handle or die "permutl: cannot close spec $path: $!\n";
+    close $handle or die "mutation: cannot close spec $path: $!\n";
     my %spec = ( trace => 0, targets => [] );
     for my $line (@lines) {
         chomp $line;
