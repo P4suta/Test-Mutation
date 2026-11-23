@@ -138,7 +138,10 @@ sub _copy_project ($run) {
     my $name    = File::Basename::basename($project);
     $run->{name}   = length $name && $name !~ m{/} ? $name : q{project};
     $run->{copies} = Cwd::abs_path( File::Temp::tempdir( q{permutl-XXXXXX}, TMPDIR => 1 ) );
-    my @skip   = ( q{.git}, map { _inside( $project, $_ ) } $config->work_directory, $config->report_directory );
+
+    # A temporary directory inside the project holds the copies, which are no part of a copy.
+    my @skip =
+      ( q{.git}, map { _inside( $project, $_ ) } $config->work_directory, $config->report_directory, $run->{copies} );
     my $copied = eval { $run->{root} = _new_copy( $run, $project, \@skip, $config->link ); 1 };
     return if $copied;
     chomp( my $reason = "$@" );
@@ -437,6 +440,7 @@ sub _test_task ( $run, %arg ) {
             _environment( $run, $arg{spec}, $arg{root} ),
             "PERMUTL_RECORD_G$generation" => $record,
             HARNESS_ACTIVE                => 1,
+            PWD                           => $arg{root},
             TMPDIR                        => $tmp,
         },
         cwd             => $arg{root},
@@ -830,10 +834,11 @@ sub _next_test ( $run, $job, $baseline ) {
 sub _compile_task ( $run, $job, $kind, $file, $switch ) {
     my $sequence = ++$run->{sequence};
     my $config   = $run->{config};
+    my $root     = _job_root( $run, $job );
     return {
         command         => [ $config->perl, $config->switches->@*, $switch, $file ],
-        env             => { PERL_HASH_SEED => '0', PERL_PERTURB_KEYS => '0' },
-        cwd             => _job_root( $run, $job ),
+        env             => { PERL_HASH_SEED => '0', PERL_PERTURB_KEYS => '0', PWD => $root },
+        cwd             => $root,
         timeout         => $config->baseline_timeout,
         stop_on_failure => 0,
         stderr          => "$run->{work}/stderr/$sequence.txt",

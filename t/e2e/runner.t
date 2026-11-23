@@ -290,7 +290,8 @@ subtest 'a copy has the name of the project, links the installed modules, and ho
         "use Test::More tests => 1;\nuse Cwd ();\nuse lib 'local/lib/perl5';\nuse Helper;\nuse Small;\n"
       . "open my \$log, '>', \$ENV{RUN_LOG} or die \$!;\n"
       . "print {\$log} join \"\\n\", Cwd::getcwd(), ( -e '.git' ? 'git' : 'no git' ), ( -l 'local' ? 'link' : 'no link' ),"
-      . " ( -e 'permutl-report' ? 'report' : 'no report' ), Helper::name(), q{};\nclose \$log;\n"
+      . " ( -e 'permutl-report' ? 'report' : 'no report' ), Helper::name(),"
+      . " ( \$ENV{PWD} eq Cwd::getcwd() ? 'named' : 'not named' ), q{};\nclose \$log;\n"
       . "is Small::next_one(2), 3, 'the next one';\n";
     my $root = project(
         'lib/Small.pm'              => $MODULE,
@@ -305,13 +306,23 @@ subtest 'a copy has the name of the project, links the installed modules, and ho
     is statuses($result), hash { all_vals 'Killed'; etc }, 'the tests pass in the copy and detect the mutants';
     open my $handle, '<', $log->filename or die "read: $!";
     chomp( my ( $directory, @facts ) = readline $handle );
-    is \@facts,      [ 'no git', 'link', 'no report', 'helper' ], 'what a test finds in its directory';
-    isnt $directory, $root, 'the directory of a test is another one than the project';
+    is \@facts, [ 'no git', 'link', 'no report', 'helper', 'named' ],
+      'what a test finds in its directory, which the environment names';
+    isnt $directory,                       $root, 'the directory of a test is another one than the project';
     is [ ( split m{/}, $directory )[-1] ], [ ( split m{/}, $root )[-1] ], 'and has its name';
     ok !-e $directory,     'the copies are gone after the run';
     ok $result->in_copies, 'the result names the copies';
     my ($inside) = run_fixture( $root, jobs => 1, in_place => 1 );
     ok !$inside->in_copies, 'and a run in the project itself names none';
+};
+
+subtest 'a temporary directory inside the project is no part of a copy' => sub {
+    my $root = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $TEST, 'tmp/kept.txt' => 'kept' );
+    local $ENV{TMPDIR} = "$root/tmp";
+    my $before = project_state($root);
+    my ($result) = run_fixture( $root, jobs => 2 );
+    is [ sort values statuses($result)->%* ],                   [ ('Killed') x 3 ], 'the mutants are measured';
+    is Permutl::Tree::changes( $before, project_state($root) ), [],                 'and the project is as it was';
 };
 
 subtest 'a project that cannot be copied stops the run with the name of the other place' => sub {
