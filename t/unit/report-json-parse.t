@@ -82,9 +82,121 @@ is $back->sources, { 'lib/Calc.pm' => $source }, 'the sources';
 like dies { Permutl::Report::Json::parse('{') }, qr/\Athe text is no JSON document/, 'broken JSON is refused';
 like dies { Permutl::Report::Json::parse('{"schemaVersion":"2","thresholds":{"high":80,"low":60},"files":{}}') },
   qr/\Athe report holds no run facts of permutl/, 'a report of another tool is refused';
-like dies { Permutl::Report::Json::parse( $text =~ s/"jobs" : 3/"jobs" : "many"/r ) }, qr/\Athe report is malformed: /,
-  'a wrong type is refused';
-like dies { Permutl::Report::Json::parse( $text =~ s/"line" : 3/"line" : 99/r ) }, qr/\Athe report is malformed: /,
-  'a location outside the source is refused';
+
+like dies { Permutl::Report::Json::parse(undef) }, qr/did not pass type constraint "Str"/, 'the text is a string';
+
+sub refusal ($change) {
+    my $changed = $change->($text);
+    die 'the change matches nothing' if $changed eq $text;
+    return dies { Permutl::Report::Json::parse($changed) };
+}
+
+subtest 'a value of the wrong type is refused with its place in the report' => sub {
+    my $mutant = q{->{"files"}->{"lib/Calc.pm"}->{"mutants"}->[0]};
+    my %cases  = (
+        'a count that is no number' =>
+          [ sub ($t) { $t =~ s/"jobs" : 3/"jobs" : "many"/r }, q{->{"permutl"}->{"jobs"}} ],
+        'a run without a test process' => [ sub ($t) { $t =~ s/"jobs" : 3/"jobs" : 0/r }, q{->{"permutl"}->{"jobs"}} ],
+        'a count that is missing'      => [ sub ($t) { $t =~ s/"jobs" : 3,//r },          q{->{"permutl"}->{"jobs"}} ],
+        'an unknown status'            =>
+          [ sub ($t) { $t =~ s/"status" : "Killed"/"status" : "Eaten"/r }, $mutant . q{->{"status"}} ],
+        'a line that is no number' =>
+          [ sub ($t) { $t =~ s/"line" : 3/"line" : "third"/r }, $mutant . q{->{"location"}->{"end"}->{"line"}} ],
+        'an unknown signal' =>
+          [ sub ($t) { $t =~ s/"interrupted" : "INT"/"interrupted" : "USR1"/r }, q{->{"permutl"}->{"interrupted"}} ],
+        'a part without a number' =>
+          [ sub ($t) { $t =~ s{"shard" : "2/4"}{"shard" : "second"}r }, q{->{"permutl"}->{"shard"}} ],
+        'a digest of another length' => [
+            sub ($t) { $t =~ s/"digest" : "(?:ab){32}"/"digest" : "abab"/r },
+            q{->{"permutl"}->{"inventory"}->{"digest"}}
+        ],
+        'a warning that is no text' =>
+          [ sub ($t) { $t =~ s/"warnings" : \[/"warnings" : [ "first", {},/r }, q{->{"permutl"}->{"warnings"}->[1]} ],
+    );
+    for my $name ( sort keys %cases ) {
+        my ( $change, $place ) = $cases{$name}->@*;
+        is refusal($change), "the report is malformed: no valid value at \$report$place\n", $name;
+    }
+};
+
+subtest 'a location outside the source is refused' => sub {
+    my %cases = (
+        'a line after the last one' =>
+          [ sub ($t) { $t =~ s/"line" : 3/"line" : 6/r }, 'a location lies outside the source of lib/Calc.pm' ],
+        'a column after the end of the text' =>
+          [ sub ($t) { $t =~ s/"line" : 3/"line" : 5/r }, 'a location lies outside the source of lib/Calc.pm' ],
+        'an end before its start' =>
+          [ sub ($t) { $t =~ s/"column" : 16/"column" : 2/r }, 'a location ends before its start in lib/Calc.pm' ],
+    );
+    for my $name ( sort keys %cases ) {
+        my ( $change, $reason ) = $cases{$name}->@*;
+        is refusal($change), "the report is malformed: $reason\n", $name;
+    }
+};
+
+sub read_back (%fields) {
+    my $written = Permutl::Result->new(
+        root              => '/project',
+        sources           => { 'lib/Calc.pm' => $source },
+        tests             => [],
+        entries           => [],
+        problems          => [],
+        warnings          => [],
+        baseline_failures => [],
+        jobs              => 1,
+        parallel_safe     => 1,
+        started           => 1,
+        finished          => 2,
+        %fields,
+    );
+    return Permutl::Report::Json::parse( Permutl::Report::Json::render( $written, high => 80, low => 60 ) );
+}
+
+subtest 'locations at the edges of a source are read, and the entries keep the order of the report' => sub {
+    my %text = ( 'lib/Calc.pm' => $source, 'lib/Zero.pm' => "1;\n" );
+    my $at   = sub ( $id, $path, $start, $end, $from, $to ) {
+        return {
+            entry( 'Survived', id => $id )->%*,
+            mutant => Permutl::Mutant->new(
+                id          => $id,
+                path        => $path,
+                mutator     => 'statement',
+                start       => $start,
+                end         => $end,
+                original    => substr( $text{$path}, $start, $end - $start ),
+                replacement => q{},
+                description => 'removed',
+                from        => $from,
+                to          => $to,
+                scope       => [ $from->[0], $to->[0] ],
+            ),
+        };
+    };
+    my $length = length $source;
+    my $read   = read_back(
+        sources => \%text,
+        entries => [
+            $at->( '00000000000a', 'lib/Zero.pm', 0,           1,       [ 1, 1 ], [ 1, 2 ] ),
+            $at->( '00000000000b', 'lib/Calc.pm', 0,           3,       [ 1, 1 ], [ 1, 4 ] ),
+            $at->( '00000000000c', 'lib/Calc.pm', $length - 2, $length, [ 4, 1 ], [ 5, 1 ] ),
+            $at->( '00000000000d', 'lib/Calc.pm', 4,           4,       [ 1, 5 ], [ 1, 5 ] ),
+        ],
+    );
+    is [ map { [ $_->id, $_->path, $_->start, $_->end, $_->original ] } map { $_->{mutant} } $read->entries->@* ],
+      [
+        [ '00000000000b', 'lib/Calc.pm', 0,           3,       'sub' ],
+        [ '00000000000c', 'lib/Calc.pm', $length - 2, $length, "}\n" ],
+        [ '00000000000d', 'lib/Calc.pm', 4,           4,       q{} ],
+        [ '00000000000a', 'lib/Zero.pm', 0,           1,       '1' ],
+      ],
+      'the first character, the end of the text, and a place without width, file by file';
+};
+
+subtest 'every status and every signal of a result is read back' => sub {
+    my @statuses = qw(Killed Survived NoCoverage Timeout CompileError RuntimeError Ignored Pending);
+    my $read     = read_back( entries => [ map { entry( $statuses[$_], id => "00000000000$_" ) } 0 .. $#statuses ] );
+    is [ map { $_->{status} } $read->entries->@* ],                              \@statuses,         'the statuses';
+    is [ map { read_back( interrupted => $_ )->interrupted } qw(HUP INT TERM) ], [qw(HUP INT TERM)], 'the signals';
+};
 
 done_testing;

@@ -1,7 +1,7 @@
 package Permutl::Report::Json;
 use v5.36;
 use JSON::PP               ();
-use Types::Standard        qw(ArrayRef Dict HashRef InstanceOf Int Maybe Num Optional Slurpy Str Tuple);
+use Types::Standard        qw(ArrayRef Dict Enum HashRef InstanceOf Int Maybe Num Optional Slurpy Str StrMatch Tuple);
 use Types::Common::Numeric qw(PositiveInt);
 use Type::Params           qw(signature_for);
 use Permutl::Mutant;
@@ -99,6 +99,8 @@ sub render ( $result, $arg ) {
     return JSON::PP->new->canonical->pretty->encode($document);
 }
 
+# The document names the values that a result accepts, so that a refusal points at a place in the report.
+my $STATUS   = Enum [qw(Killed Survived NoCoverage Timeout CompileError RuntimeError Ignored Pending)];
 my $FLAG     = InstanceOf ['JSON::PP::Boolean'];
 my $POSITION = Dict [ line => PositiveInt, column => PositiveInt ];
 my $MUTANT   = Dict [
@@ -107,7 +109,7 @@ my $MUTANT   = Dict [
     replacement    => Str,
     description    => Str,
     location       => Dict [ start => $POSITION, end => $POSITION ],
-    status         => Str,
+    status         => $STATUS,
     statusReason   => Optional [Str],
     coveredBy      => ArrayRef [Str],
     killedBy       => Optional [ ArrayRef [Str] ],
@@ -120,11 +122,11 @@ my $DOCUMENT = Dict [
     projectRoot => Str,
     files       => HashRef [ Dict [ language => Str, source => Str, mutants => ArrayRef [$MUTANT] ] ],
     permutl     => Dict [
-        shard            => Maybe [Str],
-        inventory        => Maybe [ Dict [ mutants => Int, digest => Str ] ],
-        jobs             => Int,
+        shard            => Maybe [ StrMatch [qr{\A[1-9][0-9]*/[1-9][0-9]*\z}] ],
+        inventory        => Maybe [ Dict [ mutants => Int, digest => StrMatch [qr/\A[0-9a-f]{64}\z/] ] ],
+        jobs             => PositiveInt,
         parallelSafe     => $FLAG,
-        interrupted      => Maybe [Str],
+        interrupted      => Maybe [ Enum [qw(HUP INT TERM)] ],
         reused           => Int,
         started          => Num,
         finished         => Num,
@@ -142,12 +144,25 @@ sub parse ($text) {
     my $document = eval { JSON::PP->new->decode($text) };
     die "the text is no JSON document\n"             if ref $document ne 'HASH';
     die "the report holds no run facts of permutl\n" if !exists $document->{permutl};
-    my $problem = $DOCUMENT->validate_explain( $document, 'the report' );
-    die 'the report is malformed: ' . ( grep { /did not pass|constrains/ } reverse $problem->@* )[0] . "\n" if $problem;
+    my $problem = $DOCUMENT->validate_explain( $document, '$report' );
+    die 'the report is malformed: no valid value at ' . _place($problem) . "\n" if $problem;
     my $result = eval { _result($document) };
     return $result if $result;
     my ($reason) = split /\n/, "$@";
     die 'the report is malformed: ' . $reason =~ s/ at \S+ line \d+[.]?\z//r . "\n";
+}
+
+# The explanation of the type library walks from the document down to the value that fails.
+# A line names the place of a value, and a line about a key of a hash names the next step.
+sub _place ($explanation) {
+    my $place;
+    for my $line ( $explanation->@* ) {
+        if    ( $line =~ /[(]in (.+)[)]\z/ ) { $place = $1 }
+        elsif ( $line =~ /(?: constrains [ ] value [ ] at | requires ) [ ] key [ ] "([^"]+)"/x ) {
+            $place .= qq{->{"$1"}};
+        }
+    }
+    return $place;
 }
 
 sub _result ($document) {
