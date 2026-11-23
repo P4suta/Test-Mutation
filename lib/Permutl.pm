@@ -1,11 +1,14 @@
 package Permutl;
 use v5.36;
-use Types::Standard qw(ArrayRef HashRef InstanceOf Slurpy);
+use Cwd             ();
+use Exporter        qw(import);
+use Types::Standard qw(ArrayRef Bool HashRef InstanceOf Slurpy);
 use Type::Params    qw(signature_for);
 use Permutl::Config;
 use Permutl::Runner;
 
 our $VERSION = '0.001';
+our @EXPORT  = qw(mutation_score_ok);    ## no critic (Modules::ProhibitAutomaticExportation)
 
 my %NOT_A_SETTING = map { $_ => 1 } qw(new from_layers read_file);
 
@@ -40,6 +43,32 @@ sub mutants ($settings) {
     return Permutl::Runner::analyze( _config( $settings->%* ) )->{mutants};
 }
 
+signature_for mutation_score_ok => ( positional => [ Slurpy [HashRef] ], returns => Bool );
+
+sub mutation_score_ok ($settings) {
+    my %settings = ( root => q{.}, $settings->%* );
+    my $minimum  = exists $settings{min}  ? delete $settings{min}  : 100;
+    my $name     = exists $settings{name} ? delete $settings{name} : "the mutation score is at least $minimum%";
+
+    # The command and the library run without the modules of a test file.
+    require Test::Builder;
+    require Permutl::Report::Terminal;
+    my $builder = Test::Builder->new;
+    my $outer   = defined $ENV{PERMUTL_ROOT} ? Cwd::abs_path( $ENV{PERMUTL_ROOT} ) : undef;
+    my $own     = Cwd::abs_path( $settings{root} );
+    if ( defined $outer && defined $own && $outer eq $own ) {
+        $builder->skip('inside a permutl run');
+        return 1;
+    }
+
+    my $result  = run(%settings);
+    my $score   = $result->tally->{score};
+    my $reached = $result->conclusive && defined $score && $score >= $minimum ? 1 : 0;
+    $builder->ok( $reached, $name );
+    $builder->diag( Permutl::Report::Terminal::render( $result, color => 0 ) ) if !$reached;
+    return $reached;
+}
+
 1;
 
 __END__
@@ -59,6 +88,10 @@ Permutl - mutation testing for Perl that never rewrites a source file
     use Permutl;
     my $result = Permutl::run( root => q{.}, jobs => 4 );
     printf "%.1f%%\n", $result->tally->{score};
+
+    use Test::More tests => 1;
+    use Permutl;
+    mutation_score_ok( min => 80 );
 
 =head1 DESCRIPTION
 
@@ -98,7 +131,7 @@ C<permutl run --since origin/main> covers the changed lines, and C<--shard 2/4> 
 C<permutl merge> reads the C<mutation.json> of every part and reports the whole run, with its score and its exit status.
 It refuses a set of files that misses a part or mixes two runs.
 C<--cache> reuses the results of an earlier run for every mutant whose file and tests are unchanged.
-L<Test::Permutl> asserts a score from a test file.
+C<mutation_score_ok> asserts a score from a test file.
 
 =head1 CONFIGURATION
 
@@ -165,6 +198,17 @@ A C<permutl.toml> in the root directory supplies the settings that the call leav
     my $mutants = Permutl::mutants( root => $directory, profile => 'extended' );
 
 Returns the L<Permutl::Mutant> objects of the project without running a test.
+
+=head2 mutation_score_ok
+
+    mutation_score_ok( min => 80, name => 'tests detect mutants', jobs => 4, profile => 'extended' );
+
+Runs permutl on the project in the current directory from a test file, which gets the function by loading the module.
+Passes when the run is conclusive and the score reaches C<min>, 100 by default.
+C<name> names the test, and every other setting goes to C<run>, which also reads C<permutl.toml>.
+A failing assertion prints the report with the undetected mutants as diagnostics.
+A test file under C<xt/> keeps the measurement out of the tests that permutl itself runs.
+Inside a permutl run of the same project the assertion is a skip, so a copy under C<t/> does not start a run for every mutant.
 
 =head1 LIMITS
 

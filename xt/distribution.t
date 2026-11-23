@@ -100,7 +100,7 @@ my $prefix = 'Permutl-' . Permutl->VERSION;
 my %packed = map { $_ => 1 } Archive::Tar->list_archive("$scratch/$prefix.tar.gz");
 my @wanted = qw(
   Makefile.PL cpanfile META.json README.md Changes LICENSE-MIT LICENSE-APACHE THIRD_PARTY_NOTICES.md bin/permutl
-  lib/Permutl.pm lib/Permutl/Shim.pm lib/Test/Permutl.pm lib/Permutl/Report/resources/mutation-test-elements.js
+  lib/Permutl.pm lib/Permutl/Shim.pm lib/Permutl/Report/resources/mutation-test-elements.js
   t/unit/tap.t t/shim/serve.t t/fixtures/calc/lib/Calc.pm
 );
 is [ grep { !$packed{"$prefix/$_"} } @wanted ], [], 'the archive holds the sources, the tests, and the notices';
