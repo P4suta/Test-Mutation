@@ -2,6 +2,7 @@ use v5.36;
 use Test2::V0;
 use lib 't/e2e/lib';
 use Fixture qw(copy_of permutl tree_digest write_file);
+use Permutl::Mutator::Catalog;
 
 my $root = copy_of('calc');
 
@@ -115,6 +116,19 @@ subtest '--shard splits the mutants into disjoint parts' => sub {
     }
 };
 
+subtest 'mutators names every mutator with its profile and its description' => sub {
+    my $run = permutl( $root, 'mutators' );
+    is $run->{exit}, 0, 'exit status' or diag $run->{stderr};
+    my @lines = split /\n/, $run->{stdout};
+    is scalar(@lines), scalar( Permutl::Mutator::Catalog::mutators()->@* ), 'one line for each mutator';
+    like $run->{stdout}, qr/^arithmetic +default +Replaces an arithmetic operator with its counterpart$/m,
+      'a mutator of the default profile';
+    like $run->{stdout}, qr/^regex-anchor +extended +Removes an anchor from a pattern$/m,
+      'a mutator of the extended profile';
+    my %columns = map { /\A(\S+ +)(\S+ +)/ ? ( length($1) . q{ } . length $2 => 1 ) : ( none => 1 ) } @lines;
+    is [ keys %columns ], ['21 10'], 'the columns line up two spaces after the longest name and profile';
+};
+
 subtest 'version, help, and stray arguments' => sub {
     my $version = permutl( $root, '--version' );
     is $version->{exit}, 0, '--version succeeds';
@@ -125,6 +139,7 @@ subtest 'version, help, and stray arguments' => sub {
     like $help->{stdout}, qr/^Usage: permutl \[run\] \[options\]$/m, 'the usage line';
     like $help->{stdout}, qr/^\s+permutl exec ID -- COMMAND/m,       'the commands';
     like $help->{stdout}, qr/^\s+permutl merge FILE/m,               'the merge command';
+    like $help->{stdout}, qr/^\s+permutl mutators$/m,                'the mutators command';
     my @undocumented = grep { $help->{stdout} !~ /^\s+--\Q$_\E\b/m }
       qw(jobs min-score format report-dir perl source test profile enable disable coverage timeout-factor timeout-floor
       keep-work mutant since shard no-equivalence cache config);

@@ -3,11 +3,13 @@ use v5.36;
 use Cwd             ();
 use File::Path      ();
 use Getopt::Long    ();
+use List::Util      ();
 use Types::Standard qw(ArrayRef Int Slurpy Str);
 use Type::Params    qw(signature_for);
 use Permutl::Config;
 use Permutl::Interrupted;
 use Permutl::Merge;
+use Permutl::Mutator::Catalog;
 use Permutl::Project;
 use Permutl::Report::GitHub;
 use Permutl::Report::Html;
@@ -19,7 +21,8 @@ use Permutl::Runner;
 
 our $VERSION = '0.001';
 
-my %COMMAND = ( run => \&_run, list => \&_list, show => \&_show, exec => \&_exec, merge => \&_merge );
+my %COMMAND =
+  ( run => \&_run, list => \&_list, show => \&_show, exec => \&_exec, merge => \&_merge, mutators => \&_mutators );
 
 signature_for main => ( positional => [ Slurpy [ ArrayRef [Str] ] ], returns => Int );
 
@@ -29,13 +32,15 @@ Usage: permutl [run] [options]
        permutl show ID [options]
        permutl exec ID -- COMMAND [ARGUMENT...]
        permutl merge FILE... [options]
+       permutl mutators
 
 Commands:
-  run     Measure how many mutants the tests detect (the default)
-  list    Print the mutants without running a test
-  show    Print one mutant as a unified diff
-  exec    Run a command with one mutant active
-  merge   Report one run from the mutation.json of every part of --shard
+  run       Measure how many mutants the tests detect (the default)
+  list      Print the mutants without running a test
+  show      Print one mutant as a unified diff
+  exec      Run a command with one mutant active
+  merge     Report one run from the mutation.json of every part of --shard
+  mutators  Print the name, the profile, and the description of every mutator
 
 Options:
   --jobs, -j N          Test processes to run side by side
@@ -296,6 +301,15 @@ sub _merge (@arguments) {
       or return _usage( _first_line($@) );
     _report( $result, $config );
     return _exit_status( $result, $config );
+}
+
+sub _mutators (@arguments) {
+    return _usage("unexpected argument $arguments[0]") if @arguments;
+    my @mutators = Permutl::Mutator::Catalog::mutators()->@*;
+    my $name     = List::Util::max( map { length $_->name } @mutators );
+    my $profile  = List::Util::max( map { length $_->profile } @mutators );
+    printf "%-*s  %-*s  %s\n", $name, $_->name, $profile, $_->profile, $_->description for @mutators;
+    return 0;
 }
 
 sub _plural ( $count, $noun ) {

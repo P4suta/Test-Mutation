@@ -129,6 +129,7 @@ A file named C<permutl.toml> in the project directory changes the defaults.
 
 The C<extended> profile adds mutators for literals, fixed conditions, sort order, range bounds, and patterns.
 C<permutl list --profile extended> shows what a profile produces.
+C<permutl mutators> prints the name, the profile, and the description of every mutator, for C<enable> and C<disable>.
 
 A comment suppresses the mutants on its line, and a comment on a line of its own suppresses them until C<## use mutate>.
 
