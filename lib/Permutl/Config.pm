@@ -160,6 +160,7 @@ The interpreter that runs the tests.
 =head2 switches
 
 Switches for the interpreter, C<-Ilib> by default.
+The run names a relative directory after C<-I> in full, as C<prove> does, so a test may change its directory.
 
 =head2 timeout_factor, timeout_floor
 

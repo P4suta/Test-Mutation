@@ -302,6 +302,11 @@ sub run_command ( $config, $source, $mutant, $command ) {
     return $status >> 8;
 }
 
+# prove names its library directories in full, so a test may change its directory before it loads a module.
+sub _switches ($run) {
+    return map { s{\A-I(?=[^/])}{-I$run->{root}/}r } $run->{config}->switches->@*;
+}
+
 sub _test_task ( $run, %arg ) {
     my $sequence   = ++$run->{sequence};
     my $work       = $run->{work};
@@ -312,11 +317,8 @@ sub _test_task ( $run, %arg ) {
     my $taint = _taint_switch( $run, $arg{test} );
     my $load  = '-M' . $run->{package};
     return {
-        command => [
-            $run->{config}->perl,     $run->{config}->switches->@*,
-            ( $taint ? $taint : () ), "-I$work/shim",
-            $load,                    $arg{test},
-        ],
+        command =>
+          [ $run->{config}->perl, _switches($run), ( $taint ? $taint : () ), "-I$work/shim", $load, $arg{test}, ],
         env => {
             _environment( $run, $arg{spec} ),
             "PERMUTL_RECORD_G$generation" => $record,
