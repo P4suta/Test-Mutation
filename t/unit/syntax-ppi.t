@@ -110,6 +110,37 @@ subtest 'class syntax yields method bodies' => sub {
       [ [ 'move', [ 4, 7 ] ], [ 'x', [ 8, 8 ] ] ], 'method bodies with their line ranges';
 };
 
+subtest 'code after a block that PPI leaves open is its own statement' => sub {
+    my $code = <<'PERL';
+sub f {
+    try { g() } catch ($e) { h() }
+    finally {
+        i();
+    }
+    after_finally( 1 + 2 );
+    defer { j() }
+    after_defer( 3 - 4 );
+    last_call();
+}
+method name {
+    k();
+}
+after_method( 5 * 6 );
+PERL
+    is [ map { [ $_->text, $_->scope ] } grep { $_->text =~ /after|last/ } sites_of( $code, 'statement' )->@* ],
+      [
+        [ 'after_finally( 1 + 2 );', [ 6,  6 ] ],
+        [ 'after_defer( 3 - 4 );',   [ 8,  8 ] ],
+        [ 'last_call();',            [ 9,  9 ] ],
+        [ 'after_method( 5 * 6 );',  [ 14, 14 ] ],
+      ],
+      'the statement after the block is deletable';
+    my %scope = map { $_->text => $_->scope } grep { $_->role eq 'binary' } sites_of( $code, 'operator' )->@*;
+    is $scope{'+'}, [ 6,  6 ],  'an operator after a finally block';
+    is $scope{'-'}, [ 8,  8 ],  'an operator after a defer block';
+    is $scope{'*'}, [ 14, 14 ], 'an operator after a method';
+};
+
 subtest 'scope is the statement that runs the site' => sub {
     my $code = <<'PERL';
 sub f {

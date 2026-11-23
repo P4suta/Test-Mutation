@@ -18,7 +18,12 @@ my %CODE_BLOCK_WORD =
   map { $_ => 1 }
   qw(do eval sub map grep first any all none notall try catch finally defer method ADJUST class role else continue
   BEGIN END INIT CHECK UNITCHECK);
-my %UNDELETABLE_FIRST_WORD = map { $_ => 1 } qw(package class role field method use no);
+my %UNDELETABLE_FIRST_WORD =
+  map { $_ => 1 } qw(package class role field method use no my our local state return last next redo goto);
+my %OPEN_BLOCK_HEAD  = map { $_ => 1 } qw(ADJUST if unless while until for foreach);
+my %BLOCK_FIRST_HEAD = map { $_ => 1 } qw(finally defer try);
+my %NAMED_BLOCK_HEAD = map { $_ => 1 } qw(class role method sub);
+my %CONTINUATION     = map { $_ => 1 } qw(elsif else continue catch finally);
 my %NEVER_A_CALL =
   map { $_ => 1 }
   qw(my our local state sub package class role field method use no return do eval else elsif for foreach
@@ -73,6 +78,69 @@ sub _visit ( $context, $element, $excluded ) {
     _structure_sites( $context, $element ) if !$skip;
     _visit( $context, $_, $skip ) for $element->children;
     return;
+}
+
+sub _is_word ( $element, $words ) {
+    return $element && $element->isa('PPI::Token::Word') && $words->{ $element->content } ? 1 : 0;
+}
+
+sub _is_semicolon ($element) {
+    return $element->isa('PPI::Token::Structure') && $element->content eq q{;} ? 1 : 0;
+}
+
+sub _ends_at_block ( $head, $next, $after ) {
+    return 0                                           if !$next;
+    return 1                                           if _is_word( $head, \%OPEN_BLOCK_HEAD );
+    return $next->isa('PPI::Structure::Block') ? 1 : 0 if _is_word( $head, \%BLOCK_FIRST_HEAD );
+    return 0 if !_is_word( $head, \%NAMED_BLOCK_HEAD ) || !$next->isa('PPI::Token::Word');
+    return _is_operator( $after, '=>', q{,} ) ? 0 : 1;
+}
+
+# PPI ends a statement it does not know, such as a method or a defer block, at the next semicolon.
+sub _segments ( $context, $statement ) {
+    my $key = refaddr $statement;
+    return $context->{segments}{$key} if $context->{segments}{$key};
+    my @children = $statement->schildren;
+    my @segments;
+    while (@children) {
+        my @part = shift @children;
+        my ( $next, $after ) = @children;
+        my $closes = _ends_at_block( $part[0], $next, $after );
+        while (@children) {
+            push @part, shift @children;
+            last if _is_semicolon( $part[-1] );
+            last if $closes && $part[-1]->isa('PPI::Structure::Block') && !_is_word( $children[0], \%CONTINUATION );
+        }
+        my $segment = { children => \@part };
+        $context->{segment_of}{ refaddr $_ } = $segment for @part;
+        push @segments, $segment;
+    }
+    return $context->{segments}{$key} = \@segments;
+}
+
+sub _segment_of ( $context, $statement, $element ) {
+    _segments( $context, $statement );
+    my $child = $element;
+    while ( my $parent = $child->parent ) {
+        return $context->{segment_of}{ refaddr $child } if refaddr($parent) == refaddr $statement;
+        $child = $parent;
+    }
+    return;
+}
+
+sub _segment_scope ($segment) {
+    if ( !exists $segment->{scope} ) {
+        my ( $first, $last ) = map { $_->location } _edge_tokens( $segment->{children}->@[ 0, -1 ] );
+        $segment->{scope} = $first && $last ? [ $first->[0], $last->[0] ] : undef;
+    }
+    return $segment->{scope};
+}
+
+sub _edge_tokens ( $first, $last ) {
+    return (
+        $first->isa('PPI::Token') ? $first : $first->first_token,
+        $last->isa('PPI::Token')  ? $last  : $last->last_token
+    );
 }
 
 sub _excluded ($node) {
@@ -252,7 +320,9 @@ sub _running_statement ($element) {
 
 sub _scope ( $context, $element ) {
     my $statement = _running_statement($element) or return;
-    my $key       = refaddr $statement;
+    my $segment   = ref $statement eq 'PPI::Statement' ? _segment_of( $context, $statement, $element ) : undef;
+    return _segment_scope($segment) if $segment;
+    my $key = refaddr $statement;
     if ( !exists $context->{scopes}{$key} ) {
         my $first = $statement->first_token->location;
         my $last  = $statement->last_token->location;
@@ -265,8 +335,8 @@ sub _structure_sites ( $context, $node ) {
     _condition_site( $context, $node ) if $node->isa('PPI::Structure::Condition');
     return                             if !$node->isa('PPI::Statement');
     _sub_body_sites( $context, $node );
-    _return_site( $context, $node )    if $node->isa('PPI::Statement::Break');
-    _statement_site( $context, $node ) if ref $node eq 'PPI::Statement';
+    _return_site( $context, $node )     if $node->isa('PPI::Statement::Break');
+    _statement_sites( $context, $node ) if ref $node eq 'PPI::Statement';
     return;
 }
 
@@ -359,30 +429,29 @@ sub _return_site ( $context, $statement ) {
     return;
 }
 
-sub _statement_site ( $context, $statement ) {
+sub _statement_sites ( $context, $statement ) {
     my $parent = $statement->parent;
     return if !$parent->isa('PPI::Document') && !( $parent->isa('PPI::Structure::Block') && _is_code_block($parent) );
 
-    my @children = $statement->schildren;
-    return if !@children;
-    return if grep { $_->isa('PPI::Structure::Block') } @children;
-    return if $children[0]->isa('PPI::Token::Word') && $UNDELETABLE_FIRST_WORD{ $children[0]->content };
+    for my $segment ( _segments( $context, $statement )->@* ) {
+        my @children = $segment->{children}->@*;
+        next if grep { $_->isa('PPI::Structure::Block') } @children;
+        next if _is_word( $children[0], \%UNDELETABLE_FIRST_WORD );
 
-    my @content = grep { !( $_->isa('PPI::Token::Structure') && $_->content eq q{;} ) } @children;
-    return if !@content;
-    return if @content == 1 && ( $content[0]->isa('PPI::Token::Number') || $content[0]->isa('PPI::Token::Quote') );
+        my @content = grep { !_is_semicolon($_) } @children;
+        next if !@content;
+        next if @content == 1 && ( $content[0]->isa('PPI::Token::Number') || $content[0]->isa('PPI::Token::Quote') );
 
-    my $first = $statement->first_token;
-    my $last  = $statement->last_token;
-    my ( $start, $end ) = _span( $context, $first, $last ) or return;
-    my $scope = _scope( $context, $statement ) or return;
-    _add(
-        $context,
-        kind  => 'statement',
-        start => $start,
-        end   => $end,
-        scope => $scope,
-    );
+        my ( $start, $end ) = _span( $context, _edge_tokens( @children[ 0, -1 ] ) ) or next;
+        my $scope = _segment_scope($segment) or next;
+        _add(
+            $context,
+            kind  => 'statement',
+            start => $start,
+            end   => $end,
+            scope => $scope,
+        );
+    }
     return;
 }
 
