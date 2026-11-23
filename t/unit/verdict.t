@@ -91,6 +91,22 @@ subtest 'a timeout waits for a later test to decide' => sub {
       'a timeout after the load says more than one before it';
     is verdict( outcome(%timeout), outcome(%early) ), 'Timeout', 'in either order';
 
+    my $twice = sub ( $first, $second ) {
+        my $state = Permutl::Verdict::start();
+        $state = Permutl::Verdict::step( $state, outcome( test => 't/first.t',  $first->%* ) );
+        $state = Permutl::Verdict::step( $state, outcome( test => 't/second.t', $second->%* ) );
+        return [ $state->@{qw(status by reason)} ];
+    };
+    is $twice->( \%timeout, \%timeout ), [ 'Timeout', 't/first.t', 't/first.t exceeded its time limit' ],
+      'two timeouts after the load name the first test';
+    is $twice->( \%early, \%early ),
+      [ 'RuntimeError', 't/first.t', 't/first.t exceeded its time limit before it loaded the mutant' ],
+      'two timeouts before the load name the first test';
+    is $twice->( \%early, \%timeout ), [ 'Timeout', 't/second.t', 't/second.t exceeded its time limit' ],
+      'a timeout after the load takes the place of one before it';
+    is $twice->( \%timeout, \%early ), [ 'Timeout', 't/first.t', 't/first.t exceeded its time limit' ],
+      'and keeps its place against a later one before the load';
+
     my $state = Permutl::Verdict::start();
     $state = Permutl::Verdict::step( $state, outcome( test => 't/slow.t', %timeout ) );
     is [ $state->@{qw(status tests)} ], [ undef, 1 ], 'the state stays open after the first timeout';
@@ -179,6 +195,8 @@ subtest 'arguments are checked' => sub {
       qr/did not pass type constraint/, 'step needs a whole outcome';
     like dies { Permutl::Verdict::final('state') },    qr/did not pass type constraint/, 'final needs a state';
     like dies { Permutl::Verdict::conclude('state') }, qr/did not pass type constraint/, 'conclude needs a state';
+    like dies { Permutl::Verdict::final() },           qr/Wrong number of parameters/,   'final takes one argument';
+    like dies { Permutl::Verdict::conclude() },        qr/Wrong number of parameters/,   'and so does conclude';
     like dies { Permutl::Score::tally('Killed') }, qr/did not pass type constraint/, 'tally needs a list of statuses';
 };
 
