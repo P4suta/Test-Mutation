@@ -111,7 +111,7 @@ sub _segments ( $context, $statement ) {
             last if _is_semicolon( $part[-1] );
             last if $closes && $part[-1]->isa('PPI::Structure::Block') && !_is_word( $children[0], \%CONTINUATION );
         }
-        my $segment = { children => \@part };
+        my $segment = { children => \@part, closes => $closes };
         $context->{segment_of}{ refaddr $_ } = $segment for @part;
         push @segments, $segment;
     }
@@ -289,12 +289,18 @@ sub _is_name ($element) {
     return $element->isa('PPI::Token::Word') || ( $element->isa('PPI::Token::Operator') && $element->content eq 'x' );
 }
 
-sub _is_code_block ($block) {
+sub _closes_segment ( $context, $block ) {
+    my $segment = _segment_of( $context, $block->parent, $block ) or return 0;
+    return $segment->{closes} && refaddr( $segment->{children}[-1] ) == refaddr $block ? 1 : 0;
+}
+
+sub _is_code_block ( $context, $block ) {
     my $parent = $block->parent;
     return 1
       if $parent->isa('PPI::Statement::Compound')
       || $parent->isa('PPI::Statement::Sub')
       || $parent->isa('PPI::Statement::Scheduled');
+    return 1 if ref $parent eq 'PPI::Statement' && _closes_segment( $context, $block );
     my $previous = $block->sprevious_sibling;
     return 1 if !$previous;
     return 1 if $previous->isa('PPI::Structure::List') || $previous->isa('PPI::Structure::Signature');
@@ -304,7 +310,7 @@ sub _is_code_block ($block) {
     return $before && $before->isa('PPI::Token::Word') && $DECLARATOR{ $before->content } ? 1 : 0;
 }
 
-sub _running_statement ($element) {
+sub _running_statement ( $context, $element ) {
     my $statement = $element->isa('PPI::Statement') ? $element : $element->statement;
     while ($statement) {
         my $parent = $statement->parent or return $statement;
@@ -312,14 +318,14 @@ sub _running_statement ($element) {
         return $statement
           if ref $statement ne 'PPI::Statement::Expression'
           && $parent->isa('PPI::Structure::Block')
-          && _is_code_block($parent);
+          && _is_code_block( $context, $parent );
         $statement = $parent->statement or return;
     }
     return;
 }
 
 sub _scope ( $context, $element ) {
-    my $statement = _running_statement($element) or return;
+    my $statement = _running_statement( $context, $element ) or return;
     my $segment   = ref $statement eq 'PPI::Statement' ? _segment_of( $context, $statement, $element ) : undef;
     return _segment_scope($segment) if $segment;
     my $key = refaddr $statement;
@@ -431,7 +437,9 @@ sub _return_site ( $context, $statement ) {
 
 sub _statement_sites ( $context, $statement ) {
     my $parent = $statement->parent;
-    return if !$parent->isa('PPI::Document') && !( $parent->isa('PPI::Structure::Block') && _is_code_block($parent) );
+    return
+      if !$parent->isa('PPI::Document')
+      && !( $parent->isa('PPI::Structure::Block') && _is_code_block( $context, $parent ) );
 
     for my $segment ( _segments( $context, $statement )->@* ) {
         my @children = $segment->{children}->@*;

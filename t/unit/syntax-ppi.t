@@ -110,6 +110,27 @@ subtest 'class syntax yields method bodies' => sub {
       [ [ 'move', [ 4, 7 ] ], [ 'x', [ 8, 8 ] ] ], 'method bodies with their line ranges';
 };
 
+subtest 'a class body is a code block whatever its header holds' => sub {
+    my $code = <<'PERL';
+class Counter 1.0 {
+    field $step = 1 + 1;
+    register('counter');
+}
+class Other :isa(Counter) {
+    field $size = 2 * 2;
+}
+class Third 2.0 :isa(Other) {
+    field $rate = 3 - 3;
+}
+PERL
+    my %scope = map { $_->text => $_->scope } grep { $_->role eq 'binary' } sites_of( $code, 'operator' )->@*;
+    is $scope{'+'}, [ 2, 2 ], 'a field of a class with a version';
+    is $scope{'*'}, [ 6, 6 ], 'a field of a class with an attribute';
+    is $scope{'-'}, [ 9, 9 ], 'a field of a class with both';
+    is [ map { $_->text } sites_of( $code, 'statement' )->@* ], [q{register('counter');}],
+      'a call in the class body is deletable';
+};
+
 subtest 'code after a block that PPI leaves open is its own statement' => sub {
     my $code = <<'PERL';
 sub f {
