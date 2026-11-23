@@ -20,7 +20,7 @@ sub changed_lines ($diff) {
         next if !defined $path;
         my ( $start, $length ) = $line =~ /\A @@ [ ] -[0-9,]+ [ ] [+] ([0-9]+) (?: , ([0-9]+) )? [ ] @@/x or next;
         $length = 1 if !defined $length;
-        push $changed{$path}->@*, [ $start + 0, $start + $length - 1 ] if $length > 0;
+        push $changed{$path}->@*, [ 0 + $start, $start + $length - 1 ] if $length > 0;
     }
     return \%changed;
 }

@@ -46,17 +46,17 @@ sub _facts ($result) {
     my $inventory = $result->inventory;
     return {
         shard        => $result->shard,
-        inventory    => $inventory ? { mutants => $inventory->{mutants} + 0, digest => $inventory->{digest} } : undef,
-        jobs         => $result->jobs + 0,
+        inventory    => $inventory ? { mutants => 0 + $inventory->{mutants}, digest => $inventory->{digest} } : undef,
+        jobs         => 0 + $result->jobs,
         parallelSafe => _boolean( $result->parallel_safe ),
         interrupted  => $result->interrupted,
-        reused       => $result->reused + 0,
-        started      => $result->started + 0,
-        finished     => $result->finished + 0,
+        reused       => 0 + $result->reused,
+        started      => 0 + $result->started,
+        finished     => 0 + $result->finished,
         warnings     => [ $result->warnings->@* ],
         problems     => [ map { { path => $_->{path}, problem => $_->{problem} } } $result->problems->@* ],
         baselineFailures => [ map { $_->{test} } $result->baseline_failures->@* ],
-        tests            => [ map { { name => $_->{name}, duration => $_->{duration} + 0 } } $result->tests->@* ],
+        tests            => [ map { { name => $_->{name}, duration => 0 + $_->{duration} } } $result->tests->@* ],
     };
 }
 
@@ -70,11 +70,11 @@ sub _mutant ($entry) {
         location       => { start => _position( $mutant->from ), end => _position( $mutant->to ) },
         status         => $entry->{status},
         coveredBy      => [ $entry->{covered_by}->@* ],
-        testsCompleted => $entry->{tests_run} + 0,
+        testsCompleted => 0 + $entry->{tests_run},
         duration       => int( $entry->{duration} * $MILLISECONDS + 0.5 ),
         static         => JSON::PP::false,
         permutl        => {
-            scope      => [ map { $_ + 0 } $mutant->scope->@* ],
+            scope      => [ map { 0 + $_ } $mutant->scope->@* ],
             suppressed => _boolean( $mutant->suppressed ),
             comparable => _boolean( $mutant->comparable ),
         },
@@ -85,7 +85,7 @@ sub _mutant ($entry) {
 }
 
 sub _position ($pair) {
-    return { line => $pair->[0] + 0, column => $pair->[1] + 0 };
+    return { line => 0 + $pair->[0], column => 0 + $pair->[1] };
 }
 
 signature_for render => (
