@@ -70,6 +70,8 @@ subtest 'the summary of a part names the part and the size of the whole run' => 
       'the part follows the counts';
     unlike Permutl::Report::Terminal::render( result( [ entry('Killed') ] ), color => 0 ), qr/^Part /m,
       'a whole run names no part';
+    unlike Permutl::Report::Terminal::render( result( [ entry('Killed') ], shard => '2/4' ), color => 0 ), qr/^Part /m,
+      'a part without an inventory names no part either';
 };
 
 subtest 'a survived mutant shows its place, change, and tests' => sub {

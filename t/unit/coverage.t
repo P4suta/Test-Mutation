@@ -62,6 +62,12 @@ subtest 'a statement without runtime lines falls back to the file' => sub {
       'no breakable line and no hit in the scope';
 };
 
+subtest 'a line that a test ran is observable without the list of statement lines' => sub {
+    my $coverage = Permutl::Coverage->new( mode => 'line', tests => \%tests, breakable => {} );
+    is $coverage->tests_for( mutant( 'lib/A.pm', 10, 10 ) ), [ 't/untraced.t', 't/slow.t' ],
+      'the tests that ran the line, and no other test that loaded the file';
+};
+
 subtest 'equal durations are ordered by name' => sub {
     my $coverage = Permutl::Coverage->new(
         mode      => 'file',
