@@ -38,7 +38,7 @@ sub failing_in ( $pattern, $code ) {
 }
 
 my $record =
-  { key => 'k', status => 'Killed', reason => undef, by => 't/a.t', tests_run => 1, duration => 0.1, code => undef };
+  { inputs => 'k', status => 'Killed', reason => undef, by => 't/a.t', tests_run => 1, duration => 0.1, code => undef };
 my $cache = "$directory/cache.json";
 is Permutl::Cache::save( $cache, { abc => $record } ), 1,       'the cache is written';
 is [ keys Permutl::Cache::load($cache)->%* ],          ['abc'], 'and read back';

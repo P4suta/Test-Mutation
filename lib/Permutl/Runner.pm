@@ -560,7 +560,7 @@ sub _reused_entry ( $run, $cache, $job ) {
     my $mutant = $job->{mutant};
     my $key    = $cache->{keys}{ $mutant->id } = $cache->{key_of}->($job);
     my $record = $cache->{records}{ $mutant->id };
-    return                                                  if !$record || $record->{key} ne $key;
+    return                                                  if !$record || $record->{inputs} ne $key;
     $run->{code_of_mutant}{ $mutant->id } = $record->{code} if defined $record->{code};
     $run->{reused}++;
     my $entry =
@@ -575,7 +575,7 @@ sub _save_cache ( $run, $cache, $entries ) {
         my $id  = $entry->{mutant}->id;
         my $key = $cache->{keys}{$id} or next;
         $records{$id} =
-          { key => $key, $entry->%{qw(status reason by tests_run duration)}, code => $run->{code_of_mutant}{$id} };
+          { inputs => $key, $entry->%{qw(status reason by tests_run duration)}, code => $run->{code_of_mutant}{$id} };
     }
     Permutl::Cache::save( $cache->{path}, \%records );
     return;

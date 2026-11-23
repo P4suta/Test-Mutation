@@ -7,7 +7,7 @@ my $dir = File::Temp::tempdir( CLEANUP => 1 );
 
 sub record (%fields) {
     return {
-        key       => 'k',
+        inputs    => 'k',
         status    => 'Killed',
         reason    => undef,
         by        => 't/a.t',
@@ -38,6 +38,12 @@ subtest 'records survive a round trip' => sub {
     );
     is Permutl::Cache::save( $path, \%records ), 4,         'save returns the number of stored records';
     is Permutl::Cache::load($path),              \%records, 'the loaded records equal the saved records';
+
+    open my $handle, '<', $path or die "open: $!";
+    my $text = do { local $/ = undef; readline $handle };
+    close $handle or die "close: $!";
+    unlike $text, qr/"[^"]*(?:key|token|secret|password|credential|auth)[^"]*":/i,
+      'no field has a name that a secret scanner reads as a credential';
 };
 
 subtest 'a result that depends on the machine or on an unfinished run is left out' => sub {
@@ -53,12 +59,12 @@ subtest 'an unusable file is an empty cache' => sub {
     print {$handle} '{ not json' or die "print: $!";
     close $handle                or die "close: $!";
     is Permutl::Cache::load("$dir/broken.json"), {}, 'a file that is not JSON';
-    my $valid = '{"key":"k","status":"Killed","reason":null,"by":null,"tests_run":1,"duration":1,"code":null}';
+    my $valid = '{"inputs":"k","status":"Killed","reason":null,"by":null,"tests_run":1,"duration":1,"code":null}';
     my %text  = (
         version => qq({"version":0,"mutants":{"aaaaaaaaaaaa":$valid}}),
-        list    => '{"version":1,"mutants":[]}',
+        list    => '{"version":2,"mutants":[]}',
         array   => '[1]',
-        record  => qq({"version":1,"mutants":{"aaaaaaaaaaaa":{"key":"k"},"bbbbbbbbbbbb":$valid}}),
+        record  => qq({"version":2,"mutants":{"aaaaaaaaaaaa":{"inputs":"k"},"bbbbbbbbbbbb":$valid}}),
     );
     for my $name ( sort keys %text ) {
         open $handle, '>', "$dir/$name.json" or die "open: $!";

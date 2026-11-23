@@ -10,10 +10,10 @@ use Type::Params    qw(signature_for);
 
 our $VERSION = '0.001';
 
-my $FORMAT = 1;
+my $FORMAT = 2;
 my %KEPT   = map { $_ => 1 } qw(Killed Survived CompileError Ignored);
 my $RECORD = Dict [
-    key       => Str,
+    inputs    => Str,
     status    => Str,
     reason    => Maybe [Str],
     by        => Maybe [Str],
@@ -72,11 +72,12 @@ Permutl::Cache - results of earlier runs, keyed by what each result depends on
 
     my $records = Permutl::Cache::load('.permutl/cache.json');
     my $key     = Permutl::Cache::key( $version, $source_text, @test_digests );
-    my $reuse   = $records->{$id} && $records->{$id}{key} eq $key;
+    my $reuse   = $records->{$id} && $records->{$id}{inputs} eq $key;
 
 =head1 DESCRIPTION
 
-A record holds the result of one mutant and the key of its inputs.
+A record holds the result of one mutant and, under C<inputs>, the key of its inputs.
+No field is named after a key, because a secret scanner reads such a name next to a digest as a credential.
 A later run reuses the record when the key of the same mutant is unchanged.
 
 =head1 FUNCTIONS
