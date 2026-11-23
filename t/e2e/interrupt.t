@@ -1,6 +1,7 @@
 use v5.36;
 use Test2::V0;
 use Cwd         ();
+use File::Temp  ();
 use Time::HiRes ();
 use lib 't/e2e/lib';
 use Fixture qw(copy_of write_file);
@@ -36,6 +37,8 @@ for my $signal ( sort keys %status_of ) {
     subtest "SIG$signal ends the tests and removes the work directory" => sub {
         my $root = copy_of('calc');
         write_file( "$root/t/slow.t", "use Test::More tests => 1;\nuse Calc;\nsleep 30;\nok 1, 'slept';\n" );
+        my $scratch = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+        local $ENV{TMPDIR} = $scratch;
 
         my $pid = fork;
         die "fork: $!" if !defined $pid;
@@ -61,6 +64,7 @@ for my $signal ( sort keys %status_of ) {
         ok wait_for( sub { !processes_under($root)->@* } ), 'no process of the run is left'
           or diag join q{}, processes_under($root)->@*;
         ok !glob("$root/.permutl/run-*"), 'the work directory is removed';
+        is [ glob "$scratch/*" ], [], 'and so are the copies of the project';
     };
 }
 

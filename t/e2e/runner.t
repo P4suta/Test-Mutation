@@ -314,6 +314,32 @@ subtest 'a copy has the name of the project, links the installed modules, and ho
     ok !$inside->in_copies, 'and a run in the project itself names none';
 };
 
+subtest 'a change of the project during the run reaches no test' => sub {
+
+    # The test stands for an edit of the user: after its first run, the test file of the project fails at once.
+    my $module  = "package Small;\nuse strict;\nuse warnings;\nsub size { return \$_[0] > 5 ? 'big' : 'small' }\n1;\n";
+    my $editing = "use Test::More tests => 1;\nuse Small;\nis Small::size(9), 'big', 'a size';\n"
+      . "open my \$out, '>', \"\$ENV{PROJECT}/t/small.t\" or die \$!;\nprint {\$out} \"die 'edited';\\n\";\nclose \$out;\n";
+    my $root = project( 'lib/Small.pm' => $module, 't/small.t' => $editing );
+    local $ENV{PROJECT} = $root;
+    my ($result) = run_fixture( $root, jobs => 1 );
+    is status_by_line($result),
+      {
+        '4 removed the body of size' => 'Killed',
+        '4 removed the return value' => 'Killed',
+        '4 replaced > with <='       => 'Killed',
+        '4 replaced > with >='       => 'Survived',
+      },
+      'the copied test decides, so the mutant that it misses survives';
+    is $result->warnings, [], 'without a warning';
+
+    my $place = project( 'lib/Small.pm' => $module, 't/small.t' => $editing );
+    local $ENV{PROJECT} = $place;
+    my ($inside) = run_fixture( $place, jobs => 1, in_place => 1 );
+    is [ sort values status_by_line($inside)->%* ], [ ('NoCoverage') x 4 ],
+      'in the project itself, the edited test runs for every mutant and loads none';
+};
+
 subtest 'in the project itself, a mutant that leaves a file takes the verdict from the tests it breaks' => sub {
     my $module = "package Small;\nuse strict;\nuse warnings;\nsub next_one { return \$_[0] + 1 }\n"
       . "sub size { return \$_[0] > 5 ? 'big' : 'small' }\n1;\n";
