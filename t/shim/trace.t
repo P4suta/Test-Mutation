@@ -132,6 +132,23 @@ PERL
     is $run->{stdout}, "script=0\n", 'code compiled after the target is not traced';
 };
 
+subtest 'a program that compiles before its first require sees no debugger flag' => sub {
+    my $root = project();
+    write_file( "$root/lib/Foo/Late.pm", "package Foo::Late;\nsub value { return 1 }\n1;\n" );
+    write_file( "$root/script.pl",       <<'PERL' );
+BEGIN { print 'flags=', $^P + 0, ' ' }
+require Foo::Late;
+print 'value=', Foo::Late::value(), "\n";
+PERL
+    write_spec( "$root/spec", trace => 1, targets => [ [ "$root/lib/Foo/Late.pm", "$root/lib/Foo/Late.pm" ] ] );
+    my $run = run_perl(
+        root => $root,
+        env  => { PERMUTL_SPEC => "$root/spec", PERMUTL_RECORD => "$root/records" },
+        args => [ '-I' . lib_dir(), '-MPermutl::Shim', '-Ilib', 'script.pl' ],
+    );
+    is $run->{stdout}, "flags=0 value=1\n", 'the start of the shim leaves the debugger flags as they were';
+};
+
 subtest 'the trace of a line leaves the error variables of the program alone' => sub {
     my $root = project();
     write_file( "$root/lib/Foo/Errors.pm", <<'PERL' );

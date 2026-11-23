@@ -196,13 +196,20 @@ sub _install_tracer {
     return 0 if !$Permutl::Shim::DISPATCHER || \&DB::DB != $Permutl::Shim::DISPATCHER;
 
     my $by_path = $STATE{by_path};
-    push @Permutl::Shim::TRACERS, sub {
-        my ( $file, $line ) = @_;
-        my $target = $by_path->{$file} or return;
-        return if $target->{hits}{$line}++;
-        _record( 'hit', $target->{original}, $line );
-        return;
-    };
+    my $record  = \&_record;
+    {
+
+        # The tracer runs inside the debugger, where no line is traced, so it compiles without trace points too.
+        package DB;    ## no critic (Modules::ProhibitMultiplePackages)
+        push @Permutl::Shim::TRACERS, sub {
+            my ( $file, $line ) = @_;
+            my $target = $by_path->{$file} or return;
+            return if $target->{hits}{$line};
+            $target->{hits}{$line} = 1;
+            $record->( 'hit', $target->{original}, $line );
+            return;
+        };
+    }
 
     # The first nonzero value of $^P starts the debugger, and Perl before 5.20 resets $DB::trace at that moment.
     _trace_compile(1);
