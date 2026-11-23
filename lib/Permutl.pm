@@ -104,6 +104,8 @@ L<Test::Permutl> asserts a score from a test file.
 
 C<permutl run> works without configuration: it mutates C<lib/**/*.pm> and runs C<t/**/*.t> with C<-Ilib>.
 A file named C<permutl.toml> in the project directory changes the defaults.
+A run writes its reports into C<permutl-report>, and C<--cache> keeps its results in C<.permutl>.
+Both directories belong in C<.gitignore>.
 
     jobs = 4
     cache = true

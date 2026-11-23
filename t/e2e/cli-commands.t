@@ -119,7 +119,7 @@ subtest 'exec runs a command with one mutant active' => sub {
       'a command that cannot start gives the status of a shell';
     is permutl( $root, 'exec', identifier('replaced + with -'), '--', $^X, '-e', 'kill TERM => $$; sleep 5' )->{exit},
       143, 'a command that a signal ended gives 128 plus the signal';
-    ok !glob("$root/.permutl/run-*"), 'the work directory is removed';
+    ok !-e "$root/.permutl", 'the work directory is removed';
 };
 
 subtest 'exec refuses a missing identifier or command' => sub {

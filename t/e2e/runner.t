@@ -365,6 +365,20 @@ subtest 'a work directory that resists removal stays, and a warning names it' =>
     is [ sort values statuses($result)->%* ], [ ('Killed') x 3 ], 'and the mutants are measured';
 };
 
+subtest 'the work directory leaves the project with its last file' => sub {
+    my $root = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $TEST );
+    run_fixture( $root, jobs => 1 );
+    ok !-e "$root/.permutl", 'a run leaves no work directory';
+    run_fixture( $root, jobs => 1, in_place => 1 );
+    ok !-e "$root/.permutl", 'nor does a run in the project itself';
+    run_fixture( $root, jobs => 1, cache => 1 );
+    is [ map { s{\A\Q$root\E/}{}r } glob "$root/.permutl/*" ], ['.permutl/cache.json'],
+      'a cache stays, in its directory';
+    run_fixture( $root, jobs => 1 );
+    is [ map { s{\A\Q$root\E/}{}r } glob "$root/.permutl/*" ], ['.permutl/cache.json'],
+      'and a later run without a cache keeps it';
+};
+
 subtest 'a temporary directory inside the project is no part of a copy' => sub {
     my $root = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $TEST, 'tmp/kept.txt' => 'kept' );
     local $ENV{TMPDIR} = "$root/tmp";
