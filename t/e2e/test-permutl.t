@@ -15,19 +15,28 @@ my $root = copy_of('calc');
 
 subtest 'the assertion passes when the score reaches the minimum' => sub {
     write_file( "$root/xt/mutation.t",
-        "use Test::More tests => 1;\nuse Test::Permutl;\nmutation_score_ok( min => 60, jobs => 2 );\n" );
+        "use Test::More tests => 1;\nuse Test::Permutl;\nprint q{# returned }, mutation_score_ok( min => 60, jobs => 2 ), qq{\\n};\n"
+    );
     my ( $status, $output ) = run_test( $root, 'xt/mutation.t' );
     is $status, 0, 'the test passes' or diag $output;
     like $output, qr/^ok 1 - the mutation score is at least 60%$/m, 'the default name states the minimum';
+    like $output, qr/^# returned 1$/m,                              'the assertion returns true';
+
+    write_file( "$root/xt/exact.t",
+        "use Test::More tests => 1;\nuse Test::Permutl;\nmutation_score_ok( min => 13 / 19 * 100, jobs => 2, name => q{exact} );\n"
+    );
+    ( $status, $output ) = run_test( $root, 'xt/exact.t' );
+    is $status, 0, 'a score equal to the minimum passes' or diag $output;
 };
 
 subtest 'the assertion fails below the minimum and shows the undetected mutants' => sub {
     write_file( "$root/xt/strict.t",
-        "use Test::More tests => 1;\nuse Test::Permutl;\nmutation_score_ok( min => 90, jobs => 2, name => 'strong tests' );\n"
+        "use Test::More tests => 1;\nuse Test::Permutl;\nprint q{# returned }, mutation_score_ok( min => 90, jobs => 2, name => 'strong tests' ), qq{\\n};\n"
     );
     my ( $status, $output ) = run_test( $root, 'xt/strict.t' );
     isnt $status, 0, 'the test fails';
     like $output, qr/^not ok 1 - strong tests$/m,                    'the given name';
+    like $output, qr/^# returned 0$/m,                               'the assertion returns false';
     like $output, qr/^# Score: 68\.4% \(13 of 19 valid mutants\)$/m, 'the diagnostics state the score';
     like $output, qr/^#   lib\/Calc\.pm:12:15  replaced > with >=/m, 'and list a survived mutant';
 };
@@ -69,6 +78,7 @@ subtest 'the assertion is skipped inside a permutl run of the same project' => s
         my ( $status, $output ) = run_test( $root, 'xt/strict.t' );
         is $status, 0, 'the test passes';
         like $output, qr/^ok 1 # skip inside a permutl run$/m, 'with a skip that states the reason';
+        like $output, qr/^# returned 1$/m,                     'and the assertion returns true';
     }
     {
         local $ENV{PERMUTL_ROOT} = "$root/lib";
