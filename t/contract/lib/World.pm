@@ -13,7 +13,7 @@ sub facts (%fact) {
         out_tty    => 0,
         err_tty    => 0,
         clock      => sub { 0 },
-        processors => sub { 4 },
+        processors => sub { { count => 4, source => 'online' } },
         %fact,
     );
 }

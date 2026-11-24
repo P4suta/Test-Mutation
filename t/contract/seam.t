@@ -55,10 +55,12 @@ subtest 'the plan names the command, the directory, the settings, and the operan
       [qw(list show exec merge mutators run)], 'the first word names the command';
     is plan_of( [ '--jobs', 3 ] ), hash { field command => 'run'; field operands => []; etc },
       'run is the default command';
-    is plan_of( ['mutators'] )->{config}, undef, 'mutators reads no settings';
+    is [ plan_of( ['mutators'] )->@{qw(config processors)} ], [ undef, undef ],
+      'mutators reads no settings and counts no processor';
+    is plan_of( ['list'] )->{processors}, { count => 4, source => 'online' }, 'a plan with settings holds the count';
 
     is plan_of( [ '--version', 'extra' ] ),
-      { command => 'version', directory => undef, config => undef, operands => ['extra'] },
+      { command => 'version', directory => undef, config => undef, operands => ['extra'], processors => undef },
       'the version';
     is [ map { plan_of($_)->{command} } ['--help'], ['-h'], [ '--help', '--bogus' ] ], [qw(help help help)], 'the help';
     is plan_of( [ 'list', '--help' ] )->{refused}{status}, 2, 'a later --help is an option of the command';
@@ -108,7 +110,7 @@ subtest 'the plan reads the project through the directory that --root names' => 
 
 subtest 'the plan takes the processors and the environment from its world' => sub {
     my $jobs = sub ($count) {
-        plan_of( ['list'], processors => sub { $count } )->{config}->jobs;
+        plan_of( ['list'], processors => sub { { count => $count, source => 'quota' } } )->{config}->jobs;
     };
     is [ map { $jobs->($_) } 1, 2, 4, 8 ], [ 1, 1, 3, 7 ],
       'the jobs are one less than the processors, and at least one';
@@ -122,7 +124,8 @@ subtest 'the plan takes the processors and the environment from its world' => su
       ],
       [ map { [qw(terminal json html)] } 1 .. 4 ], 'and any other value leaves it out';
     my $called = 0;
-    plan_of( [$_], processors => sub { $called++; 4 } ) for qw(--version --help mutators);
+    plan_of( [$_], processors => sub { $called++; { count => 4, source => 'online' } } )
+      for qw(--version --help mutators);
     is $called, 0, 'a command without settings asks for no processor count';
 };
 
@@ -249,14 +252,20 @@ subtest 'a run reports its progress to the errors of the world and its result to
     };
     my $log = $run->( [ '--format', 'terminal' ] );
     is $log->{stderr},
-      "3 mutants in 1 file, 1 test\nThe unmodified run passed: 1 test, 2 jobs\n"
+      "4 processors online\n3 mutants in 1 file, 1 test\nThe unmodified run passed: 1 test, 2 jobs\n"
       . "[1/3] 1 killed\n[2/3] 1 killed, 1 survived\n[3/3] 2 killed, 1 survived\n", 'a log gets one line for each step';
     like $log->{stdout}, qr/\A3 mutants: 2 killed, 1 survived\nScore: 66[.]7% \(2 of 3 valid mutants\)\n/, 'the report';
     is $log->{exit}, 0, 'and the run succeeds';
     is $run->( [ '--format', 'terminal' ], err_tty => 1 )->{stderr},
-      "3 mutants in 1 file, 1 test\nThe unmodified run passed: 1 test, 2 jobs\n"
+      "4 processors online\n3 mutants in 1 file, 1 test\nThe unmodified run passed: 1 test, 2 jobs\n"
       . "\r[1/3] 1 killed\r[2/3] 1 killed, 1 survived\r[3/3] 2 killed, 1 survived\n",
       'a terminal gets one line that changes';
+    my $calls = 0;
+    my $limited =
+      $run->( [ '--format', 'terminal' ], processors => sub { $calls++; { count => 2, source => 'quota' } } );
+    like $limited->{stderr}, qr/\A2 processors in the quota of the control group\n3 mutants in 1 file/,
+      'the first line names the count of processors and its source';
+    is $calls, 1, 'and the run asks its world for the count once';
     is [ map { $run->( [ '--format', 'terminal', '--min-score', $_ ] )->{exit} } 66, 67 ], [ 0, 1 ], 'the gate decides';
 
     my $summary = "$elsewhere/summary.md";

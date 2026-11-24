@@ -8,8 +8,10 @@ use Getopt::Long    ();
 use List::Util      ();
 use Time::HiRes     ();
 use Types::Standard qw(ArrayRef Bool CodeRef Dict Enum FileHandle GlobRef HashRef InstanceOf Int Maybe Slurpy Str);
-use Type::Params    qw(signature_for);
+use Types::Common::Numeric qw(PositiveInt);
+use Type::Params           qw(signature_for);
 use Test::Mutation::Config;
+use Test::Mutation::Host;
 use Test::Mutation::Interrupted;
 use Test::Mutation::Merge;
 use Test::Mutation::Mutator::Catalog;
@@ -45,10 +47,11 @@ my $WORLD = Dict [
 ];
 my $REFUSED    = Dict [ refused => Dict [ status => Int, text => Str ] ];
 my $INVOCATION = $REFUSED | Dict [
-    command   => Enum [qw(run list show exec merge mutators help version)],
-    directory => Maybe [Str],
-    config    => Maybe [ InstanceOf ['Test::Mutation::Config'] ],
-    operands  => ArrayRef [Str],
+    command    => Enum [qw(run list show exec merge mutators help version)],
+    directory  => Maybe [Str],
+    config     => Maybe [ InstanceOf ['Test::Mutation::Config'] ],
+    operands   => ArrayRef [Str],
+    processors => Maybe [ Dict [ count => PositiveInt, source => Str ] ],
 ];
 
 my $HELP = <<'TEXT';
@@ -103,7 +106,7 @@ sub main ($list) {
         out_tty    => _terminal( \*STDOUT ),
         err_tty    => _terminal( \*STDERR ),
         clock      => \&Time::HiRes::time,
-        processors => \&Test::Mutation::Project::cpu_count,
+        processors => \&Test::Mutation::Host::processors,
     };
     return execute( plan( argv => $list, world => $world ), $world );
 }
@@ -150,10 +153,12 @@ sub plan ($arg) {
     my $command = $ANSWER{$first} || ( $COMMAND{$first} ? $first : undef );
     shift @arguments if defined $command;
     $command = 'run' if !defined $command;
-    my %plan = ( command => $command, directory => $directory, config => undef, operands => \@arguments );
+    my %plan =
+      ( command => $command, directory => $directory, config => undef, operands => \@arguments, processors => undef );
     return \%plan if $ANSWER{$first};
     if ( $command ne 'mutators' ) {
-        ( $plan{config}, my $complaint ) = _config( \@arguments, $inside, $world );
+        $plan{processors} = $world->{processors}->();
+        ( $plan{config}, my $complaint ) = _config( \@arguments, $inside, $plan{processors}{count}, $world );
         return _refused($complaint) if !$plan{config};
     }
     my $problem = $OPERAND_PROBLEM{$command}->(@arguments);
@@ -231,7 +236,7 @@ my %SETTING_OF_OPTION = (
 );
 
 # The settings of a command, or nothing and the text that refuses its arguments.
-sub _config ( $arguments, $directory, $world ) {
+sub _config ( $arguments, $directory, $processors, $world ) {
     my ( %cli, $file );
     my $complaints = q{};
     my $parser     = Getopt::Long::Parser->new( config => [qw(bundling no_ignore_case)] );
@@ -251,7 +256,7 @@ sub _config ( $arguments, $directory, $world ) {
         Test::Mutation::Config->from_layers(
             root     => defined $directory ? Cwd::abs_path($directory) : undef,
             defaults => {
-                jobs    => Test::Mutation::Project::default_jobs( $world->{processors}->() ),
+                jobs    => Test::Mutation::Project::default_jobs($processors),
                 formats => [ qw(terminal json html), _inside_github_actions( $world->{env} ) ? 'github' : () ],
             },
             file => _configuration_file( $file, $directory ),
@@ -288,6 +293,7 @@ sub _first_line ($error) {
 
 sub _run ( $invocation, $world ) {
     my $config = $invocation->{config};
+    print { $world->{err} } Test::Mutation::Host::describe( $invocation->{processors} ), "\n";
     my $result = Test::Mutation::Runner::run( $config, _progress( $world->{err}, $world->{err_tty} ) );
     _report( $result, $config, $world );
     print { $world->{err} } 'mutation: interrupted by SIG', $result->interrupted, "\n" if defined $result->interrupted;
@@ -465,9 +471,11 @@ Returns what the command would do, and changes nothing: no directory, no search 
 C<world> holds the facts that the command reads from its process.
 C<cwd> is the working directory, C<env> the environment, and C<out> and C<err> are the handles of the two streams.
 C<out_tty> and C<err_tty> state whether a stream is a terminal.
-C<clock> returns the time, and C<processors> returns the number of processors.
+C<clock> returns the time.
+C<processors> returns the count of processors that a run may use and its source, as L<Test::Mutation::Host/processors> does.
 
 A plan to act holds the C<command>, the C<directory> that C<--root> names, the C<config>, and the C<operands>.
+A plan with settings also holds the C<processors> of its world, and a run names them in its first line.
 A plan to refuse holds C<refused>, with the exit C<status> and the C<text> for standard error.
 The plan reads the configuration file, and the function dies on an error that no check of the arguments foresees.
 

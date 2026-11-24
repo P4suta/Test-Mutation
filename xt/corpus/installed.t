@@ -2,9 +2,9 @@ use v5.36;
 use Test2::V0;
 use File::Find ();
 use POSIX      ();
+use Test::Mutation::Host;
 use Test::Mutation::Mutant::Generator;
 use Test::Mutation::Mutator::Catalog;
-use Test::Mutation::Project;
 use Test::Mutation::Source;
 use Test::Mutation::Syntax::PPI;
 
@@ -48,7 +48,7 @@ sub findings ($path) {
     return ( @found, sprintf 'counted %d %d', scalar $analysis->{sites}->@*, scalar $mutants->{mutants}->@* );
 }
 
-my $workers = Test::Mutation::Project::cpu_count();
+my $workers = Test::Mutation::Host::processors()->{count};
 my @readers;
 for my $worker ( 0 .. $workers - 1 ) {
     pipe my $read, my $write or die "pipe: $!";

@@ -19,7 +19,7 @@ BEGIN {
 
 use Test::Mutation::Cache;
 use Test::Mutation::Config;
-use Test::Mutation::Project;
+use Test::Mutation::Host;
 use Test::Mutation::Record;
 use Test::Mutation::Report::Html;
 
@@ -60,7 +60,7 @@ like dies {
     failing_in( qr/::Record::read_directory\z/, sub { Test::Mutation::Record::read_directory($directory) } )
 }, qr/\Acannot close \Q$records\E: /, 'a record file that does not close is an error';
 
-is failing_in( qr/::Project::_read\z/, sub { Test::Mutation::Project::cpu_count() } ), 1,
+is failing_in( qr/::Host::_read\z/, sub { Test::Mutation::Host::processors() } ), { count => 1, source => 'none' },
   'a processor count that does not close counts as no answer';
 
 ok length Test::Mutation::Report::Html::viewer_script(), 'the viewer script is read';
