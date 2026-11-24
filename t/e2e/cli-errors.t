@@ -49,4 +49,16 @@ is command( sub { kill 'TERM', $$; return { $quiet->%*, inventory => { mutants =
 is command( sub { return { $quiet->%*, inventory => { mutants => 0, digest => 'a' x 64 } } }, 'list' ),
   [ 0, q{}, "0 mutants\n" ], 'and the same command without a signal succeeds';
 
+# A signal outranks every other outcome, so a signal that arrives while the command plans ends it before a refusal.
+sub signalled_in_plan ( $signal, @arguments ) {
+    no warnings 'redefine';
+    my $jobs = \&Test::Mutation::Project::default_jobs;
+    local *Test::Mutation::Project::default_jobs = sub (@values) { kill $signal, $$; return $jobs->(@values) };
+    return command( sub { die "the analysis ran\n" }, @arguments );
+}
+is signalled_in_plan( 'TERM', 'run', 'surplus' ), [ 143, "mutation: interrupted by SIGTERM\n", q{} ],
+  'a signal during a plan that the command refuses ends it with the status of the signal';
+is signalled_in_plan( 'INT', 'list' ), [ 130, "mutation: interrupted by SIGINT\n", q{} ],
+  'and a signal during a plan that the command carries out ends it before its work';
+
 done_testing;

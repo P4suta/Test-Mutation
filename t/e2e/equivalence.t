@@ -41,7 +41,7 @@ subtest 'a file that does not compile on its own keeps its survivors and warns' 
     my ($result) = run_fixture($project);
     is statuses($result)->{'lib/Bound.pm:5 replaced > with >='}, 'Survived', 'the mutant survives';
     is [ grep { /compiled code/ } $result->warnings->@* ],
-      ['lib/Bound.pm: B::Deparse gives no stable output, so the run compares no compiled code of the file'],
+      ['lib/Bound.pm: Perl decompiles the file to no stable text, so the run compares no compiled code of the file'],
       'one warning names the file';
 };
 

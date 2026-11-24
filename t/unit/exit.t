@@ -8,11 +8,11 @@ use Test::Mutation::Exit;
 my @rows = Test::Mutation::Exit::rows()->@*;
 
 subtest 'the table names each outcome once, in rising order' => sub {
-    is [ map { $_->code } @rows ], [ 0, 1, 2, 3, 4, 5, 6, 125, 129, 130, 131, 141, 143 ], 'the statuses';
+    is [ map { $_->code } @rows ], [ 0, 1, 2, 3, 4, 5, 6, 125, 126, 127, 129, 130, 131, 141, 143 ], 'the statuses';
     is [ map { $_->name } @rows ],
       [
         qw(success below-gate usage baseline-failed inconclusive environment internal exec-failed),
-        qw(hangup interrupt quit pipe termination)
+        qw(command-not-runnable command-not-found hangup interrupt quit pipe termination)
       ],
       'the names';
     my %meaning = map { $_->meaning => 1 } @rows;
@@ -24,6 +24,8 @@ subtest 'a name gives its status' => sub {
       [ 0, 1, 2, 3, 4 ], 'the outcomes of a run and a refusal';
     is [ map { Test::Mutation::Exit::of($_) } qw(environment internal exec-failed termination) ],
       [ 5, 6, 125, 143 ], 'the failures and a signal';
+    is [ map { Test::Mutation::Exit::of($_) } qw(command-not-runnable command-not-found) ], [ 126, 127 ],
+      'the command of exec that exists and fails to run, and the command that exec finds nowhere';
     like dies { Test::Mutation::Exit::of('nonesuch') }, qr/did not pass type constraint/,
       'a name outside the table is refused';
 };
@@ -38,7 +40,7 @@ subtest 'a signal gives 128 plus its number on this platform' => sub {
     }
     is [ map { $_->signal } grep { defined $_->signal } @rows ], Test::Mutation::Exit::signals(),
       'the rows of the signals name them';
-    is [ grep { defined $_->signal } @rows[ 0 .. 7 ] ], [], 'and no other row names a signal';
+    is [ grep { defined $_->signal } @rows[ 0 .. 9 ] ], [], 'and no other row names a signal';
     like dies { Test::Mutation::Exit::of_signal('KILL') }, qr/did not pass type constraint/,
       'a signal without a row is refused';
 };

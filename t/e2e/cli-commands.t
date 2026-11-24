@@ -105,12 +105,26 @@ subtest 'exec runs a command with one mutant active' => sub {
       ran( 0, $root, 'list' )->{stdout} =~ /^([0-9a-f]{12})  lib\/Calc\.pm:12:\d+  comparison  replaced > with >=$/m;
     ran( 0, $root, 'exec', $survivor, '--', $^X, '-Ilib', 't/sign.t' );
 
-    ran( 7, $root, 'exec', identifier('replaced + with -'), '--', $^X, '-e', 'exit 7' );
-    my $absent = ran( 125, $root, 'exec', identifier('replaced + with -'), '--', "$root/no-such-command" );
-    like $absent->{stderr}, qr{\Amutation: cannot start \Q$root\E/no-such-command: [^\n]+\n\z},
-      'a command that cannot start is a failure of exec itself, with its line';
+    ran( 7,   $root, 'exec', identifier('replaced + with -'), '--', $^X, '-e', 'exit 7' );
     ran( 143, $root, 'exec', identifier('replaced + with -'), '--', $^X, '-e', 'kill TERM => $$; sleep 5' );
     ok !-e "$root/.mutation", 'the work directory is removed';
+};
+
+subtest 'exec reports its own failures with the statuses of env' => sub {
+    my $absent = ran( 127, $root, 'exec', identifier('replaced + with -'), '--', "$root/no-such-command" );
+    like $absent->{stderr}, qr{\Amutation: cannot find \Q$root\E/no-such-command: [^\n]+\n\z},
+      'a command that exists nowhere has status 127 and one line';
+    my $sealed = ran( 126, $root, 'exec', identifier('replaced + with -'), '--', "$root/lib" );
+    like $sealed->{stderr}, qr{\Amutation: cannot run \Q$root\E/lib: [^\n]+\n\z},
+      'a command that exists and fails to run has status 126 and one line';
+
+    # A file in the place of the work directory keeps exec from placing its mutant.
+    open my $blocker, '>', "$root/.mutation" or die "open: $!";
+    close $blocker or die "close: $!";
+    my $unplaced = ran( 125, $root, 'exec', identifier('replaced + with -'), '--', $^X, '-e', 'exit 0' );
+    like $unplaced->{stderr}, qr{\Amutation: cannot create \Q$root\E/[.]mutation: [^\n]+\n\z},
+      'a failure of exec itself has status 125 and one line';
+    unlink "$root/.mutation" or die "unlink: $!";
 };
 
 subtest 'exec refuses a missing identifier or command' => sub {

@@ -55,8 +55,8 @@ sub _template ($word) {
 }
 
 # The subroutines that take the identifier of a message of the catalog as their first argument.
-my %NAMES_A_MESSAGE =
-  map { $_ => 1 } qw(Test::Mutation::Error::raise Test::Mutation::Message::text_of Test::Mutation::Message::row);
+my %NAMES_A_MESSAGE = map { $_ => 1 }
+  qw(Test::Mutation::Error::raise Test::Mutation::Message::text_of Test::Mutation::Message::row Test::Mutation::Message::warning);
 
 # The first argument of every call that names a message: the identifier, or a mark for a value that the code computes.
 sub identifiers ($code) {

@@ -2,6 +2,7 @@ package Test::Mutation::Runner;
 use v5.36;
 use Cwd             ();
 use Digest::SHA     ();
+use Errno           ();
 use File::Basename  ();
 use File::Find      ();
 use File::Spec      ();
@@ -229,9 +230,9 @@ sub _measure ( $run, $started ) {
     for my $path ( sort keys $analysis->{left_out}->%* ) {
         my $count = $analysis->{left_out}{$path};
         _warn( $run,
-                "$path: the analysis left out $count "
-              . ( $count == 1 ? 'place, which has' : 'places, which have' )
-              . ' no mutant' );
+            $count == 1
+            ? Test::Mutation::Message::warning( 'analysis-left-out-place',  path => $path )
+            : Test::Mutation::Message::warning( 'analysis-left-out-places', path => $path, count => $count ) );
     }
     $listener->( 'analyzed',
         { mutants => scalar(@active), files => scalar( keys %targets ), tests => scalar(@tests) } );
@@ -270,14 +271,14 @@ sub _measure ( $run, $started ) {
             return \%measured;
         };
         my $leave = sub {
-            _warn( $run, "the work directory $run->{work} stays, because a file in it resists removal" )
+            _warn( $run, Test::Mutation::Message::warning( 'work-directory-stays', path => $run->{work} ) )
               if !$config->keep_work && _leave_work($run);
             return;
         };
         %result = ( %result, Test::Mutation::Try::with_cleanup( $measure, $leave )->%* );
     }
     else {
-        _warn( $run, 'no test files match' ) if @active && !@tests;
+        _warn( $run, Test::Mutation::Message::warning('tests-unmatched') ) if @active && !@tests;
         $result{entries} =
           [ map { $_->suppressed ? _suppressed($_) : _entry( $_, 'NoCoverage', undef, undef, [], 0, 0 ) }
               $analysis->{mutants}->@* ];
@@ -471,8 +472,10 @@ sub run_command ( $config, $source, $mutant, $command ) {
         # A command that cannot start ends exec with one line of the tool, and the warning of Perl would add another.
         no warnings 'exec';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
         my $status = system { $command->[0] } $command->@*;
-        my $reason = "$!";
-        return [ $status, $reason ];
+
+        # As with env, a name that names nothing differs from a program that the system refuses to run.
+        my $missing = $! == Errno::ENOENT();
+        return [ $status, $missing, "$!" ];
     };
 
     # A signal for the tool alone waits while the command runs, and it ends the work once the work directory is gone.
@@ -481,9 +484,12 @@ sub run_command ( $config, $source, $mutant, $command ) {
             Test::Mutation::Try::with_cleanup( $work, sub { _leave_work($run) } );
         }
     );
-    my ( $status, $reason ) = $ran->@*;
-    Test::Mutation::Error::raise( 'command-unstartable', command => $command->[0], reason => $reason ) if $status == -1;
-    return 128 + ( $status & 127 )                                                                     if $status & 127;
+    my ( $status, $missing, $reason ) = $ran->@*;
+    if ( $status == -1 ) {
+        Test::Mutation::Error::raise( 'command-not-found',    command => $command->[0], reason => $reason ) if $missing;
+        Test::Mutation::Error::raise( 'command-not-runnable', command => $command->[0], reason => $reason );
+    }
+    return 128 + ( $status & 127 ) if $status & 127;
     return $status >> 8;
 }
 
@@ -576,7 +582,7 @@ sub _baseline ( $run, $tests, $targets ) {
         if ( !@failed ) {
             $parallel_safe = 0;
             $run->{jobs} = 1;
-            _warn( $run, 'the tests fail when they run side by side, so the mutants run one test at a time' );
+            _warn( $run, Test::Mutation::Message::warning('tests-conflict') );
         }
     }
 
@@ -589,7 +595,7 @@ sub _baseline ( $run, $tests, $targets ) {
             $files{$path} = $record->{served}{$absolute} if $record->{served}{$absolute};
             my $lines = $record->{breakable}{$absolute};
             $breakable{$path} = { ( $breakable{$path} ? $breakable{$path}->%* : () ), $lines->%* } if $lines;
-            _warn( $run, "$test loads $path around the hook and cannot detect its mutants" )
+            _warn( $run, Test::Mutation::Message::warning( 'loaded-around-hook', test => $test, path => $path ) )
               if $record->{bypassed}{$absolute};
         }
         $tests{$test} = { duration => $result->{duration}, files => \%files, early => $result->{early} };
@@ -687,10 +693,10 @@ sub _tree ($run) {
 # A mutant runs with the rights of the tests, so it may leave a file that makes a test fail from then on.
 # A kill by such a test proves nothing about the mutant, so the unmodified tests run once more to find them.
 sub _recheck ( $run, $tests, $entries, $changes ) {
-    my @named = $changes->@[ 0 .. List::Util::min( $changes->$#*, $CHANGES_NAMED - 1 ) ];
-    my $rest  = $changes->@* - @named;
-    _warn( $run,
-        'the project changed while the mutants ran: ' . join( ', ', @named ) . ( $rest ? " and $rest more" : q{} ) );
+    my @named   = $changes->@[ 0 .. List::Util::min( $changes->$#*, $CHANGES_NAMED - 1 ) ];
+    my $rest    = $changes->@* - @named;
+    my $changed = join( ', ', @named ) . ( $rest ? " and $rest more" : q{} );
+    _warn( $run, Test::Mutation::Message::warning( 'project-changed', changes => $changed ) );
 
     my $outcome = _unmodified( $run, 'recheck', 0, $run->{jobs}, $tests );
     my %broken  = map { $_ => 1 } grep { !$outcome->{$_}{result}{passed} } $tests->@*;
@@ -698,7 +704,7 @@ sub _recheck ( $run, $tests, $entries, $changes ) {
         $entry->@{qw(status reason)} =
           ( 'RuntimeError', "$entry->{by} fails without a mutant since the project changed" );
     }
-    _warn( $run, "$_ fails without a mutant now, so the mutants it detected have no verdict" ) for sort keys %broken;
+    _warn( $run, Test::Mutation::Message::warning( 'test-unstable', test => $_ ) ) for sort keys %broken;
     return;
 }
 
@@ -833,7 +839,7 @@ sub _next_code ( $run, $job ) {
     my ( $once, $again ) = ( $run->{code_of_original}{$path} ||= [] )->@*;
     return _compile_task( $run, $job, 'code-original', "$run->{root}/$path", '-MO=Deparse' ) if !defined $again;
     if ( !length $once || $once ne $again ) {
-        _warn( $run, "$path: B::Deparse gives no stable output, so the run compares no compiled code of the file" );
+        _warn( $run, Test::Mutation::Message::warning( 'decompiled-code-unstable', path => $path ) );
         return;
     }
     return _compile_task( $run, $job, 'code-mutant', $job->{file}, '-MO=Deparse' );
@@ -884,7 +890,7 @@ sub _after_syntax ( $run, $task, $result ) {
     if ( $task->{payload}{kind} eq 'syntax-original' ) {
         $run->{syntax_of_original}{$path} = $ok;
         return _compile_task( $run, $job, 'syntax-mutant', $job->{file}, '-c' ) if $ok;
-        _warn( $run, "$path does not pass a standalone syntax check, so its load failures count as compile errors" );
+        _warn( $run, Test::Mutation::Message::warning( 'syntax-check-failed', path => $path ) );
     }
     $job->{outcome}{syntax_ok} = $job->{syntax_ok} = $ok;
     return;

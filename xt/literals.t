@@ -25,6 +25,9 @@ my %ALLOWED = (
     # raise hands the identifier of its caller on to the catalog, once for the text and once for the kind.
     'lib/Test/Mutation/Error.pm' => { computed => 2 },
 
+    # warning hands the identifier of its caller on to the text, as raise does for an error.
+    'lib/Test/Mutation/Message.pm' => { computed => 1 },
+
     # The one place of the driver that catches an exception.
     'lib/Test/Mutation/Try.pm' => { eval => 1 },
 );
@@ -102,6 +105,8 @@ subtest 'the scan rejects a call that names no message of the catalog' => sub {
       'a literal identifier, a variable, another literal, and a text with a value';
     is Sources::identifiers("my \$handle = raise( 'x' );\n\$self->text_of('y');\n"), [],
       'a subroutine of another name names no message';
+    is Sources::identifiers("_warn( \$run, Test::Mutation::Message::warning( 'tests-unmatched' ) );\n"),
+      ['tests-unmatched'], 'a warning names its message too';
     is [
         named_problems(
             { 'lib/A.pm' => [ 'file-unreadable', 'file-unreadble', 'a-computed-identifier' ], 'lib/B.pm' => [] },
@@ -190,13 +195,13 @@ my %code   = map { $_ => Sources::slurp($_) } @files;
 my $manual = join q{}, map { Sources::documentation( $code{$_} )->{text} } 'bin/mutation', 'lib/Test/Mutation.pm';
 like $manual, qr/^=head1 CONFIGURATION$/m, 'the manual is the documentation of the command and of the main module';
 
-# literal: no die statement holds the text of its message, and every failure names a message of the catalog.
+# literal: no die statement and no warning holds the text of its message, and every message names a row of the catalog.
 my @catalog = map { $_->id } Test::Mutation::Message::rows()->@*;
 my %lines   = lines_of( Test::Mutation::Message::rows()->@* );
 my ( @literal, %named, $calls, $copies );
 for my $file (@files) {
     my $allowed  = $ALLOWED{$file} || {};
-    my $messages = Sources::messages( $code{$file} );
+    my $messages = Sources::messages( $code{$file}, '_warn' );
     my ( $copied, $own ) = $allowed->{copies} ? copied( $messages, \%lines ) : ( [], $messages );
     my $evals   = Sources::evals( $code{$file} );
     my $calling = Sources::identifiers( $code{$file} );
@@ -211,9 +216,9 @@ push @literal,
   named_problems( \%named, \@catalog,
     { map { $_ => $ALLOWED{$_}{computed} } grep { $ALLOWED{$_}{computed} } keys %ALLOWED } );
 Gate::findings( 'contract-literal-source', \@literal );
-Gate::checked( 'calls that name a message of the catalog',       $calls,          at_least => 99 );
+Gate::checked( 'calls that name a message of the catalog',       $calls,          at_least => 111 );
 Gate::checked( 'die statements that copy the line of a message', $copies,         at_least => 2 );
-Gate::checked( 'messages of the catalog',                        scalar @catalog, at_least => 64 );
+Gate::checked( 'messages of the catalog',                        scalar @catalog, at_least => 76 );
 
 # status-once: no list of statuses stands outside the table of the statuses.
 my @names = map { $_->name } Test::Mutation::Status::rows()->@*;

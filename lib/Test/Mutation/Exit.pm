@@ -16,11 +16,13 @@ my @ROWS = (
     [ 5,   'environment',     undef, 'a file, Git, or a process kept the command from its work' ],
     [ 6,   'internal',        undef, 'an error inside mutation, which is a defect of the tool' ],
     [ 125, 'exec-failed',     undef, 'mutation exec failed apart from the command that it runs' ],
-    [ 129, 'hangup',          'HUP', 'the signal HUP ended the run' ],
-    [ 130, 'interrupt',       'INT', 'the signal INT ended the run' ],
-    [ 131, 'quit',            'QUIT', 'the signal QUIT ended the run' ],
-    [ 141, 'pipe',            'PIPE', 'the signal PIPE ended the run' ],
-    [ 143, 'termination',     'TERM', 'the signal TERM ended the run' ],
+    [ 126, 'command-not-runnable', undef,  'the command of mutation exec exists, and the system refuses to run it' ],
+    [ 127, 'command-not-found',    undef,  'mutation exec finds no command of the given name' ],
+    [ 129, 'hangup',               'HUP',  'the signal HUP ended the run' ],
+    [ 130, 'interrupt',            'INT',  'the signal INT ended the run' ],
+    [ 131, 'quit',                 'QUIT', 'the signal QUIT ended the run' ],
+    [ 141, 'pipe',                 'PIPE', 'the signal PIPE ended the run' ],
+    [ 143, 'termination',          'TERM', 'the signal TERM ended the run' ],
 );
 my %CODE    = map { $_->[1] => $_->[0] } @ROWS;
 my %SIGNAL  = map { $_->[2] => $_->[0] } grep { defined $_->[2] } @ROWS;
@@ -75,6 +77,7 @@ Test::Mutation::Exit - the table of the exit statuses of the command
 
 The table states every exit status that the command itself returns, and no other place holds such a number.
 C<mutation exec> also returns the status of the command that it runs.
+For its own failures it follows C<env> of POSIX: 125 when it fails itself, 126 when the command exists and fails to run, and 127 when no such command exists.
 A signal that the command handles ends it with 128 plus the number of the signal, the status a shell reports for it.
 
 =head1 FUNCTIONS

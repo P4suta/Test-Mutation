@@ -109,10 +109,10 @@ sub unsaid ( $ids, $said ) {
     return grep { !$said->{$_} } $ids->@*;
 }
 
-# A warning of a run ends no command, so the catalog of failures leaves it out, and the space reads it from the code.
-sub warnings_of ($code) {
-    my %failure = map { $_ => 1 } Sources::messages($code)->@*;
-    return [ grep { !$failure{$_} } Sources::messages( $code, '_warn' )->@* ];
+# A run of a project in this process, so the catalog counts the warnings that the run gives.
+sub measured ( $files, %settings ) {
+    my $config = Test::Mutation::Config->new( root => directory( $files->%* ), jobs => 1, %settings );
+    return Test::Mutation::Runner::run( $config, sub (@) { return } );
 }
 
 sub part ( $shard, %arg ) {
@@ -203,15 +203,16 @@ subtest 'the space rejects a message that no case produces' => sub {
     heard( 'test-directory-closed', "3 mutants\nmutation: cannot run the test in /copy: Permission denied\n" );
     is [ sort keys %said ], ['test-directory-closed'], 'a text counts for the message whose words it holds';
     %said = %before;
-
-    is warnings_of("die \"cannot read \$path\\n\" if !\$ok;\n_warn( \$run, \"\$path: no test files match\" );\n"),
-      ["$VALUE: no test files match"], 'a warning of a run, and no failure';
 };
 
 # The command line: the refusals of the plan, and the refusals while the command runs.
 printed($_)
   for [ 'run', 'surplus' ], ['show'], ['exec'], ['merge'], [ '--root', 'absent', 'list' ], [ 'show', 'zzzz' ],
   [ 'show', q{} ], [ 'merge', 'absent.json' ], [ 'merge', 'broken.json' ];
+
+# The command of exec: a name that names nothing, and a directory that the system refuses to run.
+my ($mutant) = printed( ['list'] ) =~ /^([0-9a-f]{12})  /m;
+printed( [ 'exec', $mutant, q{--}, "$tree/$_" ] ) for 'absent', 'lib';
 
 # The library, the configuration, and the mutators.
 raised( sub { Test::Mutation::mutants( root => $tree, nonesuch => 1 ) } );
@@ -375,23 +376,54 @@ for my $case (
 heard( 'spec-unreadable', shim_says( "$scratch/absent.spec", q{} ) );
 heard( 'spec-unclosable', shim_says( "$tree/ci.toml",        'BEGIN { *CORE::GLOBAL::close = sub { return !1 } }' ) );
 
-# A run without a test warns, and the report prints the warning.
-my @warned = printed( [ 'run', '--format', 'terminal', '--jobs', 1, '--test', 't/nothing*.t' ] );
+# The warnings of a run, each from a project that calls for it.
+my $module = "package Small;\nuse strict;\nuse warnings;\nsub next_one { return \$_[0] + 1 }\n"
+  . "sub size { return \$_[0] > 5 ? 'big' : 'small' }\n1;\n";
+my $test = "use Test::More tests => 1;\nuse Small;\nis Small::next_one(2), 3, 'the next one';\n";
 
-my @unsaid   = unsaid( \@catalog, \%said );
-my @unheard  = map { "no case produces the message $_" } @unsaid;
-my $warnings = 0;
-for my $file ( Library::modules()->@* ) {
-    my $found  = warnings_of( Sources::slurp($file) );
-    my @silent = Invariants::message( $found, \@warned );
-    $warnings += $found->@*;
-    note "$file: no case produces the warning: $_" for @silent;
-    push @unheard, sprintf '%s: %d of %d warnings that no case produces', $file, scalar @silent, scalar $found->@*
-      if @silent;
+# Places that the analysis leaves out, in a project without a test.
+my $crlf =
+  "package Small;\r\nuse strict;\r\nmy \$NOTE = \"two\r\nlines\";\r\nsub next_one { return \$_[0] + 1 }\r\n1;\r\n";
+measured( { 'lib/Once.pm' => $crlf, 'lib/Twice.pm' => $crlf =~ s/1;\r\n\z/my \$MORE = "a\r\nb";\r\n1;\r\n/r } );
+
+# Tests that fail side by side.
+my $guarded = "use Test::More tests => 2;\nuse Small;\nok mkdir('held'), 'the directory is free';\n"
+  . "select undef, undef, undef, 0.8;\nrmdir 'held';\nis Small::next_one(2), 3, 'the next one';\n";
+measured( { 'lib/Small.pm' => $module, 't/first.t' => $guarded, 't/second.t' => $guarded }, jobs => 2 );
+
+# A source that fails a syntax check of its own and decompiles to no stable text, and a test that reads a source directly.
+my $bound = "package Bound;\nuse strict;\nuse warnings;\nBEGIN { die \"no application\\n\" if !\$main::APPLICATION }\n"
+  . "sub size { return 10 > 5 ? 'big' : 'small' }\n1;\n";
+measured(
+    {
+        'lib/Small.pm' => $module,
+        'lib/Bound.pm' => $bound,
+        't/direct.t'   => "use Test::More tests => 1;\nuse Cwd ();\nrequire( Cwd::getcwd() . '/lib/Small.pm' );\n"
+          . "is Small::next_one(2), 3, 'the next one';\n",
+        't/bound.t' => "use Test::More tests => 1;\nBEGIN { \$main::APPLICATION = 1 }\nuse Bound;\n"
+          . "is Bound::size(), 'big', 'a size';\n",
+    }
+);
+
+# A work directory that resists removal.
+{
+    no warnings 'redefine';
+    local *Test::Mutation::Tree::remove = sub (@) { die "stuck\n" };
+    measured( { 'lib/Small.pm' => $module, 't/small.t' => $test }, in_place => 1 );
 }
-Gate::findings( 'contract-message-messages', \@unheard );
-Gate::checked( 'messages of the catalog',       scalar @catalog,    at_least => 64 );
-Gate::checked( 'messages that a case produces', @catalog - @unsaid, at_least => 64 );
-Gate::checked( 'warnings of the library',       $warnings,          at_least => 9 );
+
+# A mutant that leaves a file in the project, which breaks another test from then on.
+my $writer =
+    "use Test::More tests => 1;\nuse Small;\nmy \$next = Small::next_one(2);\n"
+  . "if ( \$next != 3 ) { open my \$out, '>', 'left-behind.txt' or die \$!; close \$out }\n"
+  . "is \$next, 3, 'the next one';\n";
+my $reader = "use Test::More tests => 2;\nuse Small;\nok !-e 'left-behind.txt', 'no file is in the way';\n"
+  . "is Small::size(9), 'big', 'a size';\n";
+measured( { 'lib/Small.pm' => $module, 't/reader.t' => $reader, 't/writer.t' => $writer }, in_place => 1 );
+
+my @unsaid = unsaid( \@catalog, \%said );
+Gate::findings( 'contract-message-messages', [ map { "no case produces the message $_" } @unsaid ] );
+Gate::checked( 'messages of the catalog',       scalar @catalog,    at_least => 76 );
+Gate::checked( 'messages that a case produces', @catalog - @unsaid, at_least => 76 );
 
 done_testing;

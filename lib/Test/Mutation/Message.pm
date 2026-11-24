@@ -220,7 +220,16 @@ my @ROWS = (
     ],
     [
         'command-unstartable',              'environment',
-        'cannot start {command}: {reason}', 'The interpreter of the tests or the command of exec cannot be started.'
+        'cannot start {command}: {reason}', 'The interpreter of the tests cannot be started.'
+    ],
+    [
+        'command-not-runnable',           'environment',
+        'cannot run {command}: {reason}', 'The command of mutation exec exists, and the system refuses to run it.'
+    ],
+    [
+        'command-not-found', 'environment',
+        'cannot find {command}: {reason}',
+        'No program of the name that mutation exec runs exists at its path or on the search path.'
     ],
 
     # The shim runs on Perl 5.10 without the catalog, so it holds a copy of the line of each of these two messages.
@@ -233,6 +242,55 @@ my @ROWS = (
         'spec-unclosable', 'environment',
         'cannot close spec {path}: {reason}',
         'A test process reports an error when it closes the file that names the mutants and the lines of its run.'
+    ],
+    [
+        'analysis-left-out-place', 'warning',
+        '{path}: the analysis left out 1 place, which has no mutant',
+        'The analysis of a file left one place out, so the code there has no mutant.'
+    ],
+    [
+        'analysis-left-out-places', 'warning',
+        '{path}: the analysis left out {count} places, which have no mutant',
+        'The analysis of a file left several places out, so the code there has no mutant.'
+    ],
+    [
+        'work-directory-stays',
+        'warning',
+        'the work directory {path} stays, because a file in it resists removal',
+        'A test left a file in the work directory that the run cannot remove.'
+    ],
+    [ 'tests-unmatched', 'warning', 'no test files match', 'The project has mutants and no test file to run.' ],
+    [
+        'tests-conflict', 'warning',
+        'the tests fail when they run side by side, so the mutants run one test at a time',
+        'The tests pass one at a time and fail side by side, so the run gives up the parallel jobs.'
+    ],
+    [
+        'loaded-around-hook', 'warning',
+        '{test} loads {path} around the hook and cannot detect its mutants',
+        'A test reads a source file in a way that passes by the module that places the mutants.'
+    ],
+    [
+        'project-changed', 'warning',
+        'the project changed while the mutants ran: {changes}',
+        'A mutant changed the project in place, so the run checks the unmodified tests once more.'
+    ],
+    [
+        'test-unstable', 'warning',
+        '{test} fails without a mutant now, so the mutants it detected have no verdict',
+        'A test fails without a mutant after the project changed, so its kills prove nothing.'
+    ],
+    [
+        'decompiled-code-unstable',
+        'warning',
+        '{path}: Perl decompiles the file to no stable text, so the run compares no compiled code of the file',
+        'Two decompilations of a file differ, so no mutant of the file counts as equal to the original code.'
+    ],
+    [
+        'syntax-check-failed',
+        'warning',
+        '{path} does not pass a standalone syntax check, so its load failures count as compile errors',
+        'A source file fails a syntax check of its own, so a mutant that fails to load counts as a compile error.'
     ],
     [
         'internal-error',         'internal',
@@ -275,12 +333,13 @@ my @ROWS = (
         'interrupted by SIG{signal}', 'A signal ended the command before its work was done.'
     ],
 );
-my $ID = Enum [ map { $_->[0] } @ROWS ];
+my $ID      = Enum [ map { $_->[0] } @ROWS ];
+my $WARNING = Enum [ map { $_->[0] } grep { $_->[1] eq 'warning' } @ROWS ];
 
 has id => ( is => 'ro', isa => $ID, required => 1 );
 has kind => (
     is       => 'ro',
-    isa      => Enum [qw(usage environment internal below-gate baseline-failed inconclusive interrupted)],
+    isa      => Enum [qw(usage environment warning internal below-gate baseline-failed inconclusive interrupted)],
     required => 1
 );
 has text        => ( is => 'ro', isa => Str, required => 1 );
@@ -319,6 +378,12 @@ sub text_of ( $id, $values ) {
     return _filled( $text, $values );
 }
 
+signature_for warning => ( positional => [ $WARNING, Slurpy [ HashRef [Str] ] ], returns => Str );
+
+sub warning ( $id, $values ) {
+    return Test::Mutation::Message::text_of( $id, $values->%* );
+}
+
 signature_for line => ( positional => [Str], returns => Str );
 
 sub line ($text) {
@@ -331,11 +396,12 @@ __END__
 
 =head1 NAME
 
-Test::Mutation::Message - the catalog of the messages of a failure
+Test::Mutation::Message - the catalog of the messages of a failure or a warning
 
 =head1 SYNOPSIS
 
     say Test::Mutation::Message::text_of( 'mutant-unknown', identifier => 'zzzz' );
+    say Test::Mutation::Message::warning( 'syntax-check-failed', path => 'lib/Calc.pm' );
 
     for my $message ( Test::Mutation::Message::rows()->@* ) {
         printf "%s (%s): %s\n", $message->id, $message->kind, $message->description;
@@ -343,9 +409,9 @@ Test::Mutation::Message - the catalog of the messages of a failure
 
 =head1 DESCRIPTION
 
-The catalog states every text that the tool gives for a failure, each once.
+The catalog states every text that the tool gives for a failure or a warning, each once.
 A text holds a slot such as C<{path}> where a call puts a value.
-No other place of the library holds the words of a failure, so a reader finds every message here.
+No other place of the library holds the words of a failure or a warning, so a reader finds every message here.
 
 =head1 FUNCTIONS
 
@@ -366,6 +432,13 @@ Returns the message with the given identifier.
 Returns the text of a message with a value in each slot.
 The call names every slot of the text and no other one, and the function dies when it names others.
 
+=head2 warning
+
+    push @warnings, Test::Mutation::Message::warning( 'loaded-around-hook', test => 't/a.t', path => 'lib/A.pm' );
+
+Returns the text of a message of the kind C<warning>, which a run lists in its result.
+It refuses the identifier of every other kind, so a warning never takes the words of a failure.
+
 =head2 line
 
     print {*STDERR} Test::Mutation::Message::line($text);
@@ -382,9 +455,10 @@ The identifier of the message, lowercase words with hyphens between them.
 
 What the message states about the command.
 C<usage> and C<environment> are the kinds of a L<Test::Mutation::Error>.
+C<warning> marks a fact of a run that the report lists and that ends no command.
 C<internal> marks a defect of the tool.
 C<below-gate>, C<baseline-failed>, C<inconclusive>, and C<interrupted> mark the line that ends a run with that outcome.
-Every kind apart from C<interrupted> is the name of a row of L<Test::Mutation::Exit>, which gives the exit status.
+Every kind apart from C<warning> and C<interrupted> is the name of a row of L<Test::Mutation::Exit>, which gives the exit status.
 
 =head2 text
 

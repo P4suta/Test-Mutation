@@ -36,8 +36,10 @@ our $VERSION = '0.001';
 my $TYPED        = InstanceOf ['Test::Mutation::Error'];
 my $INTERRUPTION = InstanceOf ['Test::Mutation::Interrupted'];
 
-# The command that mutation exec runs owns every other status, so a failure of exec itself has one status of its own.
-my %IN_EXEC = ( environment => 'exec-failed', internal => 'exec-failed' );
+# The command that mutation exec runs owns every other status, so exec reports its own failures with the statuses of env.
+# A command that exists nowhere or that the system refuses to run has a status of its own, and every other failure has 125.
+my %OF_EXEC_COMMAND = ( 'command-not-found' => 'command-not-found', 'command-not-runnable' => 'command-not-runnable' );
+my %IN_EXEC         = ( environment         => 'exec-failed',       internal               => 'exec-failed' );
 
 my %COMMAND =
   ( run => \&_run, list => \&_list, show => \&_show, exec => \&_exec, merge => \&_merge, mutators => \&_mutators );
@@ -161,11 +163,11 @@ my %REFUSE_OPERANDS = (
 sub _failure ( $error, $command ) {
     return { status => $error->exit_status, text => Test::Mutation::Message::line( $error->message ) }
       if $INTERRUPTION->check($error);
-    my ( $kind, $text ) =
+    my ( $kind, $text, $id ) =
       $TYPED->check($error)
-      ? ( $error->kind, $error->message )
-      : ( 'internal', Test::Mutation::Message::text_of( 'internal-error', text => _first_line($error) ) );
-    my $outcome = $command eq 'exec' && $IN_EXEC{$kind} ? $IN_EXEC{$kind} : $kind;
+      ? ( $error->kind, $error->message, $error->id )
+      : ( 'internal', Test::Mutation::Message::text_of( 'internal-error', text => _first_line($error) ), q{} );
+    my $outcome = $command eq 'exec' ? $OF_EXEC_COMMAND{$id} || $IN_EXEC{$kind} || $kind : $kind;
     return { status => Test::Mutation::Exit::of($outcome), text => Test::Mutation::Message::line($text) };
 }
 
@@ -223,13 +225,18 @@ sub _closed ($directory) {
 signature_for execute => ( positional => [ $INVOCATION, $WORLD ], returns => Int );
 
 sub execute ( $invocation, $world ) {
-    if ( my $refused = $invocation->{refused} ) {
-        print { $world->{err} } $refused->{text};
-        return $refused->{status};
-    }
 
     # The one place of the command that ends an exception: each kind has its status and its line.
-    my $attempt = Test::Mutation::Try::attempt( sub { _carried_out( $invocation, $world ) }, 'interruption' );
+    # A signal outranks every other outcome, so it ends the command whether it arrived in the plan, in the work, or after both.
+    my $attempt = Test::Mutation::Try::attempt(
+        sub {
+            Test::Mutation::Signals::check();
+            my $status = _carried_out( $invocation, $world );
+            Test::Mutation::Signals::check();
+            return $status;
+        },
+        'interruption'
+    );
     return $attempt->{value} if exists $attempt->{value};
     my $failure = _failure( $attempt->{error}, $invocation->{command} );
     print { $world->{err} } $failure->{text};
@@ -237,6 +244,10 @@ sub execute ( $invocation, $world ) {
 }
 
 sub _carried_out ( $invocation, $world ) {
+    if ( my $refused = $invocation->{refused} ) {
+        print { $world->{err} } $refused->{text};
+        return $refused->{status};
+    }
     my ( $command, $directory ) = $invocation->@{qw(command directory)};
     if ( defined $directory ) {
 
@@ -254,11 +265,7 @@ sub _carried_out ( $invocation, $world ) {
         print { $world->{out} } $HELP;
         return 0;
     }
-    my $status = $COMMAND{$command}->( $invocation, $world );
-
-    # A signal that arrived after the last check of the command still ends it with the status of the signal.
-    Test::Mutation::Signals::check();
-    return $status;
+    return $COMMAND{$command}->( $invocation, $world );
 }
 
 my %SETTING_OF_OPTION = (

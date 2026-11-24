@@ -136,7 +136,9 @@ subtest 'the exit table names every exit status of the command' => sub {
         return World::observe( \@line, cwd => $root )->{exit};
     };
     my $unreadable = sub { Test::Mutation::Error::raise( 'file-unreadable', path => 'lib/Calc.pm', reason => 'gone' ) };
+    my ($mutant)   = World::observe( ['list'], cwd => $root )->{stdout} =~ /^([0-9a-f]{12})  /m;
     my %observed   = map { $_ => 1 } (
+        ( map { World::observe( [ 'exec', $mutant, q{--}, "$root/$_" ], cwd => $root )->{exit} } 'lib', 'absent' ),
         ( map { World::observe( $_, cwd => $root )->{exit} } ['--version'], [ 'list', '--bogus' ] ),
         (
             map { Space::decided( Samples::result( $_->@* ), '--min-score', 50 )->{exit} } [ statuses => ['Killed'] ],
@@ -154,7 +156,7 @@ subtest 'the exit table names every exit status of the command' => sub {
     is [ map { $_->name } @exits ],
       [
         qw(success below-gate usage baseline-failed inconclusive environment internal exec-failed),
-        qw(hangup interrupt quit pipe termination)
+        qw(command-not-runnable command-not-found hangup interrupt quit pipe termination)
       ],
       'the names';
     my %meaning  = map { $_->code => $_->meaning } @exits;

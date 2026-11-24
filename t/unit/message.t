@@ -13,8 +13,9 @@ subtest 'every row names a message, its kind, its text, and its description' => 
     for my $row (@rows) {
         my $id = $row->id;
         like $id, qr/\A[a-z]+(?:-[a-z]+)*\z/, "$id is a name of lowercase words";
-        ok !$seen{$id}++,                                      "$id stands once";
-        ok $exit{ $row->kind } || $row->kind eq 'interrupted', "$id has the kind of an exit status";
+        ok !$seen{$id}++, "$id stands once";
+        ok $exit{ $row->kind } || $row->kind eq 'interrupted' || $row->kind eq 'warning',
+          "$id has the kind of an exit status or of a warning";
         like $row->text,        qr/\A\S(?:.*\S)?\z/,      "$id has one line of text";
         like $row->description, qr/\A[[:upper:]].*[.]\z/, "$id has a sentence that describes it";
     }
@@ -67,6 +68,16 @@ subtest 'a row answers for its identifier' => sub {
       [qw(below-gate baseline-failed inconclusive interrupted)], 'the line of an outcome has the kind of the outcome';
     like dies { Test::Mutation::Message::row('nonesuch') }, qr/did not pass type constraint/,
       'a name outside the catalog';
+};
+
+subtest 'a warning takes the words of a warning alone' => sub {
+    is Test::Mutation::Message::warning( 'loaded-around-hook', test => 't/a.t', path => 'lib/A.pm' ),
+      't/a.t loads lib/A.pm around the hook and cannot detect its mutants', 'the text with its values';
+    is Test::Mutation::Message::warning('tests-unmatched'), 'no test files match', 'a warning without a slot';
+    like dies { Test::Mutation::Message::warning( 'file-unreadable', path => 'a', reason => 'b' ) },
+      qr/did not pass type constraint/, 'the message of a failure is no warning';
+    like dies { Test::Mutation::Message::warning('loaded-around-hook') }, qr/\Athe message loaded-around-hook takes/,
+      'a warning without its values';
 };
 
 done_testing;
