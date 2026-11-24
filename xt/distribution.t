@@ -7,9 +7,24 @@ use File::Path             ();
 use File::Temp             ();
 use JSON::PP               ();
 use Module::CPANfile;
+use lib 't/lib';
+use Gate;
 use Test::Mutation;
 
 # The gate builds the distribution in a scratch copy and checks what an installation would receive.
+
+my $BUILD_OUTPUT = qr{\A/(?:local|blib|[.]git|[.]mutation|mutation-report)(?:/|\z)|[.]log\z};
+
+sub build_output ( $prefix, @members ) {
+    return [ grep { substr( $_, length $prefix ) =~ $BUILD_OUTPUT } sort @members ];
+}
+
+subtest 'the gate rejects an archive that holds build output' => sub {
+    is build_output( 'P-1', 'P-1/lib/A.pm', 'P-1/t/unit/a.t', 'P-1/localize.pm' ), [], 'sources and tests stay';
+    is build_output( 'P-1', 'P-1/lib/A.pm', 'P-1/local/lib/perl5/B.pm', 'P-1/build.log', 'P-1/.git/HEAD', 'P-1/blib' ),
+      [ 'P-1/.git/HEAD', 'P-1/blib', 'P-1/build.log', 'P-1/local/lib/perl5/B.pm' ],
+      'installed dependencies, build output, repository data, and logs are named';
+};
 
 my $root    = Cwd::getcwd();
 my $scratch = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
@@ -104,9 +119,8 @@ my @wanted = qw(
   t/unit/tap.t t/shim/serve.t t/fixtures/calc/lib/Calc.pm
 );
 is [ grep { !$packed{"$prefix/$_"} } @wanted ], [], 'the archive holds the sources, the tests, and the notices';
-is [ grep { m{\A\Q$prefix\E/(?:local|blib|[.]git|[.]mutation|mutation-report)(?:/|\z)|[.]log\z} } sort keys %packed ],
-  [],
-  'and leaves out installed dependencies, build output, and reports';
+is build_output( $prefix, keys %packed ),       [], 'and leaves out installed dependencies, build output, and reports';
+Gate::checked( 'members of the archive', scalar( keys %packed ), at_least => 150 );
 
 IO::Uncompress::Gunzip::gunzip( "$scratch/$prefix.tar.gz" => \my $bytes ) or die 'cannot read the archive';
 ok $bytes !~ /(?:LIBARCHIVE|SCHILY)[.]xattr/, 'the archive carries no extended attribute of the build machine';

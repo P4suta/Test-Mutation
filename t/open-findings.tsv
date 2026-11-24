@@ -1,0 +1,4 @@
+gates	xt/corpus/installed.t has no rejecting subtest	the corpus oracles of the mutant quality harness replace this gate
+gates	xt/corpus/installed.t states no count	the corpus oracles of the mutant quality harness replace this gate
+gates	xt/release/self-mutation.t has no rejecting subtest	the release gate for the run of the tool on itself
+gates	xt/release/self-mutation.t states no count	the release gate for the run of the tool on itself

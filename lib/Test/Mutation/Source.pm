@@ -83,13 +83,27 @@ Test::Mutation::Source - the decoded text of one source file
 
     my $source = Test::Mutation::Source->from_bytes( path => 'lib/Foo.pm', bytes => $bytes );
     my $offset = $source->offset_of( 12, 5 );
-    my $bytes  = $source->to_bytes( $source->splice( $start, $end, '-' ) );
+    my $bytes  = $source->to_bytes( $source->replace_span( $start, $end, '-' ) );
 
 =head1 DESCRIPTION
 
 A source holds the characters of a file and the encoding that reproduces its bytes.
 Offsets count characters from zero.
 Lines and columns count from one.
+
+=head1 ATTRIBUTES
+
+=head2 path
+
+The path of the file inside the project.
+
+=head2 text
+
+The decoded characters of the file.
+
+=head2 encoding
+
+C<UTF-8> or C<latin1>, the encoding that turns the text back into the bytes of the file.
 
 =head1 METHODS
 
@@ -109,8 +123,10 @@ Returns the offset of a line and column.
 
 Returns the line and column of an offset as a two-element array reference.
 
-=head2 splice
+=head2 replace_span
 
-Returns the text with the span from C<$start> to C<$end> replaced.
+    my $mutated = $source->replace_span( $start, $end, $replacement );
+
+Returns the text with the characters from offset C<$start> up to offset C<$end> replaced.
 
 =cut

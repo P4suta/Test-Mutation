@@ -1,12 +1,12 @@
 use v5.36;
 use Test2::V0;
+use lib 't/lib';
+use Library;
 
 # Every public subroutine checks its arguments before its body runs.
 # A lone scalar reference fits no declared signature, so each call must end in a type error.
 
-my @files =
-  sort grep { $_ ne 'lib/Test/Mutation/Shim.pm' }
-  glob 'lib/Test/Mutation.pm lib/Test/Mutation/*.pm lib/Test/Mutation/*/*.pm lib/Test/*.pm';
+my @files = grep { $_ ne 'lib/Test/Mutation/Shim.pm' } Library::modules()->@*;
 my $count = 0;
 
 for my $file (@files) {

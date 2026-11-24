@@ -1,6 +1,8 @@
 use v5.36;
 use Test2::V0;
-use lib 'xt/lib';
+use lib 't/lib', 'xt/lib';
+use Gate;
+use Library;
 use TypeContractGate;
 
 # Every public subroutine declares a checked signature with a return type, and every attribute declares a type.
@@ -27,9 +29,9 @@ PERL
     is TypeContractGate::violations($code), [], 'no violation';
 };
 
-my @files = sort grep { -f && $_ ne 'lib/Test/Mutation/Shim.pm' }
-  glob 'lib/Test/Mutation.pm lib/Test/Mutation/*.pm lib/Test/Mutation/*/*.pm';
-ok scalar(@files) > 10, 'library files exist';
+# The shim runs on Perl 5.10 with core modules alone, so it declares no signature.
+my @files = grep { $_ ne 'lib/Test/Mutation/Shim.pm' } Library::modules()->@*;
+Gate::checked( 'library files', scalar @files, at_least => 31 );
 for my $file (@files) {
     open my $handle, '<:encoding(UTF-8)', $file or die "read $file: $!";
     my $code = do { local $/ = undef; readline $handle };
