@@ -48,6 +48,15 @@ run = "prove -l t/e2e"
 description = "Run the structural gates over the library"
 run = "prove -l xt"
 
+[tasks.discover-fast]
+description = "Compare runs of the engine with independent oracles, each axis value once"
+run = "prove -l xt/discovery"
+
+[tasks.discover]
+description = "Compare runs of the engine with independent oracles over every seed and every product of the axes"
+env = { DISCOVERY_TIER = "full" }
+run = "prove -l xt/discovery"
+
 [tasks.mutation]
 description = "Measure the tests of Test::Mutation with its own command"
 run = "perl -Ilib bin/mutation"
@@ -79,4 +88,12 @@ run = "gitleaks dir --no-banner ."
 
 [tasks.check]
 description = "Run every fast gate"
-depends = ["test", "test-shim", "e2e", "gate", "audit", "secrets"]
+depends = [
+  "test",
+  "test-shim",
+  "e2e",
+  "gate",
+  "discover-fast",
+  "audit",
+  "secrets",
+]

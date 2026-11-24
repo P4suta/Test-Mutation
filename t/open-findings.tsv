@@ -119,3 +119,6 @@ contract-no-leak-process	a variable of the code; cases boolean-in-the-file gate-
 contract-no-leak-process	wording of the option parser; cases help-after-list help-after-run version-after-list; part commands	the commands table
 contract-no-leak-process	wording of the option parser; cases missing-value negated-value unknown-option value-for-a-flag word-for-a-number; part settings	the settings table
 contract-no-leak-process	wording of the type library; cases boolean-in-the-file gate-out-of-range number-out-of-range value-in-the-file; part settings	the settings table
+engine-known	I5 NoCoverage carries no reason	the status catalog and its reasons
+records	the record table parses the kind error into errors, and the runner never reads errors	the closed record vocabulary and its evidence
+records	the shim writes the kind end, and the record table drops it	the closed record vocabulary and its evidence
