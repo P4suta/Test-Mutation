@@ -138,7 +138,7 @@ mutants-census-installed	no mutant covers operator -w, and no reason declines it
 mutants-census-installed	no mutant covers operator -z, and no reason declines it	the new mutators and the declined table of the census
 mutants-census-installed	no mutant covers operator <<, and no reason declines it	the new mutators and the declined table of the census
 mutants-census-installed	no mutant covers operator ^, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers operator x, and no reason declines it	the new mutators and the declined table of the census
+mutants-census-corpus	no mutant covers operator x, and no reason declines it	the new mutators and the declined table of the census
 mutants-census-installed	no mutant covers operator xor, and no reason declines it	the new mutators and the declined table of the census
 mutants-census-installed	no mutant covers operator |=, and no reason declines it	the new mutators and the declined table of the census
 mutants-census-installed	no mutant covers operator ~, and no reason declines it	the new mutators and the declined table of the census
@@ -170,7 +170,7 @@ mutants-census-installed	no mutant covers word pack, and no reason declines it	t
 mutants-census-installed	no mutant covers word prototype, and no reason declines it	the new mutators and the declined table of the census
 mutants-census-installed	no mutant covers word read, and no reason declines it	the new mutators and the declined table of the census
 mutants-census-installed	no mutant covers word redo, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word seek, and no reason declines it	the new mutators and the declined table of the census
+mutants-census-corpus	no mutant covers word seek, and no reason declines it	the new mutators and the declined table of the census
 mutants-census-installed	no mutant covers word select, and no reason declines it	the new mutators and the declined table of the census
 mutants-census-installed	no mutant covers word setsockopt, and no reason declines it	the new mutators and the declined table of the census
 mutants-census-installed	no mutant covers word sleep, and no reason declines it	the new mutators and the declined table of the census
@@ -199,7 +199,6 @@ mutants-refusal-installed	boolean-literal has a change refused under unresolved-
 mutants-refusal-installed	statement-removal has a change refused under declaration that perl accepts	the validity boundary of the generator
 mutants-refusal-own	boolean-literal has a change refused under unresolved-call that perl accepts	the import resolution of the validity boundary
 mutants-refusal-own	statement-removal has a change refused under declaration that perl accepts	the validity boundary of the generator
-mutants-statements-corpus	no mutant touches a statement of the class Statement::Include	the typed analysis of the code in a use statement
 mutants-suppress-layouts	the parser accepts a block without its use mutate	the suppression grammar
 mutants-suppress-layouts	the parser accepts a candidate that is not canonical	the suppression grammar
 mutants-suppress-layouts	the parser accepts a directive that suppresses no mutant	the suppression grammar
