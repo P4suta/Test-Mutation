@@ -249,6 +249,7 @@ sub perturbations () {
 # A cold run fills the cache, a second run on the same inputs reuses it, and each perturbation then starts from that cache.
 # Every result of the bench depends on its one test, so a run after a perturbation may reuse nothing.
 # `selections` adds the runs of one mutant and of one part, which may reuse the records of the whole run.
+# `since` adds the run on the changed lines of a repository, which needs the git command.
 sub cache ( $engine, $bench, %option ) {
     my $project  = $bench->{project};
     my @classes  = $option{classes} ? $option{classes}->@* : perturbations();
@@ -286,7 +287,18 @@ sub cache ( $engine, $bench, %option ) {
         my $run = $engine->run( $project, %settings, @selected );
         push @found, _related( 'cache', "cache selection=$name", [$run], run => $run, @truth, reuse => 'all' );
     }
-    return @found;
+    return @found if !$option{since};
+
+    # The run on the changed lines follows a whole run on the same files, so every record it needs is in the cache.
+    _pristine( $bench, undef );
+    $project->git( 'init',   '-q' );
+    $project->git( 'add',    '.' );
+    $project->git( 'commit', '-q', '--allow-empty', '-m', 'the bench' );
+    $project->write( 'lib/Known.pm', $bench->{plain}->module('Known') =~ s/^(sub cell_1 .*)$/$1 # changed/mr );
+    my $whole   = $engine->run( $project, %settings, state => 'since' );
+    my $changed = $engine->run( $project, %settings, state => 'since', since => 'HEAD' );
+    return ( @found,
+        _related( 'cache', 'cache selection=since', [ $whole, $changed ], run => $changed, @truth, reuse => 'all' ) );
 }
 
 1;

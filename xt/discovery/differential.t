@@ -137,7 +137,7 @@ for my $plan (@plans) {
 }
 
 push $found{fast}->@*,
-  Discovery::Differential::cache( $engine, Discovery::Differential::cache_bench(), selections => 1 );
+  Discovery::Differential::cache( $engine, Discovery::Differential::cache_bench(), selections => 1, since => $git );
 
 Discovery::Tier::report( 'differential', \%found );
 is [ Discovery::Differential::perturbations() ],

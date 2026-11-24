@@ -15,6 +15,7 @@ my %PLAIN      = ( target => 'lib/Known.pm', shift => 0 );
 my %CHECK = (
     'completes'  => \&_completes,
     'I1'         => \&_bounded,
+    'I1-wait'    => \&_waits,
     'I2'         => \&_no_process,
     'I3'         => \&_no_leftover,
     'I4'         => \&_unchanged,
@@ -38,9 +39,9 @@ my %CHECK = (
 
 my %SIGNAL_NUMBER = ( HUP => 1, INT => 2, TERM => 15 );
 my $SIGNAL_BASE   = 128;
-my $BASE_SECONDS  = 5;
+my $BASE_SECONDS  = 30;
 my $SLACK         = 5;
-my $IDLE_SHARE    = 0.3;
+my $IDLE_SHARE    = 0.05;
 my $WAIT_SECONDS  = 0.5;
 
 # The ways a test process ends after a stream, apart from status 0: each one fails the test under prove.
@@ -74,10 +75,9 @@ sub _completes ($arg) {
     return;
 }
 
-# The run ends within a bound that the durations of its tests give, and the tool waits without work of its own.
+# The run ends within a bound that the durations of its tests give.
 # The unmodified run times every test, and a mutant runs the tests that reach it, or meets their time limits.
-# `quiet` holds the time and the processor time of a run of the same cells whose test waits for nothing.
-# The run of a test that waits lasts longer, and the tool must use no more processor time for that wait.
+# The bound leaves the tool half a minute of its own, so a busy machine stays inside it and a run that hangs does not.
 sub _bounded ($arg) {
     my $run = $arg->{run};
     return if !$run->{reported};
@@ -90,14 +90,16 @@ sub _bounded ($arg) {
         my @limits    = map { $_ * $factor > $floor ? $_ * $factor : $floor } @durations;
         $expected += $_ for $run->{status}{$id} eq 'Timeout' ? @limits : @durations;
     }
-    my @found =
-      $run->{seconds} > $BASE_SECONDS + $SLACK * $expected ? 'I1 the run takes longer than its tests explain' : ();
-    my $quiet = $arg->{quiet};
-    return @found if !$quiet || !defined $run->{cpu} || !defined $quiet->{cpu};
-    my $waited = $run->{seconds} - $quiet->{seconds};
-    push @found, 'I1 the tool uses the processor while its tests wait'
-      if $waited > $WAIT_SECONDS && $run->{cpu} - $quiet->{cpu} > $IDLE_SHARE * $waited;
-    return @found;
+    return $run->{seconds} > $BASE_SECONDS + $SLACK * $expected ? 'I1 the run takes longer than its tests explain' : ();
+}
+
+# The pool waits for a test without work of its own.
+# `wait` holds the seconds that one test waited after its stream and the processor time of the pool meanwhile.
+# A pool that sleeps uses a thousandth of the wait, and one that asks again and again uses whatever share the machine gives it.
+sub _waits ($arg) {
+    my $wait = $arg->{wait};
+    return 'I1 the pool fails a test that waits after its stream' if !$wait->{passed};
+    return $wait->{cpu} > $IDLE_SHARE * $wait->{waited} ? 'I1 the tool uses the processor while its tests wait' : ();
 }
 
 sub _no_process ($arg) {

@@ -1,14 +1,18 @@
 package Discovery::Zoo;
 use v5.36;
+use Digest::SHA      ();
 use IO::Socket::INET ();
+use POSIX            ();
 use Discovery::Known;
 
 # The hostile test zoo: the cells of one known-answer project under one behavior for each member.
 # A member that depends on a mutant misbehaves when a cell returns a wrong value alone, so its unmodified run passes.
 
-my $HOLD_SECONDS = 0.5;
+my $HOLD_SECONDS = 1;
 my $LIFE_SECONDS = 30;
 my $FIXED_TIME   = 1_700_000_000;
+my $LOWEST_PORT  = 20_000;
+my $PORTS        = 10_000;
 
 # The function value of a test calls a cell in the process of the test or asks a child process for the answer.
 my $BY_PACKAGE = <<'PERL';
@@ -210,6 +214,89 @@ my $EMPTY_INPUT   = qq[{ my \$line = <STDIN>; die "standard input holds a line\\
 my $IN_TAINT_MODE = qq[die "the test runs without taint mode\\n" if !\${^TAINT};\n];
 
 # A process may inherit a signal as ignored, so the test takes the default action back before it signals itself.
+# The build directory stands before the library directory, as a test under `-Mblib` or `make test` has it.
+my $FROM_BLIB = "use lib 'blib/lib';\nuse <<package>>;\n";
+
+my $MAKEFILE = <<'PERL';
+use ExtUtils::MakeMaker;
+WriteMakefile( NAME => 'Zoo::XsLoad', VERSION => '0.01' );
+PERL
+
+my $COMPILED = <<'XS';
+#include "EXTERN.h"
+#include "perl.h"
+#include "XSUB.h"
+
+MODULE = Zoo::XsLoad  PACKAGE = Zoo::XsLoad
+
+int
+answer()
+  CODE:
+    RETVAL = 42;
+  OUTPUT:
+    RETVAL
+XS
+
+my $COMPILED_ANSWER = qq[die "the compiled code gives no answer\\n" if Zoo::XsLoad::answer() != 42;\n];
+my $WITH_VARIABLE   = qq[die "the variable FOO is not bar\\n" if !defined \$ENV{FOO} || \$ENV{FOO} ne 'bar';\n];
+
+my $SAME_SOURCE = <<'PERL';
+use Digest::SHA ();
+die "the source file changed\n" if Digest::SHA->new(256)->addfile('<<target>>')->hexdigest ne '<<digest>>';
+PERL
+
+my $LEAVE_STATE = <<'PERL';
+select undef, undef, undef, 0.3;
+open my $out, '>', 'state.txt' or die "write: $!";
+close $out;
+print "1..1\nok 1 - left the state\n";
+PERL
+
+my $HELPER = <<'PERL';
+package ZooHelper;
+use strict;
+use warnings;
+sub fetch { my ( $package, $cell, @arguments ) = @_; return scalar $package->can($cell)->(@arguments) }
+1;
+PERL
+
+my $BY_HELPER = <<'PERL';
+use lib 't/lib';
+use ZooHelper;
+use <<package>>;
+sub value { my ( $cell, @arguments ) = @_; return ZooHelper::fetch( '<<package>>', $cell, @arguments ) }
+PERL
+
+# Two tests take one lock without waiting, so they pass one after the other and fail side by side.
+my $RULED_LOCK = <<'PERL';
+use Fcntl qw(LOCK_EX LOCK_NB);
+open my $lock, '>>', 'data/rules.lock' or die "open: $!";
+flock $lock, LOCK_EX | LOCK_NB or die "the lock is taken: $!\n";
+select undef, undef, undef, 0.3;
+PERL
+
+my $RULES = <<'YAML';
+---
+seq:
+  - seq: t/testrules*.t
+  - par: "**"
+YAML
+
+# A test in a framework: the rows as assertions of Test::More or of Test2.
+my $FRAMEWORK = <<'PERL';
+use strict;
+use warnings;
+use <<framework>>;
+<<load>>
+my @rows = (
+<<rows>>);
+for my $row (@rows) {
+    my ( $cell, $arguments, $want ) = @{$row};
+    is( value( $cell, @{$arguments} ), $want, $cell );
+}
+done_testing();
+PERL
+
 sub _signal ($name) {
     my $wrong = "\$SIG{$name} = 'DEFAULT'; kill '$name', \$\$; sleep 5;";
     return [ process => 'kill-' . lc $name, { load => $PLAIN, wrong => $wrong } ];
@@ -242,13 +329,7 @@ my @MEMBERS = (
     [ process => 'daemonize',          { load => $PLAIN . $REGISTER . $DAEMON } ],
     [
         process => 'close-stdout',
-        {
-            load     => $PLAIN,
-            end      => "close STDOUT;\nselect undef, undef, undef, 1;\n",
-            settings => { jobs => 1 },
-            idle     => 1,
-            alone    => 1
-        }
+        { load => $PLAIN, end => "close STDOUT;\nselect undef, undef, undef, 0.1;\n" }
     ],
     [
         process => 'redirect-stdout',
@@ -288,6 +369,55 @@ my @MEMBERS = (
     _path( 'path-glob',      'pro[j]e*ct?' ),
     _path( 'path-non-ascii', "pro\xc3\xa9ject" ),
     _path( 'path-hash',      'pro#ject' ),
+
+    [ build => 'blib-identical', { load => $FROM_BLIB . $BY_PACKAGE, blib => q{} } ],
+    [ build => 'blib-differing', { load => $FROM_BLIB . $BY_PACKAGE, blib => "# built\n" } ],
+    [
+        build => 'blib-script',
+        { load => $BY_CHILD, command => q['./blib/<<target>>'], script => '#!perl', blib => q{} }
+    ],
+    [
+        build => 'xs-load',
+        {
+            load  => "use lib 'blib/lib', 'blib/arch';\nuse <<package>>;\n" . $COMPILED_ANSWER . $BY_PACKAGE,
+            after => "our \$VERSION = '0.01';\nrequire XSLoader;\nXSLoader::load( __PACKAGE__, \$VERSION );\n1;\n",
+            files => { 'Makefile.PL' => $MAKEFILE, 'XsLoad.xs' => $COMPILED },
+            make  => 1,
+            needs => 'toolchain',
+            alone => 1
+        }
+    ],
+
+    [
+        suite => 'env-foo',
+        { load => $PLAIN . $WITH_VARIABLE, environment => { FOO => 'bar' }, alone => 1 }
+    ],
+    [
+        suite => 'lib-checksum',
+        { load => $PLAIN . $SAME_SOURCE, turns => { Survived => 'Killed', NoCoverage => 'Killed' } }
+    ],
+    [ suite => 'inc-assert', { load => $PLAIN . qq[die "the search path holds code\\n" if grep { ref } \@INC;\n] } ],
+    [
+        suite => 'order-pair',
+        {
+            load  => $PLAIN . qq[die "the test before left no state\\n" if !-e 'state.txt';\n],
+            tests => { 't/order-a-first.t' => $LEAVE_STATE },
+            prove => ['-j1'],
+            alone => 1
+        }
+    ],
+    [ suite => 'test-more',    { load => $PLAIN,     template => 'Test::More' } ],
+    [ suite => 'test2',        { load => $PLAIN,     template => 'Test2::V0' } ],
+    [ suite => 't-lib-helper', { load => $BY_HELPER, files    => { 't/lib/ZooHelper.pm' => $HELPER } } ],
+    [
+        suite => 'testrules',
+        {
+            load  => $PLAIN . $RULED_LOCK,
+            tests => { 't/testrules-other.t' => $RULED_LOCK . qq[print "1..1\\nok 1 - held the lock\\n";\n] },
+            files => { 't/testrules.yml'     => $RULES, 'data/rules.lock' => q{} },
+            alone => 1
+        }
+    ],
 
     [ loading => 'use',       { load => "use <<package>>;\n" . $BY_PACKAGE } ],
     [ loading => 'require',   { load => "require <<package>>;\n" . $BY_PACKAGE } ],
@@ -369,6 +499,11 @@ sub alone ($name) {
     return _member($name)->[2]{alone} ? 1 : 0;
 }
 
+# The capability that a member needs, such as a compiler, or nothing.
+sub needs ($name) {
+    return _member($name)->[2]{needs};
+}
+
 # The name of the directory of the project, for a member that needs a name of its own.
 sub directory ($name) {
     my $directory = _member($name)->[2]{directory};
@@ -394,13 +529,23 @@ sub _filled ( $template, $value ) {
     return $template =~ s{<<(\w+)>>}{defined $value->{$1} ? $value->{$1} : die "the template names no $1\n"}ger;
 }
 
-# The kernel gives a port that no process holds, and the tests of one project then compete for it.
-sub _free_port () {
-    my $socket = IO::Socket::INET->new( Listen => 1, LocalAddr => '127.0.0.1', LocalPort => 0, Proto => 'tcp' )
-      or die "no free port: $!";
-    my $port = $socket->sockport;
-    close $socket or die "close: $!";
-    return $port;
+# A port that no process holds, for the tests of one project to compete for.
+# The kernel hands the ports of its own range to any program at any moment, so the choice stays below that range.
+# The name of the scratch directory picks the first candidate, so two projects start their search apart.
+sub _free_port ($token) {
+    my $first = hex substr Digest::SHA::sha256_hex($token), 0, 4;
+    for my $step ( 0 .. $PORTS - 1 ) {
+        my $port   = $LOWEST_PORT + ( $first + $step ) % $PORTS;
+        my $socket = IO::Socket::INET->new( Listen => 1, LocalAddr => '127.0.0.1', LocalPort => $port, Proto => 'tcp' )
+          or next;
+        close $socket or die "close: $!";
+        return $port;
+    }
+    die "no free port between $LOWEST_PORT and " . ( $LOWEST_PORT + $PORTS ) . "\n";
+}
+
+sub _module ( $self, $package, $spec ) {
+    return $self->{known}->module($package) . ( defined $spec->{after} ? $spec->{after} : q{} );
 }
 
 # The words that the templates of a member name, each with its value in one project.
@@ -417,23 +562,57 @@ sub _values ( $self, $project, $name, $spec ) {
         fixed    => "/tmp/$token-$name",
         hold     => $HOLD_SECONDS,
         life     => $LIFE_SECONDS,
-        port     => $name eq 'fixed-port' ? _free_port() : 0,
+        port     => $name eq 'fixed-port' ? _free_port($token) : 0,
         rows     => $self->{known}->rows_text( $self->{test} ),
+        digest   => Digest::SHA::sha256_hex( $self->_module( $package, $spec ) ),
     );
     $value{command} = _filled( $spec->{command}, \%value ) if defined $spec->{command};
     return \%value;
 }
 
 # Writes the cells of a member as a module or as a script, and returns the lines that stand above the script.
+# `blib` asks for a copy in the build directory: a module with the given text after it, a script with a rewritten first line.
 sub _write_cells ( $self, $project, $spec, $value ) {
     if ( defined $spec->{script} ) {
         my $first = _filled( $spec->{script}, $value );
-        $project->write( $value->{target}, $self->{known}->script($first), mode => oct '755' );
+        $project->write( $value->{target},        $self->{known}->script($first),  mode => oct '755' );
+        $project->write( "blib/$value->{target}", $self->{known}->script("#!$^X"), mode => oct '755' )
+          if defined $spec->{blib};
         return $first =~ tr/\n//;
     }
-    my $after = defined $spec->{after} ? $spec->{after} : q{};
-    $project->write( $value->{target}, $self->{known}->module( $value->{package} ) . $after );
+    my $text = $self->_module( $value->{package}, $spec );
+    $project->write( $value->{target},        $text );
+    $project->write( "blib/$value->{target}", $text . $spec->{blib} ) if defined $spec->{blib};
     return 0;
+}
+
+# The text of the test of a member: raw TAP, or the assertions of a framework.
+sub _test ( $self, $spec, $value ) {
+    my $load = _filled( $spec->{load}, $value );
+    return _filled( $FRAMEWORK, { $value->%*, framework => $spec->{template}, load => $load } ) if $spec->{template};
+    return $self->{known}->test_text(
+        $self->{test},
+        load => $load,
+        map { defined $spec->{$_} ? ( $_ => $spec->{$_} ) : () } qw(wrong first plan end newline)
+    );
+}
+
+# Builds the compiled code of a member in its project, as `perl Makefile.PL` and `make` do for a distribution.
+sub _make ($project) {
+    for my $command ( [ $^X, 'Makefile.PL' ], ['make'] ) {
+        my $pid = fork;
+        die "fork: $!" if !defined $pid;
+        if ( !$pid ) {
+            chdir $project->root or POSIX::_exit(126);
+            open STDIN,  '<', '/dev/null' or POSIX::_exit(126);
+            open STDOUT, '>', '/dev/null' or POSIX::_exit(126);
+            open STDERR, '>', '/dev/null' or POSIX::_exit(126);
+            exec { $command->[0] } $command->@* or POSIX::_exit(127);
+        }
+        waitpid $pid, 0;
+        die "the build of the compiled code failed at @{$command}\n" if $?;
+    }
+    return;
 }
 
 # The settings of the run of a member: its own ones, and a configuration file for switches that no flag carries.
@@ -449,7 +628,8 @@ sub _settings ( $project, $name, $spec ) {
     return { %settings, configuration => $file };
 }
 
-# Writes the files of the named members and returns, for each one, its test, the file of its cells, and its settings.
+# Writes the files of the named members and returns, for each one, its tests, the file of its cells, and its settings.
+# `test` is the test that asserts the cells, and `tests` adds the tests that the member needs beside it.
 sub build ( $self, $project, @names ) {
     my ( %built, %taken );
     for my $name (@names) {
@@ -457,24 +637,21 @@ sub build ( $self, $project, @names ) {
         my $value = $self->_values( $project, $name, $spec );
         die "two members of the zoo hold their cells in $value->{target}\n" if $taken{ lc $value->{target} }++;
         my $shift = $self->_write_cells( $project, $spec, $value );
-        $project->write(
-            $value->{test},
-            $self->{known}->test_text(
-                $self->{test},
-                load => _filled( $spec->{load}, $value ),
-                map { defined $spec->{$_} ? ( $_ => $spec->{$_} ) : () } qw(wrong first plan end newline),
-            )
-        );
+        my %more  = %{ $spec->{tests} || {} };
+        $project->write( $value->{test}, $self->_test( $spec, $value ) );
+        $project->write( $_, $more{$_} ) for sort keys %more;
         $project->write( $_, $spec->{files}{$_}, time => $FIXED_TIME ) for sort keys %{ $spec->{files} || {} };
+        _make($project) if $spec->{make};
         $built{$name} = {
-            name     => $name,
-            test     => $value->{test},
-            target   => $value->{target},
-            shift    => $shift,
-            settings => _settings( $project, $name, $spec ),
-            turns    => $spec->{turns} || {},
-            idle     => $spec->{idle} ? 1 : 0,
-            prove    => $spec->{prove} || [],
+            name        => $name,
+            test        => $value->{test},
+            tests       => [ sort $value->{test}, keys %more ],
+            target      => $value->{target},
+            shift       => $shift,
+            settings    => _settings( $project, $name, $spec ),
+            environment => $spec->{environment} || {},
+            turns       => $spec->{turns}       || {},
+            prove       => $spec->{prove}       || [],
         };
     }
     return \%built;

@@ -1,12 +1,15 @@
 use v5.36;
 use Test2::V0;
+use Config ();
 use lib 't/lib', 'xt/discovery/lib';
+use Capability;
 use Gate;
 use Discovery::Check;
 use Discovery::Engine;
 use Discovery::Known;
 use Discovery::Project;
 use Discovery::Tier;
+use Discovery::Waiter;
 use Discovery::Zoo;
 
 # The hostile test zoo: the same cells under one hostile behavior for each member.
@@ -93,8 +96,10 @@ subtest 'the comparison of two members rejects a lost kill and a silent one' => 
 # prove is the oracle of the unmodified run: every member passes there, in a copy that its tests may change.
 # The tests run side by side, so a test that leaves a process with its output costs the time of one such process.
 sub passes_under_prove ( $project, $built, @arguments ) {
-    my @tests   = sort map { $_->{test} } values $built->%*;
-    my $copy    = $project->copy;
+    my @tests       = sort map { $_->{tests}->@* } values $built->%*;
+    my %environment = map      { $_->{environment}->%* } values $built->%*;
+    my $copy        = $project->copy;
+    local @ENV{ keys %environment } = values %environment;
     my $verdict = $copy->proves( '-j4', @arguments, @tests );
     $copy->discard;
 
@@ -105,8 +110,9 @@ sub passes_under_prove ( $project, $built, @arguments ) {
 
 # The members of an axis that touch their own process alone share one project and one run with the plain member.
 # A member whose test fails without a mutant is a finding, and the others are measured without it.
-# The full tier repeats such a run under other settings, which come in `more`.
+# The full tier repeats such a run under other settings, which come in `more`, and without the question to prove.
 sub together ( $axis, $members, %more ) {
+    my $sanity  = exists $more{sanity} ? delete $more{sanity} : !%more;
     my @members = $members->@*;
     my @names   = ( ( grep { $_ eq $plain } @members ) ? () : $plain, @members );
     my @truth   = defined $more{coverage} ? ( coverage => $more{coverage} ) : ();
@@ -114,7 +120,7 @@ sub together ( $axis, $members, %more ) {
     while (@names) {
         $project = Discovery::Project->new;
         $built   = $zoo->build( $project, @names );
-        passes_under_prove( $project, $built ) if !@failed && !%more;
+        passes_under_prove( $project, $built ) if $sanity && !@failed;
         $run = $engine->run( $project, %settings, %more );
         note sprintf '%s: the run of %d members took %.1f seconds', $axis, scalar @names, $run->{seconds};
         $runs++;
@@ -132,9 +138,13 @@ sub together ( $axis, $members, %more ) {
         ( map { "$axis=$plain: $_" } findings( ['I7'], run => $run, member => $reference, @truth ) ),
     );
     for my $name ( grep { $_ ne $plain } @names ) {
+        my $member = $built->{$name};
+
+        # A member whose behavior turns the statuses has a truth of its own, and no other member shows it.
+        my @compared = $member->{turns}->%* ? @truth : ( reference => $reference );
         push @found,
           map { "$axis=$name: $_" }
-          findings( [ 'I8', 'I6' ], run => $run, member => $built->{$name}, reference => $reference );
+          findings( [ ( $member->{turns}->%* ? 'I7' : 'I8' ), 'I6' ], run => $run, member => $member, @compared );
     }
     $compared += keys $run->{mutants}->%*;
     $ran{"$axis=$_"}++ for @members;
@@ -142,57 +152,61 @@ sub together ( $axis, $members, %more ) {
 }
 
 # A member that changes more than its own process gets a project and a run of its own.
-sub alone ( $axis, $name ) {
+# The full tier repeats such a run under other settings, which come in `more`, and without the question to prove.
+sub alone ( $axis, $name, %more ) {
     my $project = Discovery::Project->new( name => Discovery::Zoo::directory($name) );
     my $member  = $zoo->build( $project, $name )->{$name};
-    passes_under_prove( $project, { $name => $member }, $member->{prove}->@* );
-    my $run = $engine->run( $project, %settings, $member->{settings}->%* );
+    passes_under_prove( $project, { $name => $member }, $member->{prove}->@* ) if !%more;
+    my @given = $member->{environment}->%* ? ( environment => $member->{environment} ) : ();
+    my $run   = $engine->run( $project, %settings, $member->{settings}->%*, @given, %more );
     note sprintf '%s=%s: the run took %.1f seconds', $axis, $name, $run->{seconds};
-
-    # The check of the processor time passes on a run without a measurement, so the measurement itself is asserted.
-    if ( $member->{idle} ) {
-        my $measured = defined $run->{cpu} && $run->{cpu} > 0 ? 1 : 0;
-        ok $measured, "the processor time of the tool was measured for $name";
-        note sprintf '%s=%s: the tool used the processor for %.1f seconds', $axis, $name, $run->{cpu} if $measured;
-    }
     $runs++;
     $compared += keys $run->{mutants}->%*;
     $ran{"$axis=$name"}++;
     $project->discard;
     my @observed = ( run => $run, member => $member, floor => $member->{settings}{timeout_floor} );
-    push @observed, quiet => quiet_run() if $member->{idle};
     return ( findings( ['I5'], run => $run ),
         map { "$axis=$name: $_" } findings( [ @run, 'I1', 'I7', 'I6' ], @observed ) );
 }
 
-# The time and the processor time of the tool on the plain member alone, with one job as the waiting members run.
-# A member whose test waits is compared with it: the wait must cost the tool no processor time.
-sub quiet_run () {
-    state $quiet;
-    return $quiet if $quiet;
-    my $project = Discovery::Project->new;
-    $zoo->build( $project, $plain );
-    my $run = $engine->run( $project, %settings, jobs => 1 );
-    $project->discard;
-    ok defined $run->{cpu} && $run->{cpu} > 0, 'the processor time of the tool was measured for the plain member';
-    note sprintf 'the plain member alone: %.1f seconds, %.1f of them on the processor', $run->@{qw(seconds cpu)};
-    return $quiet = { seconds => $run->{seconds}, cpu => $run->{cpu} };
+my $toolchain = length qx{make --version 2>/dev/null} && length qx{$Config::Config{cc} --version 2>/dev/null};
+my @axes      = qw(loading process io taint files path build suite);
+my ( @members, @shared, @lone );
+for my $axis (@axes) {
+    for my $name ( Discovery::Zoo::names($axis) ) {
+        my $needs = Discovery::Zoo::needs($name);
+        next if defined $needs && !Capability::has( $needs, $toolchain, "the member $name needs a compiler and make" );
+        push @members,                                              "$axis=$name";
+        push @{ Discovery::Zoo::alone($name) ? \@lone : \@shared }, [ $axis, $name ];
+    }
+}
+for my $axis (@axes) {
+    my @together = map { $_->[1] } grep { $_->[0] eq $axis } @shared;
+    push $found{fast}->@*, together( $axis, \@together ) if @together;
+    push $found{fast}->@*, map { alone( $_->@* ) } grep { $_->[0] eq $axis } @lone;
 }
 
-my @members;
-for my $axis (qw(loading process io taint files path)) {
-    my @names = Discovery::Zoo::names($axis);
-    push @members, map { "$axis=$_" } @names;
-    my @shared = grep { !Discovery::Zoo::alone($_) } @names;
-    push $found{fast}->@*, together( $axis, \@shared ) if @shared;
-    push $found{fast}->@*, map { alone( $axis, $_ ) } grep { Discovery::Zoo::alone($_) } @names;
+# The pool waits for a test that keeps its output, that closes it, and that sends it elsewhere.
+# The processor time of the pool during the wait is counted, and no clock is read, so a busy machine changes nothing.
+my $waiter = Discovery::Waiter->new;
+my %waits  = ( 'close-stdout' => 'closed', 'redirect-stdout' => 'redirected' );
+is [ findings( ['I1-wait'], wait => $waiter->waited( 'kept', 1 ) ) ], [],
+  'the pool waits without work for a test that keeps its output';
+for my $name ( sort keys %waits ) {
+    my $wait = $waiter->waited( $waits{$name}, 1 );
+    note sprintf 'process=%s: the pool used the processor for %.2f seconds of a wait of 1 second', $name, $wait->{cpu};
+    push $found{fast}->@*, map { "process=$name: $_" } findings( ['I1-wait'], wait => $wait );
 }
 
-# The full tier measures the loading styles again in the project itself, under file coverage, and with one job.
-# A finding of the fast tier says nothing new there, and each other one names the setting it came from.
+# The full tier measures each member apart from the others, the loading styles under other settings,
+# and the members that change files in the project itself.
+# A finding of the fast tier says nothing new there, and each other one names the run it came from.
 if ( Discovery::Tier::full() ) {
-    my %fast   = map  { $_ => 1 } $found{fast}->@*;
-    my @styles = grep { !Discovery::Zoo::alone($_) } Discovery::Zoo::names('loading');
+    my %fast  = map { $_ => 1 } $found{fast}->@*;
+    my $fresh = sub ( $label, @found ) {
+        return map { "$label, $_" } grep { !$fast{$_} } @found;
+    };
+    my @styles = map { $_->[1] } grep { $_->[0] eq 'loading' } @shared;
     for my $variant (
         [ 'in the project', in_place => 1 ],
         [ 'file coverage',  coverage => 'file' ],
@@ -200,14 +214,20 @@ if ( Discovery::Tier::full() ) {
       )
     {
         my ( $label, @more ) = $variant->@*;
-        push $found{full}->@*, map { "$label, $_" } grep { !$fast{$_} } together( 'loading', \@styles, @more );
+        push $found{full}->@*, $fresh->( $label, together( 'loading', \@styles, @more ) );
+    }
+    for my $member ( grep { $_->[1] ne $plain } @shared ) {
+        push $found{full}->@*, $fresh->( 'apart', together( $member->[0], [ $member->[1] ], sanity => 0 ) );
+    }
+    for my $name ( Discovery::Zoo::names('files') ) {
+        push $found{full}->@*, $fresh->( 'in the project', alone( 'files', $name, in_place => 1 ) );
     }
 }
 
 Discovery::Tier::report( 'zoo', \%found );
 is [ sort keys %ran ], [ sort @members ], 'every member of every axis ran';
-Gate::checked( 'members',            scalar keys %ran, at_least => 62 );
-Gate::checked( 'runs',               $runs,            at_least => 18 );
-Gate::checked( 'mutants in the zoo', $compared,        at_least => 500 );
+Gate::checked( 'members',            scalar keys %ran, at_least => $toolchain ? 74 : 73 );
+Gate::checked( 'runs',               $runs,            at_least => 22 );
+Gate::checked( 'mutants in the zoo', $compared,        at_least => 600 );
 
 done_testing;

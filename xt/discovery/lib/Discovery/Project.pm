@@ -120,6 +120,11 @@ PERL
 # The verdict of prove on each test, as `prove -l` gives it in the root of the project.
 # prove runs the tests in the project itself, so a project whose tests write files goes there as a copy.
 sub proves ( $self, @arguments ) {
+    return $self->proves_with( '-l', @arguments );
+}
+
+# The verdict of prove with the given arguments alone, for a launch without the library switch.
+sub proves_with ( $self, @arguments ) {
     my $script = "$self->{scratch}/prove.pl";
     if ( !-e $script ) {
         open my $handle, '>', $script or die "write $script: $!";
@@ -134,7 +139,7 @@ sub proves ( $self, @arguments ) {
 
         # A test that reads its standard input waits for a terminal, which the tool never gives it.
         open STDIN, '<', '/dev/null' or POSIX::_exit(126);
-        exec {$^X} $^X, $script, '-l', @arguments or POSIX::_exit(127);
+        exec {$^X} $^X, $script, @arguments or POSIX::_exit(127);
     }
 
     # A test may loop under a mutant, and prove waits for it without a limit of its own.

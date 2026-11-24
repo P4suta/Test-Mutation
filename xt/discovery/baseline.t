@@ -40,12 +40,23 @@ subtest 'the comparison rejects a state that differs from the one of prove' => s
       'a test without a state';
 };
 
-my $bench = Discovery::Probe::bench();
-my @found = Discovery::Probe::compared( Discovery::Engine->new, $bench );
+# The library switch of prove comes first.
+# A finding of that launch says nothing new under another launch, and each other finding names its launch.
+my $bench  = Discovery::Probe::bench();
+my $engine = Discovery::Engine->new;
+my @found  = Discovery::Probe::compared( $engine, $bench, 'library' );
+my %plain  = map  { $_ => 1 } @found;
+my @others = grep { $_ ne 'library' } Discovery::Probe::launches();
+for my $launch (@others) {
+    push @found,
+      map { "launch=$launch, $_" } grep { !$plain{$_} } Discovery::Probe::compared( $engine, $bench, $launch );
+}
 Discovery::Tier::report( 'baseline', { fast => \@found } );
 
 my @lines = Discovery::Probe::first_lines();
-is $bench->{observed}, scalar @lines, 'every test wrote its state under prove and under the tool';
-Gate::checked( 'spellings of a first line', scalar @lines, at_least => 9 );
+is $bench->{observed}, { 'library' => scalar @lines, 'separate-include' => 2, 'explicit-taint' => 1, 'proverc' => 2 },
+  'every test of every launch wrote its state under prove and under the tool';
+Gate::checked( 'spellings of a first line', scalar @lines,      at_least => 9 );
+Gate::checked( 'launches',                  1 + scalar @others, at_least => 4 );
 
 done_testing;

@@ -13,6 +13,7 @@ use Discovery::Project;
 use Discovery::Reader;
 use Discovery::Saboteur;
 use Discovery::Streams;
+use Discovery::Waiter;
 use Discovery::Zoo;
 
 # A check that accepts every input finds nothing for the wrong reason.
@@ -27,15 +28,7 @@ $known->write($project);
 sub single ($name) {
     return sub ($engine) {
         my $run = $engine->run($project);
-        return [
-            Discovery::Check::findings(
-                [$name],
-                run      => $run,
-                known    => $known,
-                coverage => 'line',
-                quiet    => { seconds => 1, cpu => 0.5 }
-            )
-        ];
+        return [ Discovery::Check::findings( [$name], run => $run, known => $known, coverage => 'line' ) ];
     };
 }
 
@@ -73,6 +66,12 @@ for my $name ( sort keys %subject ) {
         return [ Discovery::Check::findings( [$name], reader => $adapter, cases => \@streams ) ];
     };
 }
+
+# The check of the wait takes the adapter of the pool, with a test that keeps its output: the pool of today sleeps there.
+$subject{'I1-wait'} = Discovery::Waiter->new;
+$bench{'I1-wait'}   = sub ($waiter) {
+    return [ Discovery::Check::findings( ['I1-wait'], wait => $waiter->waited( 'kept', 0.5 ) ) ];
+};
 
 # The bench of a relation runs the code of the relation on the small project.
 $bench{'jobs'}     = sub ($engine) { return [ Discovery::Differential::jobs( $engine, $project ) ] };

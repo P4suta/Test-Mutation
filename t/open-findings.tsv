@@ -129,6 +129,10 @@ engine-baseline	first-line=plain: the variable PERL5LIB differs from the one of 
 engine-baseline	first-line=separate: the search path of modules lacks an entry of prove	the launch of a test command
 engine-baseline	first-line=space: the search path of modules lacks an entry of prove	the launch of a test command
 engine-baseline	first-line=tab: the search path of modules lacks an entry of prove	the launch of a test command
+engine-baseline	launch=explicit-taint, every first line: the search path of modules lacks an entry of prove	the launch of a test command
+engine-baseline	launch=proverc, every first line: the search path of modules lacks an entry of prove	the launch of a test command
+engine-baseline	launch=separate-include, every first line: the search path of modules holds an entry that prove lacks	the launch of a test command
+engine-baseline	launch=separate-include, every first line: the search path of modules lacks an entry of prove	the launch of a test command
 engine-differential	cache perturbation=data-file: the run reuses a result that depends on the changed input	the cache key over every input of a result
 engine-differential	cache perturbation=data-file: the run with the cache gives Survived where the truth gives Killed	the cache key over every input of a result
 engine-differential	cache perturbation=environment: the run reuses a result that depends on the changed input	the cache key over every input of a result
@@ -138,9 +142,15 @@ engine-differential	cache perturbation=outside-inc: the run with the cache gives
 engine-differential	cache perturbation=shadow: the run reuses a result that depends on the changed input	the cache key over every input of a result
 engine-differential	cache perturbation=shadow: the run with the cache gives Survived where the truth gives Killed	the cache key over every input of a result
 engine-differential	cache perturbation=source: the cache keeps the record of a mutant that is gone	the cache key over every input of a result
+engine-differential	cache selection=since: the run measures again a result that the cache holds	the cache key over every input of a result
+engine-faults	fault=INT during the cache digest: I3 the run leaves .mutation/run-* in the project	the workspace that owns every resource of a run
+engine-faults	fault=INT during the cache digest: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
+engine-faults	fault=INT during the cache digest: the run ends by signal 2	the signals of the whole run
 engine-faults	fault=INT during the copy: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
 engine-faults	fault=INT during the copy: the run ends by signal 2	the signals of the whole run
 engine-faults	fault=TERM again during the removal of the copies: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
+engine-faults	fault=TERM during the analysis: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
+engine-faults	fault=TERM during the analysis: the run ends by signal 15	the signals of the whole run
 engine-faults	fault=TERM again during the removal of the copies: the run ends by signal 15	the signals of the whole run
 engine-faults	fault=a project without the right to write: the run exits with status 4	the workspace outside the project
 engine-faults	fault=an interpreter that is no file: standard error ends without one line of the tool	the exit table and its messages
@@ -165,6 +175,10 @@ engine-tap	result=todo-after-hash: the reader passes a stream that TAP::Parser f
 engine-tap	version=late: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
 engine-tap	version=twelve: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
 engine-zoo	I5 NoCoverage carries no reason	the status catalog and its reasons
+engine-zoo	build=blib-differing: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
+engine-zoo	build=blib-differing: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the placement of a mutant in the copy
+engine-zoo	build=blib-script: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
+engine-zoo	build=blib-script: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the placement of a mutant in the copy
 engine-zoo	files=fixed-port: I6 the verdicts deviate without a warning or a reason	the recheck of a failure beside another run of the same test
 engine-zoo	files=fixed-port: I7 the run gives Killed where the truth gives Survived	the recheck of a failure beside another run of the same test
 engine-zoo	files=fixed-tmp-path: I6 the verdicts deviate without a warning or a reason	the recheck of a failure beside another run of the same test
@@ -197,6 +211,11 @@ engine-zoo	path=path-space: the run exits with status 4	the records without a pa
 engine-zoo	process: I2 a process outlives the run: the child of t/child-leaves-group.t that left the process group	the workspace that owns every resource of a run
 engine-zoo	process=close-stdout: I1 the tool uses the processor while its tests wait	the pool that waits in one select call
 engine-zoo	process: I2 a process outlives the run: the daemon of t/daemonize.t	the workspace that owns every resource of a run
+engine-zoo	process=redirect-stdout: I1 the tool uses the processor while its tests wait	the pool that waits in one select call
+engine-zoo	suite=inc-assert: the unmodified run fails	the placement of a mutant in the copy
+engine-zoo	suite=lib-checksum: I6 the verdicts deviate without a warning or a reason	the placement of a mutant in the copy
+engine-zoo	suite=lib-checksum: I7 the run gives NoCoverage where the truth gives Killed	the placement of a mutant in the copy
+engine-zoo	suite=lib-checksum: I7 the run gives Survived where the truth gives Killed	the placement of a mutant in the copy
 records	the record table parses the kind error into errors, and the runner never reads errors	the closed record vocabulary and its evidence
 records	the shim writes the kind end, and the record table drops it	the closed record vocabulary and its evidence
 contract-progress-sum-progress	the counts of a line sum to less than its position; lengths 1 2 3 4; streams log terminal	the progress display

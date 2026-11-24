@@ -245,10 +245,21 @@ my %SABOTEUR = (
         'one more variable' => _damage( _rewrites_state( 'tab', sub ($text) { "${text}env=DISCOVERY_SABOTEUR=1\n" } ) ),
         'another verdict'   => _distort( sub ( $run, $settings ) { $run->{baseline_failures} = ['t/plain.t'] } ),
     },
-    'I1' => {
-        'a run that outlasts its tests'          => _distort( sub ( $run, $settings ) { $run->{seconds} = 10_000 } ),
-        'a tool that works while its tests wait' =>
-          _distort( sub ( $run, $settings ) { $run->@{qw(seconds cpu)} = ( 10, 9 ) } ),
+    'I1' => { 'a run that outlasts its tests' => _distort( sub ( $run, $settings ) { $run->{seconds} = 10_000 } ) },
+
+    # The saboteur of the wait is the pool adapter with a part that uses the processor for half of the wait.
+    # It counts processor time and no clock, so a busy machine changes how long it takes and not how much it uses.
+    'I1-wait' => {
+        'a pool that works while its test waits' => sub ($waiter) {
+            return $waiter->with(
+                burn => sub ($seconds) {
+                    my $used  = sub { my ( $user, $system ) = times; return $user + $system };
+                    my $until = $used->() + 0.5 * $seconds;
+                    1 while $used->() < $until;
+                    return;
+                }
+            );
+        },
     },
     'cache' => {
         'a stale record' => sub ($engine) {

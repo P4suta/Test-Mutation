@@ -53,21 +53,42 @@ sub met ( $tier, $name, @result ) {
     return;
 }
 
+# A moment that the plain project passes too fast has a project of its own, which keeps the tool there for longer.
+# A run that misses the analysis would measure thousands of mutants, so that run compares no compiled code.
+my %stage = (
+    'the analysis'     => [ Discovery::Faults::analysis_bench(), equivalence => 0, deadline => 60 ],
+    'the cache digest' => [ Discovery::Faults::digest_bench(),   cache => 1 ],
+);
 my @signals = Discovery::Tier::cases(
-    [ [ 'INT', 'the copy' ], [ 'TERM', 'the unmodified run' ], [ 'HUP', 'the mutants' ] ],
+    [
+        [ 'INT',  'the copy' ],
+        [ 'TERM', 'the analysis' ],
+        [ 'TERM', 'the unmodified run' ],
+        [ 'INT',  'the cache digest' ],
+        [ 'HUP',  'the mutants' ],
+    ],
     [
         [ 'TERM', 'the copy' ],
         [ 'HUP',  'the copy' ],
+        [ 'INT',  'the analysis' ],
+        [ 'HUP',  'the analysis' ],
         [ 'INT',  'the unmodified run' ],
         [ 'HUP',  'the unmodified run' ],
+        [ 'TERM', 'the cache digest' ],
+        [ 'HUP',  'the cache digest' ],
         [ 'INT',  'the mutants' ],
         [ 'TERM', 'the mutants' ],
     ],
 );
 for my $case (@signals) {
-    my ( $tier,   $plan )   = $case->@*;
-    my ( $signal, $moment ) = $plan->@*;
-    met( $tier, "$signal during $moment", Discovery::Faults::signalled( $engine, $bench, $signal, $moment ) );
+    my ( $tier,    $plan )     = $case->@*;
+    my ( $signal,  $moment )   = $plan->@*;
+    my ( $project, @settings ) = @{ $stage{$moment} || [$bench] };
+    met(
+        $tier,
+        "$signal during $moment",
+        Discovery::Faults::signalled( $engine, $project, $signal, $moment, @settings )
+    );
 }
 for my $case ( Discovery::Tier::cases( ['TERM'], [ 'INT', 'HUP' ] ) ) {
     my ( $tier, $signal ) = $case->@*;
@@ -89,8 +110,9 @@ if ($rights) {
 }
 
 Discovery::Tier::report( 'faults', \%found );
-is [ Discovery::Faults::moments() ], [ 'the copy', 'the mutants', 'the removal of the copies', 'the unmodified run' ],
+is [ Discovery::Faults::moments() ],
+  [ 'the analysis', 'the cache digest', 'the copy', 'the mutants', 'the removal of the copies', 'the unmodified run' ],
   'the moments of a run that a signal can meet';
-Gate::checked( 'faults', scalar keys %ran, at_least => $rights ? 10 : 6 );
+Gate::checked( 'faults', scalar keys %ran, at_least => $rights ? 12 : 8 );
 
 done_testing;

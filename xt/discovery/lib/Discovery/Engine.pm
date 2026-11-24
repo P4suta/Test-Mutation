@@ -138,15 +138,7 @@ sub _await ( $pid, $limit, $poll, $tick ) {
     return;
 }
 
-# The processor time of the children that this process has waited for, in seconds.
-sub _waited_cpu () {
-    my ( undef, undef, $user, $system ) = times;
-    return $user + $system;
-}
-
 # `prepare` changes the temporary directory before the run, and `during` reads the files of the run while the tool works.
-# `cpu` is the processor time of the tool with the tests that it waited for, as the kernel accounts it when the tool ends.
-# A sample of the running tool alone went missing under load, and the tests of a waiting member use no processor anyway.
 sub execute ( $self, $project, $temporary, %settings ) {
     my $files       = $project->directory('output');
     my $report      = File::Spec->rel2abs( defined $settings{report} ? $settings{report} : $REPORT, $project->root );
@@ -155,7 +147,6 @@ sub execute ( $self, $project, $temporary, %settings ) {
     my %environment = ( TMPDIR => $temporary, ( $settings{environment} || {} )->%* );
     $settings{prepare}->($temporary) if $settings{prepare};
     my $started = Time::HiRes::time();
-    my $used    = _waited_cpu();
     my $pid     = fork;
     die "fork: $!"                                              if !defined $pid;
     _become( $project->root, \%environment, $files, \@command ) if !$pid;
@@ -174,7 +165,6 @@ sub execute ( $self, $project, $temporary, %settings ) {
         signal  => $status & 127,
         hung    => $hung,
         seconds => Time::HiRes::time() - $started,
-        cpu     => _waited_cpu() - $used,
         stdout  => scalar _slurp("$files/stdout"),
         stderr  => scalar _slurp("$files/stderr"),
         report  => scalar _slurp("$report/mutation.json"),
@@ -187,7 +177,7 @@ sub _position ($location) {
 
 sub normalize ( $self, $raw ) {
     my %run = (
-        $raw->%{qw(exit signal hung seconds cpu stdout stderr)},
+        $raw->%{qw(exit signal hung seconds stdout stderr)},
         reported          => 0,
         mutants           => {},
         status            => {},

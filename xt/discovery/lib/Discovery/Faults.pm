@@ -1,5 +1,6 @@
 package Discovery::Faults;
 use v5.36;
+use Time::HiRes ();
 use Discovery::Check;
 use Discovery::Known;
 use Discovery::Project;
@@ -7,8 +8,11 @@ use Discovery::Project;
 # Faults that reach the tool while it works: signals at a known moment, a listener that dies, and places it cannot write.
 # The tool has no list of phases yet, so a moment is a state of the files that the tool has reached.
 
-my $FILLER_FILES = 1000;
-my @AFTER        = qw(I2 I3 I4);
+my $FILLER_FILES  = 1000;
+my $LARGE_CELLS   = 3000;
+my $LARGE_FILES   = 60;
+my $PAUSE_SECONDS = 0.05;
+my @AFTER         = qw(I2 I3 I4);
 
 my $SLOW = <<'PERL';
 use Known;
@@ -42,13 +46,31 @@ sub _holds ( $path, $pattern ) {
     return defined $text && $text =~ $pattern ? 1 : 0;
 }
 
+# The lines that the tool writes when it has analyzed the sources, passed the unmodified run, and finished a mutant.
+my $ANALYZED = qr/^[0-9]+ mutants? in /m;
+my $PASSED   = qr/^The unmodified run passed/m;
+my $MEASURED = qr/^\[\s*[0-9]+\/[0-9]+\]/m;
+
+# The whole source file stands in the copy, and the few other files of that project follow within the pause.
+sub _analyzing ($at) {
+    my ($copied) = glob "$at->{temporary}/mutation-*/*/*/lib/Large.pm";
+    return 0                            if !defined $copied || ( -s $copied || 0 ) != ( -s "$at->{root}/lib/Large.pm" );
+    $at->{copied} = Time::HiRes::time() if !defined $at->{copied};
+    return Time::HiRes::time() - $at->{copied} > $PAUSE_SECONDS ? 1 : 0;
+}
+
 # The moments of a run, each as a question about the files: the answer turns true when the tool is there.
+# A moment that ends before the tool writes a line names that line: a run that holds it met the signal too late.
 my %MOMENT = (
-    'the copy'                  => sub ($at) { return _exists("$at->{temporary}/mutation-*") },
-    'the unmodified run'        => sub ($at) { return _exists("$at->{root}/.mutation/run-*/records/*/*.rec") },
-    'the mutants'               => sub ($at) { return _holds( $at->{stderr}, qr/^\[\s*[0-9]+\/[0-9]+\]/m ) },
-    'the removal of the copies' => sub ($at) {
-        return !_exists("$at->{root}/.mutation/run-*") && _exists("$at->{temporary}/mutation-*");
+    'the copy'     => { reached => sub ($at) { return _exists("$at->{temporary}/mutation-*") }, before => $ANALYZED },
+    'the analysis' => { reached => \&_analyzing,                                                before => $ANALYZED },
+    'the unmodified run' => { reached => sub ($at) { return _exists("$at->{root}/.mutation/run-*/records/*/*.rec") } },
+    'the cache digest'   => { reached => sub ($at) { return _holds( $at->{stderr}, $PASSED ) }, before => $MEASURED },
+    'the mutants'        => { reached => sub ($at) { return _holds( $at->{stderr}, $MEASURED ) } },
+    'the removal of the copies' => {
+        reached => sub ($at) {
+            return !_exists("$at->{root}/.mutation/run-*") && _exists("$at->{temporary}/mutation-*");
+        }
     },
 );
 
@@ -64,21 +86,39 @@ sub _found ( $label, $run, @fault ) {
     return @labelled;
 }
 
-# One signal when the tool reaches the moment.
-sub signalled ( $engine, $bench, $signal, $moment ) {
-    my $reached = $MOMENT{$moment} or die "no moment is named $moment\n";
-    my $sent    = 0;
-    my $run     = $engine->run(
+# One signal when the tool reaches the moment, in a run with the given settings.
+sub signalled ( $engine, $bench, $signal, $moment, %settings ) {
+    my $spec = $MOMENT{$moment} or die "no moment is named $moment\n";
+    my $sent = 0;
+    my $run  = $engine->run(
         $bench->{project},
+        %settings,
         poll   => 0.001,
         during => sub ($at) {
-            return if $sent || !$reached->($at);
+            return if $sent || !$spec->{reached}->($at);
             $sent = kill $signal, $at->{pid};
             return;
         },
     );
-    return ( "the signal $signal never met $moment",                      0 ) if !$sent;
+    my $late = $spec->{before} && $run->{stderr} =~ $spec->{before};
+    return ( "the signal $signal never met $moment",                      0 ) if !$sent || $late;
     return ( _found( "$signal during $moment", $run, signal => $signal ), 1 );
+}
+
+# A project whose one large source file keeps the analysis busy for longer than a signal needs to arrive.
+sub analysis_bench () {
+    my $bench = bench(0);
+    my $cells = join q{}, map { "sub cell_$_ { my ( \$x, \$y ) = \@_; return \$x + \$y - $_ }\n" } 1 .. $LARGE_CELLS;
+    $bench->{project}->write( 'lib/Large.pm', "package Large;\nuse strict;\nuse warnings;\n${cells}1;\n" );
+    return $bench;
+}
+
+# A project whose large files beside the tests keep the digests of the cache busy.
+sub digest_bench () {
+    my $bench = bench(0);
+    my $block = 'digest me ' x 100_000;
+    $bench->{project}->write( sprintf( 't/data/block-%02d.bin', $_ ), $block . $_ ) for 1 .. $LARGE_FILES;
+    return $bench;
 }
 
 # A signal during the mutants, and another one when the tool removes its copies after the first.
@@ -89,10 +129,10 @@ sub signalled_twice ( $engine, $bench, $signal ) {
         poll   => 0.001,
         during => sub ($at) {
             if ( !$first ) {
-                $first = kill $signal, $at->{pid} if $MOMENT{'the mutants'}->($at);
+                $first = kill $signal, $at->{pid} if $MOMENT{'the mutants'}{reached}->($at);
             }
             elsif ( !$again ) {
-                $again = kill $signal, $at->{pid} if $MOMENT{'the removal of the copies'}->($at);
+                $again = kill $signal, $at->{pid} if $MOMENT{'the removal of the copies'}{reached}->($at);
             }
             return;
         },

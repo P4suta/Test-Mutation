@@ -39,6 +39,20 @@ sub first_lines () {
     return map { $_->[0] } @FIRST_LINES;
 }
 
+# A launch is a way to start the tests: the arguments of prove, and the settings of the tool that say the same.
+# `switches` go to the tool through a configuration file, `files` stand in the project for both, and `tests` name the first lines.
+my %LAUNCH = (
+    'library'          => { prove => ['-l'], tests => [ first_lines() ] },
+    'separate-include' => { prove => [ '-I', 'lib' ], switches => [ '-I', 'lib' ],   tests => [ 'plain', 'T' ] },
+    'explicit-taint'   => { prove => [ '-l', '-T' ],  switches => [ '-Ilib', '-T' ], tests => ['plain'] },
+    'proverc'          => { prove => [], files => { '.proverc' => "-l\n-It/lib\n" }, tests => [ 'plain', 'T' ] },
+);
+
+sub launches () {
+    my @names = sort keys %LAUNCH;
+    return @names;
+}
+
 sub bench () {
     my $project = Discovery::Project->new;
     my $states  = $project->scratch . '/states';
@@ -84,24 +98,42 @@ sub _states ($bench) {
 # prove runs first and the tool second, each on the tests in the project itself: the tests write nothing into it.
 # The answer of prove stays the same, so the bench keeps it for a second comparison.
 # The tool runs each time: a run that the memo answers starts no test, and no test would write its state.
-sub compared ( $engine, $bench ) {
+sub compared ( $engine, $bench, $name = 'library' ) {
+    my $launch  = $LAUNCH{$name} or die "no launch is named $name\n";
     my $project = $bench->{project};
-    my @tests   = map { "t/$_.t" } first_lines();
+    my @tests   = map { "t/$_.t" } $launch->{tests}->@*;
+    my %files   = %{ $launch->{files} || {} };
+    $project->write( $_, $files{$_} ) for sort keys %files;
 
     # The harness may itself run under prove, whose variables would reach both sides and hide a difference.
     local %ENV = %ENV;
     delete @ENV{ grep { /\AHARNESS_|\APERL_TEST_HARNESS/ } keys %ENV };
-    if ( !$bench->{prove} ) {
-        my $proved = $project->proves(@tests);
+    if ( !$bench->{prove}{$name} ) {
+        my $proved = $project->proves_with( $launch->{prove}->@*, @tests );
         my $under  = _states($bench);
-        $bench->{prove} = { map { $_ => { ( $under->{$_} || {} )->%*, verdict => $proved->{$_} || 'fail' } } @tests };
+        $bench->{prove}{$name} =
+          { map { $_ => { ( $under->{$_} || {} )->%*, verdict => $proved->{$_} || 'fail' } } @tests };
     }
-    my $run    = $engine->with( memo => undef )->run($project);
+    my $run    = $engine->with( memo => undef )->run( $project, _settings( $bench, $name, $launch ) );
     my $given  = _states($bench);
     my %failed = map { $_ => 1 } $run->{baseline_failures}->@*;
     my %tool   = map { $_ => { ( $given->{$_} || {} )->%*, verdict => $failed{$_} ? 'fail' : 'pass' } } @tests;
-    $bench->{observed} = scalar grep { defined $bench->{prove}{$_}{taint} && defined $tool{$_}{taint} } @tests;
-    return Discovery::Check::findings( ['baseline'], prove => $bench->{prove}, tool => \%tool );
+    $project->remove($_) for sort keys %files;
+    $bench->{observed}{$name} =
+      scalar grep { defined $bench->{prove}{$name}{$_}{taint} && defined $tool{$_}{taint} } @tests;
+    return Discovery::Check::findings( ['baseline'], prove => $bench->{prove}{$name}, tool => \%tool );
+}
+
+# The settings of the tool for a launch: the tests of the launch, and a configuration file for its switches.
+sub _settings ( $bench, $name, $launch ) {
+    my @settings = ( tests => [ map { "t/$_.t" } $launch->{tests}->@* ] );
+    return @settings if !$launch->{switches};
+    my $file = $bench->{project}->scratch . "/$name.toml";
+    open my $handle, '>', $file or die "write $file: $!";
+    printf {$handle} "[test]\nswitches = [%s]\n", join ', ', map { qq{"$_"} } $launch->{switches}->@*
+      or die "write $file: $!";
+    close $handle or die "close $file: $!";
+    return ( @settings, configuration => $file );
 }
 
 1;
