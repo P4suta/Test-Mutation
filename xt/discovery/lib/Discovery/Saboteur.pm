@@ -213,7 +213,12 @@ my %SABOTEUR = (
     },
     'tap-prefix' => {
         'a reader that takes a todo for a failure' => sub ($reader) {
-            return $reader->with( rewrite => sub ($line) { return $line =~ s/[#]\s*TODO.*//ir } );
+            return $reader->with( rewrite => sub ($piece) { return $piece =~ s/[#]\s*TODO.*//gir } );
+        },
+    },
+    'tap-pieces' => {
+        'a reader that ends a line with each piece' => sub ($reader) {
+            return $reader->with( rewrite => sub ($piece) { return $piece =~ s/(?<!\n)\z/\n/r } );
         },
     },
 

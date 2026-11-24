@@ -60,7 +60,7 @@ $bench{I6} = sub ($engine) {
 # The checks of the reader take the adapter of the reader in place of the adapter of the engine.
 my $reader  = Discovery::Reader->new;
 my @streams = map { Discovery::Streams::with_choices($_) } 0, 1;
-my %subject = ( 'tap' => $reader, 'tap-prefix' => $reader );
+my %subject = ( 'tap' => $reader, 'tap-prefix' => $reader, 'tap-pieces' => $reader );
 for my $name ( sort keys %subject ) {
     $bench{$name} = sub ($adapter) {
         return [ Discovery::Check::findings( [$name], reader => $adapter, cases => \@streams ) ];

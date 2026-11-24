@@ -25,6 +25,7 @@ my %CHECK = (
     'I8'         => \&_same_under_styles,
     'tap'        => \&_tap,
     'tap-prefix' => \&_tap_prefix,
+    'tap-pieces' => \&_tap_pieces,
     'jobs'       => \&_jobs,
     'in-place'   => \&_in_place,
     'coverage'   => \&_coverage,
@@ -44,7 +45,8 @@ my $SLACK         = 5;
 my $IDLE_SHARE    = 0.1;
 my $WAIT_SECONDS  = 0.5;
 
-# The ways a test process ends after a stream, apart from status 0: each one fails the test under prove.
+# The ways a test process ends after a stream, apart from status 0.
+# Each one fails the test under prove, unless the stream asks the parser to ignore the end of its process.
 my @FAILING_ENDS = ( [ 'exit=1', 1, 0 ], [ 'exit=255', 255, 0 ], [ 'exit=signal', 0, 15 ] );
 
 sub names () {
@@ -456,8 +458,13 @@ sub _tap ($arg) {
           ? 'the reader passes a stream that TAP::Parser fails'
           : 'the reader fails a stream that TAP::Parser passes'
           if $passes != Discovery::Reader::oracle( $text, 0, 0 );
-        push @found, map { "$_->[0]: the reader passes a test that prove fails" }
-          grep { $reader->passes( $text, $_->@[ 1, 2 ] ) } @FAILING_ENDS;
+        for my $end (@FAILING_ENDS) {
+            my ( $name, @status ) = $end->@*;
+            my $given = $reader->passes( $text, @status );
+            next if $given == Discovery::Reader::oracle( $text, @status );
+            push @found,
+              "$name: the reader " . ( $given ? 'passes a test that prove fails' : 'fails a test that prove passes' );
+        }
     }
     return _unique( @found, _smallest( $cases, \%kind ) );
 }
@@ -476,6 +483,26 @@ sub _tap_prefix ($arg) {
             $kind{ $case->{label} } = 'the reader stops early on a stream that TAP::Parser passes';
             last;
         }
+    }
+    return _unique( _smallest( $cases, \%kind ) );
+}
+
+sub _in_two ($place) {
+    return sub ($whole) { return ( substr( $whole, 0, $place ), substr $whole, $place ) };
+}
+
+# The pipe of a test cuts its stream anywhere, and the reader gives the verdict of the whole stream for every cut.
+# Each stream arrives byte by byte, and a stream with one choice at most also in two pieces around every place.
+sub _tap_pieces ($arg) {
+    my ( $reader, $cases ) = $arg->@{qw(reader cases)};
+    my %kind;
+    for my $case ( $cases->@* ) {
+        my $text    = $case->{text};
+        my @places  = $case->{parts}->@* > 1 ? () : 1 .. length($text) - 1;
+        my @cuts    = ( sub ($whole) { return split //, $whole }, map { _in_two($_) } @places );
+        my $verdict = $reader->passes( $text, 0, 0 );
+        $kind{ $case->{label} } = 'the reader gives another verdict when the stream arrives in pieces'
+          if grep { $reader->with( pieces => $_ )->passes( $text, 0, 0 ) != $verdict } @cuts;
     }
     return _unique( _smallest( $cases, \%kind ) );
 }

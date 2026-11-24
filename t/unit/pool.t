@@ -57,6 +57,20 @@ subtest 'a failing test and a nonzero exit' => sub {
       hash { field passed => 0; field early => 0; field exit => 3; etc }, 'a nonzero exit status';
     is run_one( script( 'partial.t', q{$| = 1; print "1..1\nok 1"; exit 0;} ) ),
       hash { field passed => 1; etc }, 'a last line without a line feed is read';
+    is run_one( script( 'partial-fail.t', q{$| = 1; print "1..1\nnot ok 1"; exit 0;} ) ),
+      hash { field passed => 0; field early => 1; etc }, 'a failure without a line feed is a failure of the stream';
+    is run_one( script( 'signal.t', q{$| = 1; print "1..1\nok 1\n"; kill 'TERM', $$; sleep 5;} ) ),
+      hash { field passed => 0; field early => 0; field exit => 0; field signal => 15; etc }, 'the end by a signal';
+};
+
+subtest 'the stream may ask to ignore the end of its process, as under prove' => sub {
+    my $stream = q{$| = 1; print "TAP version 13\npragma +ignore_exit\n1..1\nok 1\n";};
+    is run_one( script( 'ignored-exit.t', "$stream exit 3;" ) ),
+      hash { field passed => 1; field exit => 3; etc }, 'a nonzero exit status passes';
+    is run_one( script( 'ignored-signal.t', "$stream kill 'TERM', \$\$; sleep 5;" ) ),
+      hash { field passed => 1; field signal => 15; etc }, 'the end by a signal passes';
+    is run_one( script( 'ignored-limit.t', "$stream sleep 30;" ), timeout => 0.5 ),
+      hash { field passed => 0; field timed_out => 1; etc }, 'a test that the pool ended at its time limit fails';
 };
 
 subtest 'the environment and the working directory reach the test' => sub {

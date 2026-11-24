@@ -112,7 +112,6 @@ sub _spawn ($task) {
         task     => $task,
         pid      => $pid,
         handle   => $read,
-        buffer   => q{},
         output   => q{},
         digest   => Digest::SHA->new(256),
         tap      => Test::Mutation::Tap::start(),
@@ -171,10 +170,7 @@ sub _read_ready ( $select, $slots ) {
 sub _consume ( $slot, $chunk ) {
     $slot->{digest}->add($chunk);
     $slot->{output} = substr $slot->{output} . $chunk, -$OUTPUT_LIMIT;
-    $slot->{buffer} .= $chunk;
-    while ( $slot->{buffer} =~ s/\A([^\n]*)\n// ) {
-        $slot->{tap} = Test::Mutation::Tap::feed( $slot->{tap}, $1 );
-    }
+    $slot->{tap}    = Test::Mutation::Tap::feed( $slot->{tap}, $chunk );
     return;
 }
 
@@ -248,17 +244,14 @@ sub _finished ($slot) {
 }
 
 sub _result ($slot) {
-    $slot->{tap} = Test::Mutation::Tap::feed( $slot->{tap}, $slot->{buffer} ) if length $slot->{buffer};
-    my $exit        = $slot->{status} >> 8;
-    my $signal      = $slot->{status} & 127;
-    my $interrupted = $slot->{timed_out} || $signal;
+    my $tap = Test::Mutation::Tap::finish( $slot->{tap} );
     return {
-        exit      => $exit,
-        signal    => $signal,
-        timed_out => $slot->{timed_out}                                                  ? 1 : 0,
-        stopped   => $slot->{stopped}                                                    ? 1 : 0,
-        passed    => !$interrupted && Test::Mutation::Tap::passed( $slot->{tap}, $exit ) ? 1 : 0,
-        early     => Test::Mutation::Tap::failed_already( $slot->{tap} ),
+        exit      => $slot->{status} >> 8,
+        signal    => $slot->{status} & 127,
+        timed_out => $slot->{timed_out}                                                          ? 1 : 0,
+        stopped   => $slot->{stopped}                                                            ? 1 : 0,
+        passed    => !$slot->{timed_out} && Test::Mutation::Tap::passed( $tap, $slot->{status} ) ? 1 : 0,
+        early     => Test::Mutation::Tap::failed_already($tap),
         duration  => $slot->{ended} - $slot->{started},
         output    => $slot->{output},
         digest    => $slot->{digest}->hexdigest,
@@ -298,7 +291,7 @@ A task has the keys C<command>, C<env>, C<cwd>, C<timeout>, C<stop_on_failure>, 
 An undefined value in C<env> removes the variable.
 
 A result has the keys C<exit>, C<signal>, C<timed_out>, C<stopped>, C<passed>, C<early>, C<duration>, C<output>, and C<digest>.
-C<passed> is true when the process ran to its end and its TAP stream passed.
+C<passed> is true when the process ended within its time limit and L<Test::Mutation::Tap> passes its stream and its wait status.
 C<early> is true when the stream had failed before the process ended.
 C<output> holds the end of the standard output, and C<digest> is the SHA-256 digest of all of it.
 

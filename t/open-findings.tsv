@@ -182,17 +182,6 @@ engine-faults-full	fault=TERM during the cache digest: the run ends by signal 15
 engine-faults-full	fault=TERM during the copy: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
 engine-faults-full	fault=TERM during the copy: the run ends by signal 15	the signals of the whole run
 engine-known	I5 NoCoverage carries no reason	the status catalog and its reasons
-engine-tap	nested=inner-bails: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
-engine-tap	numbers=gap: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
-engine-tap	numbers=swapped: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
-engine-tap	numbers=twice: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
-engine-tap	plan=middle: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
-engine-tap	plan=tail-text: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
-engine-tap	plan=twice: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
-engine-tap	result=skip-then-todo: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
-engine-tap	result=todo-after-hash: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
-engine-tap	version=late: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
-engine-tap	version=twelve: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
 engine-zoo	I5 NoCoverage carries no reason	the status catalog and its reasons
 engine-zoo	build=blib-differing: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
 engine-zoo	build=blib-differing: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the placement of a mutant in the copy
