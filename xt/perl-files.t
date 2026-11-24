@@ -39,7 +39,7 @@ subtest 'the gate rejects a Perl file that no check would read' => sub {
         [ 'Makefile.PL',                 "use 5.036;\n",          'program' ],
         [ 'cpanfile',                    "requires 'perl';\n",    'program' ],
         [ 't/unit/a.t',                  "use v5.36;\n",          'program' ],
-        [ 'xt/corpus/installed.t',       "use v5.36;\n",          'program' ],
+        [ 'xt/mutants/corpus.t',         "use v5.36;\n",          'program' ],
         [ 't/e2e/lib/Fixture.pm',        "package Fixture;\n",    'program' ],
         [ 't/corpus/modern/Class.pm',    "use v5.38;\n",          'input' ],
         [ 't/fixtures/calc/lib/Calc.pm', "package Calc;\n",       'input' ],
@@ -84,7 +84,7 @@ for my $kind (qw(library program)) {
 is \@found, [], 'every library file and every program is formatted and passes the lint';
 
 my %program = map { $_ => 1 } $files->{program}->@*;
-is [ grep { !$program{$_} } qw(bin/mutation Makefile.PL cpanfile xt/corpus/installed.t xt/bin/perl-files) ], [],
+is [ grep { !$program{$_} } qw(bin/mutation Makefile.PL cpanfile xt/mutants/corpus.t xt/bin/perl-files) ], [],
   'the command, the build script, the requirements, and the corpus gate are among the programs';
 is [ grep { !m{\At/(?:corpus|fixtures)/} } $files->{input}->@* ], [], 'the inputs are the corpus and the fixtures';
 Gate::checked( 'library files', scalar $files->{library}->@*, at_least => 32 );

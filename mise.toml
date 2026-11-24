@@ -33,8 +33,8 @@ description = "Fail when a Perl file differs from its formatted form or breaks t
 run = "prove -l xt/perl-files.t"
 
 [tasks.test]
-description = "Run the unit, assumption, and contract tests"
-run = "prove -lr t/unit t/assumptions t/contract"
+description = "Run the unit, assumption, and contract tests, and the fast subset of the mutant quality harness"
+run = "prove -lr t/unit t/assumptions t/contract t/discovery"
 
 [tasks.test-shim]
 description = "Run the shim tests"
@@ -66,13 +66,14 @@ run = "perl -Ilib bin/mutation"
 description = "Fetch the report schema of the pinned viewer release"
 run = "curl --fail --silent --show-error --location --output xt/schema/mutation-testing-report-schema.json https://raw.githubusercontent.com/stryker-mutator/mutation-testing-elements/v3.9.0/packages/report-schema/src/mutation-testing-report-schema.json"
 
-[tasks.corpus]
-description = "Analyze every installed module and check each site and mutant"
-run = "prove -l xt/corpus"
+[tasks.discover-mutants]
+description = "Judge the mutants of every installed module and of every generated snippet with perl"
+# The run takes minutes, so the fast gate holds its subset under t/discovery and the release gate holds this task.
+run = "prove -l xt/mutants"
 
 [tasks.mutation-gate]
 description = "Measure Test::Mutation with itself and check the release conditions"
-run = ["perl -Ilib bin/mutation", "prove -l xt/release", "prove -l xt/corpus"]
+run = ["perl -Ilib bin/mutation", "prove -l xt/release", "prove -l xt/mutants"]
 
 [tasks.realworld]
 description = "Run the tool on real distributions inside a container and judge every record"

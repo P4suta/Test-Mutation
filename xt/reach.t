@@ -85,7 +85,7 @@ my $tasks = $data->{tasks};
 
 # The fast gate runs on every change, and the release gate adds the campaigns that take minutes.
 # The runs on real distributions need a container, so a task of their own belongs to the release gate.
-my $HEAVY   = qr{\Axt/(?:corpus|release|realworld)/};
+my $HEAVY   = qr{\Axt/(?:mutants|release|realworld)/};
 my $fast    = proves( commands( $tasks, 'check' ) );
 my $release = proves( map { commands( $tasks, $_ ) } qw(check mutation-gate realworld) );
 
