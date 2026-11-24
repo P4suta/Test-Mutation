@@ -53,11 +53,15 @@ subtest 'the settings table names every attribute of the configuration' => sub {
 # The parser and the decoder of the file read the table, so the spaces S1 and S3 try every name on its surface.
 # The table holds a flag for every setting, and the file holds every setting that does not find the file itself.
 subtest 'the resolution of the settings builds every configuration' => sub {
-    my $files    = Library::perl_files();
+
+    # A copy of the project holds no Git directory, so the walk reads the directories themselves.
+    my @files = map { $_->@* } Library::modules('lib'), Library::modules('t'), Library::tests('t'),
+      Library::tests('xt');
     my $built    = join q{}, 'Test::Mutation::Config', '->new';
-    my @builders = grep { index( Sources::slurp($_), $built ) >= 0 } map { $files->{$_}->@* } qw(library program);
+    my @builders = grep { index( Sources::slurp($_), $built ) >= 0 } @files;
     is \@builders, ['lib/Test/Mutation/Settings.pm'],
       'one file of the library and the tests constructs a configuration';
+    Gate::checked( 'files of the library and the tests', scalar @files, at_least => 150 );
 };
 
 subtest 'the settings table names a flag and a key for every setting' => sub {

@@ -73,6 +73,10 @@ subtest 'the refusals, each with the spelling of the user' => sub {
     is refused('--jobs'),  [ 'option-without-value', '--jobs needs a value' ], 'a value that the line lacks';
     is refused( '--jobs', '--cache' ), [ 'option-without-value', '--jobs needs a value' ],
       'a value in place of which an option stands';
+    is refused( '--jobs', '--cache', '2' ), [ 'option-without-value', '--jobs needs a value' ],
+      'and the word after that option stays an operand';
+    is refused( '--jobs', q{--}, '2' ), [ 'option-without-value', '--jobs needs a value' ],
+      'and so does a word behind two dashes';
     is refused('-j'),          [ 'option-without-value', '-j needs a value' ],          'and of a short option';
     is refused('--cache=1'),   [ 'option-with-value',    '--cache takes no value' ],    'a value for a flag';
     is refused('--no-cache='), [ 'option-with-value',    '--no-cache takes no value' ], 'and for its negation';
