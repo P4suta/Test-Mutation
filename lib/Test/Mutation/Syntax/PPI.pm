@@ -85,7 +85,8 @@ sub analyze ($source) {
         sites   => [],
         dropped => []
     };
-    $context->{values} = _value_spans( $context, $document );
+    $context->{values}  = _value_spans( $context, $document );
+    $context->{misread} = _misread_readlines($document);
     _visit( $context, $document, 0 );
     my @sites    = sort { $a->start <=> $b->start || $a->end <=> $b->end } $context->{sites}->@*;
     my $heredocs = _heredocs( $context, $document );
@@ -130,6 +131,32 @@ sub _is_value ($statement) {
 sub _is_literal ($element) {
     return 1 if grep { $element->isa($_) } @LITERAL;
     return $element->isa('PPI::Token::Word') && $LITERAL_WORD{ $element->content } ? 1 : 0;
+}
+
+# PPI reads <$handle> in some places as two comparisons around a name.
+# No comparison lacks its right operand, so a ">" without one ends a readline, and the nearest "<" before it starts it.
+sub _misread_readlines ($document) {
+    my %inside;
+    my @ends = grep { $_->content eq '>' && _lacks_operand( scalar $_->snext_sibling ) }
+      @{ $document->find('PPI::Token::Operator') || [] };
+    for my $end (@ends) {
+        my @siblings = $end->parent->schildren;
+        my ($last)   = grep { refaddr $siblings[$_] == refaddr $end } 0 .. $#siblings;
+        my ($first)  = grep { _starts_readline( $siblings[$_] ) } reverse 0 .. $last;
+        next if !defined $first;
+        $inside{ refaddr $_ } = 1 for map { $_->isa('PPI::Token') ? $_ : $_->tokens } @siblings[ $first .. $last ];
+    }
+    return \%inside;
+}
+
+sub _starts_readline ($element) {
+    return $element->isa('PPI::Token::Operator') && $element->content eq '<' ? 1 : 0;
+}
+
+# An operand starts with a name, a value, a bracket, or an operator that stands before its operand.
+sub _lacks_operand ($next) {
+    return 1 if !$next || _is_semicolon($next) || _is_word( $next, \%MODIFIER );
+    return $next->isa('PPI::Token::Operator') && $next->content !~ /\A(?:[-+!~]|[+][+]|--|-[[:alpha:]])\z/ ? 1 : 0;
 }
 
 sub _line_offset ( $context, $line ) {
@@ -390,6 +417,7 @@ sub _regex_sites ( $context, $token ) {
 }
 
 sub _token_site ( $context, $token ) {
+    return                                  if $context->{misread}{ refaddr $token };
     return _regex_sites( $context, $token ) if grep { $token->isa($_) } @REGEX_TOKEN;
     my $kind =
         $token->isa('PPI::Token::Operator')        ? 'operator'
@@ -726,6 +754,9 @@ PPI learns from C<use v5.36> and a few other pragmas that a file uses signatures
 In another file it reads a signature as a prototype, and the module then reads the file again with signatures on.
 A file with a carriage return before each line feed is analyzed, and its sites address the text with the carriage returns.
 There a token that spans two lines has another text than the file, so it is among the places left out.
+
+PPI reads a readline such as C<< <$handle> >> at the start of a statement and after some words as two comparisons around a name.
+No comparison lacks its right operand, so the module takes a C<< > >> without one for the end of a readline, and the tokens back to its C<< < >> yield no site.
 
 PPI joins the code after a method, a C<defer> block, or a C<finally> block to the block.
 The module splits such a statement at the closing brace, so each part has its own scope and its own sites.

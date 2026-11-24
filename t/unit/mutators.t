@@ -122,6 +122,9 @@ subtest 'operator families' => sub {
       [ [ '<', '<=' ], [ '<', '>=' ], [ '>=', '>' ], [ '>=', '<' ], [ '==', '!=' ] ], 'comparison';
     is changes( '$a lt $b; $a eq $b;', 'string-comparison' ), [ [ 'lt', 'le' ], [ 'lt', 'ge' ], [ 'eq', 'ne' ] ],
       'string comparison';
+    my $slurp = "my \$data = do {\n    local \$/;\n    open my (\$fh), '<:raw', \$path\n"
+      . "      or die \"could not read file <\$path>\\n\";\n    <\$fh>;\n};\n";
+    is changes( $slurp, 'comparison' ), [], 'a readline at the start of a statement is no comparison';
     is changes( '$a && $b || $c // $d; f() or g() and h();', 'logical' ),
       [ [ '&&', '||' ], [ '||', '&&' ], [ '//', '||' ], [ 'or', 'and' ], [ 'and', 'or' ] ], 'logical';
     is changes( '$i++; --$j;', 'increment' ), [ [ '++', '--' ], [ '--', '++' ] ], 'increment';

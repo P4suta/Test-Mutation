@@ -50,8 +50,31 @@ subtest 'operators carry a role' => sub {
           sites_of( $versions, 'operator' )->@* ],
       [qw(<5.01 >=5.036 >5.008 ==? <? <? >=?)],
       'an ordering comparison of the version of Perl names its literal';
-    is [ map { $_->text } sites_of( 'f( [ [<$in>] ] );', 'operator' )->@* ], [ '<', '>' ],
-      'the brackets of a read without a neighbor on one side are read without a literal';
+    is [ map { $_->text } sites_of( 'f( [ < $in ] );', 'operator' )->@* ], ['<'],
+      'a comparison without a neighbor on one side is read without a literal';
+};
+
+subtest 'a readline that the parser takes for two comparisons yields no site' => sub {
+    my $operators = sub ($code) {
+        return [ map { $_->text } sites_of( $code, 'operator' )->@* ];
+    };
+    my @misread = (
+        [ '<$fh>;',                     [] ],
+        [ 'return <$fh>;',              [] ],
+        [ 'print <STDIN>;',             [] ],
+        [ 'f( [ [<$in>] ] );',          [] ],
+        [ 'my @lines = sort <$fh>;',    ['='] ],
+        [ 'print <$fh>, "\n";',         [','] ],
+        [ 'my @l = sort <$fh> if $ok;', ['='] ],
+        [ 'print $out <$in{ 1 + 2 }>;', [] ],
+        [ '$a < $b or print <$fh>;',    [ '<', 'or' ] ],
+        [ "\$x >;\nprint <\$fh>;",      ['>'] ],
+    );
+    is $operators->( $_->[0] ), $_->[1], "the operators of $_->[0]" for @misread;
+
+    is $operators->('f( $a > -$b, $c < !$d, $e > ++$f, $g > -e $h, $i > length $j, $k > $l );'),
+      [ '>', q{-}, q{,}, '<', q{!}, q{,}, '>', '++', q{,}, '>', '-e', q{,}, '>', q{,}, '>' ],
+      'a comparison keeps its sites before each kind of right operand';
 };
 
 subtest 'words carry a role and data words are left out' => sub {
