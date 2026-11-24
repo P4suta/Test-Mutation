@@ -23,8 +23,8 @@ for my $file (@files) {
         my $wrong      = \my $value;
         my $error =
           dies { $declaration =~ /\bmethod\s*=>\s*1/ ? $package->$subroutine($wrong) : $subroutine->($wrong) };
-        ok ref $error && $error->isa('Error::TypeTiny'), "$package\::$name refuses a wrong argument"
-          or diag defined $error ? "$error" : 'the call returned';
+        ok( ref $error && $error->isa('Error::TypeTiny'), "$package\::$name refuses a wrong argument" )
+          || diag defined $error ? "$error" : 'the call returned';
         $count++;
     }
 }

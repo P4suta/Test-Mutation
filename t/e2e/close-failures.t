@@ -5,7 +5,7 @@ use File::Temp ();
 
 # A close that fails means lost data or an unread error, so the run and the command check every close.
 # The override below closes the handle and then reports a failure to the subroutine that the pattern names.
-our $failing;
+our $failing;    ## no critic (Variables::ProhibitPackageVars)
 
 BEGIN {
     no warnings 'once';
@@ -67,8 +67,8 @@ sub command (@arguments) {
     my ( $output, $errors ) = ( q{}, q{} );
     chdir $root or die "chdir: $!";
     my $status = do {
-        local *STDOUT;
-        local *STDERR;
+        local *STDOUT;    ## no critic (Variables::RequireInitializationForLocalVars)
+        local *STDERR;    ## no critic (Variables::RequireInitializationForLocalVars)
         open STDOUT, '>', \$output or die "stdout: $!";
         open STDERR, '>', \$errors or die "stderr: $!";
         Test::Mutation::CLI::main(@arguments);

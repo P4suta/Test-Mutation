@@ -17,8 +17,8 @@ sub command ( $failure, @arguments ) {
     my $status = do {
         no warnings 'redefine';
         local *Test::Mutation::Runner::analyze = $failure;
-        local *STDOUT;
-        local *STDERR;
+        local *STDOUT;    ## no critic (Variables::RequireInitializationForLocalVars)
+        local *STDERR;    ## no critic (Variables::RequireInitializationForLocalVars)
         open STDOUT, '>', \$output or die "stdout: $!";
         open STDERR, '>', \$errors or die "stderr: $!";
         Test::Mutation::CLI::main(@arguments);

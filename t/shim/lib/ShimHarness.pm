@@ -47,7 +47,7 @@ sub run_perl {
         my @outer = _outer_switches();
         $extra{PERL5OPT} = join q{ }, grep { defined && length } $ENV{PERL5OPT},   $extra{PERL5OPT};
         $extra{PERL5LIB} = join q{:}, grep { defined && length } $extra{PERL5LIB}, $ENV{PERL5LIB};
-        %ENV             = ( %ENV, %extra, OUTER_HOOKS => scalar grep { ref } @INC );
+        %ENV             = ( %ENV, %extra, OUTER_HOOKS => scalar grep { ref } @INC );    ## no critic (Variables::RequireLocalizedPunctuationVars)
         open STDOUT, '>', $out or die "stdout: $!";
         open STDERR, '>', $err or die "stderr: $!";
         exec {$^X} $^X, @outer, @{ $run{args} } or die "exec: $!";

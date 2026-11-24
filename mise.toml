@@ -8,7 +8,8 @@ PERL5LIB = "{{config_root}}/local/lib/perl5"
 _.path = ["{{config_root}}/local/bin"]
 
 [vars]
-perl_files = "fd --type f --extension pm --extension t --extension pl --exclude corpus --exclude fixtures . lib t xt"
+# The list comes from Git and from the first line of each file, so the formatter reaches every Perl file of the project.
+perl_files = "perl xt/bin/perl-files library program"
 
 [tasks.setup]
 description = "Install the dependencies recorded in cpanfile.snapshot"
@@ -26,16 +27,10 @@ run = "carton install"
 description = "Format Perl files in place"
 run = "perltidy --backup-and-modify-in-place --backup-file-extension=/ $({{vars.perl_files}})"
 
-[tasks.fmt-check]
-description = "Fail when a Perl file differs from its formatted form"
-run = [
-  "mkdir -p .mutation/tidy",
-  "perltidy --assert-tidy --output-path=.mutation/tidy $({{vars.perl_files}})",
-]
-
-[tasks.lint]
-description = "Run Perl::Critic over the library"
-run = "perlcritic lib"
+[tasks.style]
+description = "Fail when a Perl file differs from its formatted form or breaks the lint"
+# The gate formats and lints every Perl file itself, so the task and the fast gate share one implementation.
+run = "prove -l xt/perl-files.t"
 
 [tasks.test]
 description = "Run the unit and assumption tests"
@@ -84,13 +79,4 @@ run = "gitleaks dir --no-banner ."
 
 [tasks.check]
 description = "Run every fast gate"
-depends = [
-  "fmt-check",
-  "lint",
-  "test",
-  "test-shim",
-  "e2e",
-  "gate",
-  "audit",
-  "secrets",
-]
+depends = ["test", "test-shim", "e2e", "gate", "audit", "secrets"]

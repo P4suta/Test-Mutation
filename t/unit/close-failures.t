@@ -4,7 +4,7 @@ use File::Temp ();
 
 # A close that fails means lost data or an unread error, so the library checks every close.
 # The override below closes the handle and then reports a failure to the subroutine that the pattern names.
-our $failing;
+our $failing;    ## no critic (Variables::ProhibitPackageVars)
 
 BEGIN {
     no warnings 'once';

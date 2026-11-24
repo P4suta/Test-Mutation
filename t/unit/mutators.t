@@ -155,23 +155,21 @@ subtest 'two mutators with the same replacement yield one mutant' => sub {
 
     my $source    = Test::Mutation::Source->new( path => 'lib/X.pm', text => '$a + $b;', encoding => 'UTF-8' );
     my @proposed  = ( [ first => [q{-}] ], [ second => [ q{-}, q{*} ] ], [ third => [ q{*}, q{/} ] ] );
+    my $proposing = sub ( $name, $replacements ) {
+        return Test::Mutation::Mutator->new(
+            name        => $name,
+            profile     => 'default',
+            description => 'a test mutator',
+            generate    => sub ($site) {
+                return if $site->text ne q{+};
+                return map { { replacement => $_, description => "to $_" } } $replacements->@*;
+            },
+        );
+    };
     my $generated = Test::Mutation::Mutant::Generator::generate(
         source   => $source,
         analysis => Test::Mutation::Syntax::PPI::analyze($source),
-        mutators => [
-            map {
-                my ( $name, $replacements ) = $_->@*;
-                Test::Mutation::Mutator->new(
-                    name        => $name,
-                    profile     => 'default',
-                    description => 'a test mutator',
-                    generate    => sub ($site) {
-                        return if $site->text ne q{+};
-                        return map { { replacement => $_, description => "to $_" } } $replacements->@*;
-                    },
-                )
-            } @proposed
-        ],
+        mutators => [ map { $proposing->( $_->@* ) } @proposed ],
     );
     is [ map { [ $_->mutator, $_->replacement ] } $generated->@* ],
       [ [ 'first', q{-} ], [ 'second', q{*} ], [ 'third', q{/} ] ],

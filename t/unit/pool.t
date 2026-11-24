@@ -251,8 +251,8 @@ subtest 'a signal ends the polite tasks, the stubborn tasks, and their children'
             1;
         };
         my $error = $@;
-        my $left  = kill 0, number_in("$stubborn.pid");
-        print {$write} $ended ? 'completed' : ref $error ? $error->signal : "died: $error", " $left\n";
+        my $alive = kill 0, number_in("$stubborn.pid");
+        print {$write} $ended ? 'completed' : ref $error ? $error->signal : "died: $error", " $alive\n";
         close $write;
         POSIX::_exit(0);
     }

@@ -23,14 +23,14 @@ subtest 'a second run reuses every measured result' => sub {
     ok -f "$root/.mutation/cache.json", 'and writes the cache file';
     is statuses($first)->{$boundary}, 'Survived', 'the boundary mutant survives';
 
-    my ( $second, $events ) = run_fixture( $root, cache => 1 );
-    is statuses($second), statuses($first), 'the statuses are unchanged';
-    is scalar( grep { $_ eq 'mutant' } $events->@* ), scalar( $second->entries->@* ),
+    my ( $rerun, $events ) = run_fixture( $root, cache => 1 );
+    is statuses($rerun), statuses($first), 'the statuses are unchanged';
+    is scalar( grep { $_ eq 'mutant' } $events->@* ), scalar( $rerun->entries->@* ),
       'the listener hears of each mutant once, reused or not';
-    is $second->reused, $measured, 'every measured result comes from the cache';
-    is [ map { $_->{by} } $second->entries->@* ], [ map { $_->{by} } $first->entries->@* ],
+    is $rerun->reused, $measured, 'every measured result comes from the cache';
+    is [ map { $_->{by} } $rerun->entries->@* ], [ map { $_->{by} } $first->entries->@* ],
       'the detecting tests are unchanged';
-    like Test::Mutation::Report::Terminal::render( $second, color => 0 ), qr/, $measured results from the cache$/m,
+    like Test::Mutation::Report::Terminal::render( $rerun, color => 0 ), qr/, $measured results from the cache$/m,
       'the summary states the number of reused results';
     unlike Test::Mutation::Report::Terminal::render( $first, color => 0 ), qr/from the cache/,
       'and stays silent without them';

@@ -9,7 +9,7 @@ use PPI::Dumper;
 
 sub slurp_text ($path) {
     open my $handle, '<:raw', $path or die "open $path: $!";
-    local $/;
+    local $/ = undef;
     my $bytes = readline $handle;
     return Encode::decode( 'UTF-8', $bytes, Encode::FB_CROAK );
 }

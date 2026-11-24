@@ -96,10 +96,10 @@ for my $file (@modules) {
 
 # A synopsis also calls the constructor that Moo defines and the methods of the values it shows.
 my %defined = map { $_ => 1 } 'new', map { $_->{symbols}->@* } values %surface;
-my @found   = map {
-    my $file = $_;
-    map { "$file: $_" } DocumentedSymbols::violations( $surface{$file}, \%defined )->@*
-} @modules;
+my @found;
+for my $file (@modules) {
+    push @found, map { "$file: $_" } DocumentedSymbols::violations( $surface{$file}, \%defined )->@*;
+}
 is \@found, [], 'every module documents its public symbols and nothing else';
 
 my $symbols = 0;

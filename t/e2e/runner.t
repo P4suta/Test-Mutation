@@ -37,12 +37,12 @@ subtest 'a project without a test gets a warning, and its mutants have no covera
 };
 
 subtest 'the analysis keeps the files in the order of their paths and names each file it cannot use' => sub {
-    my $second = $MODULE =~ s/Small/Second/r;
-    my $root   = project(
+    my $later = $MODULE =~ s/Small/Second/r;
+    my $root  = project(
         'lib/Bad.pm'    => "package Bad;\r\n1;\r\n",
         'lib/First.pm'  => $MODULE =~ s/Small/First/r,
         'lib/Odd.pm'    => "package Odd;\r\n1;\r\n",
-        'lib/Second.pm' => $second,
+        'lib/Second.pm' => $later,
     );
     my $analysis = Test::Mutation::Runner::analyze( Test::Mutation::Config->new( root => $root ) );
     is [ map { $_->{path} } $analysis->{problems}->@* ], [ 'lib/Bad.pm', 'lib/Odd.pm' ], 'the files with a problem';
@@ -136,11 +136,11 @@ subtest 'a test that fails on its own is not blamed on the parallel run' => sub 
     is $runs->($first),                                       1,             'and the test ran once';
 
     my $beside = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $counted );
-    my $second = File::Temp->new;
-    local $ENV{RUN_LOG} = $second->filename;
+    my $later  = File::Temp->new;
+    local $ENV{RUN_LOG} = $later->filename;
     my ($parallel) = run_fixture( $beside, jobs => 2 );
     is [ map { $_->{test} } $parallel->baseline_failures->@* ], ['t/small.t'], 'the failure is reported with two jobs';
-    is $runs->($second),                                        2,             'after a second attempt on its own';
+    is $runs->($later),                                         2,             'after a second attempt on its own';
     is [ $parallel->parallel_safe, $parallel->warnings ],       [ 1, [] ],     'and the parallel run gets no blame';
 };
 

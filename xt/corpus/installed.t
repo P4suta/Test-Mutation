@@ -41,7 +41,7 @@ sub findings ($path) {
     return "generation died: $@" if !$generated;
     for my $mutant ( $mutants->@* ) {
         my $mutated = $source->replace_span( $mutant->start, $mutant->end, $mutant->replacement );
-        push @found, 'mutant ' . $mutant->id . ' leaves the text as it was'      if $mutated eq $text;
+        push @found, 'mutant ' . $mutant->id . ' leaves the text as it was' if $mutated eq $text;
         push @found, 'mutant ' . $mutant->id . ' does not replace its own text'
           if substr( $text, $mutant->start, $mutant->end - $mutant->start ) ne $mutant->original;
     }
@@ -89,7 +89,8 @@ for my $reader (@readers) {
 }
 
 is \@broken, [], 'no file breaks the analysis, a site, or a mutant';
-my %known = map { $_ => 1 } 'the file has carriage returns', 'PPI cannot parse the file', 'PPI does not reproduce the file',
+my %known = map { $_ => 1 } 'the file has carriage returns', 'PPI cannot parse the file',
+  'PPI does not reproduce the file',
   'undecodable';
 is [ grep { !$known{$_} } sort keys %problem ], [], 'every skipped file names a known reason';
 note sprintf '%d files analyzed, %d sites, %d mutants', $analyzed, $sites, $mutants;

@@ -5,7 +5,7 @@ use File::Temp ();
 
 # A spec that does not close may be incomplete, so the shim stops the process.
 # The override closes the handle and then reports a failure while the flag is set.
-our $failing = 0;
+our $failing = 0;    ## no critic (Variables::ProhibitPackageVars)
 
 BEGIN {
     no warnings 'once';

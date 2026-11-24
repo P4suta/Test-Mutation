@@ -60,7 +60,7 @@ subtest 'a revision that git does not know stops the run' => sub {
 };
 
 subtest 'a change selects the mutants whose lines it touches' => sub {
-    my $wide = sub ( $second, $brace ) { "package Wide;\nsub wide {\n    return 1 +\n      2;$second\n}$brace\n1;\n" };
+    my $wide = sub ( $tail, $brace ) { "package Wide;\nsub wide {\n    return 1 +\n      2;$tail\n}$brace\n1;\n" };
     write_file( "$root/lib/Wide.pm", $wide->( q{}, q{} ) );
     git( $root, 'add', '.' );
     git( $root, 'commit', '-q', '-m', 'second' );

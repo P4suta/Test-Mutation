@@ -41,11 +41,11 @@ sub leftovers ( $temporary, $root, @known ) {
 }
 
 # A run leaves nothing behind unless the test names what it expects to stay.
-sub _left_ok ( $what, $left, $expected ) {
-    my $as_expected = defined $expected ? $left->@* && !grep { $_ !~ $expected } $left->@* : !$left->@*;
+sub _left_ok ( $what, $stayed, $expected ) {
+    my $as_expected = defined $expected ? $stayed->@* && !grep { $_ !~ $expected } $stayed->@* : !$stayed->@*;
     my $name        = defined $expected ? "$what leaves what the test expects" : "$what leaves nothing behind";
     my $context     = context();
-    $context->ok( $as_expected ? 1 : 0, $name, [ map { "left: $_" } $left->@* ] );
+    $context->ok( $as_expected ? 1 : 0, $name, [ map { "left: $_" } $stayed->@* ] );
     $context->release;
     return;
 }
@@ -149,13 +149,12 @@ sub run_fixture ( $root, %settings ) {
     return ( $result, \@events );
 }
 
+sub _label ($mutant) {
+    return sprintf '%s:%d %s', $mutant->path, $mutant->from->[0], $mutant->description;
+}
+
 sub statuses ($result) {
-    return {
-        map {
-            my $mutant = $_->{mutant};
-            sprintf( '%s:%d %s', $mutant->path, $mutant->from->[0], $mutant->description ) => $_->{status}
-        } $result->entries->@*
-    };
+    return { map { _label( $_->{mutant} ) => $_->{status} } $result->entries->@* };
 }
 
 1;

@@ -39,9 +39,9 @@ subtest 'an early failure never becomes a pass' => sub {
     my @lines  = ( '1..3', 'ok 1', 'not ok 2', 'ok 3', 'not ok 4 # TODO x', 'Bail out!', '1..5', 'ok' );
     my @broken = ();
     for my $first ( 0 .. $#lines ) {
-        for my $second ( 0 .. $#lines ) {
+        for my $middle ( 0 .. $#lines ) {
             for my $third ( 0 .. $#lines ) {
-                my @stream = @lines[ $first, $second, $third ];
+                my @stream = @lines[ $first, $middle, $third ];
                 my $state  = Test::Mutation::Tap::start();
                 my $early  = 0;
                 for my $line (@stream) {

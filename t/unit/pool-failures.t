@@ -5,7 +5,7 @@ use Time::HiRes ();
 
 # A process that cannot start and a handle that cannot close are rare, so two overrides provoke them.
 # The close override closes the handle and then reports a failure to the subroutine that the pattern names.
-our ( $fork_fails, $close_fails_in );
+our ( $fork_fails, $close_fails_in );    ## no critic (Variables::ProhibitPackageVars)
 
 BEGIN {
     no warnings 'once';

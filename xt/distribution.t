@@ -106,7 +106,7 @@ ok in_scratch( $^X, 'Makefile.PL' ), 'Makefile.PL runs again' or diag build_log(
 
 ok in_scratch( 'make', 'test' ), 'make test passes' or diag build_log();
 my ($test_files) = build_log() =~ /^Files=(\d+), Tests=\d+/m;
-ok defined $test_files && $test_files >= 25, 'and runs the unit, assumption, and shim tests' or diag build_log();
+ok( defined $test_files && $test_files >= 25, 'and runs the unit, assumption, and shim tests' ) || diag build_log();
 
 ok in_scratch( 'make', 'manifest' ), 'make writes the manifest'    or diag build_log();
 ok in_scratch( 'make', 'dist' ),     'make packs the distribution' or diag build_log();

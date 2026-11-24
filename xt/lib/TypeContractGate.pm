@@ -21,13 +21,13 @@ sub violations ($code) {
     my ( %signature, @violations );
 
     for my $statement ( @{ $document->find('PPI::Statement') || [] } ) {
-        my ( $first, $second ) = _first_words($statement);
-        next if !defined $first || !defined $second;
+        my ( $first, $declared ) = _first_words($statement);
+        next if !defined $first || !defined $declared;
         if ( $first eq 'signature_for' ) {
-            $signature{$second} = _has_key( $statement, 'returns' ) ? 'complete' : 'partial';
+            $signature{$declared} = _has_key( $statement, 'returns' ) ? 'complete' : 'partial';
         }
         elsif ( $first eq 'has' && !_has_key( $statement, 'isa' ) ) {
-            push @violations, "the attribute $second has no isa type";
+            push @violations, "the attribute $declared has no isa type";
         }
     }
 

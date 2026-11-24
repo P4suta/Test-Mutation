@@ -86,8 +86,8 @@ subtest 'an elsif condition is attributed to the line of its if' => sub {
     my ( $run, $lines ) = trace_run("use Foo::Traced;\nprint Foo::Traced::classify(0), \"\\n\";\n");
     is $run->{stdout}, "zero\n", 'the elsif branch ran';
     my %hit = map { $_ => 1 } @{ $lines->{hits} };
-    ok $hit{11} && $hit{15} && !$hit{14}, 'the if line and the branch body are hit, the elsif line is absent'
-      or diag "hits: @{ $lines->{hits} }";
+    ok( $hit{11} && $hit{15} && !$hit{14}, 'the if line and the branch body are hit, the elsif line is absent' )
+      || diag "hits: @{ $lines->{hits} }";
 };
 
 subtest 'breakable lines include statements that never ran' => sub {
@@ -95,8 +95,8 @@ subtest 'breakable lines include statements that never ran' => sub {
     my %breakable = map { $_ => 1 } @{ $lines->{lines} };
     ok $breakable{26}, 'the body of the unused sub is breakable';
     ok $breakable{12}, 'the untaken branch is breakable';
-    ok !$breakable{6}, 'an empty line holds no statement'
-      or diag "breakable: @{ $lines->{lines} }";
+    ok( !$breakable{6}, 'an empty line holds no statement' )
+      || diag "breakable: @{ $lines->{lines} }";
     ok !$breakable{13}, 'a closing brace holds no statement';
 };
 

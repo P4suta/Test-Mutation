@@ -1,0 +1,37 @@
+severity = 3
+verbose  = %f:%l:%c %m (%p, severity %s)\n
+
+# The profile of the programs: the command, the build script, the tests, and their helpers.
+# It follows the profile of the library, and each difference stands under its reason.
+
+# "use v5.36" is the documented way to turn on the feature bundle.
+[-ValuesAndExpressions::ProhibitVersionStrings]
+
+# "last" pairs with "first", "close" pairs with "open", and "record" is the name of a domain value.
+[NamingConventions::ProhibitAmbiguousNames]
+forbid = abstract bases contract left no right second set
+
+# A test script is a program: it has no package of its own, and it ends with its last assertion.
+[-Modules::RequireExplicitPackage]
+[-Modules::RequireEndWithOne]
+
+# A test script is one long main program, a list of cases.
+[-Modules::ProhibitExcessMainComplexity]
+
+# A test dies where it stands, and the message names the line of the test.
+[-ErrorHandling::RequireCarping]
+
+# A test matches a message as the user reads it, and the extended form would hide the spaces of the message.
+[-RegularExpressions::RequireExtendedFormatting]
+[-RegularExpressions::ProhibitComplexRegexes]
+
+# A test holds a pipe or a file open across the steps of the case that reads it.
+[-InputOutput::RequireBriefOpen]
+
+# A test asks git or the platform a question and reads the answer.
+[InputOutput::ProhibitBacktickOperators]
+only_in_void_context = 1
+
+# A test replaces one subroutine or one handle for a case, and it names the category that it silences.
+[TestingAndDebugging::ProhibitNoWarnings]
+allow_with_category_restriction = 1

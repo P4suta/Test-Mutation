@@ -91,10 +91,10 @@ subtest 'a timeout waits for a later test to decide' => sub {
       'a timeout after the load says more than one before it';
     is verdict( outcome(%timeout), outcome(%early) ), 'Timeout', 'in either order';
 
-    my $twice = sub ( $first, $second ) {
+    my $twice = sub ( $first, $later ) {
         my $state = Test::Mutation::Verdict::start();
         $state = Test::Mutation::Verdict::step( $state, outcome( test => 't/first.t',  $first->%* ) );
-        $state = Test::Mutation::Verdict::step( $state, outcome( test => 't/second.t', $second->%* ) );
+        $state = Test::Mutation::Verdict::step( $state, outcome( test => 't/second.t', $later->%* ) );
         return [ $state->@{qw(status by reason)} ];
     };
     is $twice->( \%timeout, \%timeout ), [ 'Timeout', 't/first.t', 't/first.t exceeded its time limit' ],
@@ -134,18 +134,19 @@ subtest 'a timeout waits for a later test to decide' => sub {
 };
 
 subtest 'pairs of outcomes over the whole input domain' => sub {
-    my @domain = map {
-        my $bits = $_;
-        map {
-            outcome(
-                result      => $_,
+    my @domain;
+    for my $bits ( 0 .. 15 ) {
+        for my $result (qw(pass fail timeout)) {
+            push @domain,
+              outcome(
+                result      => $result,
                 served      => $bits & 1,
                 load_failed => $bits >> 1 & 1,
                 bypassed    => $bits >> 2 & 1,
                 syntax_ok   => $bits >> 3 & 1
-            )
-        } qw(pass fail timeout)
-    } 0 .. 15;
+              );
+        }
+    }
     my $kind = sub ($o) {
         return
             $o->{bypassed}                        ? 'RuntimeError'
@@ -158,8 +159,8 @@ subtest 'pairs of outcomes over the whole input domain' => sub {
     my %decides = map { $_ => 1 } qw(RuntimeError CompileError Killed);
     my @wrong;
     for my $first (@domain) {
-        for my $second (@domain) {
-            my ( $one, $two ) = ( $kind->($first), $kind->($second) );
+        for my $later (@domain) {
+            my ( $one, $two ) = ( $kind->($first), $kind->($later) );
             my $expected =
                 $decides{$one}                       ? $one
               : $decides{$two}                       ? $two
@@ -167,7 +168,7 @@ subtest 'pairs of outcomes over the whole input domain' => sub {
               : $one eq 'early' || $two eq 'early'   ? 'RuntimeError'
               : $one eq 'passed' || $two eq 'passed' ? 'Survived'
               :                                        'NoCoverage';
-            my $got = verdict( $first, $second );
+            my $got = verdict( $first, $later );
             push @wrong, "$one then $two: $got, not $expected" if $got ne $expected;
         }
     }
