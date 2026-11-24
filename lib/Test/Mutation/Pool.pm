@@ -101,10 +101,16 @@ sub _spawn ($task) {
     pipe my $read, my $write or Test::Mutation::Error::raise( 'pipe-unopenable', reason => "$!" );
     my $pid = fork;
     Test::Mutation::Error::raise( 'process-unstartable', reason => "$!" ) if !defined $pid;
-    if ( !$pid ) {
-        setpgrp 0, 0;
-        _exec_child( $task, $write );
-    }
+    return _started( $task, $pid, $read, $write )                         if $pid;
+
+    # The child ends here, since code after this point would run the rest of the driver a second time.
+    setpgrp 0, 0;
+    _exec_child( $task, $write );
+    POSIX::_exit(127);
+    return;
+}
+
+sub _started ( $task, $pid, $read, $write ) {
     close $write or Test::Mutation::Error::raise( 'pipe-unclosable', reason => "$!" );
     my $now = Time::HiRes::time();
     return {
@@ -119,6 +125,7 @@ sub _spawn ($task) {
     };
 }
 
+# Replaces the child with the command of the test, and returns when the command fails to start.
 sub _exec_child ( $task, $write ) {
     my $attempt = Test::Mutation::Try::attempt(
         sub {
@@ -142,7 +149,6 @@ sub _exec_child ( $task, $write ) {
     # The error reads as its message, and the line reaches the file that holds the standard error of the test.
     my $line = Test::Mutation::Message::line( $attempt->{error} =~ s/\n\z//r );
     POSIX::write( 2, $line, length $line );
-    POSIX::_exit(127);
     return;
 }
 

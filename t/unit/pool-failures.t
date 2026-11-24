@@ -65,7 +65,7 @@ subtest 'a process that cannot start stops the pool' => sub {
 subtest 'a pipe that does not close stops the pool' => sub {
 
     # The turns of the pool are a subroutine without a name.
-    my %place = ( 'the turns of the pool' => '__ANON__', 'the start of a test' => '_spawn' );
+    my %place = ( 'the turns of the pool' => '__ANON__', 'the start of a test' => '_started' );
     for my $name ( sort keys %place ) {
         my $path  = script( "$place{$name}.t", qq{print "1..1\\nok 1\\n";\n} );
         my $error = do {
