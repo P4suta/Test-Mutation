@@ -164,7 +164,7 @@ subtest 'the outcome of a result calls for one exit status' => sub {
     my $exit = sub ( $counts, %fact ) { [ Invariants::outcome( $counts, %fact ) ] };
     is $exit->( { Killed => 1, Pending => 1 }, signal => 130 ), [ 'interrupted', 130 ],   'a signal';
     is $exit->( {}, baseline_failed => 1, gate => 50 ),         [ 'baseline-failed', 3 ], 'a failing unmodified run';
-    is $exit->( { Killed => 1, RuntimeError => 1 } ),           [ 'inconclusive', 4 ],    'a mutant without a verdict';
+    is $exit->( { Killed => 1, NoVerdict => 1 } ),              [ 'inconclusive', 4 ],    'a mutant without a verdict';
     is $exit->( { Timeout => 1 } ),                             [ 'inconclusive', 4 ], 'timeouts and no valid mutant';
     is $exit->( { Killed => 1, Survived => 1 } ),               [ 'measured', 0 ],     'no gate';
     is $exit->( { Killed => 1, Survived => 1 }, gate => 50 ),   [ 'measured', 0 ],     'a score at the gate';
@@ -207,16 +207,20 @@ subtest 'independent rejects a pair that differs from its two settings' => sub {
     is [ Invariants::independent( \%base, \%one, \%two, undef ) ], ['the pair is refused'], 'a pair that is refused';
 };
 
-subtest 'round-trip rejects a report that loses a status or a reason' => sub {
+subtest 'round-trip rejects a report that loses a status, a reason, or a detail' => sub {
     my @written = (
-        { id => 'a', status => 'Killed',  reason => 't/a.t failed' },
-        { id => 'b', status => 'Timeout', reason => undef }
+        { id => 'a', status => 'Killed',  reason => undef,        detail => 't/a.t failed' },
+        { id => 'b', status => 'Timeout', reason => 'time-limit', detail => undef }
     );
-    my @other =
-      ( { id => 'b', status => 'Ignored', reason => undef }, { id => 'a', status => 'Killed', reason => undef } );
-    is [ Invariants::round_trip( \@written, [ reverse @written ] ) ],       [], 'the same statuses and reasons';
+    my @other = (
+        { id => 'b', status => 'Ignored', reason => 'time-limit', detail => undef },
+        { id => 'a', status => 'Killed',  reason => undef,        detail => undef },
+        { id => 'b', status => 'Timeout', reason => undef,        detail => undef },
+    );
+    is [ Invariants::round_trip( \@written, [ reverse @written ] ) ], [], 'the same statuses, reasons, and details';
     is [ Invariants::round_trip( \@written, [ $written[0], $other[0] ] ) ], ['a status changes'], 'another status';
-    is [ Invariants::round_trip( \@written, [ $other[1], $written[1] ] ) ], ['a reason changes'], 'a lost reason';
+    is [ Invariants::round_trip( \@written, [ $other[1], $written[1] ] ) ], ['a detail changes'], 'a lost detail';
+    is [ Invariants::round_trip( \@written, [ $written[0], $other[2] ] ) ], ['a reason changes'], 'a lost reason';
     is [ Invariants::round_trip( \@written, [ $written[0] ] ) ],            ['a mutant is gone'], 'a lost mutant';
 };
 

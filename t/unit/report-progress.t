@@ -1,6 +1,7 @@
 use v5.36;
 use Test2::V0;
 use Test::Mutation::Report::Progress;
+use Test::Mutation::Status;
 
 subtest 'line shows the position and the counts that matter' => sub {
     is Test::Mutation::Report::Progress::line( 7, 19, { Killed => 4, Survived => 2, NoCoverage => 1 } ),
@@ -9,6 +10,9 @@ subtest 'line shows the position and the counts that matter' => sub {
       '[19/19] 13 killed, 3 survived, 3 no coverage', 'zero counts are left out';
     is Test::Mutation::Report::Progress::line( 1, 1200, { Timeout => 1 } ), '[   1/1200] 1 timeout', 'a wide total';
     is Test::Mutation::Report::Progress::line( 0, 5,    {} ),               '[0/5]', 'nothing counted yet';
+    is Test::Mutation::Report::Progress::line( 8, 8,    { map { $_ => 1 } Test::Mutation::Status::names()->@* } ),
+      '[8/8] 1 killed, 1 survived, 1 no coverage, 1 timeout, 1 compile error, 1 no verdict',
+      'the statuses that the catalog counts in the progress line, in its order';
 };
 
 subtest 'due tells when a line belongs in a log' => sub {

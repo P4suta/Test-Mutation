@@ -119,11 +119,11 @@ sub no_effect ($started) {
 # The outcome of a run and the exit status that it calls for, from the facts of the result alone.
 # `counts` maps each status to its count, `gate` is the score that the user asks for or nothing, and `part` is true for one part of a split run.
 sub outcome ( $counts, %fact ) {
-    my %count = ( ( map { $_ => 0 } qw(Timeout RuntimeError Pending) ), $counts->%* );
+    my %count = ( ( map { $_ => 0 } qw(Timeout NoVerdict Pending) ), $counts->%* );
     my $score = _score( \%count );
     return ( 'interrupted',     $fact{signal} ) if $fact{signal};
     return ( 'baseline-failed', 3 )             if $fact{baseline_failed};
-    return ( 'inconclusive', 4 ) if $count{RuntimeError} || $count{Pending} || ( !defined $score && $count{Timeout} );
+    return ( 'inconclusive',    4 ) if $count{NoVerdict} || $count{Pending} || ( !defined $score && $count{Timeout} );
     my $gated = defined $fact{gate} && !$fact{part};
     return ( 'nothing', $gated ? 4 : 0 ) if !defined $score;
     my $below = $gated && $score < $fact{gate};
@@ -179,8 +179,8 @@ sub independent ( $base, $one, $other, $both ) {
     return @differ;
 }
 
-# round-trip: a report that is written and read again keeps every status and every reason.
-# Each side lists the identifier, the status, and the reason of its mutants.
+# round-trip: a report that is written and read again keeps every status, every reason, and every sentence about a case.
+# Each side lists the identifier, the status, the reason, and the detail of its mutants.
 sub round_trip ( $written, $read ) {
     my %read = map { $_->{id} => $_ } $read->@*;
     my %symptom;
@@ -191,8 +191,10 @@ sub round_trip ( $written, $read ) {
             next;
         }
         $symptom{'a status changes'} = 1 if $again->{status} ne $fact->{status};
-        my ( $before, $after ) = map { defined $_->{reason} ? "reason $_->{reason}" : 'none' } $fact, $again;
-        $symptom{'a reason changes'} = 1 if $before ne $after;
+        for my $field (qw(reason detail)) {
+            my ( $before, $after ) = map { defined $_->{$field} ? "$field $_->{$field}" : 'none' } $fact, $again;
+            $symptom{"a $field changes"} = 1 if $before ne $after;
+        }
     }
     my @symptoms = sort keys %symptom;
     return @symptoms;
@@ -200,6 +202,7 @@ sub round_trip ( $written, $read ) {
 
 # role: the score equals the one that the formula of the report schema gives for the statuses of the report.
 # A viewer of the report computes its score that way: a timeout counts as detected.
+# `counts` maps each status that the report file writes, the name of the schema, to its count.
 sub role ( $counts, $score ) {
     my %count    = ( ( map { $_ => 0 } qw(Killed Timeout Survived NoCoverage) ), $counts->%* );
     my $detected = $count{Killed} + $count{Timeout};

@@ -118,10 +118,13 @@ C<NoCoverage> means no test loaded the mutated code.
 C<Timeout> means a test exceeded its time limit and no other test failed, which the score leaves out.
 After a timeout the run tries the next test, and the second timeout ends the work on the mutant.
 C<CompileError> means the mutant does not compile.
-C<RuntimeError> means a test loaded the original file around the hook.
+C<NoVerdict> means the run could not decide, for example because a test loaded the original file around the hook.
 C<Ignored> means a comment suppressed the mutant, or the mutant compiles to code the run already knows.
+Every state but C<Killed> and C<Survived> comes with a reason, such as C<time-limit> or C<loaded-around-hook>.
 
 The score is the percentage of C<Killed> among C<Killed>, C<Survived>, and C<NoCoverage>.
+The file C<mutation.json> writes each state with its name in the report schema, so a viewer of the file computes the same score.
+A C<Timeout> is C<Ignored> there and a C<NoVerdict> is C<RuntimeError>, and the C<testMutation> key of each mutant keeps the state and its reason.
 
 A mutant that no test detected compiles once more next to the original, and the run compares the two with L<B::Deparse>.
 That covers a survivor and a mutant that no test reaches.

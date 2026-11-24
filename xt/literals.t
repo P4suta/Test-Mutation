@@ -9,8 +9,8 @@ use Test::Mutation::Message;
 use Test::Mutation::Status;
 
 # The messages, the lists of statuses, and the variables of the environment each belong in one table.
-# The catalog holds the messages, so a die statement with words of its own is a violation.
-# No table holds the statuses and the variables yet, so the scan states where they stand, and each place is an open finding.
+# The catalogs hold the messages and the statuses, so a die statement with words of its own and a list of statuses are violations.
+# No table holds the variables yet, so the scan states where they stand, and each place is an open finding.
 
 my $value = "\x{2026}";
 
@@ -220,16 +220,18 @@ Gate::checked( 'calls that name a message of the catalog',       $calls,        
 Gate::checked( 'die statements that copy the line of a message', $copies,         at_least => 2 );
 Gate::checked( 'messages of the catalog',                        scalar @catalog, at_least => 76 );
 
-# status-once: no list of statuses stands outside the table of the statuses.
-my @names = map { $_->name } Test::Mutation::Status::rows()->@*;
-my ( @lists, $lists );
+# status-once: no list of statuses stands outside the catalog of the statuses, by their names in the run or in the schema.
+my %name  = map { ( $_->name => 1, $_->schema => 1 ) } Test::Mutation::Status::rows()->@*;
+my @names = sort keys %name;
+my ( @lists, $scanned );
 for my $file ( grep { $_ ne 'lib/Test/Mutation/Status.pm' } @files ) {
+    $scanned++;
     my $count = Sources::lists_of( $code{$file}, \@names ) or next;
-    $lists += $count;
     push @lists, "$file: $count lists of statuses";
 }
 Gate::findings( 'contract-status-once-source', \@lists );
-Gate::checked( 'lists of statuses', $lists, at_least => 9 );
+Gate::checked( 'names of the statuses in the run and in the schema', scalar @names, at_least => 9 );
+Gate::checked( 'files outside the catalog of the statuses',          $scanned,      at_least => 38 );
 
 # env: every variable of the environment that the code uses stands in a table, and the manual lists it.
 my ( @unlisted, %variable );

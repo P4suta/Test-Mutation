@@ -5,6 +5,7 @@ use Raised;
 use Test::Mutation::Merge;
 use Test::Mutation::Mutant;
 use Test::Mutation::Result;
+use Test::Mutation::Status;
 
 my $digest = 'ab' x 32;
 
@@ -25,7 +26,8 @@ sub entry ( $number, $status ) {
     return {
         mutant     => $mutant,
         status     => $status,
-        reason     => undef,
+        reason     => Test::Mutation::Status::of($status)->reasons->[0],
+        detail     => undef,
         by         => undef,
         covered_by => [],
         tests_run  => 0,

@@ -1,10 +1,29 @@
 package Test::Mutation::Types;
 use v5.36;
-use Type::Library -base, -declare => qw(Analysis Dropped Facts Heredoc Names Rejected Suppression);
-use Type::Utils     qw(as declare);
+use Type::Library -base,
+  -declare => qw(Analysis Dropped Entry Facts Heredoc Names Reason Rejected StatusName Suppression);
+use Type::Utils     qw(as declare where);
 use Types::Standard qw(ArrayRef Bool Dict Enum InstanceOf Int Maybe Num Optional Str Tuple);
+use Test::Mutation::Status;
 
 our $VERSION = '0.001';
+
+declare StatusName, as Enum [ Test::Mutation::Status::names()->@* ];
+
+declare Reason, as Enum [ map { $_->reasons->@* } Test::Mutation::Status::rows()->@* ];
+
+declare Entry,
+  as Dict [
+    mutant     => InstanceOf ['Test::Mutation::Mutant'],
+    status     => StatusName,
+    reason     => Maybe [Reason],
+    detail     => Maybe [Str],
+    by         => Maybe [Str],
+    covered_by => ArrayRef [Str],
+    tests_run  => Int,
+    duration   => Num,
+  ],
+  where { Test::Mutation::Status::fits( $_->{status}, $_->{reason} ) };
 
 declare Facts,
   as Dict [
@@ -90,5 +109,9 @@ The statements stay apart because each one imports into the scope where it stand
 C<Rejected> names a change that the generator refused, with the mutator, the line, and the rule.
 
 C<Analysis> is the result for one file: the sites, the suppressions, the places left out, the here-documents, the names, and the problem that kept the whole file from the analysis.
+
+C<StatusName> is the name of a status of L<Test::Mutation::Status>, and C<Reason> is a reason that some status may carry.
+C<Entry> is the result of one mutant: the mutant, its status, the reason that its status calls for, a sentence about the case, the deciding test, the selected tests, the number of tests that ran, and the time they took.
+The verdict, the result, the reports, and the cache share these types, so a status outside the catalog or a reason of another status fails at the first of them.
 
 =cut

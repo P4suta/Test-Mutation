@@ -103,7 +103,8 @@ sub cache_keeps ($status) {
     my %record = (
         inputs    => q{},
         status    => $status,
-        reason    => undef,
+        reason    => Test::Mutation::Status::of($status)->reasons->[0],
+        detail    => undef,
         by        => undef,
         tests_run => 0,
         duration  => 0,

@@ -278,7 +278,7 @@ subtest 'a run that ends without success says why in one line' => sub {
       [ 0, q{} ], 'a score above the gate says nothing';
     is $ended->( Samples::result( statuses => [], baseline_failures => [ $failure->@*, $failure->@* ] ) ),
       [ 3, "mutation: tests that fail without a mutant: 2\n" ], 'a failing unmodified run';
-    is $ended->( Samples::result( statuses => ['RuntimeError'] ) ), [ 4, "mutation: the run states no score\n" ],
+    is $ended->( Samples::result( statuses => ['NoVerdict'] ) ), [ 4, "mutation: the run states no score\n" ],
       'a run without a score';
     is $ended->( Samples::result( statuses => [qw(Killed Pending)], interrupted => 'PIPE' ) ),
       [ 141, "mutation: interrupted by SIGPIPE\n" ], 'an interrupted run';

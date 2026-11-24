@@ -2,25 +2,10 @@ package Test::Mutation::Report::Terminal;
 use v5.36;
 use Types::Standard qw(Bool InstanceOf Num Optional Str);
 use Type::Params    qw(signature_for);
+use Test::Mutation::Status;
 
 our $VERSION = '0.001';
 
-my @COUNTED = (
-    [ Killed       => 'killed' ],
-    [ Survived     => 'survived' ],
-    [ NoCoverage   => 'no coverage' ],
-    [ Timeout      => 'timeout' ],
-    [ CompileError => 'compile error' ],
-    [ RuntimeError => 'runtime error' ],
-    [ Ignored      => 'ignored' ],
-    [ Pending      => 'pending' ],
-);
-my @SECTIONS = (
-    [ Survived     => 'Survived' ],
-    [ NoCoverage   => 'No coverage' ],
-    [ Timeout      => 'Timeout' ],
-    [ RuntimeError => 'Runtime error' ],
-);
 my $LISTED_TESTS = 3;
 
 signature_for render => (
@@ -33,7 +18,11 @@ sub render ( $result, $arg ) {
     my @blocks =
       $result->baseline_failures->@*
       ? _baseline($result)
-      : ( _summary( $result, $arg ), map { _section( $result, $_->@* ) } @SECTIONS );
+      : (
+        _summary( $result, $arg ),
+        map { _section( $result, $_->name, $_->heading ) }
+          grep { defined $_->heading } Test::Mutation::Status::rows()->@*
+      );
     my @notes = (
         ( map { "warning: $_" } $result->warnings->@* ),
         ( map { "skipped $_->{path}: $_->{problem}" } $result->problems->@* ),
@@ -49,8 +38,9 @@ sub _plural ( $count, $noun ) {
 sub _summary ( $result, $arg ) {
     my $tally  = $result->tally;
     my $counts = $tally->{counts};
-    my @parts  = map { "$counts->{ $_->[0] } $_->[1]" } grep { $counts->{ $_->[0] } } @COUNTED;
-    my @lines  = ( _plural( $tally->{total}, 'mutant' ) . ( @parts ? ': ' . join ', ', @parts : q{} ) );
+    my @parts =
+      map { "$counts->{ $_->name } " . $_->word } grep { $counts->{ $_->name } } Test::Mutation::Status::rows()->@*;
+    my @lines = ( _plural( $tally->{total}, 'mutant' ) . ( @parts ? ': ' . join ', ', @parts : q{} ) );
     if ( defined $result->shard && $result->inventory ) {
         my ( $part, $of ) = split m{/}, $result->shard;
         push @lines, "Part $part of $of of a run with " . _plural( $result->inventory->{mutants}, 'mutant' ) . q{.};
@@ -95,7 +85,7 @@ sub _entry ( $result, $entry ) {
     my $more  = @tests > $LISTED_TESTS ? sprintf ' and %d more', @tests - $LISTED_TESTS : q{};
     splice @tests, $LISTED_TESTS if $more;
     push @lines, '    reached by ' . ( @tests ? join( ', ', @tests ) . $more : 'no test' );
-    push @lines, "    $entry->{reason}" if defined $entry->{reason};
+    push @lines, "    $entry->{detail}" if defined $entry->{detail};
     return @lines;
 }
 
@@ -142,8 +132,9 @@ Test::Mutation::Report::Terminal - render a result as text for a terminal
 =head2 render
 
 Returns the report as one string.
-The summary counts every status, states the score, and names the number of tests, jobs, and seconds.
-Mutants that survived, had no coverage, timed out, or ended in a runtime error follow, each with its place, its change, and the tests that reached it.
+The summary counts every status with the word of L<Test::Mutation::Status>, states the score, and names the number of tests, jobs, and seconds.
+A section follows for each status with a heading in the catalog: the mutants that survived, had no coverage, timed out, or have no verdict.
+Each mutant shows its place, its change, the tests that reached it, and the sentence about its case.
 When the unmodified run fails, the report shows the failing tests with their output in place of the summary.
 The output leaves out the passing assertions.
 C<color> wraps the score in an escape sequence chosen by the C<high> and C<low> percentages, 80 and 60 by default.

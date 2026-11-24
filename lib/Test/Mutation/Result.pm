@@ -1,29 +1,19 @@
 package Test::Mutation::Result;
 use v5.36;
 use Moo;
-use Types::Standard        qw(ArrayRef Bool Dict Enum HashRef InstanceOf Int Maybe Num Str StrMatch);
+use Types::Standard        qw(ArrayRef Bool Dict Enum HashRef Int Maybe Num Str StrMatch);
 use Types::Common::Numeric qw(PositiveInt);
 use Type::Params           qw(signature_for);
 use Test::Mutation::Exit;
 use Test::Mutation::Score;
+use Test::Mutation::Types qw(Entry);
 
 our $VERSION = '0.001';
-
-my $STATUS = Enum [qw(Killed Survived NoCoverage Timeout CompileError RuntimeError Ignored Pending)];
-my $ENTRY  = Dict [
-    mutant     => InstanceOf ['Test::Mutation::Mutant'],
-    status     => $STATUS,
-    reason     => Maybe [Str],
-    by         => Maybe [Str],
-    covered_by => ArrayRef [Str],
-    tests_run  => Int,
-    duration   => Num,
-];
 
 has root     => ( is => 'ro', isa => Str, required => 1 );
 has sources  => ( is => 'ro', isa => HashRef [Str], required => 1 );
 has tests    => ( is => 'ro', isa => ArrayRef [ Dict [ name => Str, duration => Num ] ], required => 1 );
-has entries  => ( is => 'ro', isa => ArrayRef [$ENTRY], required => 1 );
+has entries  => ( is => 'ro', isa => ArrayRef [Entry], required => 1 );
 has problems => ( is => 'ro', isa => ArrayRef [ Dict [ path => Str, problem => Str ] ], required => 1 );
 has warnings => ( is => 'ro', isa => ArrayRef [Str], required => 1 );
 has baseline_failures =>
@@ -54,7 +44,7 @@ signature_for conclusive => ( method => 1, positional => [], returns => Bool );
 sub conclusive ($self) {
     my $tally = $self->tally;
     return 0 if $self->baseline_failures->@* || defined $self->interrupted;
-    return 0 if $tally->{counts}{RuntimeError};
+    return 0 if $tally->{counts}{NoVerdict};
     return 0 if $tally->{total} - $tally->{counts}{Ignored} > 0 && !$tally->{valid};
     return 1;
 }
@@ -83,7 +73,7 @@ The tests of the unmodified run with their durations in seconds.
 
 =head2 entries
 
-One entry for every mutant: the mutant, its status, the reason, the deciding test, the selected tests, the number of tests that ran, and the time they took.
+One entry for every mutant, of the type C<Entry> of L<Test::Mutation::Types>: the mutant, its status, the reason that its status calls for, a sentence about the case, the deciding test, the selected tests, the number of tests that ran, and the time they took.
 
 =head2 problems
 
@@ -140,6 +130,6 @@ Returns the status counts and the score, as L<Test::Mutation::Score/tally> does.
 
 =head2 conclusive
 
-True when the run measured something: the unmodified run passed, no mutant ended in C<RuntimeError>, and at least one mutant is valid when any mutant ran.
+True when the run measured something: the unmodified run passed, every mutant has a verdict, and at least one mutant is valid when any mutant ran.
 
 =cut

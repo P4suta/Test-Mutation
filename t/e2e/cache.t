@@ -74,8 +74,8 @@ subtest 'ignored survivors keep their statuses and reasons in a reused run' => s
     my ($before) = run_fixture( $project, cache => 1 );
     my ($after)  = run_fixture( $project, cache => 1 );
     is statuses($after), statuses($before), 'the statuses are unchanged';
-    is [ map { $_->{reason} } $after->entries->@* ], [ map { $_->{reason} } $before->entries->@* ],
-      'the reasons are unchanged';
+    is [ map { [ $_->@{qw(reason detail)} ] } $after->entries->@* ],
+      [ map { [ $_->@{qw(reason detail)} ] } $before->entries->@* ], 'the reasons and the details are unchanged';
     is scalar( grep { $_->{status} eq 'Ignored' } $after->entries->@* ), 2, 'both ignored mutants stay ignored';
     is $after->reused,                                                   9, 'every result comes from the cache';
 };

@@ -22,10 +22,11 @@ subtest 'a mutant that compiles to the code of the original is ignored' => sub {
         'lib/Fold.pm:11 removed the return value' => 'Killed',
       },
       'statuses';
-    my %reason = map { $_->{mutant}->description => $_->{reason} } $result->entries->@*;
-    is $reason{'replaced > with >='}, 'compiles to the same code as the original', 'the reason names the original';
+    my %reason = map { $_->{mutant}->description => [ $_->@{qw(reason detail)} ] } $result->entries->@*;
+    is $reason{'replaced > with >='}, [ 'same-code-as-original', 'compiles to the same code as the original' ],
+      'the reason names the original';
     my ($kept) = grep { $_->{mutant}->description eq 'replaced if with unless' } $result->entries->@*;
-    is $reason{'removed !'}, 'compiles to the same code as mutant ' . $kept->{mutant}->id,
+    is $reason{'removed !'}, [ 'same-code-as-mutant', 'compiles to the same code as mutant ' . $kept->{mutant}->id ],
       'a later mutant with the code of an earlier survivor names it';
     is $result->tally->{score}, 5 / 7 * 100, 'ignored mutants leave the score';
 };
@@ -95,7 +96,7 @@ subtest 'a mutant that no test reaches is compared too' => sub {
     for my $line ( 8, 12 ) {
         my %entry =
           map { $_->{mutant}->description => $_ } grep { $_->{mutant}->from->[0] == $line } $result->entries->@*;
-        is $entry{'removed !'}{reason},
+        is $entry{'removed !'}{detail},
           'compiles to the same code as mutant ' . $entry{'replaced if with unless'}{mutant}->id,
           "the repeated change on line $line names the mutant that stays";
     }

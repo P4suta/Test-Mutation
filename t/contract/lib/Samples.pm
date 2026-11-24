@@ -2,6 +2,7 @@ package Samples;
 use v5.36;
 use Test::Mutation::Mutant;
 use Test::Mutation::Result;
+use Test::Mutation::Status;
 
 # The sample values of every type of a setting, in one place.
 # `isa` is the name of the type of one value in the configuration, and `letter` is the argument type of the option parser.
@@ -88,8 +89,13 @@ sub _unit ( $number, $letters, $lines ) {
     return $lines > 1 ? ( $code, "# after $number\n" ) : ($code);
 }
 
+# The first reason that the catalog gives the status, and a sentence about the case.
 sub _reason ($status) {
-    return $status eq 'Killed' ? "$SAMPLE_TEST failed" : $status eq 'Survived' ? undef : "reason of $status";
+    return Test::Mutation::Status::of($status)->reasons->[0];
+}
+
+sub _detail ($status) {
+    return $status eq 'Killed' ? "$SAMPLE_TEST failed" : $status eq 'Survived' ? undef : "detail of $status";
 }
 
 # A result with one mutant for each status, in a source with the lines of each mutant in turn.
@@ -129,6 +135,7 @@ sub result (%arg) {
             mutant     => $mutant,
             status     => $status,
             reason     => _reason($status),
+            detail     => _detail($status),
             by         => $status eq 'Killed'     ? $SAMPLE_TEST : undef,
             covered_by => $status eq 'NoCoverage' ? []           : [$SAMPLE_TEST],
             tests_run  => $status eq 'NoCoverage' ? 0            : 1,

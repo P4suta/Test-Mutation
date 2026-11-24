@@ -10,7 +10,7 @@ use RealWorld;
 my $TABLE   = 'xt/realworld/distributions.toml';
 my $RECORDS = 'mutation-report/realworld.jsonl';
 my $SAMPLE  = 6;
-my @SAMPLED = qw(CompileError RuntimeError NoCoverage Survived Timeout);
+my @SAMPLED = qw(CompileError NoVerdict NoCoverage Survived Timeout);
 
 sub slurp ($path) {
     open my $handle, '<:raw', $path or die "cannot read $path: $!\n";
@@ -41,8 +41,9 @@ sub mutant_lines ($mutant) {
         sprintf( '  %s:%d:%d  %s  %s  [%s]', $mutant->@{qw(file line column mutator description id)} ),
         ( map { "    $_" } change($mutant) ),
         '    ' . join '; ',
-        $reached, grep { defined } $mutant->{killed_by},
-        $mutant->{reason},
+        $reached,
+        grep { defined } $mutant->{killed_by},
+        $mutant->@{qw(reason detail)},
     );
 }
 

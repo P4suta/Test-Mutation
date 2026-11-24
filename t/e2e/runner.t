@@ -79,8 +79,8 @@ subtest 'a project whose mutants are all suppressed runs no test and gets no war
     my $root = project( 'lib/Small.pm' => $MODULE =~ s/[+] 1 [}]/+ 1 }    ## no mutate/r, 't/small.t' => $TEST );
     my ($result) = run_fixture($root);
     is $result->warnings, [], 'no warning';
-    is [ map { [ $_->@{qw(status reason)} ] } $result->entries->@* ],
-      [ ( [ 'Ignored', 'suppressed by a comment' ] ) x 3 ],
+    is [ map { [ $_->@{qw(status reason detail)} ] } $result->entries->@* ],
+      [ ( [ 'Ignored', 'suppressed', 'suppressed by a comment' ] ) x 3 ],
       'every mutant is ignored for the reason that the run with tests gives';
     is $result->tests, [], 'no test ran';
 };
@@ -102,8 +102,8 @@ subtest 'a suppressed mutant among others is ignored, and the others run in the 
         'lib/Small.pm:5 replaced + with -'            => 'Killed',
       },
       'statuses';
-    is [ map { $_->{reason} } grep { $_->{status} eq 'Ignored' } $result->entries->@* ],
-      [ ('suppressed by a comment') x 3 ], 'the reason of an ignored mutant';
+    is [ map { [ $_->@{qw(reason detail)} ] } grep { $_->{status} eq 'Ignored' } $result->entries->@* ],
+      [ ( [ 'suppressed', 'suppressed by a comment' ] ) x 3 ], 'the reason of an ignored mutant';
     is [ map { $_->{mutant}->id } $reported->@* ],
       [ map { $_->{mutant}->id } grep { $_->{status} eq 'Killed' } $result->entries->@* ],
       'the listener hears of each mutant that ran, once and in the order of the analysis';
@@ -498,14 +498,14 @@ subtest 'in the project itself, a mutant that leaves a file takes the verdict fr
         '4 removed the body of next_one' => 'Killed',
         '4 removed the return value'     => 'Killed',
         '4 replaced + with -'            => 'Killed',
-        '5 removed the body of size'     => 'RuntimeError',
-        '5 removed the return value'     => 'RuntimeError',
-        '5 replaced > with <='           => 'RuntimeError',
-        '5 replaced > with >='           => 'RuntimeError',
+        '5 removed the body of size'     => 'NoVerdict',
+        '5 removed the return value'     => 'NoVerdict',
+        '5 replaced > with <='           => 'NoVerdict',
+        '5 replaced > with >='           => 'NoVerdict',
       },
       'a kill by the broken test is no kill, and a kill by a sound test stays';
-    is $entry{'5 replaced > with >='}{reason},
-      't/reader.t fails without a mutant since the project changed',
+    is [ $entry{'5 replaced > with >='}->@{qw(reason detail)} ],
+      [ 'project-changed', 't/reader.t fails without a mutant since the project changed' ],
       'the reason of a mutant without a verdict';
     ok !$result->conclusive,       'the run is not conclusive';
     ok -e "$root/left-behind.txt", 'the file stays for the user to judge';
@@ -561,8 +561,8 @@ subtest 'a test that fails decides a mutant that ran another test into its time 
 
     my $alone = project( 'lib/Small.pm' => $MODULE, 't/stuck.t' => $stuck );
     my ($only) = run_fixture( $alone, jobs => 1, timeout_factor => 4, timeout_floor => 0.5 );
-    is [ map { [ $_->@{qw(status by reason)} ] } $only->entries->@* ],
-      [ ( [ 'Timeout', 't/stuck.t', 't/stuck.t exceeded its time limit' ] ) x 3 ],
+    is [ map { [ $_->@{qw(status by reason detail)} ] } $only->entries->@* ],
+      [ ( [ 'Timeout', 't/stuck.t', 'time-limit', 't/stuck.t exceeded its time limit' ] ) x 3 ],
       'without a test that decides, the timeout stays with its test and its reason';
 };
 

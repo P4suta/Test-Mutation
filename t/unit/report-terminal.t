@@ -3,6 +3,7 @@ use Test2::V0;
 use Test::Mutation::Mutant;
 use Test::Mutation::Report::Terminal;
 use Test::Mutation::Result;
+use Test::Mutation::Status;
 
 my $source = "sub is_positive {\n    my (\$n) = \@_;\n    return \$n > 0 ? 1 : 0;\n}\n";
 
@@ -27,7 +28,8 @@ sub entry ( $status, %fields ) {
     return {
         mutant     => mutant(),
         status     => $status,
-        reason     => undef,
+        reason     => Test::Mutation::Status::of($status)->reasons->[0],
+        detail     => undef,
         by         => undef,
         covered_by => ['t/sign.t'],
         tests_run  => 1,
@@ -107,8 +109,9 @@ subtest 'sections appear for the statuses that need attention' => sub {
         result(
             [
                 entry('Killed'),
-                entry( 'NoCoverage',   covered_by => [] ),
-                entry( 'RuntimeError', reason     => 't/a.t loaded the target without the hook' )
+                entry( 'NoCoverage', covered_by => [] ),
+                entry( 'NoVerdict',  detail     => 't/a.t loaded the target without the hook' ),
+                ( map { entry($_) } qw(CompileError Ignored Pending) ),
             ]
         ),
         color => 0,
@@ -116,8 +119,12 @@ subtest 'sections appear for the statuses that need attention' => sub {
     unlike $text, qr/^Killed \(/m,                                       'killed mutants are not listed';
     like $text,   qr/^No coverage \(1\)$/m,                              'no coverage section';
     like $text,   qr/^    reached by no test$/m,                         'a mutant without tests says so';
-    like $text,   qr/^Runtime error \(1\)$/m,                            'runtime error section';
-    like $text,   qr/^    t\/a\.t loaded the target without the hook$/m, 'the reason';
+    like $text,   qr/^No verdict \(1\)$/m,                               'a section for the mutants without a verdict';
+    like $text,   qr/^    t\/a\.t loaded the target without the hook$/m, 'the sentence about the case';
+    is [ $text =~ /^(\S[^\n]*) [(]\d+[)]$/mg ], [ 'No coverage', 'No verdict' ],
+      'the statuses without a heading in the catalog have no section';
+    like $text, qr/^6 mutants: 1 killed, 1 no coverage, 1 compile error, 1 no verdict, 1 ignored, 1 pending$/m,
+      'the summary counts every status in the order of the catalog';
 };
 
 subtest 'warnings, problems, and baseline failures are reported' => sub {
@@ -181,7 +188,7 @@ subtest 'the whole report keeps its order' => sub {
                 entry('Killed'),
                 entry( 'Survived',   covered_by => [qw(t/a.t t/b.t t/c.t t/d.t t/e.t)] ),
                 entry( 'NoCoverage', covered_by => [] ),
-                entry( 'Timeout',    reason     => 'slow' ),
+                entry( 'Timeout',    detail     => 'slow' ),
             ],
             warnings    => [ 'first warning', 'second warning' ],
             problems    => [ { path => 'lib/Bad.pm', problem => 'unreadable' } ],

@@ -13,6 +13,7 @@ use Test::Mutation::Error;
 use Test::Mutation::Exit;
 use Test::Mutation::Interrupted;
 use Test::Mutation::Report::GitHub;
+use Test::Mutation::Report::Json;
 use Test::Mutation::Report::Progress;
 use Test::Mutation::Report::Terminal;
 use Test::Mutation::Score;
@@ -114,6 +115,8 @@ subtest 'the status table names every status and what each report does with it' 
         my ($heading)    = $report                                                        =~ /^(\S[^\n]*) [(]1[)]$/m;
         my ($progress)   = Test::Mutation::Report::Progress::line( 1, 1, { $name => 1 } ) =~ /\A\[1\/1\] 1 (.+)\z/;
         my ($annotation) = Test::Mutation::Report::GitHub::annotations($result)           =~ /\A::(\w+) /;
+        my ($mutant)     = map { $_->{mutants}->@* }
+          values Test::Mutation::Report::Json::document( $result, high => 80, low => 60 )->{files}->%*;
         is {
             word       => $word,
             heading    => $heading,
@@ -121,8 +124,11 @@ subtest 'the status table names every status and what each report does with it' 
             progress   => defined $progress ? 1 : 0,
             annotation => $annotation,
             cached     => Space::cache_keeps($name),
+            schema     => $mutant->{status},
           },
-          { map { $_ => $status->$_ } qw(word heading role progress annotation cached) }, "the facts of $name";
+          { map { $_ => $status->$_ } qw(word heading role progress annotation cached schema) }, "the facts of $name";
+        is $mutant->{testMutation}{status}, $name,
+          "the report file keeps the status $name beside the name of the schema";
         is $progress, $status->word, "the progress line counts $name with the same word" if defined $progress;
     }
     is scalar(@statuses), 8, 'the statuses';
@@ -143,7 +149,7 @@ subtest 'the exit table names every exit status of the command' => sub {
         (
             map { Space::decided( Samples::result( $_->@* ), '--min-score', 50 )->{exit} } [ statuses => ['Killed'] ],
             [ statuses          => ['Survived'] ],
-            [ statuses          => ['RuntimeError'] ],
+            [ statuses          => ['NoVerdict'] ],
             [ baseline_failures => [ { test => 't/a.t', output => q{}, errors => q{} } ] ]
         ),
         $failing->( $unreadable,              'list' ),

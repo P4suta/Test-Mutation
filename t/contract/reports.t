@@ -38,9 +38,28 @@ sub tallied (@names) {
     return \%count;
 }
 
-sub document_counts ($document) {
-    return tallied( map { $_->{status} } map { $_->{mutants}->@* } values $document->{files}->%* );
+sub mutants_of ($document) {
+    return map { $_->{mutants}->@* } values $document->{files}->%*;
 }
+
+# The counts of the statuses of the run, which a report file keeps beside the name of the schema.
+sub document_counts ($document) {
+    return tallied( map { $_->{testMutation}{status} } mutants_of($document) );
+}
+
+# The documents of the report files, as a viewer reads them.
+my %document_of = (
+    json => sub ($result) {
+        return JSON::PP->new->decode( Test::Mutation::Report::Json::render( $result, high => 80, low => 60 ) );
+    },
+    html => sub ($result) {
+        my ($data) =
+          Test::Mutation::Report::Html::render( $result, high => 80, low => 60 ) =~
+          m{<script id="report" type="application/json">(.*?)</script>}s
+          or die "the HTML report holds no document\n";
+        return JSON::PP->new->decode($data);
+    },
+);
 
 # The counts that each format states, by status, or nothing for a report without counts.
 my %stated = (
@@ -49,17 +68,8 @@ my %stated = (
           or return;
         return { map { /(\d+) (.+)\z/ ? ( $status_of{$2} => $1 ) : () } split /, /, defined $summary ? $summary : q{} };
     },
-    json => sub ($result) {
-        return document_counts(
-            JSON::PP->new->decode( Test::Mutation::Report::Json::render( $result, high => 80, low => 60 ) ) );
-    },
-    html => sub ($result) {
-        my ($data) =
-          Test::Mutation::Report::Html::render( $result, high => 80, low => 60 ) =~
-          m{<script id="report" type="application/json">(.*?)</script>}s
-          or die "the HTML report holds no document\n";
-        return document_counts( JSON::PP->new->decode($data) );
-    },
+    json   => sub ($result) { return document_counts( $document_of{json}->($result) ) },
+    html   => sub ($result) { return document_counts( $document_of{html}->($result) ) },
     github => sub ($result) {
         my ( $heads, $values ) = ( split /\n/, Test::Mutation::Report::GitHub::summary($result) )[ -3, -1 ];
         my @heads  = map  { $status_of{ lc $_ } } grep { length } split /\s*[|]\s*/, $heads;
@@ -69,7 +79,7 @@ my %stated = (
 );
 
 sub facts ($result) {
-    return [ map { { id => $_->{mutant}->id, status => $_->{status}, reason => $_->{reason} } } $result->entries->@* ];
+    return [ map { { id => $_->{mutant}->id, $_->%{qw(status reason detail)} } } $result->entries->@* ];
 }
 
 # The report file as the command writes it and as the merge reads it: UTF-8 on the way out and on the way in.
@@ -82,10 +92,12 @@ subtest 'the readers of the reports reject a count that a format leaves out' => 
     my $result = Samples::result( statuses => [qw(Killed Killed Timeout Ignored)] );
     my %counts = ( Killed => 2, Timeout => 1, Ignored => 1 );
     is $stated{$_}->($result), \%counts, "the counts of the $_ report" for qw(terminal json html);
-    is $stated{github}->($result), { Killed => 2, Survived => 0, NoCoverage => 0, Timeout => 1 },
-      'the counts of the summary';
-    is [ Invariants::counts( \%counts, $stated{github}->($result) ) ], [ [ 'the report states no count', 'Ignored' ] ],
-      'the summary leaves a status out';
+    is $stated{github}->($result), { ( map { $_->name => 0 } @statuses ), %counts }, 'the counts of the summary';
+    is [ Invariants::counts( \%counts, { Killed => 2, Timeout => 1 } ) ],
+      [ [ 'the report states no count', 'Ignored' ] ],
+      'a report that leaves a status out';
+    is tallied( map { $_->{status} } mutants_of( $document_of{json}->($result) ) ), { Killed => 2, Ignored => 2 },
+      'the report file writes the names of the schema, which a viewer counts';
     is [ Invariants::round_trip( facts($result), facts( read_again($result) ) ) ], [], 'the report file reads back';
 };
 
@@ -111,7 +123,10 @@ for my $shape (@shapes) {
         }
 
         # A viewer of the report file computes the score from the statuses that the file holds.
-        violation( 'role', $_, $label, 'html json' ) for Invariants::role( $counts, $result->tally->{score} );
+        for my $format ( sort keys %document_of ) {
+            my $held = tallied( map { $_->{status} } mutants_of( $document_of{$format}->($result) ) );
+            violation( 'role', $_, $label, $format ) for Invariants::role( $held, $result->tally->{score} );
+        }
         my $again = read_again($result);
         my @lost  = Invariants::round_trip( facts($result), facts($again) );
 

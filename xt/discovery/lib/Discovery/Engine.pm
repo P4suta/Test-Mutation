@@ -12,7 +12,6 @@ use Discovery::Project;
 # A saboteur is this adapter with one part replaced, and the observation of a run stays the same code.
 
 my @STATUSES     = qw(Killed Survived NoCoverage Timeout CompileError NoVerdict Ignored Pending);
-my %STATUS       = ( RuntimeError => 'NoVerdict' );
 my @EXITS        = ( 0 .. 6, 125, 129, 130, 131, 141, 143 );
 my $JOBS         = 2;
 my $DEADLINE     = 120;
@@ -201,11 +200,13 @@ sub normalize ( $self, $raw ) {
     $run{baseline_failures} = [ sort $facts->{baselineFailures}->@* ];
     $run{reused}            = $facts->{reused};
     $run{interrupted}       = $facts->{interrupted};
+
+    # The status of a mutant in the schema is the one that a viewer counts, and the facts beside it keep the status of the run.
     for my $path ( sort keys $document->{files}->%* ) {
         for my $mutant ( $document->{files}{$path}{mutants}->@* ) {
             my $id = $mutant->{id};
             my ( $line, $column, $end_line, $end_column ) = _position( $mutant->{location} );
-            my $status = $STATUS{ $mutant->{status} } || $mutant->{status};
+            my $status = $mutant->{testMutation}{status};
             $run{mutants}{$id} = {
                 path        => $path,
                 line        => $line,
@@ -216,7 +217,7 @@ sub normalize ( $self, $raw ) {
                 mutator     => $mutant->{mutatorName},
             };
             $run{status}{$id}  = $status;
-            $run{reason}{$id}  = $mutant->{statusReason};
+            $run{reason}{$id}  = $mutant->{testMutation}{reason};
             $run{by}{$id}      = $mutant->{killedBy} ? $mutant->{killedBy}[0] : undef;
             $run{covered}{$id} = [ sort $mutant->{coveredBy}->@* ];
             $run{counts}{$status}++;

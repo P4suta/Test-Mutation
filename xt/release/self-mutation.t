@@ -15,11 +15,13 @@ my @library = sort glob 'lib/Test/Mutation.pm lib/Test/Mutation/*.pm lib/Test/Mu
 my @absent  = grep { !$mutants{$_} } @library;
 is \@absent, [], 'the report covers every library file';
 
-my @all = map { $_->@* } values %mutants;
-is scalar( grep { $_->{status} eq 'Pending' } @all ),      0, 'the run finished';
-is scalar( grep { $_->{status} eq 'RuntimeError' } @all ), 0, 'no test loaded a source around the hook';
+# The facts beside each mutant keep its status in the run, which the schema writes another way for a timeout.
+my $status_of = sub ($mutant) { return $mutant->{testMutation}{status} };
+my @all       = map { $_->@* } values %mutants;
+is scalar( grep { $status_of->($_) eq 'Pending' } @all ),   0, 'the run finished';
+is scalar( grep { $status_of->($_) eq 'NoVerdict' } @all ), 0, 'every mutant has a verdict';
 
-my @served = grep { $_->{status} =~ /\A(?:Killed|Survived|Timeout)\z/ } $mutants{'lib/Test/Mutation/Shim.pm'}->@*;
+my @served = grep { $status_of->($_) =~ /\A(?:Killed|Survived|Timeout)\z/ } $mutants{'lib/Test/Mutation/Shim.pm'}->@*;
 ok scalar(@served), 'the tests loaded mutants of the shim' or diag 'every mutant of the shim is without coverage';
 
 done_testing;

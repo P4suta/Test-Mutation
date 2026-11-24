@@ -7,6 +7,7 @@ use lib 't/e2e/lib', 't/lib';
 use Fixture qw(copy_of run_fixture);
 use Gate;
 use Test::Mutation::Report::Json;
+use Test::Mutation::Status;
 
 # The schema file is the one that the pinned release of the viewer publishes; `mise run schema` fetches it.
 my $path = 'xt/schema/mutation-testing-report-schema.json';
@@ -34,10 +35,13 @@ for my $fixture (qw(calc mechanics equivalent)) {
     is errors( report( $result, high => 79.5, low => 60.25 ) ), [], "fractional thresholds of $fixture stay valid";
 }
 Gate::checked( 'mutants in the validated reports', $mutants, at_least => 40 );
-is [
-    sort $schema->{properties}{files}{additionalProperties}{properties}{mutants}{items}{properties}{status}{enum}->@* ],
-  [qw(CompileError Ignored Killed NoCoverage Pending RuntimeError Survived Timeout)],
-  'the schema and the verdict rules name the same statuses';
+my %enum =
+  map { $_ => 1 }
+  $schema->{properties}{files}{additionalProperties}{properties}{mutants}{items}{properties}{status}{enum}->@*;
+is [ grep { !$enum{ $_->schema } } Test::Mutation::Status::rows()->@* ], [],
+  'every status of the catalog has a name that the schema defines';
+is [ sort keys %enum ], [qw(CompileError Ignored Killed NoCoverage Pending RuntimeError Survived Timeout)],
+  'the statuses of the pinned schema';
 
 subtest 'the gate rejects a report that breaks the schema' => sub {
     my ($result) = run_fixture( copy_of('calc') );

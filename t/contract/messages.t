@@ -353,7 +353,7 @@ heard( 'message-slots', raised( sub { Test::Mutation::Message::text_of( 'inconcl
 raised(
     sub {
         Test::Mutation::Verdict::step( Test::Mutation::Verdict::start(),
-            { test => 't/a.t', result => 'fail', served => 1, load_failed => 1, bypassed => 0, syntax_ok => undef } );
+            { test => 't/a.t', result => 'fail', served => 1, load_failed => 1, bypassed => 0, syntax => undef } );
     }
 );
 
@@ -362,7 +362,7 @@ my $failure = { test => 't/a.t', output => "not ok 1\n", errors => q{} };
 for my $case (
     [ [ statuses => [qw(Killed Survived)] ], '--min-score', 100 ],
     [ [ statuses => [], baseline_failures => [$failure] ] ],
-    [ [ statuses => ['RuntimeError'] ] ],
+    [ [ statuses => ['NoVerdict'] ] ],
     [ [ statuses => [qw(Killed Pending)], interrupted => 'TERM' ] ],
   )
 {

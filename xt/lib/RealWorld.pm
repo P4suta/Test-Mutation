@@ -146,8 +146,9 @@ sub _mutants_of ( $file, $entry ) {
             column      => $start->{column},
             mutator     => $mutant->{mutatorName},
             description => $mutant->{description},
-            status      => $mutant->{status},
-            reason      => $mutant->{statusReason},
+            status      => $mutant->{testMutation}{status},
+            reason      => $mutant->{testMutation}{reason},
+            detail      => $mutant->{statusReason},
             original    => substr( $source, $from, $to - $from ),
             replacement => $mutant->{replacement},
             source      => $lines[ $start->{line} - 1 ],
@@ -167,6 +168,7 @@ sub _in_order (@mutants) {
 
 # The part of a report of the tool that a record keeps: the facts of the run and each mutant with the text it replaces.
 # The sources stay behind, so a record holds one line of foreign code for a mutant and no file.
+# A mutant keeps its status in the run and its reason, which the report file holds beside the name of the schema.
 sub report ($document) {
     my $facts = $document->{testMutation};
     my $files = $document->{files};
@@ -226,7 +228,7 @@ sub _inside ( $band, $value ) {
 sub _promised_exit ( $report, $tally ) {
     return 3 if $report->{baseline_failures}->@*;
     my $counts = $tally->{counts};
-    return 4 if $counts->{RuntimeError};
+    return 4 if $counts->{NoVerdict};
     return 4 if $tally->{total} - ( $counts->{Ignored} || 0 ) > 0 && !defined $tally->{score};
     return 0;
 }
@@ -280,8 +282,8 @@ my @INVARIANTS = (
     [
         'the run reports a mutant that fails to compile', sub ( $run, $record, $seen ) { $seen->{counts}{CompileError} }
     ],
-    [ 'the run reports a runtime error', sub ( $run, $record, $seen ) { $seen->{counts}{RuntimeError} } ],
-    [ 'the run leaves a mutant pending', sub ( $run, $record, $seen ) { $seen->{counts}{Pending} } ],
+    [ 'the run reports a mutant without a verdict', sub ( $run, $record, $seen ) { $seen->{counts}{NoVerdict} } ],
+    [ 'the run leaves a mutant pending',            sub ( $run, $record, $seen ) { $seen->{counts}{Pending} } ],
     [
         'the run warns that a test loads a source around the hook',
         sub ( $run, $record, $seen ) { $seen->{warned}{'around-the-hook'} }

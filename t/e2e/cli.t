@@ -60,7 +60,10 @@ subtest 'a run that cannot judge a mutant exits with status 4 and one line that 
             "use Test::More tests => 1;\nBEGIN { select undef, undef, undef, 0.6 }\n"
           . "use Slow;\nis Slow::next_one(2), 3, 'the next one';\n" );
     my $run = ran( 4, $root, '--jobs', 2, '--format', 'terminal', '--timeout-factor', 0.1, '--timeout-floor', 0.1 );
-    like $run->{stdout}, qr/^3 mutants: 3 runtime error$/m, 'every test ran out of time before it loaded a mutant';
+    like $run->{stdout}, qr/^3 mutants: 3 no verdict$/m, 'every test ran out of time before it loaded a mutant';
+    like $run->{stdout},
+      qr/^No verdict \(3\)\n.*^    t\/slow\.t exceeded its time limit before it loaded the mutant$/ms,
+      'the section of the mutants without a verdict names the test';
     like $run->{stderr}, qr/\nmutation: the run states no score\n\z/,
       'the last line of standard error names the outcome';
 };
@@ -210,7 +213,7 @@ subtest 'GitHub Actions gets annotations and a job summary' => sub {
     my $root   = copy_of('calc');
     my $format = ran( 0, $root, '--jobs', 2, '--format', 'github' );
     like $format->{stdout},
-      qr/^::warning file=lib\/Calc\.pm,line=12,col=15,endLine=12,endColumn=16,title=Survived mutant::/m,
+      qr/^::warning file=lib\/Calc\.pm,line=12,col=15,endLine=12,endColumn=16,title=Survived::/m,
       '--format github prints annotations';
     unlike $format->{stdout}, qr/^Score:/m, 'and nothing else';
 

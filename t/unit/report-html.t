@@ -31,6 +31,7 @@ my $result = Test::Mutation::Result->new(
             mutant     => $mutant,
             status     => 'Survived',
             reason     => undef,
+            detail     => undef,
             by         => undef,
             covered_by => ['t/page.t'],
             tests_run  => 1,

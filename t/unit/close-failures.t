@@ -37,8 +37,16 @@ sub failing_in ( $pattern, $code ) {
     return $code->();
 }
 
-my $record =
-  { inputs => 'k', status => 'Killed', reason => undef, by => 't/a.t', tests_run => 1, duration => 0.1, code => undef };
+my $record = {
+    inputs    => 'k',
+    status    => 'Killed',
+    reason    => undef,
+    detail    => undef,
+    by        => 't/a.t',
+    tests_run => 1,
+    duration  => 0.1,
+    code      => undef
+};
 my $cache = "$directory/cache.json";
 is Test::Mutation::Cache::save( $cache, { abc => $record } ), 1,       'the cache is written';
 is [ keys Test::Mutation::Cache::load($cache)->%* ],          ['abc'], 'and read back';

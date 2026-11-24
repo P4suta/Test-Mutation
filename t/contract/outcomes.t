@@ -112,7 +112,7 @@ subtest 'the gate of the configuration file' => sub {
 };
 
 subtest 'an error of the command and an outcome of a run' => sub {
-    my $inconclusive = Space::decided( Samples::result( statuses => ['RuntimeError'] ) )->{exit};
+    my $inconclusive = Space::decided( Samples::result( statuses => ['NoVerdict'] ) )->{exit};
     my $error        = do {
         no warnings 'redefine';
         local *Test::Mutation::Runner::run = sub { die "the engine broke\n" };

@@ -24,6 +24,7 @@ use Test::Mutation::Record;
 use Test::Mutation::Result;
 use Test::Mutation::Signals;
 use Test::Mutation::Source;
+use Test::Mutation::Status;
 use Test::Mutation::Syntax::PPI;
 use Test::Mutation::Tree;
 use Test::Mutation::Try;
@@ -32,7 +33,7 @@ use Test::Mutation::Verdict;
 our $VERSION = '0.001';
 
 my $SHIM_FILE     = 'Test/Mutation/Shim.pm';
-my %UNDETECTED    = ( Survived => 1, NoCoverage => 1 );
+my %UNDETECTED    = map { $_->name => 1 } grep { $_->role eq 'undetected' } Test::Mutation::Status::rows()->@*;
 my $CHANGES_NAMED = 5;
 my $TYPED         = InstanceOf ['Test::Mutation::Error'];
 my $INTERRUPTION  = InstanceOf ['Test::Mutation::Interrupted'];
@@ -280,7 +281,7 @@ sub _measure ( $run, $started ) {
     else {
         _warn( $run, Test::Mutation::Message::warning('tests-unmatched') ) if @active && !@tests;
         $result{entries} =
-          [ map { $_->suppressed ? _suppressed($_) : _entry( $_, 'NoCoverage', undef, undef, [], 0, 0 ) }
+          [ map { $_->suppressed ? _suppressed($_) : _entry( $_, 'NoCoverage', 'unreached', undef, undef, [], 0, 0 ) }
               $analysis->{mutants}->@* ];
     }
 
@@ -310,11 +311,12 @@ sub _spew ( $path, $content ) {
     return;
 }
 
-sub _entry ( $mutant, $status, $reason, $by, $covered_by, $tests_run, $duration ) {
+sub _entry ( $mutant, $status, $reason, $detail, $by, $covered_by, $tests_run, $duration ) {
     return {
         mutant     => $mutant,
         status     => $status,
         reason     => $reason,
+        detail     => $detail,
         by         => $by,
         covered_by => $covered_by,
         tests_run  => $tests_run,
@@ -323,7 +325,7 @@ sub _entry ( $mutant, $status, $reason, $by, $covered_by, $tests_run, $duration 
 }
 
 sub _suppressed ($mutant) {
-    return _entry( $mutant, 'Ignored', 'suppressed by a comment', undef, [], 0, 0 );
+    return _entry( $mutant, 'Ignored', 'suppressed', 'suppressed by a comment', undef, [], 0, 0 );
 }
 
 # Tasks end in an order that changes from run to run, so the warnings form a set that the result sorts.
@@ -671,7 +673,7 @@ sub _mutants ( $run, $mutants, $baseline ) {
         $run->{interrupted} = $error->signal;
         for my $job ( grep { !$entry_of{ $_->{mutant}->id } } @jobs ) {
             $entry_of{ $job->{mutant}->id } = _entry(
-                $job->{mutant}, 'Pending',     'the run was interrupted',
+                $job->{mutant}, 'Pending',     'interrupted', 'the run was interrupted',
                 undef,          $job->{tests}, $job->{verdict}{tests},
                 $job->{duration}
             );
@@ -701,8 +703,8 @@ sub _recheck ( $run, $tests, $entries, $changes ) {
     my $outcome = _unmodified( $run, 'recheck', 0, $run->{jobs}, $tests );
     my %broken  = map { $_ => 1 } grep { !$outcome->{$_}{result}{passed} } $tests->@*;
     for my $entry ( grep { $_->{status} eq 'Killed' && $broken{ $_->{by} } } $entries->@* ) {
-        $entry->@{qw(status reason)} =
-          ( 'RuntimeError', "$entry->{by} fails without a mutant since the project changed" );
+        $entry->@{qw(status reason detail)} =
+          ( 'NoVerdict', 'project-changed', "$entry->{by} fails without a mutant since the project changed" );
     }
     _warn( $run, Test::Mutation::Message::warning( 'test-unstable', test => $_ ) ) for sort keys %broken;
     return;
@@ -795,7 +797,7 @@ sub _reused_entry ( $run, $cache, $job ) {
     $run->{code_of_mutant}{ $mutant->id } = $record->{code} if defined $record->{code};
     $run->{reused}++;
     my $entry =
-      _entry( $mutant, $record->@{qw(status reason by)}, $job->{tests}, $record->@{qw(tests_run duration)} );
+      _entry( $mutant, $record->@{qw(status reason detail by)}, $job->{tests}, $record->@{qw(tests_run duration)} );
     $run->{listener}->( 'mutant', $entry );
     return $entry;
 }
@@ -805,8 +807,10 @@ sub _save_cache ( $run, $cache, $entries ) {
     for my $entry ( $entries->@* ) {
         my $id  = $entry->{mutant}->id;
         my $key = $cache->{keys}{$id} or next;
-        $records{$id} =
-          { inputs => $key, $entry->%{qw(status reason by tests_run duration)}, code => $run->{code_of_mutant}{$id} };
+        $records{$id} = {
+            inputs => $key,
+            $entry->%{qw(status reason detail by tests_run duration)}, code => $run->{code_of_mutant}{$id}
+        };
     }
     Test::Mutation::Cache::save( $cache->{path}, \%records );
     return;
@@ -819,7 +823,8 @@ sub _ignore_repeated_code ( $run, $entries ) {
         my $code   = $run->{code_of_mutant}{ $mutant->id } or next;
         my $key    = join "\n", $mutant->path, $code;
         if ( defined $first{$key} ) {
-            $entry->@{qw(status reason)} = ( 'Ignored', "compiles to the same code as mutant $first{$key}" );
+            $entry->@{qw(status reason detail)} =
+              ( 'Ignored', 'same-code-as-mutant', "compiles to the same code as mutant $first{$key}" );
             next;
         }
         $first{$key} = $mutant->id;
@@ -871,28 +876,30 @@ sub _after_test ( $run, $task, $result ) {
         served      => $record->{served}{$absolute}                                         ? 1 : 0,
         load_failed => $record->{load_failed}{$absolute} || !$record->{compiled}{$absolute} ? 1 : 0,
         bypassed    => $record->{bypassed}{$absolute}                                       ? 1 : 0,
-        syntax_ok   => $job->{syntax_ok},
+        syntax      => $job->{syntax},
     };
-    return if !$job->{outcome}{served} || !$job->{outcome}{load_failed} || defined $job->{syntax_ok};
+    return if !$job->{outcome}{served} || !$job->{outcome}{load_failed} || defined $job->{syntax};
 
     my $known = $run->{syntax_of_original}{$path};
     return _compile_task( $run, $job, 'syntax-original', "$run->{root}/$path", '-c' ) if !defined $known;
     return _compile_task( $run, $job, 'syntax-mutant',   $job->{file},         '-c' ) if $known;
-    $job->{outcome}{syntax_ok} = $job->{syntax_ok} = 0;
+    $job->{outcome}{syntax} = $job->{syntax} = 'standalone';
     return;
 }
 
+# A failed check of the original says that the source does not compile alone, so its mutants say nothing more.
 sub _after_syntax ( $run, $task, $result ) {
-    my $job  = $task->{payload}{job};
-    my $path = $job->{mutant}->path;
-    my $ok   = $result->{exit} == 0 && !$result->{timed_out} ? 1 : 0;
+    my $job      = $task->{payload}{job};
+    my $path     = $job->{mutant}->path;
+    my $ok       = $result->{exit} == 0 && !$result->{timed_out} ? 1 : 0;
+    my $original = $task->{payload}{kind} eq 'syntax-original';
     unlink $task->{stderr};
-    if ( $task->{payload}{kind} eq 'syntax-original' ) {
+    if ($original) {
         $run->{syntax_of_original}{$path} = $ok;
         return _compile_task( $run, $job, 'syntax-mutant', $job->{file}, '-c' ) if $ok;
         _warn( $run, Test::Mutation::Message::warning( 'syntax-check-failed', path => $path ) );
     }
-    $job->{outcome}{syntax_ok} = $job->{syntax_ok} = $ok;
+    $job->{outcome}{syntax} = $job->{syntax} = $ok ? 'ok' : $original ? 'standalone' : 'compile-phase';
     return;
 }
 
@@ -936,13 +943,15 @@ sub _finish ( $run, $job ) {
     my $verdict = Test::Mutation::Verdict::conclude( $job->{verdict} );
     my $mutant  = $job->{mutant};
     my $code    = defined $job->{code} ? $job->{code} : q{};
-    my ( $status, $reason ) = $verdict->@{qw(status reason)};
+    my ( $status, $reason, $detail ) = $verdict->@{qw(status reason detail)};
     if ( length $code ) {
         $run->{code_of_mutant}{ $mutant->id } = $code;
-        ( $status, $reason ) = ( 'Ignored', 'compiles to the same code as the original' )
+        ( $status, $reason, $detail ) =
+          ( 'Ignored', 'same-code-as-original', 'compiles to the same code as the original' )
           if $code eq $run->{code_of_original}{ $mutant->path }[0];
     }
-    my $entry = _entry( $mutant, $status, $reason, $verdict->{by}, $job->{tests}, $verdict->{tests}, $job->{duration} );
+    my $entry =
+      _entry( $mutant, $status, $reason, $detail, $verdict->{by}, $job->{tests}, $verdict->{tests}, $job->{duration} );
     $run->{listener}->( 'mutant', $entry );
     return $entry;
 }

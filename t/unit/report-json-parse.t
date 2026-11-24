@@ -5,6 +5,7 @@ use Raised;
 use Test::Mutation::Mutant;
 use Test::Mutation::Report::Json;
 use Test::Mutation::Result;
+use Test::Mutation::Status;
 
 my $source = "sub is_positive {\n    my (\$n) = \@_;\n    return \$n > 0 ? 1 : 0;\n}\n";
 
@@ -27,7 +28,8 @@ sub entry ( $status, %fields ) {
     return {
         mutant     => $mutant,
         status     => $status,
-        reason     => undef,
+        reason     => Test::Mutation::Status::of($status)->reasons->[0],
+        detail     => undef,
         by         => undef,
         covered_by => [],
         tests_run  => 0,
@@ -49,7 +51,7 @@ my $result = Test::Mutation::Result->new(
             tests_run  => 1,
             duration   => 0.25
         ),
-        entry( 'Ignored', id => '000000000002', reason => 'suppressed by a comment' ),
+        entry( 'Ignored', id => '000000000002', detail => 'suppressed by a comment' ),
         entry( 'Pending', id => '000000000003' ),
     ],
     problems          => [ { path => 'lib/Odd.pm', problem => 'the file has carriage returns' } ],
@@ -107,6 +109,22 @@ subtest 'a value of the wrong type is refused with its place in the report' => s
         'a count that is missing' => [ sub ($t) { $t =~ s/"jobs" : 3,//r }, q{->{"testMutation"}->{"jobs"}} ],
         'an unknown status'       =>
           [ sub ($t) { $t =~ s/"status" : "Killed"/"status" : "Eaten"/r }, $mutant . q{->{"status"}} ],
+        'an unknown status of the run' => [
+            sub ($t) {
+                $t =~ s/("reason" : "interrupted",\s+"scope" : \[[^\]]*\],\s+"status" : )"Pending"/$1"Waiting"/r;
+            },
+            q{->{"files"}->{"lib/Calc.pm"}->{"mutants"}->[2]->{"testMutation"}->{"status"}}
+        ],
+        'a status of the schema that differs from the status of the run' =>
+          [ sub ($t) { $t =~ s/"status" : "Killed"/"status" : "Survived"/r }, $mutant ],
+        'a reason of another status' =>
+          [ sub ($t) { $t =~ s/"reason" : "suppressed"/"reason" : "interrupted"/r }, $mutant =~ s/0\]\z/1]/r ],
+        'a status without its reason' =>
+          [ sub ($t) { $t =~ s/"reason" : "interrupted"/"reason" : null/r }, $mutant =~ s/0\]\z/2]/r ],
+        'an unknown reason' => [
+            sub ($t) { $t =~ s/"reason" : "suppressed"/"reason" : "bored"/r },
+            q{->{"files"}->{"lib/Calc.pm"}->{"mutants"}->[1]->{"testMutation"}->{"reason"}}
+        ],
         'a line that is no number' =>
           [ sub ($t) { $t =~ s/"line" : 3/"line" : "third"/r }, $mutant . q{->{"location"}->{"end"}->{"line"}} ],
         'an unknown signal' => [
@@ -204,10 +222,20 @@ subtest 'locations at the edges of a source are read, and the entries keep the o
       'the first character, the end of the text, and a place without width, file by file';
 };
 
-subtest 'every status and every signal of a result is read back' => sub {
-    my @statuses = qw(Killed Survived NoCoverage Timeout CompileError RuntimeError Ignored Pending);
-    my $read     = read_back( entries => [ map { entry( $statuses[$_], id => "00000000000$_" ) } 0 .. $#statuses ] );
-    is [ map { $_->{status} } $read->entries->@* ],                              \@statuses,         'the statuses';
+subtest 'every status, every reason, and every signal of a result is read back' => sub {
+    my @pairs;
+    for my $status ( Test::Mutation::Status::rows()->@* ) {
+        push @pairs, map { [ $status->name, $_ ] } $status->reasons->@* ? $status->reasons->@* : (undef);
+    }
+    my $read = read_back(
+        entries => [
+            map { entry( $pairs[$_][0], id => sprintf( '%012d', $_ ), reason => $pairs[$_][1], detail => "detail $_" ) }
+              0 .. $#pairs
+        ]
+    );
+    is [ map { [ $_->@{qw(status reason detail)} ] } $read->entries->@* ],
+      [ map { [ $pairs[$_]->@*, "detail $_" ] } 0 .. $#pairs ], 'the statuses, the reasons, and the details';
+    is scalar @pairs, 21, 'every status with each of its reasons';
     is [ map { read_back( interrupted => $_ )->interrupted } qw(HUP INT TERM) ], [qw(HUP INT TERM)], 'the signals';
 };
 

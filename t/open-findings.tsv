@@ -222,7 +222,6 @@ mutants-suppress-pairs	the parser starts a second block inside an open block and
 type-contracts	lib/Test/Mutation.pm uses 3 bare HashRef	the settings table gives every setting of a call its type
 type-contracts	lib/Test/Mutation/Config.pm uses 4 bare HashRef	the settings table gives every layer of settings its type
 type-contracts	lib/Test/Mutation/Pool.pm uses 1 Any	the pool loop with a typed payload
-type-contracts	lib/Test/Mutation/Report/Json.pm uses 2 bare HashRef	the status catalog and its typed report document
 contract-exit-table-arguments	missing: accepted; flags --disable --enable --mutant --perl --report-dir --since --source --test; commands exec	the settings table
 contract-one-line-arguments	equals: no line with the prefix; flags --cache --equivalence --in-place --keep-work; commands default exec list merge run show	the settings table
 contract-one-line-arguments	missing: no line with the prefix; flags --config --coverage --disable --enable --format --mutant --perl --profile --report-dir --root --shard --since --source --test; commands default list merge run show	the settings table
@@ -351,8 +350,6 @@ engine-differential	cache perturbation=shadow: the run with the cache gives Surv
 engine-differential	cache perturbation=source: the cache keeps the record of a mutant that is gone	the cache key over every input of a result
 engine-differential	cache selection=since: the run measures again a result that the cache holds	the cache key over every input of a result
 engine-faults	fault=a project without the right to write: the run exits with status 5	the workspace outside the project
-engine-known	I5 NoCoverage carries no reason	the status catalog and its reasons
-engine-zoo	I5 NoCoverage carries no reason	the status catalog and its reasons
 engine-zoo	build=blib-differing: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
 engine-zoo	build=blib-differing: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the placement of a mutant in the copy
 engine-zoo	build=blib-script: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
@@ -407,12 +404,17 @@ engine-zoo-full	in the project, files=write-file: I4 the project changed: create
 engine-zoo-full	in the project, files=write-file: I4 the project changed: created out/written.txt	the limits that a run in the project states for itself
 records	the record table parses the kind error into errors, and the runner never reads errors	the closed record vocabulary and its evidence
 records	the shim writes the kind end, and the record table drops it	the closed record vocabulary and its evidence
+contract-reason-reasons	no case gives the reason CompileError parse	the kinds of compile error, which tell a mutant whose code dies at compile time from invalid code
+contract-reason-reasons	no case gives the reason NoVerdict build-copy-not-updated	the build of a distribution in the copy
+contract-reason-reasons	no case gives the reason NoVerdict conflicting-test	the recheck of a failure beside another run of the same test
+contract-reason-reasons	no case gives the reason NoVerdict no-record	the closed record vocabulary and its evidence
+contract-reason-reasons	no case gives the reason NoVerdict outside-copy	the closed record vocabulary and its evidence
+contract-reason-reasons	no case gives the reason NoVerdict shim-error	the closed record vocabulary and its evidence
+contract-reason-reasons	no case gives the reason NoVerdict slot-not-restored	the workspace outside the project
 contract-progress-sum-progress	the counts of a line sum to less than its position; lengths 1 2 3 4; streams log terminal	the progress display
 contract-progress-final-progress	the last line states another count than the result; statuses Ignored Pending; streams log terminal	the progress display
 contract-liveness-progress	the silence grows with the run; phases baseline; streams log terminal	the progress display
 contract-liveness-progress	the silence grows with the run; phases mutants; streams log	the progress display
-contract-counts-reports	the report states no count; statuses CompileError Ignored Pending RuntimeError; formats github	the terminal report and the summary of GitHub
-contract-role-reports	the score differs from the formula of the report schema; results all all-but-CompileError all-but-Ignored all-but-Killed all-but-NoCoverage all-but-Pending all-but-RuntimeError all-but-Survived only-Timeout; formats html json	the status catalog
 contract-stdout-reports	the bytes of the output are no UTF-8 form of the report; shapes latin1-1 latin1-2; formats terminal	the encoding of the output
 contract-no-leak-reports	a warning of Perl; shapes utf8-1 utf8-2; formats terminal	the encoding of the output
 contract-env-source	no table and no manual lists the variable; variables GITHUB_ACTIONS GITHUB_STEP_SUMMARY; files lib/Test/Mutation/CLI.pm	the manual that the tables generate
@@ -427,12 +429,3 @@ contract-manual-manual	the manual names no row of the table; rows test.exclude t
 contract-manual-manual	the manual names no row of the table; rows version; tables commands	the manual that the tables generate
 contract-independent-pairs	the environment changes a setting that no table declares; attributes formats; environments GITHUB_ACTIONS GITHUB_ACTIONS+NO_COLOR GITHUB_ACTIONS+NO_COLOR+terminal GITHUB_ACTIONS+terminal	the settings table
 contract-independent-pairs	the environment changes the output where no table declares it; streams stderr; environments GITHUB_ACTIONS+NO_COLOR+terminal GITHUB_ACTIONS+terminal NO_COLOR+terminal terminal	the progress display
-contract-status-once-source	lib/Test/Mutation/Cache.pm: 1 lists of statuses	the status catalog
-contract-status-once-source	lib/Test/Mutation/Report/GitHub.pm: 2 lists of statuses	the status catalog
-contract-status-once-source	lib/Test/Mutation/Report/Json.pm: 1 lists of statuses	the status catalog
-contract-status-once-source	lib/Test/Mutation/Report/Progress.pm: 1 lists of statuses	the status catalog
-contract-status-once-source	lib/Test/Mutation/Report/Terminal.pm: 2 lists of statuses	the status catalog
-contract-status-once-source	lib/Test/Mutation/Result.pm: 1 lists of statuses	the status catalog
-contract-status-once-source	lib/Test/Mutation/Runner.pm: 1 lists of statuses	the status catalog
-contract-status-once-source	lib/Test/Mutation/Score.pm: 2 lists of statuses	the status catalog
-contract-status-once-source	lib/Test/Mutation/Verdict.pm: 1 lists of statuses	the status catalog

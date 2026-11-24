@@ -7,22 +7,27 @@ use JSON::PP        ();
 use Types::Standard qw(Dict HashRef Int Maybe Num Slurpy Str ArrayRef);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Error;
+use Test::Mutation::Status;
 use Test::Mutation::Tree;
 use Test::Mutation::Try;
+use Test::Mutation::Types qw(Reason StatusName);
 
 our $VERSION = '0.001';
 
-my $FORMAT = 2;
-my %KEPT   = map { $_ => 1 } qw(Killed Survived CompileError Ignored);
-my $RECORD = Dict [
-    inputs    => Str,
-    status    => Str,
-    reason    => Maybe [Str],
-    by        => Maybe [Str],
-    tests_run => Int,
-    duration  => Num,
-    code      => Maybe [Str],
-];
+# The third format holds the reason of a status from the catalog and the sentence about the case apart.
+my $FORMAT = 3;
+my $RECORD = (
+    Dict [
+        inputs    => Str,
+        status    => StatusName,
+        reason    => Maybe [Reason],
+        detail    => Maybe [Str],
+        by        => Maybe [Str],
+        tests_run => Int,
+        duration  => Num,
+        code      => Maybe [Str],
+    ]
+)->where( sub { Test::Mutation::Status::fits( $_->{status}, $_->{reason} ) } );
 
 signature_for key => ( positional => [ Slurpy [ ArrayRef [Str] ] ], returns => Str );
 
@@ -52,7 +57,8 @@ sub load ($path) {
 signature_for save => ( positional => [ Str, HashRef [$RECORD] ], returns => Int );
 
 sub save ( $path, $records ) {
-    my %kept = map { $_ => $records->{$_} } grep { $KEPT{ $records->{$_}{status} } } keys $records->%*;
+    my %kept = map { $_ => $records->{$_} }
+      grep { Test::Mutation::Status::of( $records->{$_}{status} )->cached } keys $records->%*;
     Test::Mutation::Tree::make( File::Basename::dirname($path) );
     my $temporary = "$path.$$";
     open my $handle, '>:raw', $temporary
@@ -95,10 +101,11 @@ Each part enters the digest with its length, so two lists with different boundar
 
 Returns the records of a cache file by mutant identifier.
 A missing file, a file of another format, and a malformed record count as absent.
+A record holds a status of L<Test::Mutation::Status>, the reason that its status calls for, and a sentence about the case in C<detail>.
 
 =head2 save
 
-Writes the records with the statuses C<Killed>, C<Survived>, C<CompileError>, and C<Ignored>, and returns their number.
+Writes the records whose status the catalog marks as C<cached>, and returns their number.
 A timeout depends on the load of the machine, so the next run measures it again.
 
 =cut
