@@ -101,22 +101,34 @@ subtest 'the observation of a run is read from what the tools print' => sub {
 
     is RealWorld::warning_kind('t/a.t loads lib/A.pm around the hook and cannot detect its mutants'), 'around-the-hook',
       'a load around the hook';
-    is RealWorld::warning_kind('lib/A.pm: B::Deparse gives no stable output, so the run compares no compiled code'),
+    is RealWorld::warning_kind(
+        'lib/A.pm: Perl decompiles the file to no stable text, so the run compares no compiled code of the file'),
       'no-stable-output', 'an unstable output of B::Deparse';
     is RealWorld::warning_kind('no test files match'), 'other', 'any other warning';
 
-    is RealWorld::unexpected_lines(
-        [
-            '80 mutants in 1 file, 11 tests',
-            'The unmodified run passed: 11 tests, 6 jobs',
-            '[ 8/80] 8 killed',
-            '[80/80]', q{},
-            'Use of uninitialized value in join',
-            'mutation: interrupted by SIGTERM',
-        ]
-      ),
-      [ 'Use of uninitialized value in join', 'mutation: interrupted by SIGTERM' ],
-      'every line outside the progress of a run';
+    my @lines = (
+        '6 processors in the quota of the control group',
+        '80 mutants in 1 file, 11 tests',
+        'The unmodified run passed: 11 tests, 6 jobs',
+        '[ 8/80] 8 killed',
+        '[80/80]',
+        q{},
+        'Use of uninitialized value in join',
+        '6 processors in the quota of a container',
+        'mutation: tests that fail without a mutant: 1',
+    );
+    is RealWorld::unexpected_lines( \@lines, 0 ),
+      [
+        'Use of uninitialized value in join',
+        '6 processors in the quota of a container',
+        'mutation: tests that fail without a mutant: 1'
+      ],
+      'every line outside the progress of a run, the count of processors with its source included';
+    is RealWorld::unexpected_lines( \@lines, 3 ),
+      [ 'Use of uninitialized value in join', '6 processors in the quota of a container' ],
+      'and a run that fails ends with the one line of the tool that its manual promises';
+    is RealWorld::unexpected_lines( [ 'mutation: first', 'mutation: second' ], 4 ), ['mutation: first'],
+      'which comes once, at the end';
 
     my $source   = "package A;\nsub sum { return \$_[0] + \$_[1] }\nsub none {\n    return;\n}\n1;\n";
     my $document = {
@@ -259,7 +271,8 @@ my @KINDS    = RealWorld::kinds();
 my ($RUN)    = RealWorld::runs($TABLE)->@*;
 my $BANDLESS = { $RUN->%*, expect => { $RUN->{expect}->%*, score => undef } };
 my $LOADS    = 't/a.t loads lib/Example.pm around the hook and cannot detect its mutants';
-my $UNSTABLE = 'lib/Example.pm: B::Deparse gives no stable output, so the run compares no compiled code of the file';
+my $UNSTABLE =
+  'lib/Example.pm: Perl decompiles the file to no stable text, so the run compares no compiled code of the file';
 
 sub record () {
     my $tests =
@@ -325,7 +338,7 @@ my @REJECTED = (
             $r->{report} = undef;
             push $r->{mutation}{stderr}->@*, 'mutation: no room';
         },
-        [ 'the run leaves no report', 'the run writes an unexpected line to standard error' ],
+        ['the run leaves no report'],
     ],
     [ $RUN, sub ($r) { $r->{mutation}{scratch} = 257 }, ['the run fills its scratch space'] ],
     [ $RUN, sub ($r) { $r->{mutation}{exit}    = 1 },   ['the exit status disagrees with the report'] ],

@@ -109,23 +109,28 @@ sub harness ($output) {
 
 sub warning_kind ($text) {
     return 'around-the-hook'  if $text =~ /\bloads \S+ around the hook\b/;
-    return 'no-stable-output' if $text =~ /\bB::Deparse gives no stable output\b/;
+    return 'no-stable-output' if $text =~ /\bPerl decompiles the file to no stable text\b/;
     return 'other';
 }
 
 my @PROGRESS = (
-    qr/\A\z/, $ANNOUNCED,
+    qr/\A\z/,
+    qr/\A\d+ processors? (?:online|in the affinity of the process|in the quota of the control group)\z/,
+    $ANNOUNCED,
     qr/\AThe unmodified run passed: \d+ tests?, \d+ jobs?\z/,
     qr{\A\[\s*\d+/\d+\](?: \d+ [a-z ]+(?:, \d+ [a-z ]+)*)?\z},
 );
 
 # A run writes its progress to standard error, and any other line there is a message that nobody planned.
-sub unexpected_lines ($lines) {
+# A run that ends with another status than 0 ends standard error with one line of the tool, as its manual promises.
+sub unexpected_lines ( $lines, $exit ) {
+    my @lines = $lines->@*;
+    pop @lines if $exit != 0 && @lines && $lines[-1] =~ /\Amutation: /;
     return [
         grep {
             my $line = $_;
             !grep { $line =~ $_ } @PROGRESS
-        } $lines->@*
+        } @lines
     ];
 }
 
@@ -296,7 +301,7 @@ my @INVARIANTS = (
     [ 'the run skips a source file', sub ( $run, $record, $seen ) { $seen->{report} && $seen->{report}{skipped}->@* } ],
     [
         'the run writes an unexpected line to standard error',
-        sub ( $run, $record, $seen ) { unexpected_lines( $record->{mutation}{stderr} )->@* }
+        sub ( $run, $record, $seen ) { unexpected_lines( $record->{mutation}{stderr}, $record->{mutation}{exit} )->@* }
     ],
     [
         'the number of mutants lies outside its band',
