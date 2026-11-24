@@ -154,8 +154,10 @@ sub _is_document (@lines) {
     require TAP::Parser::YAMLish::Reader;
     local $@ = q{};
     local $SIG{__WARN__} = sub { };
-    my $next = sub { return @lines ? shift @lines : die $PAST_THE_BLOCK };                                         ## no critic (ErrorHandling::RequireCarping)
-    my $read = Test::Mutation::Try::attempt( sub { TAP::Parser::YAMLish::Reader->new->read($next); return 1 } );
+    my $next = sub { return @lines ? shift @lines : die $PAST_THE_BLOCK };    ## no critic (ErrorHandling::RequireCarping)
+
+    # A document may be empty, and the list of what the reader returns is a value all the same.
+    my $read = Test::Mutation::Try::attempt( sub { return [ TAP::Parser::YAMLish::Reader->new->read($next) ] } );
     return exists $read->{value} ? 1 : 0;
 }
 
