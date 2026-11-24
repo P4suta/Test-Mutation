@@ -336,19 +336,26 @@ subtest 'the refusal oracle rejects a change that the generator refuses without 
 };
 
 subtest 'the refusal oracle rejects a declaration that never reaches the code after the change' => sub {
-    my $text = "sub run {\n    my \$n = 1;\n    each_item( sub { my \$n = shift; return \$n } );\n    return \$n;\n}\n"
+    my $text =
+        "sub run {\n    my \$n = 1;\n    each_item( sub { my \$n = shift; return \$n } );\n    return \$n;\n}\n"
+      . "sub pair {\n    my ( \$first, \$second ) = \@_;\n    return \$second;\n}\n"
       . "sub each_item { return \$_[0]->(2) }\n__PACKAGE__;\n";
     my $unit    = Oracle::text_source( 'lib/Scope.pm', $text );
     my @refused = (
         Oracle::by_hand( $unit, 'each_item( sub { my $n = shift; return $n } );', q{}, description => 'declaration' ),
         Oracle::by_hand( $unit, 'my $n = 1;',                                     q{}, description => 'declaration' ),
+        Oracle::by_hand( $unit, 'my ( $first, $second ) = @_;',                   q{}, description => 'declaration' ),
+        Oracle::by_hand( $unit, 'return $second;',                                q{}, description => 'declaration' ),
     );
     my $judged = Oracle::judgement( $unit, \@refused, wants => ['calls'] );
-    is [ map { $_->{compiled} } $judged->{verdicts}->@* ], [ 1, 1 ],
-      'perl compiles both changes in a file without strict';
+    is [ map { $_->{compiled} } $judged->{verdicts}->@* ], [ 1, 1, 1, 1 ],
+      'perl compiles every change in a file without strict';
+    my %excused = map { $_->original => 1 } Oracle::excused_refusals( $unit, $judged );
     is [ map { $_->[0]->original } Oracle::accepted_refusals( $unit, $judged ) ],
-      ['each_item( sub { my $n = shift; return $n } );'],
-      'a declaration inside a block of the change shows no cause, and one that later code names shows its cause';
+      [ 'each_item( sub { my $n = shift; return $n } );', 'return $second;' ],
+      'a declaration inside a block of the change and a change without a declaration show no cause';
+    is [ sort keys %excused ], [ 'my $n = 1;', 'my ( $first, $second ) = @_;' ],
+      'a declaration that later code names shows its cause, the second name of a list too';
 
     my @final =
       grep { ( $_->{rule} || q{} ) eq 'final-value' } Oracle::candidates( $unit, Oracle::generated($unit) )->@*;
@@ -357,6 +364,30 @@ subtest 'the refusal oracle rejects a declaration that never reaches the code af
     is classes( Oracle::unjustified( $unit, \@final ) ), [],
       'and the text shows the cause: a constant word ends the code';
     $checked += @refused + @final;
+};
+
+subtest 'the refusal oracle rejects a final value that neither stands alone nor ends the code' => sub {
+    my $middle = Oracle::text_source( 'lib/Middle.pm', "package Middle;\n__PACKAGE__;\nsub f { return 1 }\n1;\n" );
+    my @inner  = grep { ( $_->{rule} || q{} ) eq 'final-value' && $_->{site}->text =~ /__PACKAGE__/ }
+      Oracle::candidates( $middle, Oracle::generated($middle) )->@*;
+    ok scalar(@inner), 'the tool refuses a change of a constant word that stands alone in the middle of a file';
+    is classes( Oracle::unjustified( $middle, \@inner ) ), [], 'and the constant word alone shows the cause';
+
+    # The parser reads the signature as a prototype and the text of its here-document as code, up to the last line.
+    my $misread = Oracle::text_source( 'lib/Misread.pm',
+            "use v5.20;\nBEGIN { require feature; feature->import('signatures') }\nno warnings;\n"
+          . "sub c ( \$v = <<'EOT' ) { return \$v }\n7\nEOT\n1;\n" );
+    my @last =
+      grep { ( $_->{rule} || q{} ) eq 'final-value' } Oracle::candidates( $misread, Oracle::generated($misread) )->@*;
+    is [ map { $_->{site}->text } @last ], ['1'], 'the tool refuses a change of the value that ends the file';
+    is classes( Oracle::unjustified( $misread, \@last ) ), [], 'and the end of the code shows the cause';
+
+    my ($sub) = grep { $_->kind eq 'sub_body' } Oracle::generated($middle)->{sites}->@*;
+    my $false = { site => $sub, mutator => 'by-hand', proposal => { replacement => '{ }' }, rule => 'final-value' };
+    is classes( Oracle::unjustified( $middle, [$false] ) ),
+      ['by-hand has a change refused under final-value without a cause'],
+      'a body of a subroutine in the middle of the file shows no cause';
+    $checked += @inner + @last + 1;
 };
 
 subtest 'the cross-check rejects a verdict of the server that perl -c does not give' => sub {

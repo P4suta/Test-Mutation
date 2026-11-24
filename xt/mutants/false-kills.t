@@ -138,6 +138,9 @@ my $records = Oracle::each_file(
             next if !$passes{$test};
             my $kill = Kills::judged( $here, $source, $mutant, $test );
             next if $kill->{class} eq 'unreproduced';
+
+            # A test that never fails before the bound stops it gives the status Timeout, which is no kill.
+            return [ 'hung', $mutant->mutator ] if $kill->{class} eq 'timeout';
             return [ 'kill', $mutant->mutator, $kill->{class}, $test, $kill->{output} ];
         }
         return [ 'survived', $mutant->mutator ];
@@ -146,7 +149,10 @@ my $records = Oracle::each_file(
 my @own_kills = map { +{ mutator => $_->[2], class => $_->[3], test => $_->[4], output => $_->[5] } }
   grep { $_->[1] eq 'kill' } $records->@*;
 my %killed = map { $_->{mutator} => 1 } @own_kills;
-note scalar( grep { $_->[1] eq 'survived' } $records->@* ) . ' mutants of the sample survived their tests';
+my %ended;
+$ended{ $_->[1] }++ for $records->@*;
+note sprintf '%d mutants of the sample survived their tests, and %d held a test past the bound',
+  map { $ended{$_} || 0 } qw(survived hung);
 tallied_ok( 'own', @own_kills );
 Gate::checked( 'mutants of the tool in the sample', scalar @chosen,      at_least => 50 );
 Gate::checked( 'kills of the tool that ran again',  scalar @own_kills,   at_least => 30 );

@@ -161,12 +161,13 @@ my %BY_PERL = map { $_ => 1 } qw(here-document declaration unresolved-call);
 my %DECLARES = map { $_ => 1 } qw(my our state);
 
 # The word before a symbol, or before the list that holds it, as in `my $x` and `my ( $x, $y )`.
+# A symbol after the first one of a list stands after a comma, so the word before the list declares it.
 sub _declaring_word ($symbol) {
     my $before = $symbol->sprevious_sibling;
-    return $before if $before;
+    return $before if $before && $before->isa('PPI::Token::Word');
     my $list = $symbol->parent;
     $list = $list->parent if $list && $list->isa('PPI::Statement::Expression');
-    return $list && $list->isa('PPI::Structure::List') ? $list->sprevious_sibling : undef;
+    return $list && $list->isa('PPI::Structure::List') ? $list->sprevious_sibling : $before;
 }
 
 # The innermost block around a token, or nothing at the level of the file.
@@ -278,11 +279,24 @@ sub refusals_for_perl ( $source, $candidates ) {
 # Perl compiles a declaration that later code names, and a text of a here-document that parses, in a file without `use strict`.
 # The text shows the cause of such a refusal, so perl has to accept the change and the text has to show no cause.
 sub accepted_refusals ( $source, $judgement ) {
-    my @accepted = grep { $_->{compiled} && !$_->{introduced}->@* } $judgement->{verdicts}->@*;
-    return if !@accepted;
+    my ( $causeless, undef ) = _accepted_apart( $source, $judgement );
+    return map { [ $_, 'has a change refused under ' . $_->description . ' that perl accepts' ] } $causeless->@*;
+}
+
+# The refused changes that perl accepts and whose text shows the cause, which the gate counts apart.
+sub excused_refusals ( $source, $judgement ) {
+    my ( undef, $excused ) = _accepted_apart( $source, $judgement );
+    return $excused->@*;
+}
+
+# The refused changes that perl accepts, apart by whether the text shows their cause.
+sub _accepted_apart ( $source, $judgement ) {
+    my @accepted = map { $_->{mutant} } grep { $_->{compiled} && !$_->{introduced}->@* } $judgement->{verdicts}->@*;
+    return ( [], [] ) if !@accepted;
     my $read = tokens($source);
-    return map { [ $_, 'has a change refused under ' . $_->description . ' that perl accepts' ] }
-      grep { !_shows_cause( $source, $read, $_ ) } map { $_->{mutant} } @accepted;
+    my ( @causeless, @excused );
+    push @{ _shows_cause( $source, $read, $_ ) ? \@excused : \@causeless }, $_ for @accepted;
+    return ( \@causeless, \@excused );
 }
 
 # What the generator would return for a source that holds the given mutants and nothing else.
@@ -720,10 +734,12 @@ sub asked_apart ( $source, $judgement, @asked ) {
     my %asked    = map  { $_->id => 1 } @asked;
     my @refusals = grep { $asked{ $_->{mutant}->id } } $judgement->{verdicts}->@*;
     my $mutants  = { $judgement->%*, verdicts => [ grep { !$asked{ $_->{mutant}->id } } $judgement->{verdicts}->@* ] };
+    my $refused  = { verdicts                 => \@refusals };
     return (
         $mutants,
-        _counts( 'asked', map { $_->{mutant} } @refusals ),
-        _violations( $source, 'refusal', 'accepted', accepted_refusals( $source, { verdicts => \@refusals } ) ),
+        _counts( 'asked',   map { $_->{mutant} } @refusals ),
+        _counts( 'excused', excused_refusals( $source, $refused ) ),
+        _violations( $source, 'refusal', 'accepted', accepted_refusals( $source, $refused ) ),
     );
 }
 
@@ -970,7 +986,7 @@ sub columns () {
     return qw(
       mutants unchanged:mutants misplaced:mutants repeated:mutants rebased:mutants patched unpatchable:patched
       judged refused:judged unresolved:judged apart:judged loaded unloaded:loaded compared equivalent:compared
-      causeless asked accepted:asked
+      causeless asked accepted:asked excused:asked
     );
 }
 

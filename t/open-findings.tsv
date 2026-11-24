@@ -215,6 +215,7 @@ mutants-kills-fixtures	run_command serves no mutant to a test under taint mode	t
 mutants-literal-installed	number-literal reads an octal literal as a decimal number	the number-literal mutator that keeps the base of a literal
 mutants-refusal-installed	boolean-literal has a change refused under unresolved-call that perl accepts	the import resolution of the validity boundary
 mutants-refusal-installed	statement-removal has a change refused under declaration that perl accepts	the validity boundary of the generator
+mutants-refusal-own	boolean-literal has a change refused under unresolved-call that perl accepts	the import resolution of the validity boundary
 mutants-refusal-own	statement-removal has a change refused under declaration that perl accepts	the validity boundary of the generator
 mutants-statements-corpus	no mutant touches a statement of the class Statement::Include	the typed analysis of the code in a use statement
 mutants-suppress-layouts	the parser accepts a block without its use mutate	the suppression grammar

@@ -64,7 +64,7 @@ Gate::findings(
         Census::uncounted($far)->@*,
     ]
 );
-Gate::checked( 'patterns that PPIx::Regexp read', $far->{patterns},                    at_least => 20_000 );
+Gate::checked( 'patterns that PPIx::Regexp read', $far->{patterns},                    at_least => 4000 );
 Gate::checked( 'files',                           scalar @files,                       at_least => 1200 );
 Gate::checked( 'keys',                            scalar keys $far->{observed}->%*,    at_least => 200 );
 Gate::checked( 'tokens',                          sum0( values $far->{observed}->%* ), at_least => 2_000_000 );

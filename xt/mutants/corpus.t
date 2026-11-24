@@ -28,7 +28,7 @@ my %WITNESS = (
     'local/lib/perl5/Parse/PMFile.pm'                    => [319],
     'local/lib/perl5/PPIx/Regexp/Token/Interpolation.pm' => [109],
     'local/lib/perl5/Mojo/Server.pm'                     => [42],
-    'local/lib/perl5/CPAN/Audit.pm'                      => [84],
+    'local/lib/perl5/Pod/PlainText.pm'                   => [520],
 );
 
 sub surveyed (@paths) {
