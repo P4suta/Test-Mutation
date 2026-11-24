@@ -179,6 +179,21 @@ my %SABOTEUR = (
             }
         ),
     },
+
+    # The saboteurs of the reader checks replace a part of the reader adapter.
+    'tap' => {
+        'a reader that ignores plans' => sub ($reader) {
+            return $reader->with( settle => sub ($state) { return { $state->%*, planned => $state->{seen} } } );
+        },
+        'a reader that ignores the end of the process' => sub ($reader) {
+            return $reader->with( status => sub ( $exit, $signal ) { return ( 0, 0 ) } );
+        },
+    },
+    'tap-prefix' => {
+        'a reader that takes a todo for a failure' => sub ($reader) {
+            return $reader->with( rewrite => sub ($line) { return $line =~ s/[#]\s*TODO.*//ir } );
+        },
+    },
 );
 
 sub names () {

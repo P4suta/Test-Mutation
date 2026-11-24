@@ -2,6 +2,7 @@ package Discovery::Check;
 use v5.36;
 use Discovery::Engine;
 use Discovery::Known;
+use Discovery::Reader;
 
 # Every invariant and every relation of the engine, each as a function from observations to the text of its violations.
 # The text names a kind of violation and no mutant, path of a run, or count, so a finding reads the same on every run.
@@ -12,15 +13,20 @@ my %UNDETECTED = map { $_ => 1 } qw(Survived NoCoverage);
 my %PLAIN      = ( target => 'lib/Known.pm', shift => 0 );
 
 my %CHECK = (
-    completes => \&_completes,
-    I2        => \&_no_process,
-    I3        => \&_no_leftover,
-    I4        => \&_unchanged,
-    I5        => \&_reasons,
-    I6        => \&_reported,
-    I7        => \&_truth,
-    I8        => \&_same_under_styles,
+    'completes'  => \&_completes,
+    'I2'         => \&_no_process,
+    'I3'         => \&_no_leftover,
+    'I4'         => \&_unchanged,
+    'I5'         => \&_reasons,
+    'I6'         => \&_reported,
+    'I7'         => \&_truth,
+    'I8'         => \&_same_under_styles,
+    'tap'        => \&_tap,
+    'tap-prefix' => \&_tap_prefix,
 );
+
+# The ways a test process ends after a stream, apart from status 0: each one fails the test under prove.
+my @FAILING_ENDS = ( [ 'exit=1', 1, 0 ], [ 'exit=255', 255, 0 ], [ 'exit=signal', 0, 15 ] );
 
 sub names () {
     my @names = sort keys %CHECK;
@@ -175,6 +181,63 @@ sub _reported ($arg) {
     my @silent = grep { $MEASURED{ $run->{status}{$_} } || !defined $run->{reason}{$_} || !length $run->{reason}{$_} }
       map { defined $_->{id} ? $_->{id} : () } $deviations->@*;
     return @absent || @silent ? 'I6 the verdicts deviate without a warning or a reason' : ();
+}
+
+# Every way to keep some and not all of the parts, in their order.
+sub _fewer (@parts) {
+    my @subsets;
+    for my $mask ( 1 .. 2**@parts - 2 ) {
+        push @subsets, join q{ }, map { $parts[$_] } grep { $mask & 2**$_ } 0 .. $#parts;
+    }
+    return @subsets;
+}
+
+# A stream with several choices adds nothing when fewer of its choices show the same disagreement.
+sub _smallest ( $cases, $kind ) {
+    my @found;
+    for my $case ( grep { defined $kind->{ $_->{label} } } $cases->@* ) {
+        my $text = $kind->{ $case->{label} };
+        next if grep { defined $kind->{$_} && $kind->{$_} eq $text } _fewer( $case->{parts}->@* );
+        push @found, "$case->{label}: $text";
+    }
+    return @found;
+}
+
+# The reader of the tool gives the verdict of prove on every stream, under every way a process ends.
+# `reader` is the adapter of the reader, and each of `cases` is a stream with the choices that make it.
+sub _tap ($arg) {
+    my ( $reader, $cases ) = $arg->@{qw(reader cases)};
+    my ( %kind, @found );
+    for my $case ( $cases->@* ) {
+        my $text   = $case->{text};
+        my $passes = $reader->passes( $text, 0, 0 );
+        $kind{ $case->{label} } =
+          $passes
+          ? 'the reader passes a stream that TAP::Parser fails'
+          : 'the reader fails a stream that TAP::Parser passes'
+          if $passes != Discovery::Reader::oracle( $text, 0, 0 );
+        push @found, map { "$_->[0]: the reader passes a test that prove fails" }
+          grep { $reader->passes( $text, $_->@[ 1, 2 ] ) } @FAILING_ENDS;
+    }
+    return _unique( @found, _smallest( $cases, \%kind ) );
+}
+
+# The reader calls a stream failed after some of its lines, and the whole stream then fails under prove.
+# An early stop on a stream that passes would count a mutant as detected that the test accepts.
+sub _tap_prefix ($arg) {
+    my ( $reader, $cases ) = $arg->@{qw(reader cases)};
+    my %kind;
+    for my $case ( $cases->@* ) {
+        next if !Discovery::Reader::oracle( $case->{text}, 0, 0 );
+        my $prefix = q{};
+        for my $line ( $case->{text} =~ /([^\n]*\n)/g ) {
+            $prefix .= $line;
+            next if !$reader->stops($prefix);
+            $kind{ $case->{label} } = 'the reader stops early on a stream that TAP::Parser passes';
+            last;
+        }
+    }
+    return _unique( _smallest( $cases, \%kind ) );
 }
 
 1;

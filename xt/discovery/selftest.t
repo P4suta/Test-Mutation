@@ -6,7 +6,9 @@ use Discovery::Check;
 use Discovery::Engine;
 use Discovery::Known;
 use Discovery::Project;
+use Discovery::Reader;
 use Discovery::Saboteur;
+use Discovery::Streams;
 use Discovery::Zoo;
 
 # A check that accepts every input finds nothing for the wrong reason.
@@ -50,24 +52,35 @@ $bench{I6} = sub ($engine) {
     return [ Discovery::Check::findings( ['I6'], run => $reporting->run( $styles, equivalence => 0 ), @between ) ];
 };
 
+# The checks of the reader take the adapter of the reader in place of the adapter of the engine.
+my $reader  = Discovery::Reader->new;
+my @streams = map { Discovery::Streams::with_choices($_) } 0, 1;
+my %subject = ( 'tap' => $reader, 'tap-prefix' => $reader );
+for my $name ( sort keys %subject ) {
+    $bench{$name} = sub ($adapter) {
+        return [ Discovery::Check::findings( [$name], reader => $adapter, cases => \@streams ) ];
+    };
+}
+
 is [ sort keys %bench ],             [ Discovery::Check::names() ], 'every check has a bench';
 is [ Discovery::Saboteur::names() ], [ Discovery::Check::names() ], 'the saboteur set equals the invariant set';
 
 my $saboteurs = 0;
 for my $name ( Discovery::Check::names() ) {
     subtest "the check $name rejects its saboteurs" => sub {
-        my %accepted = map { $_ => 1 } $bench{$name}->($honest)->@*;
+        my $subject  = $subject{$name} || $honest;
+        my %accepted = map { $_ => 1 } $bench{$name}->($subject)->@*;
         my $kinds    = Discovery::Saboteur::of($name);
         ok scalar keys $kinds->%*, 'the check has a saboteur';
         for my $kind ( sort keys $kinds->%* ) {
-            my @rejected = grep { !$accepted{$_} } $bench{$name}->( $kinds->{$kind}->($honest) )->@*;
+            my @rejected = grep { !$accepted{$_} } $bench{$name}->( $kinds->{$kind}->($subject) )->@*;
             Discovery::Saboteur::undo();
             ok scalar @rejected, "$kind is rejected"
               or diag 'the check found nothing more than with the honest adapter';
             note "$kind: $_" for @rejected;
             $saboteurs++;
         }
-        is [ sort grep { !$accepted{$_} } $bench{$name}->($honest)->@* ], [],
+        is [ sort grep { !$accepted{$_} } $bench{$name}->($subject)->@* ], [],
           'the honest adapter passes again after the damage is undone';
     };
 }

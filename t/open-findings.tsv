@@ -120,6 +120,17 @@ contract-no-leak-process	wording of the option parser; cases help-after-list hel
 contract-no-leak-process	wording of the option parser; cases missing-value negated-value unknown-option value-for-a-flag word-for-a-number; part settings	the settings table
 contract-no-leak-process	wording of the type library; cases boolean-in-the-file gate-out-of-range number-out-of-range value-in-the-file; part settings	the settings table
 engine-known	I5 NoCoverage carries no reason	the status catalog and its reasons
+engine-tap	nested=inner-bails: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
+engine-tap	numbers=gap: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
+engine-tap	numbers=swapped: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
+engine-tap	numbers=twice: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
+engine-tap	plan=middle: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
+engine-tap	plan=tail-text: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
+engine-tap	plan=twice: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
+engine-tap	result=skip-then-todo: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
+engine-tap	result=todo-after-hash: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
+engine-tap	version=late: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
+engine-tap	version=twelve: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
 engine-zoo	I5 NoCoverage carries no reason	the status catalog and its reasons
 engine-zoo	files=fixed-port: I6 the verdicts deviate without a warning or a reason	the recheck of a failure beside another run of the same test
 engine-zoo	files=fixed-port: I7 the run gives Killed where the truth gives Survived	the recheck of a failure beside another run of the same test
