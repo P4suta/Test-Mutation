@@ -14,7 +14,7 @@ sub modules ( $root = 'lib' ) {
     return _files( $root, '.pm' );
 }
 
-sub gates ( $root = 'xt' ) {
+sub tests ($root) {
     return _files( $root, '.t' );
 }
 

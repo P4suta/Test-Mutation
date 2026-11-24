@@ -1,9 +1,10 @@
 use v5.36;
 use Test2::V0;
-use lib 't/e2e/lib';
+use lib 't/e2e/lib', 't/lib';
+use Capability;
 use Fixture qw(copy_of run_fixture statuses);
 
-skip_all 'the fixture needs the class syntax of Perl 5.38' if $] < 5.038;
+Capability::need( 'class', $] >= 5.038, 'the fixture needs the class syntax of Perl 5.38' );
 
 my ($result) = run_fixture( copy_of('counter') );
 

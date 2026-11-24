@@ -1,9 +1,10 @@
 use v5.36;
 use Test2::V0;
-use lib 't/e2e/lib';
-use Fixture qw(copy_of mutation write_file);
+use lib 't/e2e/lib', 't/lib';
+use Capability;
+use Fixture qw(copy_of ran write_file);
 
-skip_all 'the test needs the git command' if !length qx{git --version 2>/dev/null};
+Capability::need( 'git', length qx{git --version 2>/dev/null}, 'the test needs the git command' );
 
 sub git ( $root, @arguments ) {
     my @command = (
@@ -16,7 +17,7 @@ sub git ( $root, @arguments ) {
 }
 
 sub listed ( $root, @arguments ) {
-    my $run = mutation( $root, 'list', @arguments );
+    my $run = ran( 0, $root, 'list', @arguments );
     return [ map { /\A\S+  (\S+)  \S+  (.*)\z/ ? "$1 $2" : () } split /\n/, $run->{stdout} ];
 }
 
@@ -43,7 +44,7 @@ subtest 'a changed line limits the mutants to the code that holds it' => sub {
         'lib/Calc.pm:7:15 replaced + with -'
       ],
       'the mutants on the changed line and the body that contains it';
-    my $run = mutation( $root, '--since', 'HEAD', '--jobs', 2, '--format', 'terminal' );
+    my $run = ran( 0, $root, '--since', 'HEAD', '--jobs', 2, '--format', 'terminal' );
     like $run->{stdout}, qr/^3 mutants: 3 killed$/m, 'run measures the same mutants';
 };
 
@@ -54,8 +55,7 @@ subtest 'an untracked source file counts as changed' => sub {
 };
 
 subtest 'a revision that git does not know stops the run' => sub {
-    my $run = mutation( $root, 'list', '--since', 'no-such-revision' );
-    is $run->{exit}, 4, 'exit status';
+    my $run = ran( 4, $root, 'list', '--since', 'no-such-revision' );
     like $run->{stderr}, qr/\Amutation: git [^\n]*no-such-revision[^\n]*\n\z/, 'one line that names the revision';
 };
 

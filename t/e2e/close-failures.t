@@ -1,6 +1,7 @@
 use v5.36;
 use Test2::V0;
-use Cwd ();
+use Cwd        ();
+use File::Temp ();
 
 # A close that fails means lost data or an unread error, so the run and the command check every close.
 # The override below closes the handle and then reports a failure to the subroutine that the pattern names.
@@ -17,8 +18,9 @@ BEGIN {
     };
 }
 
-use lib 't/e2e/lib';
-use Fixture qw(copy_of run_fixture);
+use lib 't/e2e/lib', 't/lib';
+use Capability;
+use Fixture qw(copy_of leftovers run_fixture);
 use Test::Mutation::CLI;
 use Test::Mutation::Config;
 use Test::Mutation::Git;
@@ -43,6 +45,22 @@ like dies {
 like dies {
     failing_in( qr/::Runner::_taint_switch\z/, sub { run_fixture($root) } )
 }, qr/\Acannot close t\/\w+[.]t: /, 'a test file that does not close stops the run';
+
+my $analysis = Test::Mutation::Runner::analyze( Test::Mutation::Config->new( root => $root ) );
+my $mutant   = $analysis->{mutants}[0];
+like dies {
+    failing_in(
+        qr/::Runner::_spew\z/,
+        sub {
+            Test::Mutation::Runner::run_command(
+                Test::Mutation::Config->new( root => $root ),
+                $analysis->{sources}{ $mutant->path },
+                $mutant, [ $^X, '-e', '1' ]
+            );
+        }
+    )
+}, qr/\Acannot close \S+: /, 'a work file that does not close stops a command with a mutant';
+is leftovers( File::Temp::tempdir( CLEANUP => 1 ), $root ), [], 'and the command leaves no work directory';
 
 sub command (@arguments) {
     my $here = Cwd::getcwd();
@@ -82,8 +100,7 @@ is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 4, 'mutation: cannot close whol
       'a job summary that does not close fails the command';
 }
 
-SKIP: {
-    skip 'the case needs the git command', 1 if !length qx{git --version 2>/dev/null};
+if ( Capability::has( 'git', length qx{git --version 2>/dev/null}, 'the case needs the git command' ) ) {
     is dies {
         failing_in( qr/::Git::_git\z/, sub { Test::Mutation::Git::changed( $root, 'HEAD' ) } )
     }, "git diff failed\n", 'a git answer that does not close fails without a reason';

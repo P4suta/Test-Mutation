@@ -3,16 +3,15 @@ use Test2::V0;
 use lib 't/e2e/lib';
 use Cwd        ();
 use File::Temp ();
-use Fixture    qw(copy_of mutation mutation_from tree_digest write_file);
+use Fixture    qw(copy_of ran ran_from tree_digest write_file);
 use Test::Mutation::Mutator::Catalog;
 
 my $root = copy_of('calc');
 
 subtest 'list prints every mutant without running a test' => sub {
     my $before = tree_digest($root);
-    my $run    = mutation( $root, 'list' );
-    is $run->{exit}, 0, 'exit status' or diag $run->{stderr};
-    my @lines = split /\n/, $run->{stdout};
+    my $run    = ran( 0, $root, 'list' );
+    my @lines  = split /\n/, $run->{stdout};
     is scalar(@lines), 20, 'one line for each mutant and a count';
     like $lines[0], qr/\A[0-9a-f]{12}  lib\/Calc\.pm:5:10  sub-body  removed the body of add\z/,
       'identifier, place, mutator, description';
@@ -22,45 +21,42 @@ subtest 'list prints every mutant without running a test' => sub {
 
 subtest '--root runs the command as if it had started in the named directory' => sub {
     my $elsewhere = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
-    my $listed    = mutation( $elsewhere, '--root', $root, 'list' );
-    is $listed->{stdout}, mutation( $root, 'list' )->{stdout}, 'list names the mutants of the project';
-    is mutation( $elsewhere, 'list', '-C', $root )->{stdout}, $listed->{stdout}, 'the option may follow the command';
+    my $listed    = ran( 0, $elsewhere, '--root', $root, 'list' );
+    is $listed->{stdout}, ran( 0, $root, 'list' )->{stdout},                   'list names the mutants of the project';
+    is ran( 0, $elsewhere, 'list', '-C', $root )->{stdout}, $listed->{stdout}, 'the option may follow the command';
 
-    my $inside = mutation( $elsewhere, '--root', $root, 'exec', identifier('replaced + with -'),
+    my $inside = ran( 0, $elsewhere, '--root', $root, 'exec', identifier('replaced + with -'),
         '--', $^X, '-MCwd', '-e', 'print Cwd::getcwd()' );
     is $inside->{stdout}, $root, 'exec starts its command in the project';
 
-    my $missing = mutation( $elsewhere, '--root', "$elsewhere/none", 'list' );
+    my $missing = ran( 2, $elsewhere, '--root', "$elsewhere/none", 'list' );
     is [ $missing->@{qw(exit stdout)} ], [ 2, q{} ], 'a directory that does not exist is a usage error';
     like $missing->{stderr}, qr/\Amutation: cannot enter \Q$elsewhere\E\/none: [^\n]+\n\z/, 'with one line';
     is [ glob "$elsewhere/*" ], [], 'the directory of the caller gets no file';
 
     my $library = Cwd::abs_path('lib');
     local $ENV{PERL5LIB} = join q{:}, grep { $_ ne $library } split /:/, defined $ENV{PERL5LIB} ? $ENV{PERL5LIB} : q{};
-    my $relative = mutation_from( 'lib', Cwd::getcwd(), '--root', $root, '--jobs', 2, '--format', 'terminal' );
-    is $relative->{exit}, 0, 'a relative library directory of the caller still serves the run'
-      or diag $relative->{stderr};
+    my $relative = ran_from( 'lib', 0, Cwd::getcwd(), '--root', $root, '--jobs', 2, '--format', 'terminal' );
     like $relative->{stdout}, qr/^Score: 68\.4%/m, 'and the run measures the project';
 };
 
 subtest 'list marks suppressed mutants and honors the mutator options' => sub {
     my $copy = copy_of('calc');
     write_file( "$copy/lib/Quiet.pm", "package Quiet;\nsub sum { return \$_[0] + \$_[1] }    ## no mutate\n1;\n" );
-    my $run = mutation( $copy, 'list', '--disable', 'sub-body', '--source', 'lib/Quiet.pm' );
+    my $run = ran( 0, $copy, 'list', '--disable', 'sub-body', '--source', 'lib/Quiet.pm' );
     like $run->{stdout}, qr/^[0-9a-f]{12}  lib\/Quiet\.pm:2:\d+  arithmetic  replaced \+ with -  \(suppressed\)$/m,
       'a suppressed mutant';
     unlike $run->{stdout}, qr/sub-body/, 'a disabled mutator is absent';
 };
 
 sub identifier ($description) {
-    my ($id) = mutation( $root, 'list' )->{stdout} =~ /^([0-9a-f]{12})  \S+  \S+  \Q$description\E$/m;
+    my ($id) = ran( 0, $root, 'list' )->{stdout} =~ /^([0-9a-f]{12})  \S+  \S+  \Q$description\E$/m;
     return $id;
 }
 
 subtest 'show prints a mutant as a patch' => sub {
     my $id  = identifier('replaced > with >=');
-    my $run = mutation( $root, 'show', $id );
-    is $run->{exit}, 0, 'exit status' or diag $run->{stderr};
+    my $run = ran( 0, $root, 'show', $id );
     is [ split /\n/, $run->{stdout} ],
       [
         "$id  lib/Calc.pm:12:15  comparison  replaced > with >=",
@@ -78,7 +74,7 @@ subtest 'show prints a mutant as a patch' => sub {
 };
 
 subtest 'show prints a mutant that removes lines' => sub {
-    my $run = mutation( $root, 'show', identifier('removed the body of add') );
+    my $run = ran( 0, $root, 'show', identifier('removed the body of add') );
     is [ grep { /\A[-+@]/ } split /\n/, $run->{stdout} ],
       [
         '--- lib/Calc.pm',
@@ -94,44 +90,36 @@ subtest 'show prints a mutant that removes lines' => sub {
 
 subtest 'show accepts a unique prefix and refuses an unknown or ambiguous identifier' => sub {
     my $id = identifier('replaced + with -');
-    is mutation( $root, 'show', substr $id, 0, 6 )->{exit}, 0, 'a unique prefix';
-    my $unknown = mutation( $root, 'show', 'zzzzzz' );
-    is $unknown->{exit},   2,                                                 'an unknown identifier';
+    ran( 0, $root, 'show', substr $id, 0, 6 );
+    my $unknown = ran( 2, $root, 'show', 'zzzzzz' );
     is $unknown->{stderr}, "mutation: no mutant has the identifier zzzzzz\n", 'the message';
-    my $missing = mutation( $root, 'show' );
-    is $missing->{exit},   2,                                            'no identifier';
+    my $missing = ran( 2, $root, 'show' );
     is $missing->{stderr}, "mutation: show needs a mutant identifier\n", 'the message';
 };
 
 subtest 'exec runs a command with one mutant active' => sub {
-    my $detected = mutation( $root, 'exec', identifier('replaced + with -'), '--', $^X, '-Ilib', 't/add.t' );
-    isnt $detected->{exit}, 0, 'the test fails with the mutant';
+    my $detected = ran( 1, $root, 'exec', identifier('replaced + with -'), '--', $^X, '-Ilib', 't/add.t' );
     like $detected->{stdout}, qr/^not ok 1 - adds$/m, 'the output of the command passes through';
 
     my ($survivor) =
-      mutation( $root, 'list' )->{stdout} =~ /^([0-9a-f]{12})  lib\/Calc\.pm:12:\d+  comparison  replaced > with >=$/m;
-    my $survived = mutation( $root, 'exec', $survivor, '--', $^X, '-Ilib', 't/sign.t' );
-    is $survived->{exit}, 0, 'the test passes with a mutant it does not detect';
+      ran( 0, $root, 'list' )->{stdout} =~ /^([0-9a-f]{12})  lib\/Calc\.pm:12:\d+  comparison  replaced > with >=$/m;
+    ran( 0, $root, 'exec', $survivor, '--', $^X, '-Ilib', 't/sign.t' );
 
-    is mutation( $root, 'exec', identifier('replaced + with -'), '--', $^X, '-e', 'exit 7' )->{exit}, 7,
-      'the exit status of the command is returned';
-    is mutation( $root, 'exec', identifier('replaced + with -'), '--', "$root/no-such-command" )->{exit}, 127,
-      'a command that cannot start gives the status of a shell';
-    is mutation( $root, 'exec', identifier('replaced + with -'), '--', $^X, '-e', 'kill TERM => $$; sleep 5' )->{exit},
-      143, 'a command that a signal ended gives 128 plus the signal';
+    ran( 7,   $root, 'exec', identifier('replaced + with -'), '--', $^X, '-e', 'exit 7' );
+    ran( 127, $root, 'exec', identifier('replaced + with -'), '--', "$root/no-such-command" );
+    ran( 143, $root, 'exec', identifier('replaced + with -'), '--', $^X, '-e', 'kill TERM => $$; sleep 5' );
     ok !-e "$root/.mutation", 'the work directory is removed';
 };
 
 subtest 'exec refuses a missing identifier or command' => sub {
-    my $no_command = mutation( $root, 'exec', identifier('replaced + with -') );
-    is $no_command->{exit},   2,                                                          'no command';
+    my $no_command = ran( 2, $root, 'exec', identifier('replaced + with -') );
     is $no_command->{stderr}, "mutation: exec needs a mutant identifier and a command\n", 'the message';
-    is mutation( $root, 'exec', 'zzzzzz', '--', $^X, '-e', '1' )->{exit}, 2,              'an unknown identifier';
+    ran( 2, $root, 'exec', 'zzzzzz', '--', $^X, '-e', '1' );
 };
 
 subtest '--shard splits the mutants into disjoint parts' => sub {
     my $ids = sub (@arguments) {
-        return [ map { /\A([0-9a-f]{12})  / ? $1 : () } split /\n/, mutation( $root, 'list', @arguments )->{stdout} ];
+        return [ map { /\A([0-9a-f]{12})  / ? $1 : () } split /\n/, ran( 0, $root, 'list', @arguments )->{stdout} ];
     };
     my @all    = $ids->()->@*;
     my @shards = map { $ids->( '--shard', "$_/3" ) } 1 .. 3;
@@ -140,14 +128,12 @@ subtest '--shard splits the mutants into disjoint parts' => sub {
     is $ids->( '--shard', '1/1' ),        \@all,         'one part is the whole';
 
     for my $invalid (qw(0/3 4/3 2 a/b)) {
-        my $run = mutation( $root, 'list', '--shard', $invalid );
-        is $run->{exit}, 2, "--shard $invalid is a usage error";
+        ran( 2, $root, 'list', '--shard', $invalid );
     }
 };
 
 subtest 'mutators names every mutator with its profile and its description' => sub {
-    my $run = mutation( $root, 'mutators' );
-    is $run->{exit}, 0, 'exit status' or diag $run->{stderr};
+    my $run   = ran( 0, $root, 'mutators' );
     my @lines = split /\n/, $run->{stdout};
     is scalar(@lines), scalar( Test::Mutation::Mutator::Catalog::mutators()->@* ), 'one line for each mutator';
     like $run->{stdout}, qr/^arithmetic +default +Replaces an arithmetic operator with its counterpart$/m,
@@ -159,12 +145,10 @@ subtest 'mutators names every mutator with its profile and its description' => s
 };
 
 subtest 'version, help, and stray arguments' => sub {
-    my $version = mutation( $root, '--version' );
-    is $version->{exit}, 0, '--version succeeds';
+    my $version = ran( 0, $root, '--version' );
     like $version->{stdout}, qr/\Amutation \d+[.]\d+\n\z/, 'the version line';
 
-    my $help = mutation( $root, '--help' );
-    is $help->{exit}, 0, '--help succeeds';
+    my $help = ran( 0, $root, '--help' );
     like $help->{stdout}, qr/^Usage: mutation \[run\] \[options\]$/m, 'the usage line';
     like $help->{stdout}, qr/^\s+mutation exec ID -- COMMAND/m,       'the commands';
     like $help->{stdout}, qr/^\s+mutation merge FILE/m,               'the merge command';
@@ -174,11 +158,10 @@ subtest 'version, help, and stray arguments' => sub {
       in-place keep-work mutant since shard no-equivalence cache config);
     is \@undocumented, [], 'every option is described';
 
-    my $stray = mutation( $root, 'run', 'surplus' );
-    is $stray->{exit},   2,                                         'a stray argument is a usage error';
+    my $stray = ran( 2, $root, 'run', 'surplus' );
     is $stray->{stderr}, "mutation: unexpected argument surplus\n", 'the message';
 
-    my $listed = mutation( $root, 'mutators', 'surplus' );
+    my $listed = ran( 2, $root, 'mutators', 'surplus' );
     is [ $listed->@{qw(exit stdout stderr)} ], [ 2, q{}, "mutation: unexpected argument surplus\n" ],
       'mutators refuses a stray argument and prints no list';
 };

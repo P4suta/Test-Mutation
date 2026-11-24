@@ -2,7 +2,8 @@ use v5.36;
 use Test2::V0;
 use Cwd        ();
 use File::Temp ();
-use lib 't/e2e/lib';
+use lib 't/e2e/lib', 't/lib';
+use Capability;
 use Fixture qw(run_fixture statuses write_file);
 use Test::Mutation::Config;
 use Test::Mutation::Runner;
@@ -10,6 +11,9 @@ use Test::Mutation::Tree;
 
 my $MODULE = "package Small;\nuse strict;\nuse warnings;\nsub next_one { return \$_[0] + 1 }\n1;\n";
 my $TEST   = "use Test::More tests => 1;\nuse Small;\nis Small::next_one(2), 3, 'the next one';\n";
+
+# What the helper reports when a run leaves its work directory, for the tests that expect one to stay.
+my $WORK_DIRECTORY = qr/\A[.]mutation\/run-\w+ in the project\z/;
 
 sub project (%files) {
     my $root = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
@@ -146,7 +150,7 @@ subtest 'the work files of a finished task are removed while the run goes on' =>
           . "sub next_one { return \$_[0] + 1 }\nsub spare { return 10 > 5 ? 'big' : 'small' }\n1;\n",
         't/small.t' => $TEST,
     );
-    my ($result) = run_fixture( $root, keep_work => 1 );
+    my ($result) = run_fixture( $root, keep_work => 1, leaves => $WORK_DIRECTORY );
     my %count;
     $count{$_}++ for values statuses($result)->%*;
     is \%count, { CompileError => 3, Killed => 3, NoCoverage => 3, Survived => 1, Ignored => 1 },
@@ -360,7 +364,7 @@ subtest 'a work directory that resists removal stays, and a warning names it' =>
     my $root = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $TEST );
     no warnings 'redefine';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
     local *Test::Mutation::Tree::remove = sub { die "stuck\n" };
-    my ($result) = run_fixture( $root, jobs => 1, in_place => 1 );
+    my ($result) = run_fixture( $root, jobs => 1, in_place => 1, leaves => $WORK_DIRECTORY );
     my ($work)   = glob "$root/.mutation/run-*";
     is $result->warnings, ["the work directory $work stays, because a file in it resists removal"], 'the warning';
     is [ sort values statuses($result)->%* ], [ ('Killed') x 3 ], 'and the mutants are measured';
@@ -381,21 +385,19 @@ subtest 'the work directory leaves the project with its last file' => sub {
 };
 
 subtest 'a temporary directory inside the project is no part of a copy' => sub {
-    my $root = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $TEST, 'tmp/kept.txt' => 'kept' );
-    local $ENV{TMPDIR} = "$root/tmp";
-    my $before = project_state($root);
-    my ($result) = run_fixture( $root, jobs => 2 );
+    my $root     = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $TEST, 'tmp/kept.txt' => 'kept' );
+    my $before   = project_state($root);
+    my ($result) = run_fixture( $root, jobs => 2, temporary => "$root/tmp" );
     is [ sort values statuses($result)->%* ],                          [ ('Killed') x 3 ], 'the mutants are measured';
     is Test::Mutation::Tree::changes( $before, project_state($root) ), [], 'and the project is as it was';
 };
 
 subtest 'a project that cannot be copied stops the run with the name of the other place' => sub {
-    skip_all 'the superuser reads every file' if $> == 0;
+    Capability::need( 'unprivileged', $> != 0, 'the superuser reads every file' );
     my $root = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $TEST, 'private/key.txt' => 'secret' );
     chmod 0, "$root/private/key.txt" or die "chmod: $!";
     my $scratch = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
-    local $ENV{TMPDIR} = $scratch;
-    like dies { run_fixture( $root, jobs => 1 ) },
+    like dies { run_fixture( $root, jobs => 1, temporary => $scratch ) },
       qr{\Acannot copy the project: cannot copy \Q$root\E/private/key[.]txt to \S+: [^;]+; --in-place runs the tests in the project itself\n\z},
       'the error names the file and the option';
     is [ glob "$scratch/*" ], [], 'and no copy is left';

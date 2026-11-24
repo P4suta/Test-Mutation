@@ -4,10 +4,12 @@ use Cwd            ();
 use File::Basename ();
 use File::Path     ();
 use File::Temp     ();
+use lib 't/lib';
+use Capability;
 use Test::Mutation::Diff;
 use Test::Mutation::Git;
 
-skip_all 'the test needs the git command' if !length qx{git --version 2>/dev/null};
+Capability::need( 'git', length qx{git --version 2>/dev/null}, 'the test needs the git command' );
 
 my $root = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
 

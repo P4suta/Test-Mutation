@@ -77,7 +77,7 @@ subtest 'the library walk rejects a fixed depth' => sub {
     is Library::package_of( "$root/A/B/C/D.pm", $root ), 'A::B::C::D', 'a path names its package';
 };
 
-my @files = Library::gates('xt')->@*;
+my @files = Library::tests('xt')->@*;
 my @found;
 for my $file (@files) {
     open my $handle, '<:encoding(UTF-8)', $file or die "read $file: $!";

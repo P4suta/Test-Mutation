@@ -2,6 +2,8 @@ use v5.36;
 use Test2::V0;
 use File::Path ();
 use File::Temp ();
+use lib 't/lib';
+use Capability;
 use Test::Mutation::Project;
 
 sub matches ( $pattern, $path ) {
@@ -62,8 +64,7 @@ subtest 'files' => sub {
     is Test::Mutation::Project::files( $root, [ 'missing/**/*.pm', 'lib/*.pm' ], [] ), ['lib/A.pm'],
       'a directory that does not exist before a pattern that matches';
 
-  SKIP: {
-        skip 'the superuser reads every directory', 2 if $> == 0;
+    if ( Capability::has( 'unprivileged', $> != 0, 'the superuser reads every directory' ) ) {
         mkdir "$root/forbidden" or die "mkdir: $!";
         chmod 0, "$root/forbidden" or die "chmod: $!";
         my @warnings = warnings { Test::Mutation::Project::files( $root, ['lib/**/*.pm'], [] ) }->@*;
@@ -97,7 +98,7 @@ subtest 'processors reads the count from the text of the platform' => sub {
 
 subtest 'cpu_count asks the platform' => sub {
     my $expected = qx{getconf _NPROCESSORS_ONLN 2>/dev/null};
-    skip_all 'getconf reports no processor count' if $expected !~ /\A[1-9][0-9]*\n\z/;
+    Capability::need( 'processor-count', $expected =~ /\A[1-9][0-9]*\n\z/, 'getconf reports no processor count' );
     is Test::Mutation::Project::cpu_count(), $expected + 0, 'the count of the platform';
 };
 

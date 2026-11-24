@@ -221,8 +221,8 @@ sub _measure ( $run, $started ) {
     );
 
     if ( @active && @tests ) {
-        _prepare_work($run);
         my $measured = eval {
+            _prepare_work($run);
             $run->{targets} = [ sort keys $analysis->{sources}->%* ];
             my $baseline = _baseline( $run, \@tests, $run->{targets} );
             $result{parallel_safe}     = $baseline->{parallel_safe};
@@ -298,7 +298,7 @@ sub _warn ( $run, $text ) {
 
 # The work directory leaves the project with its last file, and a cache or a kept run holds it there.
 sub _leave_work ($run) {
-    my $stuck = _discard( $run->{work} );
+    my $stuck = defined $run->{work} ? _discard( $run->{work} ) : 0;
 
     # A directory that still holds a file refuses to go, which is the wanted result.
     rmdir $run->{project} . q{/} . $run->{config}->work_directory;
@@ -308,12 +308,14 @@ sub _leave_work ($run) {
 sub _prepare_work ($run) {
     my $base = $run->{project} . q{/} . $run->{config}->work_directory;
     File::Path::make_path($base);
-    my $work       = File::Temp::tempdir( 'run-XXXXXX', DIR => $base );
+    my $work = File::Temp::tempdir( 'run-XXXXXX', DIR => $base );
+
+    # The run owns the directory from here on, so a failure below still removes it.
+    $run->{work} = $work;
     my $outer      = $ENV{TEST_MUTATION_GENERATION};
     my $generation = defined $outer ? $outer + 1 : 1;
     File::Path::make_path( map { "$work/$_" } 'shim/Test/Mutation/Shim', 'mutants', 'records', 'tmp', 'stderr' );
     _spew( "$work/shim/Test/Mutation/Shim/G$generation.pm", shim_text($generation) );
-    $run->{work}       = $work;
     $run->{generation} = $generation;
     $run->{package}    = "Test::Mutation::Shim::G$generation";
     return;
@@ -423,13 +425,16 @@ signature_for run_command => (
 sub run_command ( $config, $source, $mutant, $command ) {
     my $root = Cwd::abs_path( $config->root );
     my $run  = { config => $config, project => $root, root => $root };
-    _prepare_work($run);
-    my ( undef, $spec ) = _write_mutant( $run, $source, $mutant, $root );
-    my $status = do {
+    my $ran  = eval {
+        _prepare_work($run);
+        my ( undef, $spec ) = _write_mutant( $run, $source, $mutant, $root );
         local %ENV = ( %ENV, _environment( $run, $spec, $root ) );
-        system { $command->[0] } $command->@*;
+        [ system { $command->[0] } $command->@* ];
     };
+    my $error = $@;
     _leave_work($run);
+    die $error if !$ran;    ## no critic (ErrorHandling::RequireCarping)
+    my ($status) = $ran->@*;
     return 127                     if $status == -1;
     return 128 + ( $status & 127 ) if $status & 127;
     return $status >> 8;

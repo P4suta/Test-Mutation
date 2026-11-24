@@ -26,7 +26,10 @@ jobs:
       # The audit tool builds PerlIO::gzip, which needs the zlib headers.
       - run: sudo apt-get install --yes --no-install-recommends zlib1g-dev
       - run: mise run setup
+      # A test that would skip itself for want of one of these fails here, so no test goes missing unnoticed.
       - run: mise run check
+        env:
+          TEST_MUTATION_REQUIRE: git,class,second-perl,processor-count,unprivileged
 
   driver:
     name: driver on Perl ${{ matrix.perl }}
@@ -35,9 +38,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        perl:
-          - "5.36"
-          - "5.40"
+        include:
+          # The class syntax arrived with Perl 5.38.
+          - perl: "5.36"
+            require: git,second-perl,processor-count,unprivileged
+          - perl: "5.40"
+            require: git,class,second-perl,processor-count,unprivileged
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -54,6 +60,8 @@ jobs:
           install-modules: Carton::Snapshot
       - run: cpm install --top-level-phase configure,build,test,runtime
       - run: prove -lr t/unit t/shim t/assumptions t/e2e
+        env:
+          TEST_MUTATION_REQUIRE: ${{ matrix.require }}
 
   shim:
     name: shim on Perl ${{ matrix.perl }}

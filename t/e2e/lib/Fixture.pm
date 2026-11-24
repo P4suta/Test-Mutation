@@ -6,10 +6,11 @@ use File::Find  ();
 use File::Path  ();
 use File::Temp  ();
 use Exporter 'import';
+use Test2::API qw(context);
 use Test::Mutation::Config;
 use Test::Mutation::Runner;
 
-our @EXPORT_OK = qw(copy_of run_fixture tree_digest statuses mutation mutation_from write_file);
+our @EXPORT_OK = qw(copy_of leftovers ran ran_from run_fixture tree_digest statuses write_file);
 
 sub write_file ( $path, $content ) {
     my ($directory) = $path =~ m{\A(.*)/};
@@ -23,17 +24,40 @@ sub write_file ( $path, $content ) {
 my $LIBRARY = Cwd::abs_path('lib');
 my $COMMAND = Cwd::abs_path('bin') . '/mutation';
 
-sub mutation ( $root, @arguments ) {
-    return mutation_from( $LIBRARY, $root, @arguments );
+sub _names ( $directory, $pattern ) {
+    opendir my $handle, $directory or return;
+    my @names = sort grep { $_ ne q{.} && $_ ne q{..} && $_ =~ $pattern } readdir $handle;
+    closedir $handle or die "close $directory: $!";
+    return @names;
 }
 
-sub mutation_from ( $library, $root, @arguments ) {
+# What stands in the temporary directory of a run and as work directories in the project, apart from the known entries.
+sub leftovers ( $temporary, $root, @known ) {
+    my %known = map { $_ => 1 } @known;
+    return [
+        grep { !$known{$_} } ( map { "$_ in the temporary directory" } _names( $temporary, qr/./ ) ),
+        ( map { ".mutation/$_ in the project" } _names( "$root/.mutation", qr/\Arun-/ ) )
+    ];
+}
+
+# A run leaves nothing behind unless the test names what it expects to stay.
+sub _left_ok ( $what, $left, $expected ) {
+    my $as_expected = defined $expected ? $left->@* && !grep { $_ !~ $expected } $left->@* : !$left->@*;
+    my $name        = defined $expected ? "$what leaves what the test expects" : "$what leaves nothing behind";
+    my $context     = context();
+    $context->ok( $as_expected ? 1 : 0, $name, [ map { "left: $_" } $left->@* ] );
+    $context->release;
+    return;
+}
+
+sub _spawn ( $library, $root, $temporary, @arguments ) {
     my $output = File::Temp->new;
     my $errors = File::Temp->new;
     my $pid    = fork;
     die "fork: $!" if !defined $pid;
     if ( !$pid ) {
         chdir $root or die "chdir $root: $!";
+        local $ENV{TMPDIR} = $temporary;
         open STDIN,  '<', '/dev/null'       or die "stdin: $!";
         open STDOUT, '>', $output->filename or die "stdout: $!";
         open STDERR, '>', $errors->filename or die "stderr: $!";
@@ -47,6 +71,26 @@ sub mutation_from ( $library, $root, @arguments ) {
         return defined $text ? $text : q{};
     };
     return { exit => $? >> 8, stdout => $read->($output), stderr => $read->($errors) };
+}
+
+# A test states the exit status it expects, so a command that crashed never reads as one that printed nothing.
+sub ran ( $exit, $root, @arguments ) {
+    return ran_from( $LIBRARY, $exit, $root, @arguments );
+}
+
+sub ran_from ( $library, $exit, $root, @arguments ) {
+    my $temporary = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    my @known     = leftovers( $temporary, $root )->@*;
+    my $run       = _spawn( $library, $root, $temporary, @arguments );
+    my $context   = context();
+    $context->ok(
+        $run->{exit} == $exit ? 1 : 0,
+        "mutation @arguments exits with status $exit",
+        [ "the exit status is $run->{exit}", $run->{stderr} ]
+    );
+    $context->release;
+    _left_ok( "mutation @arguments", leftovers( $temporary, $root, @known ), undef );
+    return $run;
 }
 
 sub copy_of ($name) {
@@ -86,10 +130,22 @@ sub tree_digest ($root) {
     return \%digest;
 }
 
+# The settings go to the configuration, apart from two that belong to the test.
+# `temporary` names the temporary directory of the run, and `leaves` is a pattern for what the run may leave.
 sub run_fixture ( $root, %settings ) {
+    my $leaves    = delete $settings{leaves};
+    my $temporary = delete $settings{temporary};
+    $temporary = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) ) if !defined $temporary;
+    my @known  = leftovers( $temporary, $root )->@*;
     my $config = Test::Mutation::Config->new( root => $root, jobs => 2, %settings );
     my @events;
-    my $result = Test::Mutation::Runner::run( $config, sub ( $event, $data ) { push @events, $event } );
+    my $result = eval {
+        local $ENV{TMPDIR} = $temporary;
+        Test::Mutation::Runner::run( $config, sub ( $event, $data ) { push @events, $event } );
+    };
+    my $error = $@;
+    _left_ok( 'the run', leftovers( $temporary, $root, @known ), $leaves );
+    die $error if !$result;
     return ( $result, \@events );
 }
 
