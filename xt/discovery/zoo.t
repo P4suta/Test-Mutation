@@ -217,9 +217,38 @@ if ( Discovery::Tier::full() ) {
         my ( $label, @more ) = $variant->@*;
         push $found{full}->@*, $fresh->( $label, together( 'loading', \@styles, @more ) );
     }
-    for my $member ( grep { $_->[1] ne $plain } @shared ) {
-        push $found{full}->@*, $fresh->( 'apart', together( $member->[0], [ $member->[1] ], sanity => 0 ) );
+
+    # A member apart from the others must show what it shows among them, and no more.
+    # A line of the shared runs that no member shows alone came from the company of the others.
+    my %apart;
+    my @solo = grep { $_->[1] ne $plain } @shared;
+    for my $member (@solo) {
+        $apart{$_} = 1 for together( $member->[0], [ $member->[1] ], sanity => 0 );
     }
+
+    # The lines of the pool come from the adapter of the pool and from no run of the tool, shared or apart.
+    # The adapter names them once more here, so the fast tier stays as the repeated runs measured it.
+    my %pooled;
+    for my $name ( sort keys %waits ) {
+        $pooled{"process=$name: $_"} = 1 for findings( ['I1-wait'], wait => $waiter->waited( $waits{$name}, 1 ) );
+    }
+    my @labels = map { ( "$_->[0]=$_->[1]: ", "$_->[0]=$plain: ", "$_->[0]: " ) } @shared;
+    my @among  = grep {
+        my $line = $_;
+        !$pooled{$line} && grep { index( $line, $_ ) == 0 } @labels
+    } sort keys %fast;
+    my $lonely = sub ( $lines, $shown ) {
+        return map { "apart, no member alone shows $_" } grep { !$shown->{$_} } $lines->@*;
+    };
+    push $found{full}->@*, $fresh->( 'apart', sort keys %apart );
+    push $found{full}->@*, $lonely->( \@among, \%apart );
+
+    # The comparison counts the members that it measured apart, and it rejects a line that a member loses alone.
+    # The number of lines falls as the findings close, so a note states it and no floor holds it.
+    note sprintf 'the shared runs gave %d lines to the members apart', scalar @among;
+    Gate::checked( 'members apart from the others', scalar @solo, at_least => 57 );
+    is [ $lonely->( [ 'process=a: kept', 'process=b: lost' ], { 'process=a: kept' => 1 } ) ],
+      ['apart, no member alone shows process=b: lost'], 'a line that no member shows alone is a finding';
     for my $name ( Discovery::Zoo::names('files') ) {
         push $found{full}->@*,
           $fresh->( 'in the project', alone( 'files', $name, in_place => 1, environment => { DISCOVERY_WAIT => 1 } ) );
