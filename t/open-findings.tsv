@@ -207,3 +207,48 @@ contract-counts-reports	the report states no count; statuses CompileError Ignore
 contract-role-reports	the score differs from the formula of the report schema; results all all-but-CompileError all-but-Ignored all-but-Killed all-but-NoCoverage all-but-Pending all-but-RuntimeError all-but-Survived only-Timeout; formats html json	the status catalog
 contract-stdout-reports	the bytes of the output are no UTF-8 form of the report; shapes latin1-1 latin1-2; formats terminal	the encoding of the output
 contract-no-leak-reports	a warning of Perl; shapes utf8-1 utf8-2; formats terminal	the encoding of the output
+contract-message-messages	lib/Test/Mutation/CLI.pm: 2 of 9 messages that no case produces	the typed errors and the message catalog
+contract-message-messages	lib/Test/Mutation/Cache.pm: 3 of 3 messages that no case produces	the typed errors and the message catalog
+contract-message-messages	lib/Test/Mutation/Config.pm: 1 of 5 messages that no case produces	the typed errors and the message catalog
+contract-message-messages	lib/Test/Mutation/Git.pm: 3 of 3 messages that no case produces	the typed errors and the message catalog
+contract-message-messages	lib/Test/Mutation/Pool.pm: 9 of 9 messages that no case produces	the typed errors and the message catalog
+contract-message-messages	lib/Test/Mutation/Record.pm: 2 of 2 messages that no case produces	the typed errors and the message catalog
+contract-message-messages	lib/Test/Mutation/Report/Html.pm: 2 of 2 messages that no case produces	the typed errors and the message catalog
+contract-message-messages	lib/Test/Mutation/Runner.pm: 13 of 14 messages that no case produces	the typed errors and the message catalog
+contract-message-messages	lib/Test/Mutation/Shim.pm: 2 of 2 messages that no case produces	the typed errors and the message catalog
+contract-message-messages	lib/Test/Mutation/Tree.pm: 10 of 10 messages that no case produces	the typed errors and the message catalog
+contract-message-messages	lib/Test/Mutation/Verdict.pm: 1 of 1 messages that no case produces	the typed errors and the message catalog
+contract-literal-source	lib/Test/Mutation.pm: 1 die statements hold their message	the typed errors and the message catalog
+contract-literal-source	lib/Test/Mutation/CLI.pm: 9 die statements hold their message	the typed errors and the message catalog
+contract-literal-source	lib/Test/Mutation/Cache.pm: 4 die statements hold their message	the typed errors and the message catalog
+contract-literal-source	lib/Test/Mutation/Config.pm: 5 die statements hold their message	the typed errors and the message catalog
+contract-literal-source	lib/Test/Mutation/Git.pm: 4 die statements hold their message	the typed errors and the message catalog
+contract-literal-source	lib/Test/Mutation/Merge.pm: 11 die statements hold their message	the typed errors and the message catalog
+contract-literal-source	lib/Test/Mutation/Mutator/Catalog.pm: 1 die statements hold their message	the typed errors and the message catalog
+contract-literal-source	lib/Test/Mutation/Pool.pm: 10 die statements hold their message	the typed errors and the message catalog
+contract-literal-source	lib/Test/Mutation/Record.pm: 2 die statements hold their message	the typed errors and the message catalog
+contract-literal-source	lib/Test/Mutation/Report/Html.pm: 2 die statements hold their message	the typed errors and the message catalog
+contract-literal-source	lib/Test/Mutation/Report/Json.pm: 6 die statements hold their message	the typed errors and the message catalog
+contract-literal-source	lib/Test/Mutation/Runner.pm: 10 die statements hold their message	the typed errors and the message catalog
+contract-literal-source	lib/Test/Mutation/Shim.pm: 2 die statements hold their message	the typed errors and the message catalog
+contract-literal-source	lib/Test/Mutation/Tree.pm: 13 die statements hold their message	the typed errors and the message catalog
+contract-literal-source	lib/Test/Mutation/Verdict.pm: 1 die statements hold their message	the typed errors and the message catalog
+contract-status-once-source	lib/Test/Mutation/Cache.pm: 1 lists of statuses	the status catalog
+contract-status-once-source	lib/Test/Mutation/Report/GitHub.pm: 2 lists of statuses	the status catalog
+contract-status-once-source	lib/Test/Mutation/Report/Json.pm: 1 lists of statuses	the status catalog
+contract-status-once-source	lib/Test/Mutation/Report/Progress.pm: 1 lists of statuses	the status catalog
+contract-status-once-source	lib/Test/Mutation/Report/Terminal.pm: 3 lists of statuses	the status catalog
+contract-status-once-source	lib/Test/Mutation/Result.pm: 2 lists of statuses	the status catalog
+contract-status-once-source	lib/Test/Mutation/Runner.pm: 2 lists of statuses	the status catalog
+contract-status-once-source	lib/Test/Mutation/Score.pm: 2 lists of statuses	the status catalog
+contract-status-once-source	lib/Test/Mutation/Verdict.pm: 4 lists of statuses	the status catalog
+contract-env-source	no table and no manual lists the variable; variables GITHUB_ACTIONS GITHUB_STEP_SUMMARY; files lib/Test/Mutation/CLI.pm	the manual that the tables generate
+contract-env-source	no table and no manual lists the variable; variables TEST_MUTATION_GENERATION; files lib/Test/Mutation/Runner.pm	the manual that the tables generate
+contract-env-source	no table and no manual lists the variable; variables TEST_MUTATION_ROOT; files lib/Test/Mutation.pm	the manual that the tables generate
+contract-env-source	no table and no manual lists the variable; variables a-computed-name; files lib/Test/Mutation/Runner.pm lib/Test/Mutation/Shim.pm	the manual that the tables generate
+contract-examples-manual	code that does not compile; kinds perl; files lib/Test/Mutation/Tree.pm	the manual that the tables generate
+contract-manual-manual	the manual names no row of the table; rows --config --coverage --disable --enable --equivalence --format --jobs --keep-work --min-score --mutant --perl --report-dir --source --test --timeout-factor --timeout-floor; tables flags	the manual that the tables generate
+contract-manual-manual	the manual names no row of the table; rows 0 1 129 130 143 2 3 4; tables exit-statuses	the manual that the tables generate
+contract-manual-manual	the manual names no row of the table; rows Pending; tables statuses	the manual that the tables generate
+contract-manual-manual	the manual names no row of the table; rows test.exclude test.perl; tables keys	the manual that the tables generate
+contract-manual-manual	the manual names no row of the table; rows version; tables commands	the manual that the tables generate
