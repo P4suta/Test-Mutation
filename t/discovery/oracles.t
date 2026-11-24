@@ -487,6 +487,25 @@ subtest 'the tally rejects a table that hides a column' => sub {
       [], 'the table of a run shows every oracle';
 };
 
+subtest 'the rate rejects a mutator of the default profile above its bound, and no single mutant' => sub {
+    my $tally = Oracle::tally();
+    Oracle::count( $tally, 'comparison',     'compared',   100 );
+    Oracle::count( $tally, 'comparison',     'equivalent', 3 );
+    Oracle::count( $tally, 'arithmetic',     'compared',   100 );
+    Oracle::count( $tally, 'arithmetic',     'equivalent', 2 );
+    Oracle::count( $tally, 'number-literal', 'compared',   10 );
+    Oracle::count( $tally, 'number-literal', 'equivalent', 5 );
+    Oracle::count( $tally, 'negation',       'equivalent', 1 );
+    is Oracle::rated( $tally, 'equivalent', 'compared', 0.02, 'is equivalent too often' ),
+      ['comparison is equivalent too often'],
+      'a share above the bound fails, a share at the bound passes, and a mutator of the extended profile has no bound';
+    is Oracle::rated( $tally, 'equivalent', 'compared', 0.5, 'is equivalent too often' ), [],
+      'a mutator without a base has no rate';
+    is [ Oracle::rates( $tally, 'equivalent', 'compared' ) ],
+      [ [ 'arithmetic', 2, 100, 0.02 ], [ 'comparison', 3, 100, 0.03 ], [ 'number-literal', 5, 10, 0.5 ] ],
+      'each mutator with a base has its count, its base, and its rate';
+};
+
 sub written ( $directory, $name, $text ) {
     open my $handle, '>:raw', "$directory/$name" or die "write $name: $!";
     print {$handle} $text or die "write $name: $!";

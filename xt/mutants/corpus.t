@@ -58,6 +58,25 @@ sub judged_ok ( $scope, $summary, @oracles ) {
     };
 }
 
+# A mutant with the code of its original measures its mutator, as the run marks it Ignored and no change of the boundary removes it.
+# Appendix J of the plan keeps a mutator in the default profile while its share of such mutants stays at 2 percent or below.
+my $EQUIVALENT = 0.02;
+
+sub equivalence_ok ( $scope, $summary ) {
+    my $tally = $summary->{tally};
+    note sprintf '%s: %s keeps the code of the original in %d of %d compared mutants (%.1f%%)', $scope, $_->@[ 0 .. 2 ],
+      100 * $_->[3]
+      for Oracle::rates( $tally, 'equivalent', 'compared' );
+    Gate::findings(
+        "mutants-c-$scope",
+        Oracle::rated(
+            $tally, 'equivalent', 'compared', $EQUIVALENT,
+            'compiles to the code of the original in more than 2 percent of its mutants'
+        )
+    );
+    return;
+}
+
 subtest 'the walk rejects a module with a mutant that perl refuses and one that calls nothing' => sub {
     my $directory = File::Temp->newdir;
     my %module    = (
@@ -125,7 +144,8 @@ my $owned = Oracle::summary(
         }
     )
 );
-my $own = judged_ok( 'own', $owned, qw(b b2 c refusal) );
+my $own = judged_ok( 'own', $owned, qw(b b2 refusal) );
+equivalence_ok( 'own', $owned );
 is $owned->{problems}, {}, 'perl compiles every file of the corpus, of the fixtures, and of the tool as it stands';
 Gate::checked( 'mutants of the project that perl judged',        $own->{judged},   at_least => 5000 );
 Gate::checked( 'mutants whose compiled code B::Deparse printed', $own->{compared}, at_least => 5000 );
@@ -141,7 +161,8 @@ my $printed = Oracle::summary(
         sub ($path) { return Oracle::survey( $path, judged => 1, patched => 0, wants => [ 'calls', 'deparse' ] ) }
     )
 );
-my $sample = judged_ok( 'sample', $printed, qw(c) );
+my $sample = judged_ok( 'sample', $printed );
+equivalence_ok( 'sample', $printed );
 Gate::checked( 'installed modules in the sample',                 scalar @sampled,     at_least => 200 );
 Gate::checked( 'installed mutants whose code B::Deparse printed', $sample->{compared}, at_least => 1500 );
 

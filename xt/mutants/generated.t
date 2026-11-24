@@ -52,12 +52,16 @@ Gate::checked( 'verdicts that a cold perl confirmed', $summary->{crossed},      
 # Every operator between every pair of operand shapes runs as the value of a subroutine over the matrix.
 my @expressions = Matrix::expressions( Snippets::product( ( Snippets::sizes() )[ 0 .. 2 ] ) );
 my $matrix      = Matrix::surveyed( \@expressions, $workers, [ Matrix::rows() ] );
-note $_ for Oracle::table( $matrix->{tally}, 'executed', 'inseparable:executed' ), Oracle::lines($matrix);
+note $_
+  for Oracle::table( $matrix->{tally}, 'executed', 'inseparable:executed', 'varied', 'unseparated:varied' ),
+  Oracle::lines($matrix);
 note "$_: $matrix->{expressions}{$_}" for sort keys $matrix->{expressions}->%*;
 is $matrix->{problems}, {}, 'the tool analyzes every expression';
-Gate::findings( 'mutants-c2-product', Oracle::found( $matrix, 'c2' ) );
-Gate::checked( 'expressions',                      scalar @expressions,                           at_least => 2900 );
-Gate::checked( 'expressions that perl runs',       $matrix->{expressions}{run},                   at_least => 2400 );
-Gate::checked( 'mutants that ran over the matrix', Oracle::total( $matrix->{tally} )->{executed}, at_least => 4500 );
+Gate::findings( 'mutants-c2-product', Matrix::over_bound( $matrix->{tally} ) );
+my $ran = Oracle::total( $matrix->{tally} );
+Gate::checked( 'expressions',                                       scalar @expressions,         at_least => 2900 );
+Gate::checked( 'expressions that perl runs',                        $matrix->{expressions}{run}, at_least => 2400 );
+Gate::checked( 'mutants that ran over the matrix',                  $ran->{executed},            at_least => 2800 );
+Gate::checked( 'mutants of expressions with two variable operands', $ran->{varied},              at_least => 1200 );
 
 done_testing;

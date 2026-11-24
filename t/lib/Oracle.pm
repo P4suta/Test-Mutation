@@ -939,6 +939,26 @@ sub summary ($records) {
     return \%summary;
 }
 
+# The rate of a column over a base column for each mutator with a base: the mutator, both counts, and their share.
+sub rates ( $tally, $count, $base ) {
+    my @rates;
+    for my $mutator ( sort keys $tally->%* ) {
+        my $whole = $tally->{$mutator}{$base} || 0;
+        next if !$whole;
+        my $part = $tally->{$mutator}{$count} || 0;
+        push @rates, [ $mutator, $part, $whole, $part / $whole ];
+    }
+    return @rates;
+}
+
+# A mutant that compiles to the code of its original, or that no input tells apart, measures its mutator, and no change fixes it.
+# The plan places a mutator in the default profile while such a rate stays at its bound, so a finding names a mutator above it.
+sub rated ( $tally, $count, $base, $bound, $text ) {
+    my %default =
+      map { $_->name => 1 } grep { $_->profile eq 'default' } Test::Mutation::Mutator::Catalog::mutators()->@*;
+    return [ map { "$_->[0] $text" } grep { $default{ $_->[0] } && $_->[3] > $bound } rates( $tally, $count, $base ) ];
+}
+
 # One line for each rule of the generator: how often it refused a change, and for which mutators.
 # A rule that fires more often than its defect is common shows here.
 sub rules ($summary) {

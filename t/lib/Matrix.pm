@@ -160,16 +160,23 @@ sub inseparable ( $source, $mutants, $rows ) {
 my $CLASS = 'has no input of the matrix that tells it from the original';
 
 # The records of the mutants of an expression: what perl ran, what no row separates, and a finding for each mutator.
-sub judged_records ( $source, $mutants, $rows, $label ) {
+# The mutants of an expression with two different variable operands count once more, in the columns of the rate.
+sub judged_records ( $source, $mutants, $rows, $label, %arg ) {
     my $result = eval { inseparable( $source, $mutants, $rows ) };
     return [ 'problem', 'matrix', $@ =~ s/\n\z//r, $label ] if !$result;
     return [ 'expression', 'refused' ] if !$result->{loaded};
     my %seen;
     my @first = grep { !$seen{ $_->mutator }++ } $result->{equal}->@*;
+    my @rated;
+    if ( $arg{varied} ) {
+        push @rated, map { [ 'count', $_->mutator, 'varied' ] } $result->{executed}->@*;
+        push @rated, map { [ 'count', $_->mutator, 'unseparated' ] } $result->{equal}->@*;
+    }
     return (
         [ 'expression', 'run' ],
         ( map { [ 'count', $_->mutator, 'executed' ] } $result->{executed}->@* ),
         ( map { [ 'count', $_->mutator, 'inseparable' ] } $result->{equal}->@* ),
+        @rated,
         (
             map { [ 'finding', 'c2', $_->mutator . " $CLASS", "$label: " . $_->original . ' -> ' . $_->replacement ] }
               @first
@@ -199,22 +206,64 @@ sub expression_records ( $context, $expression, $rows ) {
     return [ 'problem', 'analysis', $made->{problem}, $made->{detail} ] if defined $made->{problem};
     my ( $from, $to ) = $file->{spans}[0]->@*;
     my @inside = grep { $_->start >= $from && $_->end <= $to } $made->{mutants}->@*;
-    return judged_records( $source, \@inside, rows_for( $expression->{text}, $rows ), $expression->{text} );
+    return judged_records( $source, \@inside, rows_for( $expression->{text}, $rows ),
+        $expression->{text}, varied => $expression->{varied} );
 }
 
+my %CONSTANT = map { $_ => 1 } 'literal', 'here-document';
+
 # The expressions of a list of tuples: the operator and the operand on each side.
+# `varied` marks an expression with two different operands that each read a variable, so the rows reach both.
 sub expressions (@tuples) {
     my @operators = Snippets::operators();
     my @operands  = Snippets::operands();
-    return map { Snippets::expression( $operators[ $_->[0] ], @operands[ $_->[1], $_->[2] ] ) } @tuples;
+    my @expressions;
+    for my $tuple (@tuples) {
+        my ( $before, $after ) = @operands[ $tuple->[1], $tuple->[2] ];
+        my $varied =
+          !$CONSTANT{ $before->{name} } && !$CONSTANT{ $after->{name} } && $before->{left} ne $after->{right};
+        push @expressions,
+          { Snippets::expression( $operators[ $tuple->[0] ], $before, $after )->%*, varied => $varied ? 1 : 0 };
+    }
+    return @expressions;
+}
+
+# The bound of the rate of c2 for a mutator of the default profile, over the mutants of expressions with two variable operands.
+# A constant operand or the same operand on both sides fixes what the operator meets, and no row reaches such a mutant.
+# Over every expression the measured rates reach 11 percent of the product and 30 percent of the pairs for those reasons.
+# Over the expressions with two different variable operands they stay at or below 1.1 percent of the product and at 0 of the pairs.
+# So the rate counts that share alone, and it holds the 2 percent bound that appendix J of the plan sets for equivalence.
+my $BOUND = 0.02;
+
+# The mutators of the default profile whose rate of mutants that no row separates passes the bound.
+sub over_bound ($tally) {
+    return Oracle::rated( $tally, 'unseparated', 'varied', $BOUND,
+        'has no input of the matrix that tells it from the original in more than 2 percent of its mutants' );
+}
+
+# The context of an expression in the matrix: the whole expression is the value of a subroutine.
+# A bare `return` takes the left operand of a low-precedence `and`, `or`, or `xor` alone, and the parentheses keep the rest.
+# A call in list context and a call in scalar context both read the value, as `..` and `x` differ by context.
+sub context () {
+    my ($return) = grep { $_->{name} eq 'return' } Snippets::contexts();
+    return { $return->%*, name => 'value', code => 'sub c { return ( EXPR ) }' };
+}
+
+# Whether a context keeps the whole expression as the value: a change of the operator on the right of `or` shows.
+sub keeps_whole ($context) {
+    my $file   = Snippets::file( $context, { text => '$x or $y', body => q{} } );
+    my $source = Oracle::text_source( 'lib/Whole.pm', $file->{text} );
+    my $result = inseparable( $source, [ Oracle::by_hand( $source, 'or $y', 'and $y' ) ], [ rows() ] );
+    return $result->{executed}->@* == 1 && !$result->{equal}->@* ? 1 : 0;
 }
 
 # Every expression as the value of a subroutine through the matrix, as the summary of a walk.
 # `expressions` beside the summary counts the expressions that perl runs and the ones that it refuses.
 sub surveyed ( $expressions, $workers, $rows ) {
-    my ($return) = grep { $_->{name} eq 'return' } Snippets::contexts();
-    my $shares   = 4 * $workers;
-    my $records  = Oracle::each_file(
+    my $return = context();
+    die "the context of the matrix cuts the expression\n" if !keeps_whole($return);
+    my $shares  = 4 * $workers;
+    my $records = Oracle::each_file(
         [ map { [ "share $_", $_, $shares ] } 0 .. $shares - 1 ],
         $workers,
         sub ( $name, $share, $of ) {

@@ -25,26 +25,8 @@ mutants-b3-product	comparison leaves the file without a true value	the validity 
 mutants-b3-product	match leaves the file without a true value	the validity boundary of the generator
 mutants-b3-product	number-literal leaves the file without a true value	the validity boundary of the generator
 mutants-b3-product	string-comparison leaves the file without a true value	the validity boundary of the generator
-mutants-c-own	comparison compiles to the code of the original	the validity boundary of the generator
-mutants-c-own	number-literal compiles to the code of the original	the validity boundary of the generator
-mutants-c-own	string-literal compiles to the code of the original	the validity boundary of the generator
-mutants-c-sample	call-swap compiles to the code of the original	the validity boundary of the generator
-mutants-c-sample	comparison compiles to the code of the original	the validity boundary of the generator
-mutants-c-sample	condition-fixed compiles to the code of the original	the validity boundary of the generator
-mutants-c-sample	negation compiles to the code of the original	the validity boundary of the generator
-mutants-c-sample	string-literal compiles to the code of the original	the validity boundary of the generator
-mutants-c2-generated	assignment has no input of the matrix that tells it from the original	the validity boundary of the generator
-mutants-c2-generated	comparison has no input of the matrix that tells it from the original	the validity boundary of the generator
-mutants-c2-generated	logical has no input of the matrix that tells it from the original	the validity boundary of the generator
-mutants-c2-generated	number-literal has no input of the matrix that tells it from the original	the validity boundary of the generator
-mutants-c2-generated	range-boundary has no input of the matrix that tells it from the original	the validity boundary of the generator
-mutants-c2-generated	string-comparison has no input of the matrix that tells it from the original	the validity boundary of the generator
-mutants-c2-product	assignment has no input of the matrix that tells it from the original	the validity boundary of the generator
-mutants-c2-product	comparison has no input of the matrix that tells it from the original	the validity boundary of the generator
-mutants-c2-product	logical has no input of the matrix that tells it from the original	the validity boundary of the generator
-mutants-c2-product	number-literal has no input of the matrix that tells it from the original	the validity boundary of the generator
-mutants-c2-product	range-boundary has no input of the matrix that tells it from the original	the validity boundary of the generator
-mutants-c2-product	string-comparison has no input of the matrix that tells it from the original	the validity boundary of the generator
+mutants-c-sample	call-swap compiles to the code of the original in more than 2 percent of its mutants	the profile rule of the mutators, which places a mutator by its measured rates
+mutants-c-sample	comparison compiles to the code of the original in more than 2 percent of its mutants	the profile rule of the mutators, which places a mutator by its measured rates
 mutants-census-corpus	no mutant covers ArrayIndex, and no reason declines it	the new mutators and the declined table of the census
 mutants-census-corpus	no mutant covers HereDoc, and no reason declines it	the new mutators and the declined table of the census
 mutants-census-corpus	no mutant covers Number::Float, and no reason declines it	the new mutators and the declined table of the census

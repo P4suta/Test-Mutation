@@ -99,11 +99,19 @@ subtest 'the context check rejects a context that changes the mutants of an expr
       'a context that the analysis never reads loses every change';
 };
 
-subtest 'the matrix rejects a mutant that no input tells from the original' => sub {
+subtest 'the matrix rejects a context that cuts the expression' => sub {
     my ($return) = grep { $_->{name} eq 'return' } Snippets::contexts();
-    my $file     = Snippets::file( $return, { text => '$x + 0 > $y', body => q{} } );
-    my $source   = Oracle::text_source( 'lib/Snippet.pm', $file->{text} );
-    my @mutants  = (
+    is Matrix::context()->{code}, 'sub c { return ( EXPR ) }', 'the expression stands inside parentheses';
+    ok Matrix::keeps_whole( Matrix::context() ), 'and the value of the subroutine holds both operands of `or`';
+    is Gate::outcomes( sub { ok Matrix::keeps_whole($return), 'the context keeps the whole expression' } ), ['fail'],
+      'a bare return takes the left operand of `or` alone, and the check fails';
+};
+
+subtest 'the matrix rejects a mutant that no input tells from the original' => sub {
+    my $return  = Matrix::context();
+    my $file    = Snippets::file( $return, { text => '$x + 0 > $y', body => q{} } );
+    my $source  = Oracle::text_source( 'lib/Snippet.pm', $file->{text} );
+    my @mutants = (
         Oracle::by_hand( $source, '+ 0',  '- 0' ),
         Oracle::by_hand( $source, '> $y', '>= $y' ),
         Oracle::by_hand( $source, '+ 0',  '+' ),
@@ -148,10 +156,26 @@ subtest 'the matrix rejects a mutant that no input tells from the original' => s
     my @records = Matrix::judged_records( $source, \@mutants, [ Matrix::rows() ], 'by hand' );
     is [ grep { $_->[0] eq 'expression' } @records ], [ [ 'expression', 'run' ] ], 'perl runs the original';
     my $summary = Oracle::summary( [ map { [ 'lib/Snippet.pm', $_->@* ] } grep { $_->[0] ne 'expression' } @records ] );
-    is Oracle::found( $summary, 'c2' ), ['by-hand has no input of the matrix that tells it from the original'],
-      'the change that no row separates is a finding of its mutator';
-    is Gate::outcomes( sub { Gate::findings( 'mutants-c2-rejected', Oracle::found( $summary, 'c2' ) ) } ),
+    is [ map { /\Ac2: (.*?), in / ? $1 : () } Oracle::lines($summary) ],
+      ['by-hand has no input of the matrix that tells it from the original'],
+      'the output names each change that no row separates';
+
+    # The rate of a mutator decides a finding, and the varied columns count the mutants that the rows reach.
+    my $tally = Oracle::tally();
+    Oracle::count( $tally, 'comparison',     'varied',      50 );
+    Oracle::count( $tally, 'comparison',     'unseparated', 2 );
+    Oracle::count( $tally, 'arithmetic',     'varied',      50 );
+    Oracle::count( $tally, 'arithmetic',     'unseparated', 1 );
+    Oracle::count( $tally, 'number-literal', 'varied',      50 );
+    Oracle::count( $tally, 'number-literal', 'unseparated', 25 );
+    is Matrix::over_bound($tally),
+      ['comparison has no input of the matrix that tells it from the original in more than 2 percent of its mutants'],
+      'a mutator of the default profile above 2 percent is a finding, and one of the extended profile has no bound';
+    is Gate::outcomes( sub { Gate::findings( 'mutants-c2-rejected', Matrix::over_bound($tally) ) } ),
       [ 'fail', 'pass' ], 'and a finding outside the list fails the gate';
+    my ($varied) = Matrix::expressions( [ 0, 0, 2 ] );
+    my ($fixed)  = Matrix::expressions( [ 0, 0, 1 ] );
+    is [ $varied->{varied}, $fixed->{varied} ], [ 1, 0 ], 'a literal operand takes an expression out of the rate';
 };
 
 # Perl compiles each snippet alone first, so a combination that is no code leaves the list.
@@ -179,13 +203,17 @@ Gate::checked( 'refused changes that perl judged', $total->{asked}, at_least => 
 # Each expression runs as the value of a subroutine over the matrix, with every operator beside every operand shape.
 my @expressions = Matrix::expressions( Snippets::pairwise( ( Snippets::sizes() )[ 0 .. 2 ] ) );
 my $matrix      = Matrix::surveyed( \@expressions, $workers, [ Matrix::rows() ] );
-note $_ for Oracle::table( $matrix->{tally}, 'executed', 'inseparable:executed' ), Oracle::lines($matrix);
+note $_
+  for Oracle::table( $matrix->{tally}, 'executed', 'inseparable:executed', 'varied', 'unseparated:varied' ),
+  Oracle::lines($matrix);
 note "$_: $matrix->{expressions}{$_}" for sort keys $matrix->{expressions}->%*;
 is $matrix->{problems}, {}, 'the tool analyzes every expression';
-Gate::findings( 'mutants-c2-generated', Oracle::found( $matrix, 'c2' ) );
-Gate::checked( 'expressions',                      scalar @expressions,                           at_least => 400 );
-Gate::checked( 'expressions that perl runs',       $matrix->{expressions}{run},                   at_least => 300 );
-Gate::checked( 'mutants that ran over the matrix', Oracle::total( $matrix->{tally} )->{executed}, at_least => 600 );
-Gate::checked( 'rows of the matrix',               scalar( () = Matrix::rows() ),                 at_least => 100 );
+Gate::findings( 'mutants-c2-generated', Matrix::over_bound( $matrix->{tally} ) );
+my $ran = Oracle::total( $matrix->{tally} );
+Gate::checked( 'expressions',                                       scalar @expressions,           at_least => 400 );
+Gate::checked( 'expressions that perl runs',                        $matrix->{expressions}{run},   at_least => 300 );
+Gate::checked( 'mutants that ran over the matrix',                  $ran->{executed},              at_least => 400 );
+Gate::checked( 'mutants of expressions with two variable operands', $ran->{varied},                at_least => 200 );
+Gate::checked( 'rows of the matrix',                                scalar( () = Matrix::rows() ), at_least => 100 );
 
 done_testing;
