@@ -33,8 +33,8 @@ description = "Fail when a Perl file differs from its formatted form or breaks t
 run = "prove -l xt/perl-files.t"
 
 [tasks.test]
-description = "Run the unit and assumption tests"
-run = "prove -lr t/unit t/assumptions"
+description = "Run the unit, assumption, and contract tests"
+run = "prove -lr t/unit t/assumptions t/contract"
 
 [tasks.test-shim]
 description = "Run the shim tests"

@@ -59,7 +59,7 @@ jobs:
           # cpm reads cpanfile.snapshot through this module.
           install-modules: Carton::Snapshot
       - run: cpm install --top-level-phase configure,build,test,runtime
-      - run: prove -lr t/unit t/shim t/assumptions t/e2e
+      - run: prove -lr t/unit t/shim t/assumptions t/contract t/e2e
         env:
           TEST_MUTATION_REQUIRE: ${{ matrix.require }}
 
