@@ -10,7 +10,8 @@ use World;
 use Test::Mutation::Runner;
 
 # S2, the pairs: every two settings on one command line of `run`, under every state of the environment.
-# One setting changes what another does only where a table declares it, and the tables of today declare nothing for two settings.
+# One setting changes what another does only where the table of the interactions declares it.
+# The environment changes a setting only where the table states a default that depends on it.
 
 my $project = copy_of('calc');
 write_file( "$project/ci.toml", "\n" );
@@ -45,21 +46,44 @@ subtest 'the comparison of a pair rejects a setting that the other one changes' 
       'a plan that is refused';
     my $hosted = planned( { env => { GITHUB_ACTIONS => 'true' } } );
     is Space::differences( $base, $hosted ),
-      ['formats: the table says terminal json html, the surface terminal json html github'],
+      ['format: the table says terminal json html, the surface terminal json html github'],
       'a variable of the environment that changes a setting';
+    is Space::differences( Space::declared_defaults( {} ),
+        Space::declared_defaults( { env => { GITHUB_ACTIONS => 'true' } } ) ),
+      ['format: the table says terminal json html, the surface terminal json html github'],
+      'and the default of the table that depends on it';
     is Space::flag_words( ( grep { $_->flag eq '--equivalence' } @flags )[0] ), ['--no-equivalence'],
       'a flag that is on by default has its negated form in a pair';
+    my %flag = map { $_->flag => $_ } @flags;
+    is [
+        map { Space::interaction( @flag{ $_->@* } ) } [qw(--in-place --link)], [qw(--link --in-place)],
+        [qw(--jobs --link)]
+      ],
+      [ 'exclusive', 'exclusive', undef ], 'a pair that the table binds, in either order';
 };
 
+my $unchanged = Space::declared_defaults( {} );
 for my $environment (@environments) {
     my ( $label, $fact ) = $environment->@{qw(label fact)};
     my $base   = planned($fact);
     my %single = map { $_->flag => planned( $fact, Space::flag_words($_)->@* ) } @flags;
     %plain = ( base => $base, %single ) if $label eq 'plain';
 
-    # No table declares what the environment changes, so every setting that it changes is a violation.
-    violation( 'independent', 'attributes', 'the environment changes a setting that no table declares', $_, $label )
-      for grep { $base->{$_} ne $plain{base}{$_} } sort keys $base->%*;
+    # The environment may change a setting only to the default that the table states for it.
+    my $declared = Space::declared_defaults($fact);
+    for my $name ( sort keys $base->%* ) {
+        my $moved = exists $declared->{$name} && $declared->{$name} ne $unchanged->{$name};
+        next if $base->{$name} eq ( $moved ? $declared->{$name} : $plain{base}{$name} );
+        violation(
+            'independent',
+            'attributes',
+            $moved
+            ? 'the environment changes a setting another way than the table declares'
+            : 'the environment changes a setting that no table declares',
+            $name,
+            $label
+        );
+    }
     for my $setting ( grep { defined $_->attribute } @flags ) {
         my ( $flag, $attribute ) = ( $setting->flag, $setting->attribute );
         violation( 'independent', 'flags', 'the environment changes the value that a flag sets', $flag, $label )
@@ -73,8 +97,17 @@ for my $environment (@environments) {
             my @words = ( Space::flag_words($one), Space::flag_words($other) );
             my $both  = planned( $fact, map { $_->@* } @words );
             $count++;
-            for my $differs ( Invariants::independent( $base, $single{ $one->flag }, $single{ $other->flag }, $both ) )
-            {
+
+            # A pair that the table declares exclusive is refused, and every other pair keeps the values of its settings.
+            my @found = Invariants::independent( $base, $single{ $one->flag }, $single{ $other->flag }, $both );
+            my $rule  = Space::interaction( $one, $other );
+            if ( defined $rule && $rule eq 'exclusive' ) {
+                violation( 'independent', 'pairs', 'a pair that the table declares exclusive is accepted',
+                    $pair, $label )
+                  if "@found" ne 'the pair is refused';
+                next;
+            }
+            for my $differs (@found) {
                 my $what =
                     $differs eq 'the pair is refused'
                   ? $differs

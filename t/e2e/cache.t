@@ -98,7 +98,7 @@ subtest 'a changed source without a mutant of its own invalidates the tests that
     my ($changed) = run_fixture( $project, cache => 1 );
     is $changed->reused, 0, 'a change to the loaded file measures the mutants again';
 
-    my @narrow = ( cache => 1, source_include => ['lib/Outer.pm'] );
+    my @narrow = ( cache => 1, source => ['lib/Outer.pm'] );
     run_fixture( $project, @narrow );
     my ($narrow) = run_fixture( $project, @narrow );
     ok $narrow->reused > 0, 'a run on one file reuses its results';

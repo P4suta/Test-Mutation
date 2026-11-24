@@ -28,9 +28,8 @@ my @schema   = map { $_->schema } Test::Mutation::Status::rows()->@*;
 my @types    = Test::Mutation::Types->type_names;
 my %usage    = map { $_->usage =~ s/ \[options\]//r => 1 } @commands;
 my %word     = map { $_ => 1 } map { $_->words->@* } @commands;
-my %flag     = (
-    %word, map { $_->flag => 1, ( $_->negatable ? ( '--no-' . substr( $_->flag, 2 ) => 1 ) : () ) } Space::flags()->@*
-);
+my %flag =
+  ( %word, map { $_->flag => 1, ( $_->kind eq 'flag' ? ( '--no-' . $_->name => 1 ) : () ) } Space::flags()->@* );
 
 # The kind of a verbatim block: command lines, a piece of the configuration file, or Perl code.
 sub kind ($block) {
@@ -57,9 +56,9 @@ sub broken ( $kind, $block ) {
     }
     my ( $data, $error ) = TOML::Tiny::from_toml($block);
     return 'a configuration that the decoder refuses' if !defined $data;
-    my $config =
-      eval { Test::Mutation::Config->from_layers( root => $project, defaults => {}, cli => {}, file => $data ) };
-    return $config ? () : 'a configuration that the command refuses';
+    Fixture::write_file( "$project/manual.toml", $block );
+    my $plan = World::observe( [ 'list', '--config', 'manual.toml' ], cwd => $project, run => 'cheap' )->{plan};
+    return $plan && !$plan->{refused} ? () : 'a configuration that the command refuses';
 }
 
 # The blocks of Perl code that do not compile, each as its place in the list.
@@ -153,11 +152,7 @@ my @blocks = map { $read{$_}{blocks}->@* } 'bin/mutation', 'lib/Test/Mutation.pm
 my %key;
 for my $block ( grep { kind($_) eq 'settings' } @blocks ) {
     my ($data) = TOML::Tiny::from_toml($block);
-    for my $section ( sort keys %{ $data || {} } ) {
-        my $value = $data->{$section};
-        $key{ ref $value eq 'HASH' ? "$section.$_" : ".$section" } = 1
-          for ref $value eq 'HASH' ? sort keys $value->%* : q{};
-    }
+    $key{$_} = 1 for keys %{ $data || {} };
 }
 my @unnamed;
 for my $command (@commands) {
@@ -166,8 +161,8 @@ for my $command (@commands) {
 }
 push @unnamed, map { [ 'the manual names no row of the table', $_->flag, 'flags' ] }
   grep { $manual !~ /(?<![\w-])\Q@{[ $_->flag ]}\E(?![\w-])/ } Space::flags()->@*;
-push @unnamed, map { [ 'the manual names no row of the table', join( q{.}, $_->key->@* ), 'keys' ] }
-  grep { !$key{ join q{.}, $_->key->@* } } grep { $_->key } @settings;
+push @unnamed, map { [ 'the manual names no row of the table', $_->key, 'keys' ] }
+  grep { !$key{ $_->key } } grep { $_->offers('file') } @settings;
 push @unnamed,
   map { [ 'the manual names no row of the table', $_, 'statuses' ] } grep { $manual !~ /C<\Q$_\E>/ } @statuses;
 push @unnamed, map { [ 'the manual names no row of the table', $_->code, 'exit-statuses' ] }
@@ -175,7 +170,7 @@ push @unnamed, map { [ 'the manual names no row of the table', $_->code, 'exit-s
 Gate::findings( 'contract-manual-manual', Space::folded( \@unnamed, 'rows', 'tables' ) );
 Gate::checked(
     'rows of the tables',
-    @commands + Space::flags()->@* + @statuses + 8 + grep( { $_->key } @settings ),
+    @commands + Space::flags()->@* + @statuses + 8 + grep( { $_->offers('file') } @settings ),
     at_least => 60
 );
 

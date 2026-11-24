@@ -20,7 +20,7 @@ use Test::Mutation::Status;
 
 my @statuses  = Test::Mutation::Status::rows()->@*;
 my %status_of = map { $_->word => $_->name } @statuses;
-my $format    = Samples::type('format');
+my $format    = Samples::type('Format');
 my @formats   = sort $format->{valid}->@*;
 my @sets      = Space::result_sets()->@*;
 my @shapes    = Space::shapes()->@*;

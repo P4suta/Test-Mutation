@@ -64,7 +64,8 @@ subtest 'the plan names the command, the directory, the settings, and the operan
       { command => 'version', directory => undef, config => undef, operands => ['extra'], processors => undef },
       'the version';
     is [ map { plan_of($_)->{command} } ['--help'], ['-h'], [ '--help', '--bogus' ] ], [qw(help help help)], 'the help';
-    is plan_of( [ 'list', '--help' ] )->{refused}{status}, 2, 'a later --help is an option of the command';
+    is [ map { plan_of($_)->{command} } [ 'list', '--help' ], [ 'show', 'a', '--version' ] ], [qw(help version)],
+      'and so do a later --help and a later --version';
 };
 
 subtest 'the plan reads the project through the directory that --root names' => sub {
@@ -101,7 +102,7 @@ subtest 'the plan reads the project through the directory that --root names' => 
       'mutators never reads the file';
 
     is refusal_of( ['list'], cwd => undef ),
-      [ 2, qq{mutation: Undef did not pass type constraint "Str" (in \$_{"root"})\n} ],
+      [ 2, "mutation: the working directory is gone, so --root must name the project\n" ],
       'a process whose directory is gone has no project';
     is [ map { plan_of( $_, cwd => undef )->{command} } ['--version'], ['mutators'], [ '--root', $root, 'list' ] ],
       [qw(version mutators list)], 'and it still answers what needs none';
@@ -115,7 +116,7 @@ subtest 'the plan takes the processors and the environment from its world' => su
     };
     is [ map { $jobs->($_) } 1, 2, 4, 8 ], [ 1, 1, 3, 7 ],
       'the jobs are one less than the processors, and at least one';
-    my $formats = sub ($env) { plan_of( ['list'], env => $env )->{config}->formats };
+    my $formats = sub ($env) { plan_of( ['list'], env => $env )->{config}->format };
     is $formats->( { GITHUB_ACTIONS => 'true' } ), [qw(terminal json html github)], 'GitHub Actions adds its report';
     is [
         map { $formats->($_) } {},
@@ -132,9 +133,9 @@ subtest 'the plan takes the processors and the environment from its world' => su
 
 subtest 'the plan refuses with a status and the text for standard error' => sub {
     is refusal_of( [ 'list', '--bogus', '--also-bogus' ] ),
-      [ 2, "Unknown option: bogus\nUnknown option: also-bogus\n" ],
-      'every complaint of the option parser';
-    is refusal_of( [ 'list', '--jobs', 0 ] ), [ 2, qq{mutation: Must be a positive integer (in \$args->{"jobs"})\n} ],
+      [ 2, "mutation: --bogus names no option; the nearest is --jobs\n" ],
+      'the first word that the parser refuses';
+    is refusal_of( [ 'list', '--jobs', 0 ] ), [ 2, "mutation: --jobs takes a whole number above zero, not 0\n" ],
       'a value outside its type';
     is refusal_of( [ 'run', 'surplus' ] ), [ 2, "mutation: unexpected argument surplus\n" ], 'a stray argument of run';
     is refusal_of( ['surplus'] ), [ 2, "mutation: unexpected argument surplus\n" ], 'and of the default command';
@@ -154,20 +155,24 @@ subtest 'the plan refuses with a status and the text for standard error' => sub 
         [ 'merge', 'a', 'b' ]
       ],
       [ q{}, q{}, q{}, q{}, q{} ], 'the operands that the commands accept today';
-    is refusal_of( [ 'show', '--jobs', 0 ] ), [ 2, qq{mutation: Must be a positive integer (in \$args->{"jobs"})\n} ],
+    is refusal_of( [ 'show', '--jobs', 0 ] ), [ 2, "mutation: --jobs takes a whole number above zero, not 0\n" ],
       'the settings are checked before the operands';
 };
 
 subtest 'the plan refuses a directory that the command could not enter' => sub {
     write_file( "$elsewhere/plain", "a file\n" );
-    my $reason = sub ($directory) { refusal_of( [ '--root', $directory, '--help' ], cwd => $elsewhere ) };
+    my $reason = sub ($directory) { refusal_of( [ '--root', $directory, 'mutators' ], cwd => $elsewhere ) };
     is $reason->('none'),  [ 2, "mutation: cannot enter none: No such file or directory\n" ], 'a missing directory';
     is $reason->('plain'), [ 2, "mutation: cannot enter plain: Not a directory\n" ],          'a file';
     is $reason->('plain/below'), [ 2, "mutation: cannot enter plain/below: Not a directory\n" ],
       'a path through a file';
     is $reason->(q{}), [ 2, "mutation: cannot enter : No such file or directory\n" ], 'an empty name';
     is refusal_of( [ '--root', 'none', '--bogus' ], cwd => $elsewhere ),
-      [ 2, "mutation: cannot enter none: No such file or directory\n" ], 'the directory comes before the options';
+      [ 2, "mutation: --bogus names no option; the nearest is --jobs\n" ],
+      'the words of the command line come before the directory';
+    is plan_of( [ '--root', 'none', '--help' ], cwd => $elsewhere )->{command}, 'help',
+      'and the help needs no directory';
+
     if ( Capability::has( 'unprivileged', $> != 0, 'the superuser enters every directory' ) ) {
         mkdir "$elsewhere/closed", 0600 or die "mkdir: $!";
         is $reason->('closed'), [ 2, "mutation: cannot enter closed: Permission denied\n" ],
@@ -178,13 +183,18 @@ subtest 'the plan refuses a directory that the command could not enter' => sub {
 
 subtest 'carrying out a refusal prints its text and returns its status' => sub {
     my $refused = World::observe( [ 'list', '--bogus' ], cwd => $root );
-    is [ $refused->@{qw(exit stdout stderr died)} ], [ 2, q{}, "Unknown option: bogus\n", undef ],
+    is [ $refused->@{qw(exit stdout stderr died)} ],
+      [ 2, q{}, "mutation: --bogus names no option; the nearest is --jobs\n", undef ],
       'the refusal of a plan';
     my $version = World::observe( ['--version'], cwd => $root );
     is [ $version->@{qw(exit stdout stderr)} ], [ 0, "mutation $Test::Mutation::CLI::VERSION\n", q{} ], 'the version';
     my $help = World::observe( [ '--help', 'extra' ], cwd => $root );
     like [ $help->@{qw(exit stdout stderr)} ],
-      [ 0, qr/\AUsage: mutation \[run\] \[options\]\n.*--help +Print this text\n\z/s, q{} ],
+      [
+        0,
+        qr/\AUsage: mutation \[run\] \[options\]\n.*--help, -h +Print this text\n  --version +Print the version\n\z/s,
+        q{}
+      ],
       'the help';
 };
 
@@ -348,7 +358,7 @@ subtest 'main plans and acts in the world of the process' => sub {
     is \@status, [ 0, 0, 2 ], 'the status of each command';
     like $output, qr/\Amutation [0-9.]+\n[0-9a-f]{12}  lib\/Calc[.]pm:5:10  [^\n]+\n1 mutant\n\z/,
       'the output of the process, and the project in its directory';
-    is $errors, "Unknown option: bogus\n", 'the errors of the process';
+    is $errors, "mutation: --bogus names no option; the nearest is --jobs\n", 'the errors of the process';
 
     my @warnings;
     my @without = do {

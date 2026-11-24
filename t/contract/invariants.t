@@ -100,15 +100,23 @@ subtest 'help rejects a word that prints no help' => sub {
 };
 
 subtest 'one-name rejects a setting with two names' => sub {
-    is [ Invariants::one_name( $setting{perl} ) ], [], 'one name on every surface that has it';
-    is [ Invariants::one_name( $setting{threshold_break} ) ], ['--min-score, [thresholds] break, threshold_break'],
-      'three names for one setting';
+    is [ Invariants::one_name( '--min-score', 'min-score', 'min_score' ) ], [], 'one name on every surface';
+    is [ Invariants::one_name( '--perl',      'perl' ) ], [], 'and on the surfaces that have it';
+    is [ Invariants::one_name( '--min-score', '[thresholds] break', 'threshold_break' ) ],
+      ['--min-score, [thresholds] break, threshold_break'], 'three names for one setting';
+    is [ Invariants::one_name( '--format', 'formats' ) ], ['--format, formats'], 'a plural on one surface';
+    is [ map { Invariants::one_name( $_->flag, $_->key, $_->attribute ) } values %setting ], [],
+      'the names that the table derives';
 };
 
 subtest 'all-surfaces rejects a setting that a surface lacks' => sub {
-    is [ Invariants::all_surfaces( $setting{jobs} ) ],             [], 'a setting on all three';
-    is [ Invariants::all_surfaces( $setting{baseline_timeout} ) ], [ 'flag', 'file' ], 'a setting of the library alone';
-    is [ Invariants::all_surfaces( $setting{config} ) ], [ 'file', 'library' ], 'a setting of the command line alone';
+    is [ Invariants::all_surfaces( 'jobs', [qw(flag file library)] ) ], [], 'a setting on all three';
+    is [ Invariants::all_surfaces( 'baseline-timeout', ['library'] ) ], [ 'flag', 'file' ],
+      'a setting of the library alone';
+    is [ Invariants::all_surfaces( 'config', ['flag'] ) ], ['library'],
+      'a setting of the command line alone, which the file cannot hold';
+    is [ Invariants::all_surfaces( 'config', [qw(flag library)] ) ], [],       'and nothing more';
+    is [ Invariants::all_surfaces( 'jobs',   [qw(flag library)] ) ], ['file'], 'a setting that only the two find';
 };
 
 subtest 'same-config rejects a surface that answers another way' => sub {

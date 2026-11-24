@@ -5,7 +5,7 @@ use File::Temp ();
 use lib 't/contract/lib', 't/e2e/lib', 't/lib';
 use Fixture qw(copy_of write_file);
 use Gate;
-use Test::Mutation::Config;
+use Test::Mutation::Settings;
 use Test::Mutation::Interrupted;
 use Test::Mutation::Pool;
 use Test::Mutation::Runner;
@@ -49,7 +49,7 @@ sub project (%files) {
 # A run of a project in this process, which gives the reasons of its mutants.
 # The answer maps each source to the pairs that its mutants give, so a case names the source of each reason.
 sub measured ( $root, %settings ) {
-    my $config  = Test::Mutation::Config->new( root => $root, jobs => 2, %settings );
+    my $config  = Test::Mutation::Settings::of_call( { root => $root, jobs => 2, %settings } );
     my @entries = Test::Mutation::Runner::run( $config, sub (@) { return } )->entries->@*;
     gave(@entries);
     my %by_path;

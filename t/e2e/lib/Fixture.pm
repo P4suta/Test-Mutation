@@ -6,9 +6,8 @@ use File::Find  ();
 use File::Path  ();
 use File::Temp  ();
 use Exporter 'import';
-use Test2::API qw(context);
-use Test::Mutation::Config;
-use Test::Mutation::Runner;
+use Test2::API     qw(context);
+use Test::Mutation ();
 
 our @EXPORT_OK = qw(copy_of leftovers ran ran_from run_fixture tree_digest statuses write_file);
 
@@ -136,12 +135,17 @@ sub run_fixture ( $root, %settings ) {
     my $leaves    = delete $settings{leaves};
     my $temporary = delete $settings{temporary};
     $temporary = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) ) if !defined $temporary;
-    my @known  = leftovers( $temporary, $root )->@*;
-    my $config = Test::Mutation::Config->new( root => $root, jobs => 2, %settings );
+    my @known = leftovers( $temporary, $root )->@*;
     my @events;
+
+    # The run takes its settings as a call of the library does.
     my $result = eval {
         local $ENV{TMPDIR} = $temporary;
-        Test::Mutation::Runner::run( $config, sub ( $event, $data ) { push @events, $event } );
+        Test::Mutation::run(
+            root => $root,
+            jobs => 2,
+            %settings, on_event => sub ( $event, $data ) { push @events, $event }
+        );
     };
     my $error = $@;
     _left_ok( 'the run', leftovers( $temporary, $root, @known ), $leaves );

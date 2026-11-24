@@ -35,7 +35,7 @@ sub taint_switch ($path) {
 # The command of a test as the run starts it: the library switches in full, and the taint switch of the test.
 sub command ( $config, $test ) {
     my $root     = $config->root;
-    my @switches = map { s{\A-I(?=[^/])}{-I$root/}r } $config->switches->@*;
+    my @switches = map { s{\A-I(?=[^/])}{-I$root/}r } $config->switch->@*;
     return [ $config->perl, @switches, taint_switch("$root/$test"), $test ];
 }
 
@@ -122,7 +122,7 @@ sub class_of ( $mutant, $run, $compiles, %arg ) {
 # Perl compiles the mutated file as a program, with the library of the project.
 sub _compiles ( $config, $source, $mutant ) {
     my $root    = $config->root;
-    my @include = map { m{\A-I(.+)\z} ? ( $1 =~ m{\A/} ? $1 : "$root/$1" ) : () } $config->switches->@*;
+    my @include = map { m{\A-I(.+)\z} ? ( $1 =~ m{\A/} ? $1 : "$root/$1" ) : () } $config->switch->@*;
     my $bytes   = $source->to_bytes( $source->replace_span( $mutant->start, $mutant->end, $mutant->replacement ) );
     my $verdict = Judge::reference_calls( $bytes, include => \@include );
     return $verdict->{compiled} || $verdict->{diagnostics} =~ /^(?:BEGIN|UNITCHECK|CHECK) failed--/m ? 1 : 0;

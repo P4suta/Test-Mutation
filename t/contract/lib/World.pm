@@ -4,6 +4,13 @@ use Cwd        ();
 use File::Spec ();
 use Test::Mutation::CLI;
 
+my $PROCESSORS = 4;
+
+# The count of processors of every world, unless a case gives another one.
+sub processors () {
+    return $PROCESSORS;
+}
+
 # The facts that the command reads from its process, each with a fixed answer.
 # A harness that copied the environment of its machine would find other violations on another machine.
 sub facts (%fact) {
@@ -13,7 +20,7 @@ sub facts (%fact) {
         out_tty    => 0,
         err_tty    => 0,
         clock      => sub { 0 },
-        processors => sub { { count => 4, source => 'online' } },
+        processors => sub { { count => $PROCESSORS, source => 'online' } },
         %fact,
     );
 }

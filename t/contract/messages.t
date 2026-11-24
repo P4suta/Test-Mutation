@@ -50,7 +50,7 @@ use World;
 use Test::Mutation ();
 use Test::Mutation::Cache;
 use Test::Mutation::CLI;
-use Test::Mutation::Config;
+use Test::Mutation::Settings;
 use Test::Mutation::Git;
 use Test::Mutation::Merge;
 use Test::Mutation::Message;
@@ -111,7 +111,7 @@ sub unsaid ( $ids, $said ) {
 
 # A run of a project in this process, so the catalog counts the warnings that the run gives.
 sub measured ( $files, %settings ) {
-    my $config = Test::Mutation::Config->new( root => directory( $files->%* ), jobs => 1, %settings );
+    my $config = Test::Mutation::Settings::of_call( { root => directory( $files->%* ), jobs => 1, %settings } );
     return Test::Mutation::Runner::run( $config, sub (@) { return } );
 }
 
@@ -221,13 +221,18 @@ printed($_)
 my ($mutant) = printed( ['list'] ) =~ /^([0-9a-f]{12})  /m;
 printed( [ 'exec', $mutant, q{--}, "$tree/$_" ] ) for 'absent', 'lib';
 
-# The library, the configuration, and the mutators.
+# The settings on the command line: an option of no command, of another command, without its value, and with one.
+printed($_)
+  for [ 'list', '--jobz' ], [ 'mutators', '--jobs', 2 ], [ 'list', '--jobs' ], [ 'list', '--cache=1' ],
+  [ 'list', '--jobs', 0 ], [ 'list', '--threshold-low', 90 ], [ 'list', '--in-place', '--link', 'vendor' ];
+printed( ['list'], cwd => undef );
+
+# The library, the configuration file, and the mutators.
 raised( sub { Test::Mutation::mutants( root => $tree, nonesuch => 1 ) } );
-my %layers = ( root => $tree, defaults => {}, cli => {} );
-for my $file ( { nonesuch => 1 }, { nonesuch => {} }, { test => { nonesuch => 1 } } ) {
-    raised( sub { Test::Mutation::Config->from_layers( %layers, file => $file ) } );
+for my $text ( "[test]\njobs = 1\n", "root = \"x\"\n", "jobs = = 1\n" ) {
+    my $root = directory( 'mutation.toml' => $text );
+    raised( sub { Test::Mutation::Settings::of_call( { root => $root } ) } );
 }
-raised( sub { Test::Mutation::Config::read_file("$tree/broken.toml") } );
 raised(
     sub { Test::Mutation::Mutator::Catalog::choose( profile => 'default', enable => ['nonesuch'], disable => [] ) } );
 
@@ -271,8 +276,17 @@ unlink "$scratch/gone.rec" or die "unlink: $!";
     printed( [ 'run', '--format', 'github' ], env => { GITHUB_STEP_SUMMARY => "$tree/absent/summary.md" } );
 }
 {
+    my %named = ( config => { value => 'ci.toml', spelled => '--config', surface => 'line' } );
     local $failing{close} = 1;
-    raised( sub { Test::Mutation::Config::read_file("$tree/ci.toml") } );
+    raised(
+        sub {
+            Test::Mutation::Settings::configure(
+                root  => $tree,
+                given => { origin     => 'line', name => undef, entries => \%named },
+                facts => { processors => 1, env => {} }
+            );
+        }
+    );
 }
 mkdir "$scratch/cache.json" or die "mkdir: $!";
 raised( sub { Test::Mutation::Cache::save( "$scratch/cache.json", {} ) } );
@@ -307,7 +321,7 @@ copied( $from, directory( 'linked'     => 'a file' ), 'linked' );
       sub { Test::Mutation::Error::raise( 'directory-missing', path => 'the project' ) };
     raised(
         sub {
-            Test::Mutation::Runner::run( Test::Mutation::Config->new( root => $tree ), sub { } );
+            Test::Mutation::Runner::run( Test::Mutation::Settings::of_call( { root => $tree } ), sub { } );
         }
     );
 }

@@ -71,25 +71,22 @@ sub nearest ( $observation, $nearest ) {
     return _named( $observation->{stderr}, $nearest ) ? () : ('the refusal names no nearest name');
 }
 
-# one-name: the flag, the key, and the attribute of a setting are one name.
-sub one_name ($setting) {
-    my ( $section, $key ) = $setting->key ? $setting->key->@* : ();
-    my @spelled = (
-        ( defined $setting->flag      ? $setting->flag                                 : () ),
-        ( defined $key                ? ( length $section ? "[$section] $key" : $key ) : () ),
-        ( defined $setting->attribute ? $setting->attribute                            : () ),
-    );
+# one-name: the spellings that each surface accepts for a setting are one name.
+# Each argument is the spelling of a surface: the flag, the key of the file, and the argument of a call.
+sub one_name (@spelled) {
     my %name = map { s/\A(?:--|\[\w+\] )//r =~ tr/-/_/r => 1 } @spelled;
     return keys %name > 1 ? ( join ', ', @spelled ) : ();
 }
 
-# all-surfaces: every setting is on the command line, in the configuration file, and in the library.
-sub all_surfaces ($setting) {
-    return (
-        ( defined $setting->flag      ? () : 'flag' ),
-        ( $setting->key               ? () : 'file' ),
-        ( defined $setting->attribute ? () : 'library' ),
-    );
+# The surfaces that cannot hold a setting, each with its reason.
+# The configuration file stands in the directory of the project, and it cannot name itself or another file.
+my %CANNOT_HOLD = ( file => { root => 1, config => 1 } );
+
+# all-surfaces: every setting is on the command line, in the configuration file, and in the library,
+# apart from a surface that cannot hold it.
+sub all_surfaces ( $name, $offered ) {
+    my %offered = map { $_ => 1 } $offered->@*;
+    return grep { !$offered{$_} && !$CANNOT_HOLD{$_}{$name} } qw(flag file library);
 }
 
 # same-config: every surface answers one sample alike, with the value of the sample or with a refusal.

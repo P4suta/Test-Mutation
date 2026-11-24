@@ -44,22 +44,55 @@ my @ROWS = (
     ],
     [ 'mutator-unknown', 'usage', 'unknown mutator: {names}', 'A setting names a mutator that the tool lacks.' ],
     [
-        'setting-unknown',          'usage',
-        'unknown setting: {names}', 'A call of the library names a setting that the tool lacks.'
+        'option-unknown', 'usage',
+        '{option} names no option; the nearest is {nearest}',
+        'The command line holds an option that the command lacks, and the message names the option nearest to it.'
     ],
     [
-        'config-section-unknown',                    'usage',
-        'unknown configuration section [{section}]', 'The configuration file holds a section that the tool lacks.'
+        'option-elsewhere',                   'usage',
+        '{option} is no option of {command}', 'The command line holds an option of another command.'
     ],
     [
-        'config-key-unknown',              'usage',
-        'unknown configuration key {key}', 'The configuration file holds a key that the tool lacks.'
+        'option-without-value', 'usage',
+        '{option} needs a value',
+        'An option that takes a value stands at the end of the command line or before an option.'
     ],
     [
-        'config-key-unknown-in-section',
-        'usage',
-        'unknown configuration key {key} in [{section}]',
-        'A section of the configuration file holds a key that the tool lacks.'
+        'option-with-value',       'usage',
+        '{option} takes no value', 'An option that is on or off has a value after an equals sign.'
+    ],
+    [
+        'setting-unknown', 'usage',
+        '{setting} names no setting; the nearest is {nearest}',
+        'The configuration file or a call of the library names a setting that the tool lacks.'
+    ],
+    [
+        'setting-invalid', 'usage',
+        '{setting} takes {expects}, not {value}',
+        'A setting has a value outside its type, which the message states as the user wrote it.'
+    ],
+    [
+        'setting-outside-file', 'usage',
+        '{setting} names the place of the file, so the file cannot hold it',
+        'The configuration file holds the directory of the project or the name of a configuration file.'
+    ],
+    [
+        'config-section', 'usage',
+        '{file}: [{section}] is a section, and the file holds none',
+        'The configuration file holds a table, and its settings stand at its top level.'
+    ],
+    [
+        'settings-out-of-order',       'usage',
+        '{first} lies above {second}', 'The low threshold of the reports lies above the high one.'
+    ],
+    [
+        'settings-exclusive',                      'usage',
+        '{first} and {second} exclude each other', 'Two settings that the user set cannot hold in one run.'
+    ],
+    [
+        'working-directory-gone', 'usage',
+        'the working directory is gone, so --root must name the project',
+        'The process stands in a directory that no longer exists, and the command line names no project.'
     ],
     [
         'input-unreadable', 'usage',

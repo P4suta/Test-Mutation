@@ -69,8 +69,7 @@ build = [["perl", "Makefile.PL"], ["make"]]
 tests = ["make", "test"]
 options = []
 config = '''
-[test]
-switches = ["-Iblib/lib", "-Iblib/arch"]
+switch = ["-Iblib/lib", "-Iblib/arch"]
 '''
 
 ["Params-Util with blib".expect]
@@ -104,8 +103,7 @@ build = [["perl", "Makefile.PL"], ["make"]]
 tests = ["make", "test"]
 options = []
 config = '''
-[test]
-switches = ["-Iblib/lib", "-Iblib/arch"]
+switch = ["-Iblib/lib", "-Iblib/arch"]
 '''
 
 ["Variable-Magic with blib".expect]
@@ -171,8 +169,7 @@ build = [["perl", "Makefile.PL"], ["make"]]
 tests = ["make", "test"]
 options = ["--shard", "1/4"]
 config = '''
-[test]
-exclude = ["t/cli/dist.t"]
+test-exclude = ["t/cli/dist.t"]
 '''
 
 ["CPAN-Audit without the test outside its list".expect]

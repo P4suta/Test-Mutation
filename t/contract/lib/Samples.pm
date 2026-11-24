@@ -4,36 +4,36 @@ use Test::Mutation::Mutant;
 use Test::Mutation::Result;
 use Test::Mutation::Status;
 
-# The sample values of every type of a setting, in one place.
-# `isa` is the name of the type of one value in the configuration, and `letter` is the argument type of the option parser.
+# The sample values of every type of a setting, in one place, by the name of the type.
 # A type that the configuration checks has samples outside it, and a type that is plain text has none.
+# The samples of numbers hold the infinite, the undefined, and the oversized number, which no surface may take.
 my %TYPE = (
-    'positive-integer' => { isa => 'PositiveInt', letter => 'i', valid => [ 2, 16 ], invalid => [ 0, -1, '1.5', 'x' ] },
-    'positive-number'  => { isa => 'PositiveNum', letter => 'f', valid => [ 2, '0.5' ], invalid => [ 0, -1, 'x' ] },
-    percent  => { isa => '__ANON__', letter => 'f', valid => [ 50, 0, 100, '99.5' ], invalid => [ -1, '100.5', 'x' ] },
-    coverage => { isa => 'Enum["line","file"]', valid => [ 'file', 'line' ], invalid => ['branch'] },
-    profile  => { isa => 'Enum["default","extended"]', valid => [ 'extended', 'default' ], invalid => ['nonesuch'] },
-    format   => {
-        isa     => 'Enum["terminal","json","html","github"]',
-        valid   => [ 'json', 'terminal', 'html', 'github' ],
-        invalid => ['pdf']
+    Count => {
+        number  => 1,
+        valid   => [ 2, 16 ],
+        invalid => [ 0, -1, '1.5', 'x', '0x10', 'inf', '99999999999999999999' ]
     },
-    shard      => { isa => '__ANON__', valid => [ '2/3', '1/1' ], invalid => [ '0/3', '4/3', '2', 'a/b' ] },
-    boolean    => { isa => 'Bool', valid => [ 1, 0 ], invalid => ['yes'] },
-    directory  => { valid => [ 'out', 'reports/here' ] },
-    file       => { valid => ['ci.toml'] },
-    program    => { valid => ['/opt/perl/bin/perl'] },
-    path       => { valid => [ 'vendor',      'local' ] },
-    glob       => { valid => [ 'src/**/*.pm', 'lib/Calc.pm' ] },
-    switch     => { valid => [ '-Ilib',       '-Mblib' ] },
-    revision   => { valid => ['HEAD'] },
-    identifier => { valid => [ '0123456789ab', 'ba9876543210' ] },
-    mutator    => { valid => [ 'arithmetic', 'sub-body' ] },
+    Positive   => { number => 1, valid => [ 2, '0.5' ], invalid => [ 0, -1, 'x', 'inf', 'nan', '1e400' ] },
+    Percent    => { number => 1, valid => [ 50, 0, 100, '99.5' ], invalid => [ -1, '100.5', 'x', 'inf' ] },
+    Coverage   => { valid => [ 'file', 'line' ], invalid => ['branch'] },
+    Profile    => { valid => [ 'extended', 'default' ], invalid => ['nonesuch'] },
+    Format     => { valid => [ 'json', 'terminal', 'html', 'github' ], invalid => ['pdf'] },
+    Shard      => { valid => [ '2/3', '1/1' ], invalid => [ '0/3', '4/3', '2', 'a/b' ] },
+    Boolean    => { valid => [ 1, 0 ], invalid => ['yes'] },
+    Directory  => { valid => [ 'out', 'reports/here' ] },
+    File       => { valid => ['ci.toml'] },
+    Program    => { valid => ['/opt/perl/bin/perl'] },
+    Path       => { valid => [ 'vendor',      'local' ] },
+    Glob       => { valid => [ 'src/**/*.pm', 'lib/Calc.pm' ] },
+    Switch     => { valid => [ '-Ilib',       '-Mblib' ] },
+    Revision   => { valid => ['HEAD'] },
+    Identifier => { valid => [ '0123456789ab', 'ba9876543210' ] },
+    Mutator    => { valid => [ 'arithmetic', 'sub-body' ] },
 );
 
 sub type ($name) {
     my $type = $TYPE{$name} or die "no type is named $name\n";
-    return { isa => 'Str', letter => 's', invalid => [], $type->%*, name => $name };
+    return { number => 0, invalid => [], $type->%*, name => $name };
 }
 
 sub types () {
@@ -66,10 +66,13 @@ sub operands ( $command, $count ) {
     return [ map { defined $named[$_] ? $named[$_] : "surplus$_" } 0 .. $count - 1 ];
 }
 
-# A value as the text of a configuration file.
+# A value as the text of a configuration file: a number of a type of numbers as a number, and everything else as a text.
+# The decoder of the file reads a number that is too large or no number at all from the same words as the command line.
+my $TOML_NUMBER = qr/\A(?:-?[0-9]+(?:[.][0-9]+)?(?:e[0-9]+)?|0x[0-9]+|inf|nan)\z/;
+
 sub toml ( $type, $value ) {
-    return $value ? 'true' : 'false' if $type->{name} eq 'boolean' && $value =~ /\A[01]\z/;
-    return $value                    if $type->{letter} ne 's'     && $value =~ /\A-?[0-9]+(?:[.][0-9]+)?\z/;
+    return $value ? 'true' : 'false' if $type->{name} eq 'Boolean' && $value =~ /\A[01]\z/;
+    return $value                    if $type->{number}            && $value =~ $TOML_NUMBER;
     return q{"} . $value =~ s/(["\\])/\\$1/gr . q{"};
 }
 

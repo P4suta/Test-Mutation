@@ -169,9 +169,10 @@ subtest 'version, help, and stray arguments' => sub {
     like $help->{stdout}, qr/^\s+mutation exec ID -- COMMAND/m,       'the commands';
     like $help->{stdout}, qr/^\s+mutation merge FILE/m,               'the merge command';
     like $help->{stdout}, qr/^\s+mutation mutators$/m,                'the mutators command';
-    my @undocumented = grep { $help->{stdout} !~ /^\s+--\Q$_\E\b/m }
-      qw(root jobs min-score format report-dir perl source test profile enable disable coverage timeout-factor timeout-floor
-      in-place keep-work mutant since shard no-equivalence cache config);
+    my @undocumented = grep { $help->{stdout} !~ /^\s+(?:--[\w-]+, )*--\Q$_\E(?![\w-])/m }
+      qw(root config jobs min-score format report-dir threshold-high threshold-low perl switch source source-exclude test
+      test-exclude profile enable disable equivalence no-equivalence coverage timeout-factor timeout-floor baseline-timeout
+      in-place no-in-place link keep-work no-keep-work mutant since shard cache no-cache cache-dir help version);
     is \@undocumented, [], 'every option is described';
 
     my $stray = ran( 2, $root, 'run', 'surplus' );

@@ -3,7 +3,9 @@ use Test2::V0;
 use lib 't/contract/lib', 't/e2e/lib', 't/lib';
 use Fixture qw(copy_of);
 use Gate;
+use Library;
 use Samples;
+use Sources;
 use Space;
 use World;
 use Test::Mutation::CLI;
@@ -29,13 +31,6 @@ my @commands = Test::Mutation::Commands::rows()->@*;
 my @statuses = Test::Mutation::Status::rows()->@*;
 my @exits    = Test::Mutation::Exit::rows()->@*;
 
-sub slurp ($path) {
-    open my $handle, '<:encoding(UTF-8)', $path or die "read $path: $!";
-    my $text = do { local $/ = undef; readline $handle };
-    close $handle or die "close $path: $!";
-    return $text;
-}
-
 subtest 'the comparison rejects a table that differs from the surface' => sub {
     is Space::differences( { a => 1, b => 2 }, { a => 1, b => 2 } ), [], 'equal maps';
     is Space::differences( { a => 1, b => 2 }, { a => 1, b => 3, c => 4 } ),
@@ -50,28 +45,24 @@ subtest 'the settings table names every attribute of the configuration' => sub {
     # Moo keeps the declarations of the attributes with the maker of the constructor, and offers no other reader.
     my $specs   = Moo->_constructor_maker_for('Test::Mutation::Config')->all_attribute_specs;    ## no critic (Subroutines::ProtectPrivateSubs)
     my %surface = map { $_            => Space::attribute_facts( $specs->{$_} ) } keys $specs->%*;
-    my %table   = map { $_->attribute => Space::attribute_text( $_, $specs->{ $_->attribute }{required} ) }
-      grep { defined $_->attribute } @settings;
-    is Space::differences( \%table, \%surface ), [], 'the kind, the type, and the default of every attribute';
-    Gate::checked( 'attributes', scalar( keys %surface ), at_least => 29 );
+    my %table   = map { $_->attribute => Space::attribute_text($_) } @settings;
+    is Space::differences( \%table, \%surface ), [], 'the kind, the type, and whether a value may stay unset';
+    Gate::checked( 'attributes', scalar( keys %surface ), at_least => 30 );
 };
 
-subtest 'the settings table names every option that the parser takes' => sub {
-    for my $command (@commands) {
-        my $name = $command->name;
-        my %surface =
-          map { $_ => 1 } Space::option_specs( [ $command->words->[0], ('x') x $command->least ], cwd => $root )->@*;
-        my %table = map { Space::option_spec($_) => 1 } grep { Space::accepts( $_, $name ) } Space::flags()->@*;
-        is Space::differences( \%table, \%surface ), [], "the options of $name";
-    }
-    is scalar( Space::flags()->@* ), 22, 'the settings with a flag';
+# The parser and the decoder of the file read the table, so the spaces S1 and S3 try every name on its surface.
+# The table holds a flag for every setting, and the file holds every setting that does not find the file itself.
+subtest 'the resolution of the settings builds every configuration' => sub {
+    my $files    = Library::perl_files();
+    my $built    = join q{}, 'Test::Mutation::Config', '->new';
+    my @builders = grep { index( Sources::slurp($_), $built ) >= 0 } map { $files->{$_}->@* } qw(library program);
+    is \@builders, ['lib/Test/Mutation/Settings.pm'],
+      'one file of the library and the tests constructs a configuration';
 };
 
-subtest 'the settings table names every key that the configuration file takes' => sub {
-    my %surface = Space::file_keys( slurp('lib/Test/Mutation/Config.pm') )->%*;
-    my %table   = map { join( q{.}, $_->key->@* ) => $_->attribute } grep { $_->key } @settings;
-    is Space::differences( \%table, \%surface ), [], 'the section, the key, and the attribute of every key';
-    Gate::checked( 'keys of the configuration file', scalar( keys %surface ), at_least => 21 );
+subtest 'the settings table names a flag and a key for every setting' => sub {
+    is scalar( Space::flags()->@* ),                                30,                'the settings with a flag';
+    is [ map { $_->name } grep { !$_->offers('file') } @settings ], [qw(root config)], 'the settings outside the file';
 };
 
 subtest 'the commands table names every command and its line in the help' => sub {
@@ -83,7 +74,7 @@ subtest 'the commands table names every command and its line in the help' => sub
     is { map { /\A\s+(\S+)\s+(.+)\z/ ? ( $1 => $2 ) : () } split /\n/, $summaries },
       { map { $_->name => $_->summary } @words },
       'the summaries';
-    my %line     = map  { /\A\s+(--[\w-]+)\s{2,}(.+)\z/ ? ( $1 => $2 ) : () } split /\n/, $options;
+    my %line     = map  { /\A\s+(--[\w-]+)(?:, -\w)?\s{2,}(.+)\z/ ? ( $1 => $2 ) : () } split /\n/, $options;
     my @optional = grep { $_->words->[0] =~ /\A-/ } @commands;
     is {
         map { $_->name => $line{ $_->words->[0] } } @optional

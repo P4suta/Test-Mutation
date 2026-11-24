@@ -2,49 +2,33 @@ package Test::Mutation;
 use v5.36;
 use Cwd             ();
 use Exporter        qw(import);
-use Types::Standard qw(ArrayRef Bool HashRef InstanceOf Slurpy);
+use Types::Standard qw(ArrayRef Bool CodeRef HashRef InstanceOf Maybe Slurpy Str);
 use Type::Params    qw(signature_for);
-use Test::Mutation::Config;
-use Test::Mutation::Error;
 use Test::Mutation::Runner;
+use Test::Mutation::Settings;
 
 our $VERSION = '0.001';
 our @EXPORT  = qw(mutation_score_ok);    ## no critic (Modules::ProhibitAutomaticExportation)
 
-my %NOT_A_SETTING = map { $_ => 1 } qw(new from_layers read_file);
+# The arguments of a call: the settings, which the table of the settings checks, and the listener or the words of an assertion.
+my $CALL = Slurpy [ HashRef [ Maybe [ Str | ArrayRef [Str] | CodeRef ] ] ];
 
-sub _config (%settings) {
-    my @unknown = sort grep { $NOT_A_SETTING{$_} || !Test::Mutation::Config->can($_) } keys %settings;
-    Test::Mutation::Error::raise( 'setting-unknown', names => join q{, }, @unknown ) if @unknown;
-    my $root = delete $settings{root};
-    $root = q{.} if !defined $root;
-    my $file = "$root/mutation.toml";
-    return Test::Mutation::Config->from_layers(
-        root     => $root,
-        defaults => {},
-        file     => -e $file ? Test::Mutation::Config::read_file($file) : {},
-        cli      => \%settings,
-    );
-}
-
-signature_for run => ( positional => [ Slurpy [HashRef] ], returns => InstanceOf ['Test::Mutation::Result'] );
+signature_for run => ( positional => [$CALL], returns => InstanceOf ['Test::Mutation::Result'] );
 
 sub run ($settings) {
     my %settings = $settings->%*;
     my $listener = delete $settings{on_event};
-    return Test::Mutation::Runner::run( _config(%settings), $listener ? $listener : sub { } );
+    return Test::Mutation::Runner::run( Test::Mutation::Settings::of_call( \%settings ),
+        $listener ? $listener : sub { } );
 }
 
-signature_for mutants => (
-    positional => [ Slurpy [HashRef] ],
-    returns    => ArrayRef [ InstanceOf ['Test::Mutation::Mutant'] ],
-);
+signature_for mutants => ( positional => [$CALL], returns => ArrayRef [ InstanceOf ['Test::Mutation::Mutant'] ] );
 
 sub mutants ($settings) {
-    return Test::Mutation::Runner::analyze( _config( $settings->%* ) )->{mutants};
+    return Test::Mutation::Runner::analyze( Test::Mutation::Settings::of_call($settings) )->{mutants};
 }
 
-signature_for mutation_score_ok => ( positional => [ Slurpy [HashRef] ], returns => Bool );
+signature_for mutation_score_ok => ( positional => [$CALL], returns => Bool );
 
 sub mutation_score_ok ($settings) {
     my %settings = ( root => q{.}, $settings->%* );
@@ -140,40 +124,44 @@ C<mutation_score_ok> asserts a score from a test file.
 =head1 CONFIGURATION
 
 C<mutation run> works without configuration: it mutates C<lib/**/*.pm> and runs C<t/**/*.t> with C<-Ilib>.
-A file named C<mutation.toml> in the project directory changes the defaults.
+A file named C<mutation.toml> in the project directory changes the defaults, and C<--config> names another file.
 A run writes its reports into C<mutation-report>, and C<--cache> keeps its results in C<.mutation>.
 Both directories belong in C<.gitignore>.
 
+A setting has one name: C<--min-score> on the command line, C<min-score> in the file, and C<min_score> in a call of the library.
+The file holds one key for each setting and no sections, and every setting but C<root> and C<config> has its key.
+A flag of the command line is C<true> or C<false> in the file, and C<--no-> before its name turns it off.
+The command line beats the file, and the file beats the default, each with the whole value of a setting.
+
     jobs = 4
     cache = true
+    cache-dir = ".mutation"
+    keep-work = false
 
-    [source]
-    include = ["lib/**/*.pm"]
-    exclude = ["lib/Generated/**"]
+    source = ["lib/**/*.pm"]
+    source-exclude = ["lib/Generated/**"]
+    test = ["t/**/*.t"]
+    test-exclude = ["t/fixtures/**"]
 
-    [test]
-    include = ["t/**/*.t"]
-    switches = ["-Ilib"]
+    perl = "/usr/bin/perl"
+    switch = ["-Ilib"]
     timeout-factor = 4
     timeout-floor = 10
+    baseline-timeout = 600
     coverage = "line"
     in-place = false
     link = ["local"]
 
-    [mutators]
     profile = "default"
     enable = ["regex-anchor"]
     disable = ["sub-body"]
     equivalence = true
 
-    [report]
-    directory = "mutation-report"
-    formats = ["terminal", "json", "html"]
-
-    [thresholds]
-    high = 80
-    low = 60
-    break = 70
+    report-dir = "mutation-report"
+    format = ["terminal", "json", "html"]
+    threshold-high = 80
+    threshold-low = 60
+    min-score = 70
 
 The C<extended> profile adds mutators for literals, fixed conditions, sort order, range bounds, and patterns.
 C<mutation list --profile extended> shows what a profile produces.
@@ -195,7 +183,8 @@ A comment suppresses the mutants on its line, and a comment on a line of its own
 Measures the project and returns a L<Test::Mutation::Result>.
 The settings are the attributes of L<Test::Mutation::Config>, and C<on_event> receives the progress events of L<Test::Mutation::Runner>.
 C<root> is the working directory when the call leaves it out.
-A C<mutation.toml> in the root directory supplies the settings that the call leaves out.
+A C<mutation.toml> in the root directory, or the file that C<config> names, supplies the settings that the call leaves out.
+The call refuses a name that is no setting, with the nearest one, and a value outside the type of its setting.
 
 =head2 mutants
 

@@ -197,8 +197,8 @@ sub _pristine ( $bench, $cache ) {
     $project->write( '.mutation/cache.json', $cache ) if defined $cache;
     _spew( "$bench->{outside}/Outside.pm", _provider('Outside') );
     _spew( $bench->{wrapper}, _wrapper(q{}), oct '755' );
-    _spew( $bench->{config},  qq{[test]\nswitches = ["-Ilib"]\n} );
-    _spew( $bench->{variant}, qq{[test]\nswitches = ["-Ilib", "-Ivariant"]\n} );
+    _spew( $bench->{config},  qq{switch = ["-Ilib"]\n} );
+    _spew( $bench->{variant}, qq{switch = ["-Ilib", "-Ivariant"]\n} );
     return;
 }
 

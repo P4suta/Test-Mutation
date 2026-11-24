@@ -5,7 +5,7 @@ use File::Temp  ();
 use Time::HiRes ();
 use lib 't/e2e/lib';
 use Fixture qw(copy_of leftovers ran run_fixture);
-use Test::Mutation::Config;
+use Test::Mutation::Settings;
 use Test::Mutation::Runner;
 use Test::Mutation::Signals;
 
@@ -28,7 +28,7 @@ sub ended_by ( $signal, $code ) {
 
 subtest 'a signal ends the analysis between two files' => sub {
     my $root   = copy_of('calc');
-    my $config = Test::Mutation::Config->new( root => $root );
+    my $config = Test::Mutation::Settings::of_call( { root => $root } );
     is ended_by( 'TERM', sub { Test::Mutation::Runner::analyze($config) } ), 'TERM',
       'the analysis dies with the interruption';
     is scalar Test::Mutation::Runner::analyze($config)->{mutants}->@*, 19,

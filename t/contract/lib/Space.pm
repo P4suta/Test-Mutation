@@ -1,9 +1,8 @@
 package Space;
 use v5.36;
-use Cwd          ();
-use File::Temp   ();
-use Getopt::Long ();
-use Fixture      ();
+use Cwd        ();
+use File::Temp ();
+use Fixture    ();
 use Samples;
 use World;
 use Test::Mutation ();
@@ -39,41 +38,19 @@ sub default_text ( $kind, $value ) {
     return $value eq $^X ? 'the running interpreter' : "$value";
 }
 
-# The kind, the type of one value, and the default of an attribute, read from what Moo keeps about it.
+# The kind, the type of one value, and whether a default exists, read from what Moo keeps about an attribute.
+# Every attribute is required, so the resolution of the settings gives every value and the class gives none.
 sub attribute_facts ($spec) {
-    my $isa    = $spec->{isa}->display_name;
-    my $kind   = $isa =~ /\AArrayRef\[/ ? 'list' : $isa eq 'Bool' ? 'flag' : 'value';
-    my $single = $isa =~ s/\A(?:Maybe|ArrayRef)\[(.*)\]\z/$1/r;
-    return "$kind $single" if $spec->{required};
-    my $default = $spec->{default};
-    return join q{ }, $kind, $single, default_text( $kind, ref $default eq 'CODE' ? $default->() : $default );
+    my $isa    = $spec->{isa};
+    my $kind   = $isa->is_a_type_of('ArrayRef') ? 'list' : $isa->is_a_type_of('Bool') ? 'flag' : 'value';
+    my $single = $isa->display_name =~ s/\A(?:Maybe|ArrayRef)\[(.*)\]\z/$1/r;
+    my $unset  = $isa->display_name =~ /\AMaybe\[/ ? 'may stay unset' : 'has a value';
+    return join q{ }, $kind, $single, $spec->{required} ? 'required' : 'with a default of the class', $unset;
 }
 
-sub attribute_text ( $setting, $required ) {
-    return join q{ }, $setting->kind, Samples::type( $setting->type )->{isa}, $required ? () : $setting->default_text;
-}
-
-# The option specifications that a plan hands to the option parser.
-sub option_specs ( $argv, %fact ) {
-    my @specs;
-
-    # The parser class loads on its first object, and a name taken before that would hide the method.
-    my $parse = Getopt::Long::Parser->new->can('getoptionsfromarray');
-    no warnings 'redefine';
-    local *Getopt::Long::Parser::getoptionsfromarray = sub ( $parser, $arguments, @pairs ) {
-        push @specs, grep { !ref } @pairs;
-        return $parse->( $parser, $arguments, @pairs );
-    };
-    World::observe( $argv, %fact, run => 'cheap' );
-    return \@specs;
-}
-
-# The option specification that a row of the settings table describes.
-sub option_spec ($setting) {
-    my $names = substr $setting->flag, 2;
-    $names .= q{|} . substr $setting->short, 1 if defined $setting->short;
-    return $names . ( $setting->negatable ? q{!} : q{} ) if $setting->kind eq 'flag';
-    return $names . q{=} . Samples::type( $setting->type )->{letter} . ( $setting->kind eq 'list' ? q{@} : q{} );
+sub attribute_text ($setting) {
+    my $unset = $setting->kind ne 'list' && !defined $setting->default ? 'may stay unset' : 'has a value';
+    return join q{ }, $setting->kind, $setting->type->name, 'required', $unset;
 }
 
 # The name of the attribute where it differs from the name of the flag, as a name of another surface.
@@ -84,18 +61,6 @@ sub foreign_name ($setting) {
 
 sub accepts ( $setting, $command ) {
     return scalar grep { $_ eq $command } $setting->commands->@*;
-}
-
-# The sections and keys of the configuration file with their attributes, read from the table in the source.
-sub file_keys ($source) {
-    my ($table) = $source =~ /^my %FILE_KEYS = [(]\n(.*?)^[)];/ms
-      or die "the configuration holds no table of file keys\n";
-    my %keys;
-    while ( $table =~ /(\w+|q\{\})\s*=>\s*\{(.*?)\}/gs ) {
-        my ( $section, $pairs ) = ( $1 eq 'q{}' ? q{} : $1, $2 );
-        $keys{"$section.$1"} = $2 while $pairs =~ /'?([\w-]+)'?\s*=>\s*'(\w+)'/g;
-    }
-    return \%keys;
 }
 
 sub cache_keeps ($status) {
@@ -114,7 +79,7 @@ sub cache_keeps ($status) {
 }
 
 my $SCRATCH = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
-Fixture::write_file( "$SCRATCH/quiet.toml", "[report]\nformats = []\n" );
+Fixture::write_file( "$SCRATCH/quiet.toml", "format = []\n" );
 
 # The exit status that `mutation run` decides for a result, with no report and no test.
 sub decided ( $result, @arguments ) {
@@ -189,16 +154,36 @@ sub line ( $form, $early, $count, $late = [] ) {
     ];
 }
 
+my %SETTING_OF = map  { $_->name => $_ } $SETTINGS->@*;
+my @ORDERS     = grep { $_->{rule} eq 'order' } Test::Mutation::Settings::interactions()->@*;
+
+# A rule of order keeps the first of two settings at or below the second.
+# A value of one of them that lies beyond the default of the other breaks the rule alone, so it is a sample that the surfaces refuse.
+sub _beyond_order ( $setting, $value ) {
+    for my $rule (@ORDERS) {
+        my ( $low, $high ) = map { $SETTING_OF{$_} } $rule->{settings}->@*;
+        my %default = map { $_->name => $_->default->( { processors => 4, env => {} } ) } $low, $high;
+        return 1 if $setting->name eq $low->name  && $value > $default{ $high->name };
+        return 1 if $setting->name eq $high->name && $value < $default{ $low->name };
+    }
+    return 0;
+}
+
 sub samples ($setting) {
-    my $type = Samples::type( $setting->type );
+    my $type = Samples::type( $setting->type->name );
 
     # The directory of the project must exist, so its sample is the directory of the world.
     return { $type->%*, valid => [ q{.}, q{.} ] } if $setting->name eq 'root';
-    return $type;
+    my @beyond = grep { _beyond_order( $setting, $_ ) } $type->{valid}->@*;
+    return {
+        $type->%*,
+        valid   => [ grep { !_beyond_order( $setting, $_ ) } $type->{valid}->@* ],
+        invalid => [ $type->{invalid}->@*, @beyond ],
+    };
 }
 
 sub flags () {
-    return [ grep { defined $_->flag } $SETTINGS->@* ];
+    return [ grep { $_->offers('line') } $SETTINGS->@* ];
 }
 
 # The proper prefixes of a flag that are no flag themselves.
@@ -255,7 +240,7 @@ sub _plain_cases ($written) {
             $kind eq 'flag' ? 'refuse' : $ok,
             $flag, $single
         ],
-        [ 'negated', $early->($negated), $written->{setting}->negatable ? $ok : 'refuse', $negated, 0 ],
+        [ 'negated', $early->($negated), $kind eq 'flag' ? $ok : 'refuse', $negated, 0 ],
         [ 'typo',    $early->( $typo, @value ), 'refuse', $typo ],
     );
 }
@@ -337,21 +322,17 @@ sub on_surface ( $setting, $surface, $value ) {
     my $kind = $setting->kind;
     if ( $surface eq 'flag' ) {
         my $flag = $setting->flag;
-        return                   if !defined $flag;
+        return                   if !$setting->offers('line');
         return [ $flag, $value ] if $kind ne 'flag';
         return ["$flag=$value"]  if $value !~ /\A[01]\z/;
-        return [$flag]           if $value;
-        return $setting->negatable ? [ '--no-' . substr $flag, 2 ] : ();
+        return $value ? [$flag] : [ '--no-' . $setting->name ];
     }
     if ( $surface eq 'file' ) {
-        my $key  = $setting->key or return;
+        return if !$setting->offers('file');
         my $text = Samples::toml( $type, $value );
-        return
-            ( length $key->[0] ? "[$key->[0]]\n" : q{} )
-          . "$key->[1] = "
-          . ( $kind eq 'list' ? "[$text]" : $text ) . "\n";
+        return $setting->key . ' = ' . ( $kind eq 'list' ? "[$text]" : $text ) . "\n";
     }
-    return if !defined $setting->attribute;
+    return if !$setting->offers('call');
     return [ $setting->attribute, $kind eq 'list' ? [$value] : $value ];
 }
 
@@ -384,19 +365,19 @@ sub settings_count () {
     for my $setting ( $SETTINGS->@* ) {
         my $type    = samples($setting);
         my $samples = $type->{valid}->@* + $type->{invalid}->@*;
-        $count += $samples * grep { defined } $setting->flag, $setting->key, $setting->attribute;
-
-        # A flag that the command line cannot negate has no way to say false.
-        $count-- if $setting->kind eq 'flag' && defined $setting->flag && !$setting->negatable;
+        $count += $samples * grep { $setting->offers($_) } qw(line file call);
     }
     return $count;
 }
 
 # The configuration that a call of the library builds, or nothing when the call refuses its arguments.
+# The call reads the facts of its process, so the harness gives it the facts of every other world.
 sub library ( $root, @arguments ) {
     my $config;
     no warnings 'redefine';
-    local *Test::Mutation::Runner::analyze = sub ($given) { $config = $given; return { mutants => [] } };
+    local *Test::Mutation::Runner::analyze  = sub ($given) { $config = $given; return { mutants => [] } };
+    local *Test::Mutation::Host::processors = sub (@) { return { count => World::processors(), source => 'online' } };
+    local $ENV{GITHUB_ACTIONS}              = 'false';
     my $returned = eval { Test::Mutation::mutants( root => $root, @arguments ); 1 };
     return $returned ? $config : undef;
 }
@@ -416,7 +397,7 @@ sub value_text ( $setting, $config ) {
 my @SELECTORS = (
     {
         kind      => 'source',
-        setting   => 'source_include',
+        setting   => 'source',
         command   => 'list',
         default   => [qw(matches nothing)],
         matches   => 'lib/Tiny.pm',
@@ -425,7 +406,7 @@ my @SELECTORS = (
     },
     {
         kind      => 'exclude',
-        setting   => 'source_exclude',
+        setting   => 'source-exclude',
         command   => 'list',
         default   => [],
         matches   => 'lib/Other.pm',
@@ -434,7 +415,7 @@ my @SELECTORS = (
     },
     {
         kind      => 'test',
-        setting   => 'test_include',
+        setting   => 'test',
         command   => 'run',
         default   => [qw(matches nothing)],
         matches   => 't/tiny.t',
@@ -443,7 +424,7 @@ my @SELECTORS = (
     },
     {
         kind      => 'mutant',
-        setting   => 'only',
+        setting   => 'mutant',
         command   => 'list',
         default   => [],
         matches   => 'the first identifier',
@@ -534,8 +515,8 @@ sub origins ($selector) {
     my $row = $selector->{row};
     return {
         ( $selector->{default}->@* ? ( default => $selector->{default} ) : () ),
-        ( $row->key                ? ( file    => [@STATES] )            : () ),
-        ( defined $row->flag       ? ( line    => [@STATES] )            : () ),
+        ( $row->offers('file')     ? ( file    => [@STATES] )            : () ),
+        ( $row->offers('line')     ? ( line    => [@STATES] )            : () ),
     };
 }
 
@@ -576,9 +557,8 @@ sub _changes ( $selector, $origin, $state, $value ) {
         return ( 'lib/Tiny.pm' => $TINY{'lib/Tiny.pm'} =~ s/( [}])\n/$1    $comment\n/r );
     }
     if ( $origin eq 'file' ) {
-        my ( $section, $key ) = $row->key->@*;
         my $text = q{"} . $value =~ s/\\/\\\\/gr . q{"};
-        return ( 'mutation.toml' => "[$section]\n$key = " . ( $row->kind eq 'list' ? "[$text]" : $text ) . "\n" );
+        return ( 'mutation.toml' => $row->key . ' = ' . ( $row->kind eq 'list' ? "[$text]" : $text ) . "\n" );
     }
     return if $origin ne 'default' || $state eq 'matches' && $kind ne 'config';
     return ( 'lib/Tiny.pm' => undef, 'lib/Other.pm' => undef ) if $kind eq 'source';
@@ -679,7 +659,30 @@ sub environments () {
 
 # The settings of a plan as texts.
 sub config_text ($config) {
-    return { map { $_->attribute => value_text( $_, $config ) } grep { defined $_->attribute } $SETTINGS->@* };
+    return { map { $_->attribute => value_text( $_, $config ) } $SETTINGS->@* };
+}
+
+# The defaults that the table states for the environment of a world, as texts.
+sub declared_defaults ($fact) {
+    my $env   = exists $fact->{env} ? $fact->{env} : {};
+    my %facts = ( processors => World::processors(), env => $env );
+    my %text;
+    for my $setting ( grep { defined $_->default } $SETTINGS->@* ) {
+        my $value = $setting->default->( \%facts );
+        $text{ $setting->attribute } = ref $value ? join q{ }, $value->@* : "$value";
+    }
+    return \%text;
+}
+
+# The rule that binds two settings in the table of the interactions, or nothing.
+sub interaction ( $one, $other ) {
+    my %pair = map { $_ => 1 } $one->name, $other->name;
+    my ($rule) =
+      grep {
+        $_->{settings}->@* == 2 && !grep { !$pair{$_} }
+          $_->{settings}->@*
+      } Test::Mutation::Settings::interactions()->@*;
+    return $rule ? $rule->{rule} : undef;
 }
 
 # The words that set one setting on the command line to a value other than its default.

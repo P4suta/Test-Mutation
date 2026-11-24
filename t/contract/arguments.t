@@ -137,7 +137,7 @@ subtest 'the help and the version at every position' => sub {
     my %accepted  = map { $_ => 1 } @words;
     for my $setting ( Space::flags()->@* ) {
         $accepted{$_} = 1 for $setting->flag, ( defined $setting->short ? $setting->short : () );
-        $accepted{ '--no-' . substr $setting->flag, 2 } = 1 if $setting->negatable;
+        $accepted{ '--no-' . substr $setting->flag, 2 } = 1 if $setting->kind eq 'flag';
     }
     violation( 'help', 'options', 'the help text lacks an option that the commands accept', $_, 'help' )
       for grep { !$printed{$_} } sort keys %accepted;

@@ -1,114 +1,45 @@
 package Test::Mutation::Config;
 use v5.36;
 use Moo;
-use Types::Standard        qw(ArrayRef Bool Enum HashRef InstanceOf Maybe Num Str);
-use Types::Common::Numeric qw(PositiveInt PositiveNum);
-use Type::Params           qw(signature_for);
-use TOML::Tiny             ();
-use Test::Mutation::Error;
+use Test::Mutation::Settings;
 
 our $VERSION = '0.001';
 
 with 'Test::Mutation::Value';
 
-my $PERCENT = Num->where( sub { $_ >= 0 && $_ <= 100 } );
-my $FORMAT  = Enum [qw(terminal json html github)];
-my $SHARD   = Str->where( sub { m{\A([1-9][0-9]*)/([1-9][0-9]*)\z} && $1 <= $2 } );
+# Each attribute takes its type from the row of its setting, and the resolution of the settings gives every value.
+my %TYPE = map { $_->attribute => $_->value_type } Test::Mutation::Settings::rows()->@*;
 
-has root             => ( is => 'ro', isa => Str,         required => 1 );
-has jobs             => ( is => 'ro', isa => PositiveInt, default  => 1 );
-has source_include   => ( is => 'ro', isa => ArrayRef [Str], default => sub { ['lib/**/*.pm'] } );
-has source_exclude   => ( is => 'ro', isa => ArrayRef [Str], default => sub { [] } );
-has test_include     => ( is => 'ro', isa => ArrayRef [Str], default => sub { ['t/**/*.t'] } );
-has test_exclude     => ( is => 'ro', isa => ArrayRef [Str], default => sub { [] } );
-has perl             => ( is => 'ro', isa => Str, default => sub { $^X } );
-has switches         => ( is => 'ro', isa => ArrayRef [Str], default => sub { ['-Ilib'] } );
-has timeout_factor   => ( is => 'ro', isa => PositiveNum, default => 4 );
-has timeout_floor    => ( is => 'ro', isa => PositiveNum, default => 10 );
-has baseline_timeout => ( is => 'ro', isa => PositiveNum, default => 600 );
-has coverage         => ( is => 'ro', isa => Enum [qw(line file)],        default => 'line' );
-has profile          => ( is => 'ro', isa => Enum [qw(default extended)], default => 'default' );
-has enable           => ( is => 'ro', isa => ArrayRef [Str], default => sub { [] } );
-has disable          => ( is => 'ro', isa => ArrayRef [Str], default => sub { [] } );
-has report_directory => ( is => 'ro', isa => Str, default => 'mutation-report' );
-has formats          => ( is => 'ro', isa => ArrayRef [$FORMAT], default => sub { [qw(terminal json html)] } );
-has threshold_high   => ( is => 'ro', isa => $PERCENT, default => 80 );
-has threshold_low    => ( is => 'ro', isa => $PERCENT, default => 60 );
-has threshold_break  => ( is => 'ro', isa => Maybe [$PERCENT], default => undef );
-has work_directory   => ( is => 'ro', isa => Str,  default => '.mutation' );
-has keep_work        => ( is => 'ro', isa => Bool, default => 0 );
-has since            => ( is => 'ro', isa => Maybe [Str],    default => undef );
-has only             => ( is => 'ro', isa => ArrayRef [Str], default => sub { [] } );
-has shard            => ( is => 'ro', isa => Maybe [$SHARD], default => undef );
-has equivalence      => ( is => 'ro', isa => Bool, default => 1 );
-has cache            => ( is => 'ro', isa => Bool, default => 0 );
-has in_place         => ( is => 'ro', isa => Bool, default => 0 );
-has link             => ( is => 'ro', isa => ArrayRef [Str], default => sub { ['local'] } );
-
-my %FILE_KEYS = (
-    q{}    => { jobs    => 'jobs',           cache   => 'cache' },
-    source => { include => 'source_include', exclude => 'source_exclude' },
-    test   => {
-        include          => 'test_include',
-        exclude          => 'test_exclude',
-        perl             => 'perl',
-        switches         => 'switches',
-        'timeout-factor' => 'timeout_factor',
-        'timeout-floor'  => 'timeout_floor',
-        coverage         => 'coverage',
-        'in-place'       => 'in_place',
-        link             => 'link',
-    },
-    mutators   => { profile   => 'profile', enable => 'enable', disable => 'disable', equivalence => 'equivalence' },
-    report     => { directory => 'report_directory', formats => 'formats' },
-    thresholds => { high      => 'threshold_high',   low     => 'threshold_low', break => 'threshold_break' },
-);
-
-signature_for read_file => ( positional => [ Str, Maybe [Str], { default => undef } ], returns => HashRef );
-
-sub read_file ( $path, $name ) {
-    my $named = defined $name ? $name : $path;
-    open my $handle, '<:encoding(UTF-8)', $path
-      or Test::Mutation::Error::raise( 'input-unreadable', path => $named, reason => "$!" );
-    my $text = do { local $/ = undef; readline $handle };
-    close $handle or Test::Mutation::Error::raise( 'file-unclosable', path => $named, reason => "$!" );
-    my ( $data, $error ) = TOML::Tiny::from_toml($text);
-    Test::Mutation::Error::raise( 'input-malformed', path => $named, reason => ( split /\n/, "$error" )[0] )
-      if !defined $data;
-    return $data;
-}
-
-signature_for from_layers => (
-    method  => 1,
-    named   => [ root => Str, file => HashRef, cli => HashRef, defaults => HashRef ],
-    returns => InstanceOf ['Test::Mutation::Config'],
-);
-
-sub from_layers ( $class, $arg ) {
-    my %settings = ( $arg->defaults->%*, _file_settings( $arg->file ), $arg->cli->%* );
-    return $class->new( %settings, root => $arg->root );
-}
-
-sub _file_settings ($file) {
-    my %settings;
-    for my $key ( sort keys $file->%* ) {
-        my $value = $file->{$key};
-        if ( ref $value eq 'HASH' ) {
-            my $section = $FILE_KEYS{$key}
-              or Test::Mutation::Error::raise( 'config-section-unknown', section => $key );
-            for my $name ( sort keys $value->%* ) {
-                my $attribute = $section->{$name}
-                  or Test::Mutation::Error::raise( 'config-key-unknown-in-section', key => $name, section => $key );
-                $settings{$attribute} = $value->{$name};
-            }
-        }
-        else {
-            my $attribute = $FILE_KEYS{q{}}{$key} or Test::Mutation::Error::raise( 'config-key-unknown', key => $key );
-            $settings{$attribute} = $value;
-        }
-    }
-    return %settings;
-}
+has root             => ( is => 'ro', isa => $TYPE{root},             required => 1 );
+has config           => ( is => 'ro', isa => $TYPE{config},           required => 1 );
+has jobs             => ( is => 'ro', isa => $TYPE{jobs},             required => 1 );
+has min_score        => ( is => 'ro', isa => $TYPE{min_score},        required => 1 );
+has format           => ( is => 'ro', isa => $TYPE{format},           required => 1 );
+has report_dir       => ( is => 'ro', isa => $TYPE{report_dir},       required => 1 );
+has threshold_high   => ( is => 'ro', isa => $TYPE{threshold_high},   required => 1 );
+has threshold_low    => ( is => 'ro', isa => $TYPE{threshold_low},    required => 1 );
+has perl             => ( is => 'ro', isa => $TYPE{perl},             required => 1 );
+has switch           => ( is => 'ro', isa => $TYPE{switch},           required => 1 );
+has source           => ( is => 'ro', isa => $TYPE{source},           required => 1 );
+has source_exclude   => ( is => 'ro', isa => $TYPE{source_exclude},   required => 1 );
+has test             => ( is => 'ro', isa => $TYPE{test},             required => 1 );
+has test_exclude     => ( is => 'ro', isa => $TYPE{test_exclude},     required => 1 );
+has profile          => ( is => 'ro', isa => $TYPE{profile},          required => 1 );
+has enable           => ( is => 'ro', isa => $TYPE{enable},           required => 1 );
+has disable          => ( is => 'ro', isa => $TYPE{disable},          required => 1 );
+has equivalence      => ( is => 'ro', isa => $TYPE{equivalence},      required => 1 );
+has coverage         => ( is => 'ro', isa => $TYPE{coverage},         required => 1 );
+has timeout_factor   => ( is => 'ro', isa => $TYPE{timeout_factor},   required => 1 );
+has timeout_floor    => ( is => 'ro', isa => $TYPE{timeout_floor},    required => 1 );
+has baseline_timeout => ( is => 'ro', isa => $TYPE{baseline_timeout}, required => 1 );
+has in_place         => ( is => 'ro', isa => $TYPE{in_place},         required => 1 );
+has link             => ( is => 'ro', isa => $TYPE{link},             required => 1 );
+has keep_work        => ( is => 'ro', isa => $TYPE{keep_work},        required => 1 );
+has mutant           => ( is => 'ro', isa => $TYPE{mutant},           required => 1 );
+has since            => ( is => 'ro', isa => $TYPE{since},            required => 1 );
+has shard            => ( is => 'ro', isa => $TYPE{shard},            required => 1 );
+has cache            => ( is => 'ro', isa => $TYPE{cache},            required => 1 );
+has cache_dir        => ( is => 'ro', isa => $TYPE{cache_dir},        required => 1 );
 
 1;
 
@@ -116,66 +47,78 @@ __END__
 
 =head1 NAME
 
-Test::Mutation::Config - the validated settings of a run
+Test::Mutation::Config - the settings of a run
 
 =head1 SYNOPSIS
 
-    my $config = Test::Mutation::Config->from_layers(
-        root     => $directory,
-        defaults => { jobs => 4 },
-        file     => $parsed_toml,
-        cli      => { profile => 'extended' },
-    );
+    my $config = Test::Mutation::Settings::of_call( { root => $directory, jobs => 4 } );
+    say $config->jobs;
 
 =head1 DESCRIPTION
 
-A configuration is an immutable value.
-Every attribute has a type, and construction fails on a value outside it.
-
-=head1 METHODS
-
-=head2 from_layers
-
-Builds a configuration from defaults, the parsed configuration file, and command line settings, in rising priority.
-The file uses sections and hyphenated keys, and an unknown section or key is a fatal error.
-
-=head1 FUNCTIONS
-
-=head2 read_file
-
-    my $parsed = Test::Mutation::Config::read_file('mutation.toml');
-    my $named  = Test::Mutation::Config::read_file( "$directory/ci.toml", 'ci.toml' );
-
-Returns the parsed content of a configuration file.
-The function dies with a L<Test::Mutation::Error> of the kind C<usage> when the file cannot be read or is malformed.
-Its message holds the second argument as the name of the file, or the path without one, and the first line of the reason.
+A configuration is an immutable value with one attribute for each setting of L<Test::Mutation::Settings>.
+Each attribute has the type of its setting and the name of the setting in a call of the library.
+L<Test::Mutation::Settings/resolve> builds every configuration, and the table there states the meaning and the default of each value.
 
 =head1 ATTRIBUTES
 
 =head2 root
 
-The project directory.
+The project directory, with its full path.
+
+=head2 config
+
+The name of the configuration file that the run read, or nothing.
 
 =head2 jobs
 
 The number of test processes that run side by side.
 
-=head2 source_include, source_exclude
+=head2 min_score
 
-Glob patterns for the files to mutate.
+The score below which the run fails, or nothing.
 
-=head2 test_include, test_exclude
+=head2 format
 
-Glob patterns for the test files.
+The reports to write.
+
+=head2 report_dir
+
+The directory of the report files.
+
+=head2 threshold_high, threshold_low
+
+The scores from which a report marks the result as good and below which it marks it as poor.
 
 =head2 perl
 
 The interpreter that runs the tests.
 
-=head2 switches
+=head2 switch
 
 Switches for the interpreter, C<-Ilib> by default.
 The run names a relative directory after C<-I> in full, as C<prove> does, so a test may change its directory.
+
+=head2 source, source_exclude
+
+Glob patterns for the files to mutate and for the files to leave out.
+
+=head2 test, test_exclude
+
+Glob patterns for the test files and for the test files to leave out.
+
+=head2 profile, enable, disable
+
+The mutator profile and the names added to or removed from it.
+
+=head2 equivalence
+
+Whether the run compares the compiled code of an undetected mutant with the original.
+A mutant that compiles to the same code is ignored, and so is a mutant with the code of an earlier undetected mutant.
+
+=head2 coverage
+
+C<line> selects tests by the lines they ran, C<file> by the files they loaded.
 
 =head2 timeout_factor, timeout_floor
 
@@ -185,55 +128,38 @@ A test may run for the larger of the floor in seconds and the factor times its u
 
 The time limit in seconds for a test in the unmodified run.
 
-=head2 coverage
-
-C<line> selects tests by the lines they ran, C<file> by the files they loaded.
-
-=head2 profile, enable, disable
-
-The mutator profile and the names added to or removed from it.
-
-=head2 report_directory, formats
-
-Where reports go and which ones to write.
-
-=head2 threshold_high, threshold_low, threshold_break
-
-Score percentages for report colors, and the score below which the run fails.
-
-=head2 work_directory, keep_work
-
-The directory for temporary files, and whether to keep it after the run.
-
 =head2 in_place, link
 
 The tests run in copies of the project, which a run makes in the temporary directory.
 C<in_place> runs them in the project itself.
-C<link> names the paths that a copy holds as links to the original, C<local> by default.
+C<link> names the paths that a copy holds as links to the original.
+
+=head2 keep_work
+
+Whether the run keeps its work directory.
+
+=head2 mutant
+
+Mutant identifiers; when set, the run covers these mutants.
 
 =head2 since
 
 A Git revision; when set, the run covers the lines changed since it.
-
-=head2 only
-
-Mutant identifiers; when set, the run covers these mutants.
 
 =head2 shard
 
 A part of the mutants as C<K/N>; the run covers every Nth mutant, starting at the Kth.
 N runs with K from 1 to N cover every mutant once.
 
-=head2 equivalence
-
-Whether the run compares the compiled code of an undetected mutant with the original, true by default.
-A mutant that compiles to the same code is ignored, and so is a mutant with the code of an earlier undetected mutant.
-
 =head2 cache
 
-Whether the run reuses results from C<cache.json> in the work directory and writes its own, false by default.
+Whether the run reuses results from C<cache.json> in the cache directory and writes its own.
 The key of a result covers the mutated file, the tests that reach the mutant, and the analyzed source files those tests load.
 The key also covers every other file under the top-level directories of the sources and the tests, so a change there measures every mutant again.
 A change outside those directories, such as a new version of a dependency, needs a run without the cache.
+
+=head2 cache_dir
+
+The directory of the cache and of the work of a run.
 
 =cut

@@ -6,7 +6,7 @@ use lib 't/e2e/lib', 't/lib';
 use Capability;
 use Fixture qw(run_fixture statuses write_file);
 use Raised;
-use Test::Mutation::Config;
+use Test::Mutation::Settings;
 use Test::Mutation::Error;
 use Test::Mutation::Pool;
 use Test::Mutation::Runner;
@@ -26,7 +26,7 @@ sub project (%files) {
 
 sub listened ( $root, %settings ) {
     my @events;
-    my $config = Test::Mutation::Config->new( root => $root, jobs => 1, %settings );
+    my $config = Test::Mutation::Settings::of_call( { root => $root, jobs => 1, %settings } );
     my $result = Test::Mutation::Runner::run( $config, sub ( $event, $data ) { push @events, [ $event, $data ] } );
     return ( $result, [ map { $_->[1] } grep { $_->[0] eq 'mutant' } @events ] );
 }
@@ -48,7 +48,7 @@ subtest 'the analysis keeps the files in the order of their paths and names each
         'lib/Odd.pm'    => "package Odd;\r1;\n",
         'lib/Second.pm' => $later,
     );
-    my $analysis = Test::Mutation::Runner::analyze( Test::Mutation::Config->new( root => $root ) );
+    my $analysis = Test::Mutation::Runner::analyze( Test::Mutation::Settings::of_call( { root => $root } ) );
     is [ map { $_->{path} } $analysis->{problems}->@* ], [ 'lib/Bad.pm', 'lib/Odd.pm' ], 'the files with a problem';
     is [ map { $_->path } $analysis->{mutants}->@* ], [ ('lib/First.pm') x 3, ('lib/Second.pm') x 3 ],
       'the mutants of the other files';
@@ -60,7 +60,7 @@ subtest 'the analysis names every change that the generator refused, in the orde
         'lib/First.pm'  => "package First;\nsub text {\n    return <<\"T\";\nx\nT\n}\n1;\n",
         'lib/Second.pm' => "package Second;\nsub pick {\n    chomp( my \$line = \$_[0] );\n    return \$line;\n}\n1;\n",
     );
-    my $analysis = Test::Mutation::Runner::analyze( Test::Mutation::Config->new( root => $root ) );
+    my $analysis = Test::Mutation::Runner::analyze( Test::Mutation::Settings::of_call( { root => $root } ) );
     is $analysis->{rejected},
       [
         { path => 'lib/First.pm',  mutator => 'return-value',      line => 3, rule => 'here-document' },
@@ -114,7 +114,7 @@ subtest 'a suppressed mutant among others is ignored, and the others run in the 
 
 subtest 'an error of the listener stops the run and leaves no work directory' => sub {
     my $root   = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $TEST );
-    my $config = Test::Mutation::Config->new( root => $root, jobs => 1 );
+    my $config = Test::Mutation::Settings::of_call( { root => $root, jobs => 1 } );
     is dies {
         Test::Mutation::Runner::run( $config,
             sub ( $event, $data ) { die "the listener broke\n" if $event eq 'mutant' } )
@@ -569,7 +569,8 @@ subtest 'a comparison with the version of Perl follows the interpreter of the te
         return "$root/$name";
     };
     my $boundary = sub (%settings) {
-        my $analysis = Test::Mutation::Runner::analyze( Test::Mutation::Config->new( root => $root, %settings ) );
+        my $analysis =
+          Test::Mutation::Runner::analyze( Test::Mutation::Settings::of_call( { root => $root, %settings } ) );
         return scalar grep { $_->description eq 'replaced < with <=' } $analysis->{mutants}->@*;
     };
     is $boundary->(), 0, 'the interpreter of this test has another version, so the boundary yields no mutant';
@@ -637,13 +638,13 @@ subtest 'a syntax check runs once for each mutant that fails to load, and never 
 
 subtest 'a source that holds a single zero keeps its text' => sub {
     my $root     = project( 'lib/Zero.pm' => '0', 'lib/Small.pm' => $MODULE );
-    my $analysis = Test::Mutation::Runner::analyze( Test::Mutation::Config->new( root => $root ) );
+    my $analysis = Test::Mutation::Runner::analyze( Test::Mutation::Settings::of_call( { root => $root } ) );
     is $analysis->{sources}{'lib/Zero.pm'}->text, '0', 'the text';
 };
 
 subtest 'a copy that the system refuses names a way out, and a defect of the copy passes on as it is' => sub {
     my $root    = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $TEST );
-    my $config  = Test::Mutation::Config->new( root => $root, jobs => 1 );
+    my $config  = Test::Mutation::Settings::of_call( { root => $root, jobs => 1 } );
     my $copying = sub ($failure) {
         no warnings 'redefine';
         local *Test::Mutation::Tree::copy = $failure;

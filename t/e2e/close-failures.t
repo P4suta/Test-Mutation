@@ -21,7 +21,7 @@ BEGIN {
 use lib 't/e2e/lib', 't/lib';
 use Fixture qw(copy_of leftovers run_fixture);
 use Test::Mutation::CLI;
-use Test::Mutation::Config;
+use Test::Mutation::Settings;
 use Test::Mutation::Runner;
 
 sub failing_in ( $pattern, $code ) {
@@ -33,7 +33,7 @@ my $root = copy_of('calc');
 
 like dies {
     failing_in( qr/::Runner::_slurp\z/,
-        sub { Test::Mutation::Runner::analyze( Test::Mutation::Config->new( root => $root ) ) } )
+        sub { Test::Mutation::Runner::analyze( Test::Mutation::Settings::of_call( { root => $root } ) ) } )
 },
   qr/\Acannot close \Q$root\E\/lib\/Calc[.]pm: /,
   'a source file that does not close stops the analysis';
@@ -44,14 +44,14 @@ like dies {
     failing_in( qr/::Runner::_taint_switch\z/, sub { run_fixture($root) } )
 }, qr/\Acannot close t\/\w+[.]t: /, 'a test file that does not close stops the run';
 
-my $analysis = Test::Mutation::Runner::analyze( Test::Mutation::Config->new( root => $root ) );
+my $analysis = Test::Mutation::Runner::analyze( Test::Mutation::Settings::of_call( { root => $root } ) );
 my $mutant   = $analysis->{mutants}[0];
 like dies {
     failing_in(
         qr/::Runner::_spew\z/,
         sub {
             Test::Mutation::Runner::run_command(
-                Test::Mutation::Config->new( root => $root ),
+                Test::Mutation::Settings::of_call( { root => $root } ),
                 $analysis->{sources}{ $mutant->path },
                 $mutant, [ $^X, '-e', '1' ]
             );

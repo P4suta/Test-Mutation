@@ -428,7 +428,7 @@ subtest 'the judge rejects an observation outside the expectation of its run' =>
 
     my $fewer = record();
     $fewer->{prove}{files} = 3;
-    is RealWorld::findings( { $RUN->%*, config => "[test]\nexclude = [\"t/c.t\"]\n" }, $fewer ), [],
+    is RealWorld::findings( { $RUN->%*, config => "test-exclude = [\"t/c.t\"]\n" }, $fewer ), [],
       'a run whose configuration chooses the test files may find another number of them than prove';
 
     my $slow = record();

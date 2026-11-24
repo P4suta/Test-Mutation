@@ -18,7 +18,7 @@ BEGIN {
 }
 
 use Test::Mutation::Cache;
-use Test::Mutation::Config;
+use Test::Mutation::Settings;
 use Test::Mutation::Host;
 use Test::Mutation::Record;
 use Test::Mutation::Report::Html;
@@ -56,11 +56,16 @@ like dies {
     failing_in( qr/::Cache::save\z/, sub { Test::Mutation::Cache::save( $cache, { abc => $record } ) } )
 }, qr/\Acannot close \Q$cache\E[.]\d+: /, 'a cache that does not close after the write stops the run';
 
-my $settings = write_file( 'mutation.toml', "jobs = 2\n" );
-is Test::Mutation::Config::read_file($settings), { jobs => 2 }, 'the configuration file is read';
+write_file( 'mutation.toml', "jobs = 2\n" );
+my %plain = (
+    root  => $directory,
+    given => { origin     => 'line', name => undef, entries => {} },
+    facts => { processors => 1, env => {} }
+);
+is Test::Mutation::Settings::configure(%plain)->jobs, 2, 'the configuration file is read';
 like dies {
-    failing_in( qr/::Config::read_file\z/, sub { Test::Mutation::Config::read_file($settings) } )
-}, qr/\Acannot close \Q$settings\E: /, 'a configuration file that does not close is an error';
+    failing_in( qr/::Settings::_file_layer\z/, sub { Test::Mutation::Settings::configure(%plain) } )
+}, qr/\Acannot close mutation[.]toml: /, 'a configuration file that does not close is an error';
 
 my $records = write_file( 'one.rec', "begin\t0\nbypass\t/p/A.pm\n" );
 is Test::Mutation::Record::read_directory($directory)->{bypassed}, { '/p/A.pm' => 1 }, 'the record file is read';

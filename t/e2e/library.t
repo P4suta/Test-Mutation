@@ -27,10 +27,13 @@ subtest 'run measures a project and returns the result' => sub {
 
 subtest 'settings are checked' => sub {
     like dies { Test::Mutation::run( root => $root, jobs => 0 ) }, qr/jobs/, 'a value outside its type is refused';
-    is Raised::error( sub { Test::Mutation::run( root => $root, speed => 'fast', hurry => 1 ) } ),
-      [ 'usage', 'setting-unknown', 'unknown setting: hurry, speed' ], 'unknown settings are refused together';
-    is Raised::message( sub { Test::Mutation::run( root => $root, read_file => 1 ) } ), 'unknown setting: read_file',
-      'a function of the configuration class is not a setting';
+    like Raised::error( sub { Test::Mutation::run( root => $root, speed => 'fast', hurry => 1 ) } ),
+      [ 'usage', 'setting-unknown', qr/\Ahurry names no setting; the nearest is [a-z_]+\z/ ],
+      'the first unknown setting in the order of the names is refused';
+    is Raised::message( sub { Test::Mutation::run( root => $root, min_scor => 1 ) } ),
+      'min_scor names no setting; the nearest is min_score', 'with the nearest name';
+    like Raised::message( sub { Test::Mutation::run( root => $root, resolve => 1 ) } ),
+      qr/\Aresolve names no setting/, 'a function of the settings is no setting';
 };
 
 subtest 'the working directory is the project when the call names no root' => sub {

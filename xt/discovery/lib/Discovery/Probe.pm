@@ -130,7 +130,7 @@ sub _settings ( $bench, $name, $launch ) {
     return @settings if !$launch->{switches};
     my $file = $bench->{project}->scratch . "/$name.toml";
     open my $handle, '>', $file or die "write $file: $!";
-    printf {$handle} "[test]\nswitches = [%s]\n", join ', ', map { qq{"$_"} } $launch->{switches}->@*
+    printf {$handle} "switch = [%s]\n", join ', ', map { qq{"$_"} } $launch->{switches}->@*
       or die "write $file: $!";
     close $handle or die "close $file: $!";
     return ( @settings, configuration => $file );

@@ -99,7 +99,7 @@ is $count,           @gates * ( @parts * @signals * ( $sets->@* + 1 ) + 2 ), 'th
 Gate::checked( 'decisions', $count, at_least => 4000 );
 
 subtest 'the gate of the configuration file' => sub {
-    my $root   = Space::tree( 'mutation.toml' => "[thresholds]\nbreak = 50\n\n[report]\nformats = []\n" );
+    my $root   = Space::tree( 'mutation.toml' => "min-score = 50\nformat = []\n" );
     my $result = Samples::result( statuses => [qw(Killed Killed Survived)] );
     my $run    = do {
         no warnings 'redefine';

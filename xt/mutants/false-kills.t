@@ -6,7 +6,7 @@ use Fixture qw(copy_of run_fixture);
 use Gate;
 use Kills;
 use Oracle;
-use Test::Mutation::Config;
+use Test::Mutation::Settings;
 use Test::Mutation::Host;
 use Test::Mutation::Runner;
 
@@ -16,7 +16,7 @@ use Test::Mutation::Runner;
 
 sub by_hand_kills () {
     my $root   = copy_of('calc');
-    my $config = Test::Mutation::Config->new( root => $root );
+    my $config = Test::Mutation::Settings::of_call( { root => $root } );
     my $source = Test::Mutation::Runner::analyze($config)->{sources}{'lib/Calc.pm'};
     my @cases  = (
         [ 'return $x + $y', 'return $x - $y',       't/add.t' ],
@@ -88,7 +88,7 @@ my ( @fixture_kills, %status );
 for my $fixture (qw(calc counter equivalent mechanics)) {
     my $root     = copy_of($fixture);
     my ($result) = run_fixture( $root, profile => 'extended', timeout_floor => 1, timeout_factor => 2 );
-    my $config   = Test::Mutation::Config->new( root => $root );
+    my $config   = Test::Mutation::Settings::of_call( { root => $root } );
     my $sources  = Test::Mutation::Runner::analyze($config)->{sources};
     $status{ $_->{status} }++ for $result->entries->@*;
     push @fixture_kills,
@@ -107,7 +107,7 @@ my $TESTS   = 3;
 my $workers = Test::Mutation::Host::processors()->{count};
 my $base    = File::Temp->newdir;
 my $own     = Kills::copied( "$base/main", qw(lib t bin) );
-my $config  = Test::Mutation::Config->new( root => $own, profile => 'extended' );
+my $config  = Test::Mutation::Settings::of_call( { root => $own, profile => 'extended' } );
 my $made    = Test::Mutation::Runner::analyze($config);
 my @tests   = sort { -s "$own/$a" <=> -s "$own/$b" || $a cmp $b } map { s{\A\Q$own\E/}{}r } glob "$own/t/unit/*.t";
 my %text    = map  { $_ => Oracle::file_source("$own/$_")->text } @tests;
@@ -131,7 +131,7 @@ my $records = Oracle::each_file(
     sub ( $label, $index ) {
         my $mutant = $chosen[$index];
         my $root   = -d "$base/$$" ? "$base/$$" : Kills::copied( "$base/$$", qw(lib t bin) );
-        my $here   = Test::Mutation::Config->new( root => $root );
+        my $here   = Test::Mutation::Settings::of_call( { root => $root } );
         my $source = $made->{sources}{ $mutant->path };
         for my $test ( grep { defined } $named{ $mutant->path }->@[ 0 .. $TESTS - 1 ] ) {
             $passes{$test} //= ( Kills::plain( $here, $test )->{status} // 1 ) == 0 ? 1 : 0;

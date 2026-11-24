@@ -96,7 +96,8 @@ subtest 'tests that need the repository data fail in a copy and pass in the proj
 subtest 'a usage error exits with status 2 and one line' => sub {
     my $root    = copy_of('calc');
     my $unknown = ran( 2, $root, '--no-such-option' );
-    like $unknown->{stderr}, qr/Unknown option: no-such-option/, 'the option is named';
+    like $unknown->{stderr}, qr/\Amutation: --no-such-option names no option; the nearest is --\S+\n\z/,
+      'the option is named with the nearest one';
 
     my $invalid = ran( 2, $root, '--jobs', 0 );
     like $invalid->{stderr}, qr/\Amutation: [^\n]*jobs[^\n]*\n\z/, 'one line that names the setting';
@@ -145,7 +146,7 @@ subtest '--format and --report-dir choose the reports' => sub {
 subtest 'mutation.toml configures the run' => sub {
     my $root = copy_of('calc');
     write_file( "$root/mutation.toml",
-        "jobs = 2\n\n[mutators]\ndisable = [\"sub-body\", \"return-value\"]\n\n[report]\nformats = [\"terminal\"]\n" );
+        "jobs = 2\ndisable = [\"sub-body\", \"return-value\"]\nformat = [\"terminal\"]\n" );
     my $run = ran( 0, $root );
     like $run->{stdout}, qr/^11 mutants: 7 killed, 3 survived, 1 no coverage$/m, 'the disabled mutators are left out';
     like $run->{stdout}, qr/^2 tests, 2 jobs,/m,                                 'jobs come from the file';
@@ -156,9 +157,10 @@ subtest 'mutation.toml configures the run' => sub {
 
 subtest 'a broken configuration file is a usage error' => sub {
     my $root = copy_of('calc');
-    write_file( "$root/mutation.toml", "[mutators]\nprofil = \"default\"\n" );
+    write_file( "$root/mutation.toml", "profil = \"default\"\n" );
     my $unknown = ran( 2, $root );
-    like $unknown->{stderr}, qr/\Amutation: unknown configuration key profil in \[mutators\]\n\z/, 'the key is named';
+    like $unknown->{stderr}, qr/\Amutation: mutation\.toml: profil names no setting; the nearest is profile\n\z/,
+      'the key is named';
 
     write_file( "$root/mutation.toml", "jobs = = 2\n" );
     my $syntax = ran( 2, $root );
@@ -167,7 +169,7 @@ subtest 'a broken configuration file is a usage error' => sub {
 
 subtest '--config names another configuration file' => sub {
     my $root = copy_of('calc');
-    write_file( "$root/ci.toml", "[mutators]\ndisable = [\"sub-body\"]\n\n[report]\nformats = [\"terminal\"]\n" );
+    write_file( "$root/ci.toml", "disable = [\"sub-body\"]\nformat = [\"terminal\"]\n" );
     like ran( 0, $root, '--jobs', 2, '--config', 'ci.toml' )->{stdout}, qr/^15 mutants:/m, 'the named file is read';
     my $missing = ran( 2, $root, '--config', 'absent.toml' );
     like $missing->{stderr}, qr/\Amutation: cannot read absent\.toml: /, 'the file is named';

@@ -675,7 +675,7 @@ sub _settings ( $project, $name, $spec ) {
     return \%settings if !$spec->{switches};
     my $file = $project->scratch . "/$name.toml";
     open my $handle, '>', $file or die "write $file: $!";
-    printf {$handle} "[test]\nswitches = [%s]\n", join ', ', map { qq{"$_"} } $spec->{switches}->@*
+    printf {$handle} "switch = [%s]\n", join ', ', map { qq{"$_"} } $spec->{switches}->@*
       or die "write $file: $!";
     close $handle or die "close $file: $!";
     return { %settings, configuration => $file };

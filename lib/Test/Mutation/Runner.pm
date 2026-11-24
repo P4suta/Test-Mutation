@@ -66,10 +66,10 @@ sub _analysis ( $config, $project, $root ) {
         disable => $config->disable,
     );
     my ( %sources, %left_out, @mutants, @problems, @rejected );
-    my %only    = map { $_ => 1 } $config->only->@*;
+    my %only    = map { $_ => 1 } $config->mutant->@*;
     my $changed = defined $config->since ? Test::Mutation::Git::changed( $project, $config->since ) : undef;
     my $perl    = _perl_version( $config->perl );
-    for my $path ( Test::Mutation::Project::files( $root, $config->source_include, $config->source_exclude )->@* ) {
+    for my $path ( Test::Mutation::Project::files( $root, $config->source, $config->source_exclude )->@* ) {
         next if $changed && !$changed->{$path};
         my $source   = Test::Mutation::Source->from_bytes( path => $path, bytes => _slurp("$root/$path") );
         my $analysis = Test::Mutation::Syntax::PPI::analyze($source);
@@ -164,7 +164,7 @@ sub _copy_project ($run) {
 
     # A temporary directory inside the project holds the copies, which are no part of a copy.
     my @skip =
-      ( q{.git}, map { _inside( $project, $_ ) } $config->work_directory, $config->report_directory, $run->{copies} );
+      ( q{.git}, map { _inside( $project, $_ ) } $config->cache_dir, $config->report_dir, $run->{copies} );
     my $copied =
       Test::Mutation::Try::attempt( sub { $run->{root} = _new_copy( $run, $project, \@skip, $config->link ) } );
     return if exists $copied->{value};
@@ -233,7 +233,7 @@ sub _measure ( $run, $started ) {
     my $listener = $run->{listener};
     my $root     = $run->{root};
     my $analysis = _analysis( $config, $run->{project}, $root );
-    my @tests    = Test::Mutation::Project::files( $root, $config->test_include, $config->test_exclude )->@*;
+    my @tests    = Test::Mutation::Project::files( $root, $config->test, $config->test_exclude )->@*;
     my @active   = grep { !$_->suppressed } $analysis->{mutants}->@*;
     my %targets  = map  { $_->path => 1 } @active;
     $run->{sources} = $analysis->{sources};
@@ -350,12 +350,12 @@ sub _leave_work ($run) {
     my $stuck = defined $run->{work} ? _discard( $run->{work} ) : 0;
 
     # A directory that still holds a file refuses to go, which is the wanted result.
-    rmdir $run->{project} . q{/} . $run->{config}->work_directory;
+    rmdir $run->{project} . q{/} . $run->{config}->cache_dir;
     return $stuck;
 }
 
 sub _prepare_work ($run) {
-    my $base = $run->{project} . q{/} . $run->{config}->work_directory;
+    my $base = $run->{project} . q{/} . $run->{config}->cache_dir;
 
     Test::Mutation::Tree::make($base);
     my $work = Test::Mutation::Tree::temporary( $base, 'run-' );
@@ -508,7 +508,7 @@ sub run_command ( $config, $source, $mutant, $command ) {
 
 # prove names its library directories in full, so a test may change its directory before it loads a module.
 sub _switches ( $run, $root ) {
-    return map { s{\A-I(?=[^/])}{-I$root/}r } $run->{config}->switches->@*;
+    return map { s{\A-I(?=[^/])}{-I$root/}r } $run->{config}->switch->@*;
 }
 
 sub _test_task ( $run, %arg ) {
@@ -699,7 +699,7 @@ sub _mutants ( $run, $mutants, $baseline ) {
 }
 
 sub _tree ($run) {
-    return _walk( $run, $run->{root}, '.git', $run->{config}->work_directory );
+    return _walk( $run, $run->{root}, '.git', $run->{config}->cache_dir );
 }
 
 # A mutant runs with the rights of the tests, so it may leave a file that makes a test fail from then on.
@@ -764,7 +764,7 @@ sub _support_files ( $run, $tracked ) {
 sub _open_cache ( $run, $baseline ) {
     my $config = $run->{config};
     my $root   = $run->{root};
-    my $file   = join q{/}, $run->{project}, $config->work_directory, 'cache.json';
+    my $file   = join q{/}, $run->{project}, $config->cache_dir, 'cache.json';
     my %digest;
     my $digest_of = sub ($path) {
         $digest{$path} = Digest::SHA::sha256_hex( _slurp("$root/$path") ) if !defined $digest{$path};
@@ -773,13 +773,8 @@ sub _open_cache ( $run, $baseline ) {
     my @tests       = sort keys $baseline->{tests}->%*;
     my @interpreter = map { defined ? $_ : q{} } ( stat $config->perl )[ 7, 9 ];
     my @shared      = (
-        $VERSION,
-        $config->perl,
-        @interpreter,
-        scalar $config->switches->@*,
-        $config->switches->@*,
-        $config->coverage,
-        $config->equivalence,
+        $VERSION,            $config->perl,     @interpreter, scalar $config->switch->@*,
+        $config->switch->@*, $config->coverage, $config->equivalence,
         map { ( $_, $digest_of->($_) ) } _support_files( $run, [ @tests, keys $run->{sources}->%* ] ),
     );
     return {
@@ -936,7 +931,7 @@ sub _compile_task ( $run, $job, $kind, $file, $switch ) {
     my $root   = _job_root( $run, $job );
     $run->{stats}{compiles}++;
     return {
-        command         => [ $config->perl, $config->switches->@*, $switch, $file ],
+        command         => [ $config->perl, $config->switch->@*, $switch, $file ],
         env             => { PERL_HASH_SEED => '0', PERL_PERTURB_KEYS => '0', PWD => $root },
         cwd             => $root,
         timeout         => $config->baseline_timeout,

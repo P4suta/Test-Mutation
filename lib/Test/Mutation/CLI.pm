@@ -3,7 +3,6 @@ use v5.36;
 use Cwd             ();
 use Errno           ();
 use File::Spec      ();
-use Getopt::Long    ();
 use List::Util      ();
 use Scalar::Util    ();
 use Time::HiRes     ();
@@ -11,6 +10,8 @@ use Types::Standard qw(ArrayRef Bool CodeRef Dict Enum FileHandle GlobRef HashRe
 use Types::Common::Numeric qw(PositiveInt);
 use Type::Params           qw(signature_for);
 use overload               ();
+use Test::Mutation::CLI::Arguments;
+use Test::Mutation::Commands;
 use Test::Mutation::Config;
 use Test::Mutation::Error;
 use Test::Mutation::Exit;
@@ -19,7 +20,6 @@ use Test::Mutation::Interrupted;
 use Test::Mutation::Merge;
 use Test::Mutation::Message;
 use Test::Mutation::Mutator::Catalog;
-use Test::Mutation::Project;
 use Test::Mutation::Report::GitHub;
 use Test::Mutation::Report::Html;
 use Test::Mutation::Report::Json;
@@ -27,6 +27,7 @@ use Test::Mutation::Report::Patch;
 use Test::Mutation::Report::Progress;
 use Test::Mutation::Report::Terminal;
 use Test::Mutation::Runner;
+use Test::Mutation::Settings;
 use Test::Mutation::Signals;
 use Test::Mutation::Tree;
 use Test::Mutation::Try;
@@ -69,7 +70,7 @@ my $INVOCATION = $REFUSED | Dict [
     processors => Maybe [ Dict [ count => PositiveInt, source => Str ] ],
 ];
 
-my $HELP = <<'TEXT';
+my $USAGE = <<'TEXT';
 Usage: mutation [run] [options]
        mutation list [options]
        mutation show ID [options]
@@ -84,33 +85,28 @@ Commands:
   exec      Run a command with one mutant active
   merge     Report one run from the mutation.json of every part of --shard
   mutators  Print the name, the profile, and the description of every mutator
-
-Options:
-  --root, -C DIR        Run as if mutation had started in DIR
-  --jobs, -j N          Test processes to run side by side
-  --min-score N         Fail when the score is below N percent
-  --format NAME         Report to write: terminal, json, html; repeatable
-  --report-dir DIR      Directory for the report files
-  --perl PATH           Interpreter that runs the tests
-  --source GLOB         Files to mutate; repeatable
-  --test GLOB           Test files; repeatable
-  --profile NAME        Mutator profile: default or extended
-  --enable NAME         Add a mutator; repeatable
-  --disable NAME        Remove a mutator; repeatable
-  --coverage MODE       Select tests by line or by file
-  --timeout-factor N    Time limit as a multiple of the unmodified duration
-  --timeout-floor N     Smallest time limit in seconds
-  --in-place            Run the tests in the project itself, not in copies of it
-  --keep-work           Keep the work directory after the run
-  --mutant ID           Run the named mutant; repeatable
-  --since REVISION      Cover the lines changed since a Git revision
-  --shard K/N           Cover part K of N equal parts of the mutants
-  --no-equivalence      Keep the mutants that compile to the original code
-  --cache               Reuse the results of an earlier run where the inputs are unchanged
-  --config FILE         Configuration file to read in place of mutation.toml
-  --version             Print the version
-  --help                Print this text
 TEXT
+
+# The words of an option in the help text: its spellings and the placeholder of its value.
+sub _option_words ($setting) {
+    my @spelled = (
+        $setting->flag,
+        ( defined $setting->short  ? $setting->short          : () ),
+        ( $setting->kind eq 'flag' ? '--no-' . $setting->name : () ),
+    );
+    return join q{ }, join( q{, }, @spelled ), ( defined $setting->placeholder ? $setting->placeholder : () );
+}
+
+# The options come from the table of the settings and from the commands that an option selects.
+my @OPTIONS = (
+    ( map { [ _option_words($_), $_->help ] } grep { $_->offers('line') } Test::Mutation::Settings::rows()->@* ),
+    (
+        map  { [ join( q{, }, $_->words->@* ), $_->summary ] }
+        grep { $_->words->[0] =~ /\A-/ } Test::Mutation::Commands::rows()->@*
+    ),
+);
+my $WIDTH = List::Util::max( map { length $_->[0] } @OPTIONS );
+my $HELP  = $USAGE . "\nOptions:\n" . join q{}, map { sprintf "  %-*s  %s\n", $WIDTH, $_->@* } @OPTIONS;
 
 sub main ($list) {
     my $world = {
@@ -131,8 +127,8 @@ sub _terminal ($stream) {
     return defined fileno $stream && -t $stream ? 1 : 0;    ## no critic (InputOutput::ProhibitInteractiveTest)
 }
 
-# The first argument that the command answers without a look at the project.
-my %ANSWER = ( '--version' => 'version', '--help' => 'help', '-h' => 'help' );
+# The commands that answer without a look at the project.
+my %ANSWER = ( version => 1, help => 1 );
 
 # The operands that a command refuses, each with the error of its refusal.
 my %REFUSE_OPERANDS = (
@@ -179,33 +175,38 @@ sub plan ($arg) {
 }
 
 sub _planned ( $argv, $world ) {
-    my @arguments = $argv->@*;
+    my $parsed  = Test::Mutation::CLI::Arguments::parse( argv => $argv );
+    my $command = $parsed->{command};
+    my %plan    = (
+        command    => $command,
+        directory  => undef,
+        config     => undef,
+        operands   => $parsed->{operands},
+        processors => undef
+    );
+    return \%plan if $ANSWER{$command};
 
     # The directory comes first, so every later path and the configuration file are read from inside it.
-    my $anywhere = Getopt::Long::Parser->new( config => [qw(pass_through no_ignore_case no_auto_abbrev)] );
-    $anywhere->getoptionsfromarray( \@arguments, 'root|C=s' => \my $directory );
+    my $given  = $parsed->{given};
+    my $root   = $given->{entries}{root};
     my $inside = $world->{cwd};
-    if ( defined $directory ) {
+    if ($root) {
+        my $directory = $plan{directory} = $root->{value};
         $inside = _under( $inside, $directory );
         my $reason = _closed($inside);
         Test::Mutation::Error::raise( 'directory-closed', directory => $directory, reason => $reason )
           if defined $reason;
     }
-
-    my $first   = @arguments ? $arguments[0] : q{};
-    my $command = $ANSWER{$first} || ( $COMMAND{$first} ? $first : undef );
-    shift @arguments if defined $command;
-    $command = 'run' if !defined $command;
-    my %plan =
-      ( command => $command, directory => $directory, config => undef, operands => \@arguments, processors => undef );
-    return \%plan if $ANSWER{$first};
     if ( $command ne 'mutators' ) {
+        Test::Mutation::Error::raise('working-directory-gone') if !defined $inside;
         $plan{processors} = $world->{processors}->();
-        my $settings = _config( \@arguments, $inside, $plan{processors}{count}, $world );
-        return $settings if $settings->{refused};
-        $plan{config} = $settings->{config};
+        $plan{config}     = Test::Mutation::Settings::configure(
+            root  => Cwd::abs_path($inside),
+            given => $given,
+            facts => { processors => $plan{processors}{count}, env => $world->{env} },
+        );
     }
-    $REFUSE_OPERANDS{$command}->(@arguments);
+    $REFUSE_OPERANDS{$command}->( $plan{operands}->@* );
     return \%plan;
 }
 
@@ -268,83 +269,6 @@ sub _carried_out ( $invocation, $world ) {
     return $COMMAND{$command}->( $invocation, $world );
 }
 
-my %SETTING_OF_OPTION = (
-    'jobs|j=i'         => 'jobs',
-    'min-score=f'      => 'threshold_break',
-    'format=s@'        => 'formats',
-    'report-dir=s'     => 'report_directory',
-    'perl=s'           => 'perl',
-    'source=s@'        => 'source_include',
-    'test=s@'          => 'test_include',
-    'profile=s'        => 'profile',
-    'enable=s@'        => 'enable',
-    'disable=s@'       => 'disable',
-    'coverage=s'       => 'coverage',
-    'timeout-factor=f' => 'timeout_factor',
-    'timeout-floor=f'  => 'timeout_floor',
-    'keep-work'        => 'keep_work',
-    'mutant=s@'        => 'only',
-    'since=s'          => 'since',
-    'shard=s'          => 'shard',
-    'equivalence!'     => 'equivalence',
-    'cache!'           => 'cache',
-    'in-place!'        => 'in_place',
-);
-
-# The refusal of the settings of a command, in the words of the option parser or of the type library.
-# The settings table gives each setting a message of its own.
-sub _refused_settings ($text) {
-    return { refused => { status => Test::Mutation::Exit::of('usage'), text => $text } };
-}
-
-# The settings of a command, or the refusal of its arguments.
-sub _config ( $arguments, $directory, $processors, $world ) {
-    my ( %cli, $file );
-    my $complaints = q{};
-    my $parser     = Getopt::Long::Parser->new( config => [qw(bundling no_ignore_case)] );
-    my $parsed     = do {
-
-        # The parser reports through a warning, and a plan prints nothing.
-        local $SIG{__WARN__} = sub ($text) { $complaints .= $text };
-        $parser->getoptionsfromarray(
-            $arguments,
-            ( map { $_ => \$cli{ $SETTING_OF_OPTION{$_} } } keys %SETTING_OF_OPTION ),
-            'config=s' => \$file,
-        );
-    };
-    return _refused_settings($complaints) if !$parsed;
-    delete @cli{ grep { !defined $cli{$_} } keys %cli };
-    my $settings = _configuration_file( $file, $directory );
-    my $build    = sub {
-        Test::Mutation::Config->from_layers(
-            root     => defined $directory ? Cwd::abs_path($directory) : undef,
-            defaults => {
-                jobs    => Test::Mutation::Project::default_jobs($processors),
-                formats => [ qw(terminal json html), _inside_github_actions( $world->{env} ) ? 'github' : () ],
-            },
-            file => $settings,
-            cli  => \%cli,
-        );
-    };
-    my $built = Test::Mutation::Try::attempt($build);
-    return { config => $built->{value} } if exists $built->{value};
-    return _refused_settings( Test::Mutation::Message::line( _first_line( $built->{error} ) ) );
-}
-
-sub _inside_github_actions ($env) {
-    my $value = $env->{GITHUB_ACTIONS};
-    return defined $value && $value eq 'true' ? 1 : 0;
-}
-
-sub _configuration_file ( $named, $directory ) {
-    my $path = defined $named ? $named : 'mutation.toml';
-    my $file = _under( $directory, $path );
-    return {} if !defined $named && !-e $file;
-
-    # The plan reads the file through the directory, and the message names it as the user did.
-    return Test::Mutation::Config::read_file( $file, $path );
-}
-
 # The first line of an exception without the place in the code that raised it.
 # A value that has no text of its own gives the name of its type.
 sub _first_line ($error) {
@@ -390,13 +314,13 @@ my %FILE_REPORT = (
 );
 
 sub _report ( $result, $config, $world ) {
-    my %wanted = map { $_ => 1 } $config->formats->@*;
+    my %wanted = map { $_ => 1 } $config->format->@*;
     print { $world->{out} } Test::Mutation::Report::Terminal::render( $result, color => 0 ) if $wanted{terminal};
 
     my @written;
     for my $format ( grep { $wanted{$_} } qw(json html) ) {
         my ( $name, $render ) = $FILE_REPORT{$format}->@*;
-        my $directory = $config->report_directory;
+        my $directory = $config->report_dir;
         my $target    = File::Spec->rel2abs( $directory, $config->root );
         Test::Mutation::Tree::make($target);
         my $text = $render->( $result, high => $config->threshold_high, low => $config->threshold_low );
@@ -435,7 +359,7 @@ sub _concluded ( $result, $config, $world ) {
     my $signal = $result->interrupted;
     my $failed = scalar $result->baseline_failures->@*;
     my $score  = $result->tally->{score};
-    my $floor  = $config->threshold_break;
+    my $floor  = $config->min_score;
     return _ended(
         $world,
         Test::Mutation::Exit::of_signal($signal),
@@ -559,7 +483,9 @@ C<processors> returns the count of processors that a run may use and its source,
 A plan to act holds the C<command>, the C<directory> that C<--root> names, the C<config>, and the C<operands>.
 A plan with settings also holds the C<processors> of its world, and a run names them in its first line.
 A plan to refuse holds C<refused>, with the exit C<status> and the C<text> for standard error.
-The plan reads the configuration file, and the function dies on an error that no check of the arguments foresees.
+L<Test::Mutation::CLI::Arguments> reads the words, and L<Test::Mutation::Settings> reads the configuration file and builds the C<config>.
+The help text lists the options of the table of the settings.
+The function dies on an error that no check of the arguments foresees.
 
 =head2 execute
 

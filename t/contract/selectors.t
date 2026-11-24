@@ -60,7 +60,7 @@ for my $selector ( Space::selectors()->@* ) {
     my @places =
         $selector->{origins}
       ? $selector->{origins}->@*
-      : ( ( $row->key ? 'file' : () ), ( defined $row->flag ? 'line' : () ) );
+      : ( ( $row->offers('file') ? 'file' : () ), ( $row->offers('line') ? 'line' : () ) );
     $place{$_} = 1 for @places, ( $selector->{default} && $selector->{default}->@* ? 'default' : () );
     $expected += Space::states()->@* * @places + ( $selector->{default} ? $selector->{default}->@* : 0 );
 }
