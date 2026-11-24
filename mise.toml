@@ -74,6 +74,17 @@ run = "prove -l xt/corpus"
 description = "Measure Test::Mutation with itself and check the release conditions"
 run = ["perl -Ilib bin/mutation", "prove -l xt/release", "prove -l xt/corpus"]
 
+[tasks.realworld]
+description = "Run the tool on real distributions inside a container and judge every record"
+# Foreign tests and their mutants run arbitrary code.
+# The container has no network, a read-only root, and no right outside its scratch directory, and it reads the repository.
+run = [
+  "docker build --quiet --file xt/realworld/Dockerfile --tag test-mutation-realworld .",
+  "mkdir -p mutation-report",
+  "docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 4096 --cpus 6 --memory 8g --tmpfs /work:exec,size=4g,uid=1000,gid=1000,mode=0755 --volume {{config_root}}:/repo:ro test-mutation-realworld perl -I/opt/mutation/lib/perl5 /repo/xt/bin/realworld-observe > mutation-report/realworld.jsonl",
+  "prove -l xt/realworld",
+]
+
 [tasks.dist]
 description = "Pack the distribution archive"
 run = ["perl Makefile.PL", "make manifest", "make dist"]

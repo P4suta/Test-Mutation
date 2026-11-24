@@ -1,0 +1,227 @@
+#!perl
+use v5.36;
+use Cwd         ();
+use File::Path  ();
+use FindBin     ();
+use JSON::PP    ();
+use List::Util  ();
+use POSIX       ();
+use Time::HiRes ();
+use lib "$FindBin::Bin/../lib";
+use RealWorld;
+
+# Runs inside the container of the real-world harness, as a user without rights and without the network.
+# For each run of the table it learns the truth from the tests of the distribution, runs the tool, and prints one record.
+# The tests, a plain prove, and the tool each get a fresh copy of the unpacked tree, so they differ in the tool alone.
+# Standard output carries the records, one JSON document on each line, and standard error carries the progress.
+
+my $REPOSITORY    = Cwd::abs_path("$FindBin::Bin/../..");
+my $DISTRIBUTIONS = '/opt/distributions';
+my $DEPENDENCIES  = '/opt/dependencies';
+my $TOOL_LIBRARY  = '/opt/mutation/lib/perl5';
+my $WORK          = '/work';
+my @PROVE         = qw(prove -lr t);
+
+# A command that hangs must not hold the harness, and no honest run here needs half an hour.
+my $LIMIT      = 1800;
+my $GRACE      = 10;
+my $POLL       = 0.1;
+my $SAMPLE     = 1;
+my $KILOBYTES  = 1024;
+my $TAIL       = 40;
+my $KEPT_LINES = 400;
+
+sub slurp ($path) {
+    open my $handle, '<:raw', $path or die "cannot read $path: $!\n";
+    my $bytes = do { local $/ = undef; readline $handle };
+    close $handle or die "cannot close $path: $!\n";
+    return defined $bytes ? $bytes : q{};
+}
+
+sub spew ( $path, $text ) {
+    open my $handle, '>:raw', $path or die "cannot write $path: $!\n";
+    print {$handle} $text or die "cannot write $path: $!\n";
+    close $handle         or die "cannot close $path: $!\n";
+    return;
+}
+
+# The lines of what a command printed, as characters where the bytes are UTF-8.
+sub lines ($bytes) {
+    my $text = $bytes;
+    utf8::decode($text) or $text = $bytes;
+    return [ split /\n/, $text ];
+}
+
+sub _child ( $directory, $command, $output, $errors ) {
+    chdir $directory or die "cannot enter $directory: $!\n";
+    POSIX::setpgid( 0, 0 );
+    open STDIN,  '<', '/dev/null' or die "cannot read /dev/null: $!\n";
+    open STDOUT, '>', $output     or die "cannot write $output: $!\n";
+    open STDERR, '>', $errors     or die "cannot write $errors: $!\n";
+    exec { $command->[0] } $command->@* or POSIX::_exit(127);
+    return;
+}
+
+# The megabytes in use in the scratch directory, which is a file system of its own.
+sub used () {
+    open my $answer, q{-|}, 'df', '-Pk', $WORK or return 0;
+    my @answered = readline $answer;
+    close $answer or return 0;
+    my ( undef, undef, $kilobytes ) = split q{ }, @answered ? $answered[-1] : q{};
+    return defined $kilobytes && $kilobytes =~ /\A\d+\z/ ? int $kilobytes / $KILOBYTES : 0;
+}
+
+# Runs one command in a directory and returns its exit status, its time, and what it printed.
+# The command leads a process group of its own, so the limit ends every process that it started.
+# A sample of the scratch directory each second gives the space that the command held at its peak.
+sub run_command ( $directory, $command, $capture ) {
+    my ( $output, $errors ) = ( "$capture.out", "$capture.err" );
+    my $started = Time::HiRes::time();
+    my $pid     = fork;
+    die "cannot fork: $!\n"                          if !defined $pid;
+    _child( $directory, $command, $output, $errors ) if !$pid;
+
+    my ( $limit, $deadline ) = ( 0, $started + $LIMIT );
+    my ( $level, $peak, $sampled ) = ( used(), 0, $started );
+    while ( waitpid( $pid, POSIX::WNOHANG() ) == 0 ) {
+        my $now = Time::HiRes::time();
+        if ( $now > $deadline ) {
+            kill $limit ? 'KILL' : 'TERM', -$pid;
+            ( $limit, $deadline ) = ( 1, $now + $GRACE );
+        }
+        if ( $now - $sampled >= $SAMPLE ) {
+            ( $peak, $sampled ) = ( List::Util::max( $peak, used() - $level ), $now );
+        }
+        Time::HiRes::sleep($POLL);
+    }
+    my $status = $?;
+    return {
+        command => [ $command->@* ],
+        exit    => $status & 127 ? 128 + ( $status & 127 ) : $status >> 8,
+        seconds => Time::HiRes::time() - $started,
+        limit   => $limit,
+        scratch => $peak,
+        stdout  => slurp($output),
+        stderr  => slurp($errors),
+    };
+}
+
+# A fresh copy of the unpacked tree with the build of the run done in it, or the build command that failed.
+sub prepared ( $run, $place ) {
+    my $source = "$DISTRIBUTIONS/$run->{name}-$run->{version}";
+    File::Path::make_path($place);
+    my $tree = "$place/$run->{name}-$run->{version}";
+    system( 'cp', '-R', $source, $tree ) == 0 or die "cannot copy $source\n";
+    for my $command ( $run->{build}->@* ) {
+        my $built = run_command( $tree, $command, "$place/build" );
+        return ( $tree, $built ) if $built->{exit} != 0;
+    }
+    return ( $tree, undef );
+}
+
+# What a test command says about the unmodified tests.
+sub truth ( $run, $place, $command ) {
+    my ( $tree, $failed ) = prepared( $run, $place );
+    my $result  = $failed || run_command( $tree, $command, "$place/tests" );
+    my $printed = $result->{stdout} . $result->{stderr};
+    my $summary = RealWorld::harness($printed) || {};
+    my @lines   = lines($printed)->@*;
+    splice @lines, 0, @lines - $TAIL if @lines > $TAIL;
+    return {
+        command    => $result->{command},
+        exit       => $result->{exit},
+        seconds    => $result->{seconds},
+        limit      => $result->{limit},
+        files      => $summary->{files},
+        assertions => $summary->{tests},
+        tail       => \@lines,
+    };
+}
+
+sub kept ($lines) {
+    return $lines if $lines->@* <= $KEPT_LINES;
+    return [ $lines->@[ 0 .. $KEPT_LINES - 1 ], sprintf '(%d more lines)', $lines->@* - $KEPT_LINES ];
+}
+
+# What the tool does in a tree of its own, with the options and the configuration of the run and nothing else.
+# A build that fails here failed for the tests too, and the tool still shows what it does with such a tree.
+sub measured ( $run, $place, $jobs ) {
+    my ($tree) = prepared( $run, $place );
+    spew( "$tree/mutation.toml", $run->{config} ) if defined $run->{config};
+    my @command = (
+        $^X, "-I$TOOL_LIBRARY", "-I$REPOSITORY/lib", "$REPOSITORY/bin/mutation", 'run', '--jobs', $jobs,
+        $run->{options}->@*
+    );
+    my $result = run_command( $tree, \@command, "$place/mutation" );
+    my $path   = "$tree/mutation-report/mutation.json";
+    my $report = -e $path ? RealWorld::report( JSON::PP->new->utf8->decode( slurp($path) ) ) : undef;
+    return (
+        {
+            command => $result->{command},
+            exit    => $result->{exit},
+            seconds => $result->{seconds},
+            limit   => $result->{limit},
+            scratch => $result->{scratch},
+            stdout  => kept( lines( $result->{stdout} ) ),
+            stderr  => kept( lines( $result->{stderr} ) ),
+        },
+        $report
+    );
+}
+
+# The processors that the container may use: the quota of its control group, or every processor without one.
+sub processors () {
+    my $listed = () = slurp('/proc/cpuinfo') =~ /^processor\s*:/mg;
+    my ( $quota, $period ) = -e '/sys/fs/cgroup/cpu.max' ? split q{ }, slurp('/sys/fs/cgroup/cpu.max') : ();
+    my $allowed = defined $period && $quota =~ /\A\d+\z/ ? POSIX::ceil( $quota / $period ) : $listed;
+    return ( $listed, $allowed );
+}
+
+# The tests and the tool find the dependencies of the distribution through PERL5LIB, as a local library gives them.
+# The modules of the tool stay out of that path, so the tool runs with switches that no child process inherits.
+sub observed ( $run, $environment ) {
+    my $library = "$DEPENDENCIES/$run->{name}-$run->{version}/lib/perl5";
+    local $ENV{PERL5LIB} = $library;
+    delete $ENV{PERL5LIB} if !-d $library;
+    my $place = "$WORK/runs/" . $run->{run} =~ s/[^[:alnum:].-]+/-/gr;
+    my $tests = truth( $run, "$place/tests", $run->{tests} );
+    my $prove = "@{ $run->{tests} }" eq "@PROVE" ? $tests : truth( $run, "$place/prove", \@PROVE );
+    my ( $mutation, $report ) = measured( $run, "$place/mutation", $environment->{jobs} );
+    File::Path::remove_tree($place);
+    return {
+        run         => $run->{run},
+        name        => $run->{name},
+        version     => $run->{version},
+        sha256      => $run->{sha256},
+        environment => { $environment->%*, library => $ENV{PERL5LIB} },
+        tests       => $tests,
+        prove       => $prove,
+        mutation    => $mutation,
+        report      => $report,
+    };
+}
+
+my @table    = RealWorld::runs( slurp("$REPOSITORY/xt/realworld/distributions.toml") )->@*;
+my %named    = map  { $_->{run} => 1 } @table;
+my %wanted   = map  { $_        => 1 } @ARGV;
+my @unknown  = grep { !$named{$_} } sort keys %wanted;
+my @runs     = grep { !@ARGV || $wanted{ $_->{run} } } @table;
+my $manifest = JSON::PP->new->utf8->decode( slurp("$DISTRIBUTIONS/manifest.json") );
+die 'the table has no run named ' . join( ', ', @unknown ) . "\n" if @unknown;
+for my $run (@runs) {
+    my $held = $manifest->{ $run->{pathname} };
+    die "the image holds another archive of $run->{name} than the table pins: build the image again\n"
+      if !$held || $held->{sha256} ne $run->{sha256};
+}
+
+File::Path::make_path( "$WORK/tmp", "$WORK/home" );
+my ( $listed, $allowed ) = processors();
+my $environment = { perl => sprintf( '%vd', $^V ), processors => $listed, allowed => $allowed, jobs => $allowed };
+STDOUT->autoflush(1);
+for my $run (@runs) {
+    my $started = time;
+    my $record  = observed( $run, $environment );
+    print JSON::PP->new->canonical->utf8->encode($record), "\n" or die "cannot write the record: $!\n";
+    printf {*STDERR} "%s: tests exit %d; %s; %d s in all\n", $run->{run}, $record->{tests}{exit},
+      RealWorld::summary($record), time - $started;
+}

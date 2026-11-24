@@ -1,0 +1,198 @@
+# Each table is one run of the tool on a real distribution, and the name of the table names the run.
+# `mise run realworld` builds the image from these archives, runs every table inside it, and judges each record.
+# `pathname` names the archive below https://cpan.metacpan.org/authors/id/, as cpanfile.snapshot does.
+# `sha256` is the digest that the build of the image requires of the archive.
+# `shape` says what the distribution brings that the others lack.
+# `build` lists the commands that prepare an unpacked tree, each as a list of words.
+# `tests` is the command that states the truth about the unmodified tests.
+# `options` holds the options of `mutation run`, and `config` holds the text of a mutation.toml for the run.
+# `expect.mutants` is the band of the number of mutants that the run announces.
+# `expect.score` is the band of the score, and a run that gives no score leaves it out.
+# `expect.warnings` lists the kinds of warnings that the run may give: around-the-hook, no-stable-output, other.
+# `expect.seconds` is the wall time that the run may take, which the gate reports and never judges.
+# The bands come from the first run of the harness, ten percent around the mutants and seven points around the score.
+
+[TOML-Tiny]
+name = "TOML-Tiny"
+version = "0.22"
+pathname = "O/OA/OALDERS/TOML-Tiny-0.22.tar.gz"
+sha256 = "d48064476740f2e9232afba2e0f61a82641b8c3b66a71c398ba1632fa4614b65"
+shape = "pure Perl, ExtUtils::MakeMaker, tests on Test2"
+build = []
+tests = ["prove", "-lr", "t"]
+options = ["--shard", "1/4"]
+
+[TOML-Tiny.expect]
+mutants = [133, 163]
+score = [70, 85]
+warnings = []
+seconds = 300
+
+[Readonly]
+name = "Readonly"
+version = "2.05"
+pathname = "S/SA/SANKO/Readonly-2.05.tar.gz"
+sha256 = "4b23542491af010d44a5c7c861244738acc74ababae6b8838d354dfb19462b5e"
+shape = "Module::Build, with a Build.PL and no Makefile.PL"
+build = []
+tests = ["prove", "-lr", "t"]
+options = []
+
+[Readonly.expect]
+mutants = [202, 246]
+score = [64, 78]
+warnings = []
+seconds = 30
+
+[Params-Util]
+name = "Params-Util"
+version = "1.102"
+pathname = "R/RE/REHSACK/Params-Util-1.102.tar.gz"
+sha256 = "499bb1b482db24fda277a51525596ad092c2bd51dd508fa8fec2e9f849097402"
+shape = "XS with a fallback in Perl, and tests that need the object built into blib"
+build = [["perl", "Makefile.PL"], ["make"]]
+tests = ["make", "test"]
+options = []
+
+[Params-Util.expect]
+mutants = [164, 200]
+warnings = []
+seconds = 30
+
+["Params-Util with blib"]
+name = "Params-Util"
+version = "1.102"
+pathname = "R/RE/REHSACK/Params-Util-1.102.tar.gz"
+sha256 = "499bb1b482db24fda277a51525596ad092c2bd51dd508fa8fec2e9f849097402"
+shape = "XS with a fallback in Perl, with the switches that the test target of the build gives"
+build = [["perl", "Makefile.PL"], ["make"]]
+tests = ["make", "test"]
+options = []
+config = '''
+[test]
+switches = ["-Iblib/lib", "-Iblib/arch"]
+'''
+
+["Params-Util with blib".expect]
+mutants = [164, 200]
+score = [75, 89]
+warnings = []
+seconds = 30
+
+[Variable-Magic]
+name = "Variable-Magic"
+version = "0.65"
+pathname = "V/VP/VPIT/Variable-Magic-0.65.tar.gz"
+sha256 = "457bfb1b2369e44c0e2ef3e7b61580831107cbeebf0f5d8c4b9b02368550b91e"
+shape = "XS alone, with tests in taint mode that need the object built into blib"
+build = [["perl", "Makefile.PL"], ["make"]]
+tests = ["make", "test"]
+options = []
+
+[Variable-Magic.expect]
+mutants = [16, 20]
+warnings = []
+seconds = 30
+
+["Variable-Magic with blib"]
+name = "Variable-Magic"
+version = "0.65"
+pathname = "V/VP/VPIT/Variable-Magic-0.65.tar.gz"
+sha256 = "457bfb1b2369e44c0e2ef3e7b61580831107cbeebf0f5d8c4b9b02368550b91e"
+shape = "XS alone, with the switches that the test target of the build gives"
+build = [["perl", "Makefile.PL"], ["make"]]
+tests = ["make", "test"]
+options = []
+config = '''
+[test]
+switches = ["-Iblib/lib", "-Iblib/arch"]
+'''
+
+["Variable-Magic with blib".expect]
+mutants = [16, 20]
+score = [87, 100]
+warnings = []
+seconds = 30
+
+[Moo]
+name = "Moo"
+version = "2.005005"
+pathname = "H/HA/HAARG/Moo-2.005005.tar.gz"
+sha256 = "fb5a2952649faed07373f220b78004a9c6aba387739133740c1770e9b1f4b108"
+shape = "larger, with code that the library generates as text"
+build = []
+tests = ["prove", "-lr", "t"]
+options = ["--shard", "1/4"]
+
+[Moo.expect]
+mutants = [240, 294]
+score = [56, 71]
+warnings = []
+seconds = 120
+
+[URI]
+name = "URI"
+version = "5.40"
+pathname = "O/OA/OALDERS/URI-5.40.tar.gz"
+sha256 = "ef5d2ef099a1a24a6e83ffe543de73337805d3d39c00b84fa205d725ad1a1b63"
+shape = "older layout, with many packages that load one another by name"
+build = []
+tests = ["prove", "-lr", "t"]
+options = ["--shard", "1/8"]
+
+[URI.expect]
+mutants = [271, 331]
+score = [69, 84]
+warnings = []
+seconds = 120
+
+[CPAN-Audit]
+name = "CPAN-Audit"
+version = "20261105.001"
+pathname = "B/BR/BRIANDFOY/CPAN-Audit-20261105.001.tar.gz"
+sha256 = "fe4b3f83afdac976cbd924f16ddcb0479d9d1776cb5258fb1e05b4faf2242130"
+shape = "a script that the tests start with system, and a list of the test files to run"
+build = [["perl", "Makefile.PL"], ["make"]]
+tests = ["make", "test"]
+options = []
+
+[CPAN-Audit.expect]
+mutants = [289, 353]
+warnings = []
+seconds = 60
+
+["CPAN-Audit without the test outside its list"]
+name = "CPAN-Audit"
+version = "20261105.001"
+pathname = "B/BR/BRIANDFOY/CPAN-Audit-20261105.001.tar.gz"
+sha256 = "fe4b3f83afdac976cbd924f16ddcb0479d9d1776cb5258fb1e05b4faf2242130"
+shape = "a script that the tests start with system, without the test file that the list leaves out"
+build = [["perl", "Makefile.PL"], ["make"]]
+tests = ["make", "test"]
+options = ["--shard", "1/4"]
+config = '''
+[test]
+exclude = ["t/cli/dist.t"]
+'''
+
+["CPAN-Audit without the test outside its list".expect]
+mutants = [72, 90]
+score = [56, 71]
+warnings = []
+seconds = 120
+
+[Module-Runtime]
+name = "Module-Runtime"
+version = "0.018"
+pathname = "H/HA/HAARG/Module-Runtime-0.018.tar.gz"
+sha256 = "0bf77ef68e53721914ff554eada20973596310b4e2cf1401fc958601807de577"
+shape = "a test that its first line puts in taint mode"
+build = []
+tests = ["prove", "-lr", "t"]
+options = []
+
+[Module-Runtime.expect]
+mutants = [72, 88]
+score = [70, 85]
+warnings = []
+seconds = 30

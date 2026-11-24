@@ -19,6 +19,5 @@ on develop => sub {
     requires 'JSON::Schema::Tiny', '0.034';
     requires 'Perl::Critic',       '1.156';
     requires 'Perl::Tidy',         '20240903';
-    requires 'Pod::Coverage',      '0.23';
     requires 'Test::Pod',          '1.52';
 };

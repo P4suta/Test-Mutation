@@ -84,19 +84,18 @@ die "mise.toml: $error\n" if !defined $data;
 my $tasks = $data->{tasks};
 
 # The fast gate runs on every change, and the release gate adds the campaigns that take minutes.
+# The runs on real distributions need a container, so a task of their own belongs to the release gate.
+my $HEAVY   = qr{\Axt/(?:corpus|release|realworld)/};
 my $fast    = proves( commands( $tasks, 'check' ) );
-my $release = proves( commands( $tasks, 'check' ), commands( $tasks, 'mutation-gate' ) );
+my $release = proves( map { commands( $tasks, $_ ) } qw(check mutation-gate realworld) );
 
 my $workflow = CPAN::Meta::YAML->read_string( slurp('.github/workflows/check.yml') )->[0];
 my $driver   = proves( map { defined $_->{run} ? $_->{run} : () } $workflow->{jobs}{driver}{steps}->@* );
 
 my @tests = grep { !m{\At/(?:fixtures|corpus)/} } map { Library::tests($_)->@* } 't', 'xt';
-my @heavy = grep { m{\Axt/(?:corpus|release)/} } @tests;
+my @heavy = grep { $_ =~ $HEAVY } @tests;
 my @found = (
-    (
-        map { "$_ is in no task of the fast gate" }
-        grep { !reached( $fast, $_ ) } grep { !m{\Axt/(?:corpus|release)/} } @tests
-    ),
+    ( map { "$_ is in no task of the fast gate" } grep { !reached( $fast, $_ ) } grep { $_ !~ $HEAVY } @tests ),
     ( map { "$_ is in no task of the release gate" } grep { !reached( $release, $_ ) } @heavy ),
     ( map { "$_ is not in the driver job" } grep { !reached( $driver, $_ ) } grep { m{\At/} } @tests ),
 );
@@ -104,6 +103,6 @@ is \@found, [], 'every test file belongs to a task, and every test of the tool r
 Gate::checked( 'test files',                 scalar @tests,      at_least => 60 );
 Gate::checked( 'commands of the fast gate',  scalar $fast->@*,   at_least => 4 );
 Gate::checked( 'commands of the driver job', scalar $driver->@*, at_least => 1 );
-Gate::checked( 'tests of the release gate',  scalar @heavy,      at_least => 2 );
+Gate::checked( 'tests of the release gate',  scalar @heavy,      at_least => 3 );
 
 done_testing;
