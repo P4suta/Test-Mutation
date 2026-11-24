@@ -3,6 +3,8 @@ use Test2::V0;
 use Encode ();
 use PPI;
 use PPI::Dumper;
+use lib 't/lib';
+use Library;
 
 # PPI must reproduce every corpus file character for character, and a token's location must address its own text.
 # PPI rejects raw bytes above 0x7F in identifiers, so the source is decoded first.
@@ -20,8 +22,8 @@ sub line_starts ($text) {
     return \@starts;
 }
 
-my @files = sort glob 't/corpus/modern/*.pm';
-ok scalar(@files), 'corpus files exist';
+my @files = Library::modules('t/corpus')->@*;
+is scalar(@files), 8, 'the corpus holds its eight files';
 
 for my $path (@files) {
     my $text     = slurp_text($path);

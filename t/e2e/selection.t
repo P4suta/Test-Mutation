@@ -1,6 +1,7 @@
 use v5.36;
 use Test2::V0;
-use lib 't/e2e/lib';
+use lib 't/e2e/lib', 't/lib';
+use Capability;
 use Fixture qw(copy_of run_fixture);
 
 # Selecting tests by line saves work, and it must never change which mutants the tests detect.
@@ -15,7 +16,16 @@ sub tests_run ($result) {
     return $total;
 }
 
-for my $fixture (qw(calc mechanics)) {
+# Every fixture takes part, so a new one joins the comparison without an edit here.
+opendir my $directory, 't/fixtures' or die "read t/fixtures: $!";
+my @fixtures = sort grep { !/\A[.]/ } readdir $directory;
+closedir $directory or die "close t/fixtures: $!";
+is \@fixtures, [qw(calc counter equivalent mechanics)], 'the fixtures';
+
+for my $fixture (@fixtures) {
+    next
+      if $fixture eq 'counter'
+      && !Capability::has( 'class', $] >= 5.038, 'the fixture needs the class syntax of Perl 5.38' );
     subtest $fixture => sub {
         my $root = copy_of($fixture);
         my %result;
