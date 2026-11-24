@@ -130,6 +130,7 @@ subtest 'a test that ignores the request to end meets force when its grace ends 
 subtest 'the pool reads a pipe that a process outside the group holds for a second after the end of the test' => sub {
     my $code = <<'PERL';
 if ( !fork ) {
+    alarm 30;
     setpgrp 0, 0;
     open my $out, '>', "$0.child";
     print {$out} $$;
@@ -188,20 +189,20 @@ PERL
       'the pool reaps the test and reads the pipes until the other process ends';
 };
 
-# The callback of the first test holds the pool until the second test ended, and the clock then passes its deadline.
+# The callback of the quick test holds the pool until the watched test ended, and the clock then passes its deadline.
 subtest 'a test that ended within its time limit keeps its result when the pool looks after the limit' => sub {
-    my $first  = script( 'first.t', $PLAN . $OK );
-    my $second = gated( 'second.t', $NOTED . $PLAN, $OK );
-    my $clock  = ManualClock->new(
+    my $quick   = script( 'quick.t', $PLAN . $OK );
+    my $watched = gated( 'watched.t', $NOTED . $PLAN, $OK );
+    my $clock   = ManualClock->new(
         at    => 100,
-        steps => [ sub ( $clock, @ ) { -e "$second.gate" && $clock->move(2) } ]
+        steps => [ sub ( $clock, @ ) { -e "$watched.gate" && $clock->move(2) } ]
     );
     my $results = pooled(
         $clock,
-        task( $first,  payload => { after => sub { open_gate($second) && ended($second) } } ),
-        task( $second, timeout => 1.5 )
+        task( $quick,   payload => { after => sub { open_gate($watched) && ended($watched) } } ),
+        task( $watched, timeout => 1.5 )
     );
-    is $results->{$second}, hash { field timed_out => 0; field passed => 1; field duration => 2; etc },
+    is $results->{$watched}, hash { field timed_out => 0; field passed => 1; field duration => 2; etc },
       'the test that ended on its own has its own result';
 };
 
