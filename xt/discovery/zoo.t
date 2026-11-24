@@ -146,15 +146,15 @@ sub alone ( $axis, $name ) {
     my $project = Discovery::Project->new( name => Discovery::Zoo::directory($name) );
     my $member  = $zoo->build( $project, $name )->{$name};
     passes_under_prove( $project, { $name => $member }, $member->{prove}->@* );
-    my $run = $engine->run( $project, %settings, $member->{settings}->%*, cpu => $member->{idle} );
+    my $run = $engine->run( $project, %settings, $member->{settings}->%* );
     note sprintf '%s=%s: the run took %.1f seconds', $axis, $name, $run->{seconds};
 
     # The check of the processor time passes on a run without a measurement, so the measurement itself is asserted.
-    ok defined $run->{cpu} && $run->{cpu} > 0, "the processor time of the tool was measured for $name"
-      or diag 'the kernel gave no processor time'
-      if $member->{idle};
-    note sprintf '%s=%s: the tool used the processor for %.1f seconds', $axis, $name, $run->{cpu}
-      if defined $run->{cpu};
+    if ( $member->{idle} ) {
+        my $measured = defined $run->{cpu} && $run->{cpu} > 0 ? 1 : 0;
+        ok $measured, "the processor time of the tool was measured for $name";
+        note sprintf '%s=%s: the tool used the processor for %.1f seconds', $axis, $name, $run->{cpu} if $measured;
+    }
     $runs++;
     $compared += keys $run->{mutants}->%*;
     $ran{"$axis=$name"}++;
@@ -172,7 +172,7 @@ sub quiet_run () {
     return $quiet if $quiet;
     my $project = Discovery::Project->new;
     $zoo->build( $project, $plain );
-    my $run = $engine->run( $project, %settings, jobs => 1, cpu => 1 );
+    my $run = $engine->run( $project, %settings, jobs => 1 );
     $project->discard;
     ok defined $run->{cpu} && $run->{cpu} > 0, 'the processor time of the tool was measured for the plain member';
     note sprintf 'the plain member alone: %.1f seconds, %.1f of them on the processor', $run->@{qw(seconds cpu)};

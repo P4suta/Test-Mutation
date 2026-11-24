@@ -244,7 +244,7 @@ my @MEMBERS = (
         process => 'close-stdout',
         {
             load     => $PLAIN,
-            end      => "close STDOUT;\nselect undef, undef, undef, 0.6;\n",
+            end      => "close STDOUT;\nselect undef, undef, undef, 1;\n",
             settings => { jobs => 1 },
             idle     => 1,
             alone    => 1
