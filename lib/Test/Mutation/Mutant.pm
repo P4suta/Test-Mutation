@@ -5,6 +5,8 @@ use Types::Standard qw(Bool Int Str StrMatch Tuple);
 
 our $VERSION = '0.001';
 
+with 'Test::Mutation::Value';
+
 has id          => ( is => 'ro', isa => StrMatch [qr/\A[0-9a-f]{12}\z/], required => 1 );
 has path        => ( is => 'ro', isa => Str, required => 1 );
 has mutator     => ( is => 'ro', isa => Str, required => 1 );

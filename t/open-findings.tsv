@@ -219,6 +219,7 @@ mutants-suppress-pairs	the parser reads no mutate sub as the start of a block	th
 mutants-suppress-pairs	the parser starts a second block inside an open block and never ends the first one	the suppression grammar
 type-contracts	lib/Test/Mutation.pm uses 3 bare HashRef	the settings table gives every setting of a call its type
 type-contracts	lib/Test/Mutation/Config.pm uses 4 bare HashRef	the settings table gives every layer of settings its type
+type-contracts	lib/Test/Mutation/Status.pm composes no Value role	the status catalog
 contract-exit-table-arguments	missing: accepted; flags --disable --enable --mutant --perl --report-dir --since --source --test; commands exec	the settings table
 contract-one-line-arguments	equals: no line with the prefix; flags --cache --equivalence --in-place --keep-work; commands default exec list merge run show	the settings table
 contract-one-line-arguments	missing: no line with the prefix; flags --config --coverage --disable --enable --format --mutant --perl --profile --report-dir --root --shard --since --source --test; commands default list merge run show	the settings table
@@ -262,7 +263,6 @@ contract-no-leak-settings	a value in the file: a variable of the code; settings 
 contract-no-leak-settings	a value in the file: wording of the type library; settings cache coverage equivalence formats in_place jobs profile threshold_break threshold_high threshold_low timeout_factor timeout_floor; surfaces file	the settings table
 contract-typed-name-settings	a value in the file: the message lacks the spelling that the user typed; settings in_place threshold_break threshold_high threshold_low timeout_factor timeout_floor; surfaces file	the settings table
 contract-typed-name-settings	a value in the file: the message names the attribute; settings in_place threshold_break threshold_high threshold_low timeout_factor timeout_floor; surfaces file	the settings table
-contract-unknown-settings	a call: a name of the configuration class that is no setting passes; settings names; surfaces library	the settings table
 contract-one-name-settings	names: --format, [report] formats, formats; settings formats; surfaces all	the settings table
 contract-one-name-settings	names: --min-score, [thresholds] break, threshold_break; settings threshold_break; surfaces all	the settings table
 contract-one-name-settings	names: --mutant, only; settings only; surfaces all	the settings table

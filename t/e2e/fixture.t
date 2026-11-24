@@ -80,8 +80,9 @@ subtest 'a run inside the test process is checked the same way' => sub {
     close $file or die "close: $!";
     is Gate::outcomes( sub { run_fixture( copy_of('calc'), temporary => $temporary ) } ), ['pass'],
       'a named temporary directory may hold entries before the run';
-    like dies { run_fixture( copy_of('calc'), no_such_setting => 1, jobs => 0 ) }, qr/jobs/,
-      'an error of the run reaches the test';
+    like dies { run_fixture( copy_of('calc'), jobs => 0 ) }, qr/jobs/, 'an error of the run reaches the test';
+    like dies { run_fixture( copy_of('calc'), no_such_setting => 1 ) }, qr/no_such_setting/,
+      'and so does a setting that the run lacks';
 };
 
 done_testing;

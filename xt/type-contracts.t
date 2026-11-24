@@ -51,6 +51,20 @@ PERL
     is TypeContractGate::loose_types($shaped), [], 'an import, types with elements, and a key with the name of a type';
 };
 
+subtest 'the gate rejects a Moo class without the role that refuses an unknown argument' => sub {
+    my $class = "package Shape;\nuse v5.36;\nuse Moo;\nhas width => ( is => 'ro', isa => Num, required => 1 );\n";
+    is TypeContractGate::value_role($class), ['composes no Value role'], 'a class of plain Moo';
+    is TypeContractGate::value_role( $class . "with 'Test::Mutation::Other';\n" ), ['composes no Value role'],
+      'a class with another role';
+    is TypeContractGate::value_role( $class . "# with 'Test::Mutation::Value';\n" ), ['composes no Value role'],
+      'a comment that names the role';
+    is TypeContractGate::value_role( $class . "with 'Test::Mutation::Value';\n" ),   [], 'a class with the role';
+    is TypeContractGate::value_role( $class . "with qw(Test::Mutation::Value);\n" ), [], 'the role in a word list';
+    is TypeContractGate::value_role("package Plain;\nuse v5.36;\nsub area (\$w) { return \$w }\n"), [],
+      'a module without Moo';
+    is TypeContractGate::value_role("package Role;\nuse v5.36;\nuse Moo::Role;\n"), [], 'a role';
+};
+
 subtest 'the gate counts the contracts it reads' => sub {
     my $code = <<'PERL';
 has width  => ( is => 'ro', isa => Num, required => 1 );
@@ -75,6 +89,7 @@ for my $file (@files) {
     close $handle or die "close $file: $!";
     is TypeContractGate::violations($code), [], "$file declares its contracts";
     push @loose, map { "$file uses $_" } TypeContractGate::loose_types($code)->@*;
+    push @loose, map { "$file $_" } TypeContractGate::value_role($code)->@*;
     my $counts = TypeContractGate::counts($code);
     $total{$_} += $counts->{$_} for keys %total;
 }

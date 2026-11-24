@@ -6,6 +6,8 @@ use Test::Mutation::Types qw(Facts);
 
 our $VERSION = '0.001';
 
+with 'Test::Mutation::Value';
+
 has kind => (
     is       => 'ro',
     isa      => Enum [qw(operator word number string regex statement condition sub_body return)],

@@ -8,6 +8,8 @@ use Test::Mutation::Try;
 
 our $VERSION = '0.001';
 
+with 'Test::Mutation::Value';
+
 has path         => ( is => 'ro',   isa => Str, required => 1 );
 has text         => ( is => 'ro',   isa => Str, required => 1 );
 has encoding     => ( is => 'ro',   isa => Enum [ 'UTF-8', 'latin1' ], required => 1 );

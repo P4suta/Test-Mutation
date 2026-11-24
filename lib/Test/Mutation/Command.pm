@@ -5,6 +5,8 @@ use Types::Standard qw(ArrayRef Bool Int Maybe Str);
 
 our $VERSION = '0.001';
 
+with 'Test::Mutation::Value';
+
 has name    => ( is => 'ro', isa => Str, required => 1 );
 has words   => ( is => 'ro', isa => ArrayRef [Str], required => 1 );
 has default => ( is => 'ro', isa => Bool, default  => 0 );

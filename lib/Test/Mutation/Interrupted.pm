@@ -10,6 +10,8 @@ use overload q{""} => sub ( $self, @ ) { return $self->message . "\n" }, fallbac
 
 our $VERSION = '0.001';
 
+with 'Test::Mutation::Value';
+
 has signal => ( is => 'ro', isa => Enum [ Test::Mutation::Exit::signals()->@* ], required => 1 );
 
 signature_for exit_status => ( method => 1, positional => [], returns => Int );

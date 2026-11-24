@@ -6,6 +6,8 @@ use Type::Params    qw(signature_for);
 
 our $VERSION = '0.001';
 
+with 'Test::Mutation::Value';
+
 my $LINES = HashRef [Bool];
 
 has mode => ( is => 'ro', isa => Enum [qw(line file)], required => 1 );

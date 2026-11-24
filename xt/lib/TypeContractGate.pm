@@ -74,6 +74,17 @@ sub loose_types ($code) {
     return [ map { "$count{$_} $_" } sort keys %count ];
 }
 
+# A class of Moo refuses an argument that names none of its attributes only when it composes the role that checks them.
+sub value_role ($code) {
+    my $document = _document($code);
+    my $moo      = grep { $_->module eq 'Moo' } @{ $document->find('PPI::Statement::Include') || [] };
+    return [] if !$moo;
+    my @tokens = grep { $_->isa('PPI::Token::Quote') || $_->isa('PPI::Token::QuoteLike::Words') }
+      map { $_->schildren } _declarations( $document, 'with' );
+    my @roles = map { $_->isa('PPI::Token::Quote') ? $_->string : $_->literal } @tokens;
+    return ( grep { $_ eq 'Test::Mutation::Value' } @roles ) ? [] : ['composes no Value role'];
+}
+
 sub counts ($code) {
     my $document   = _document($code);
     my @attributes = _declarations( $document, 'has' );

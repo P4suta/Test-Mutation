@@ -6,6 +6,8 @@ use Type::Params    qw(signature_for);
 
 our $VERSION = '0.001';
 
+with 'Test::Mutation::Value';
+
 # Each row: the status, the name of the outcome, the signal of a status that a signal gives, and the meaning.
 my @ROWS = (
     [ 0,   'success',         undef, 'the command did its work' ],

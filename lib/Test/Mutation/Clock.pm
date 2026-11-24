@@ -8,6 +8,8 @@ use Type::Params           qw(signature_for);
 
 our $VERSION = '0.001';
 
+with 'Test::Mutation::Value';
+
 signature_for now => ( method => 1, positional => [], returns => Num );
 
 # A change of the time of day moves no deadline, so the clock counts from an arbitrary start that only moves forward.

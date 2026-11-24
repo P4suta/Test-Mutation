@@ -9,6 +9,8 @@ use overload q{""} => sub ( $self, @ ) { return $self->message . "\n" }, fallbac
 
 our $VERSION = '0.001';
 
+with 'Test::Mutation::Value';
+
 has kind    => ( is => 'ro', isa => Enum [qw(usage environment)], required => 1 );
 has id      => ( is => 'ro', isa => Str, required => 1 );
 has message => ( is => 'ro', isa => Str, required => 1 );

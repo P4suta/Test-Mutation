@@ -6,6 +6,8 @@ use Type::Params    qw(signature_for);
 
 our $VERSION = '0.001';
 
+with 'Test::Mutation::Value';
+
 has name        => ( is => 'ro', isa => StrMatch [qr/\A[a-z][a-z-]*\z/], required => 1 );
 has profile     => ( is => 'ro', isa => Enum [qw(default extended)], required => 1 );
 has description => ( is => 'ro', isa => Str,     required => 1 );

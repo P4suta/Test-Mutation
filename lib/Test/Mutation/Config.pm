@@ -9,6 +9,8 @@ use Test::Mutation::Error;
 
 our $VERSION = '0.001';
 
+with 'Test::Mutation::Value';
+
 my $PERCENT = Num->where( sub { $_ >= 0 && $_ <= 100 } );
 my $FORMAT  = Enum [qw(terminal json html github)];
 my $SHARD   = Str->where( sub { m{\A([1-9][0-9]*)/([1-9][0-9]*)\z} && $1 <= $2 } );

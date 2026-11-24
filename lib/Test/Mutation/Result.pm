@@ -11,6 +11,8 @@ use Test::Mutation::Types qw(Entry);
 
 our $VERSION = '0.001';
 
+with 'Test::Mutation::Value';
+
 has root     => ( is => 'ro', isa => Str, required => 1 );
 has sources  => ( is => 'ro', isa => HashRef [Str], required => 1 );
 has tests    => ( is => 'ro', isa => ArrayRef [ Dict [ name => Str, duration => Num ] ], required => 1 );

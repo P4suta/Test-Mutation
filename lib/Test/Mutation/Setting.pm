@@ -5,6 +5,8 @@ use Types::Standard qw(ArrayRef Bool Enum Maybe Str StrMatch Tuple);
 
 our $VERSION = '0.001';
 
+with 'Test::Mutation::Value';
+
 has name         => ( is => 'ro', isa => StrMatch [qr/\A[a-z][a-z_]*\z/], required => 1 );
 has flag         => ( is => 'ro', isa => Maybe [ StrMatch [qr/\A--[a-z][a-z-]*\z/] ], default => undef );
 has short        => ( is => 'ro', isa => Maybe [ StrMatch [qr/\A-[[:alpha:]]\z/] ],   default => undef );

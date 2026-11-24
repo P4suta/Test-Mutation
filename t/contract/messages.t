@@ -353,6 +353,7 @@ heard( 'command-unstartable', pooled( command => ["$scratch/no-such-program"] ) 
     printed( ['list'] );
 }
 heard( 'message-slots', raised( sub { Test::Mutation::Message::text_of( 'inconclusive', reason => 'none' ) } ) );
+raised( sub { Test::Mutation::Message->new( Test::Mutation::Message::row('inconclusive')->%*, colour => 'red' ) } );
 {
     local @INC = ( directory( 'Test/Mutation/Shim.pm' => "1;\n" ) );
     raised( sub { Test::Mutation::Runner::shim_text(3) } );

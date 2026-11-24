@@ -6,6 +6,8 @@ use Type::Params    qw(signature_for);
 
 our $VERSION = '0.001';
 
+with 'Test::Mutation::Value';
+
 # Each row: the identifier, the kind, the text with its slots, and the description for the manual.
 my @ROWS = (
     [
@@ -300,6 +302,11 @@ my @ROWS = (
         'message-slots', 'internal',
         'the message {id} takes the slots {expected}, and the call gives {given}',
         'The code asks for a message with other values than its text holds.'
+    ],
+    [
+        'class-argument-unknown', 'internal',
+        'the class {class} takes no argument {names}',
+        'The code builds a value with an argument that names none of its attributes.'
     ],
     [
         'shim-unprepared',

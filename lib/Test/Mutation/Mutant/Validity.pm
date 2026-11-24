@@ -9,6 +9,8 @@ use Test::Mutation::Types qw(Heredoc Names);
 
 our $VERSION = '0.001';
 
+with 'Test::Mutation::Value';
+
 has text     => ( is => 'ro', isa => Str, required => 1 );
 has heredocs => ( is => 'ro', isa => ArrayRef [Heredoc], required => 1 );
 has names    => ( is => 'ro', isa => Names, required => 1 );
