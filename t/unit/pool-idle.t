@@ -64,16 +64,18 @@ sub measured ($path) {
     };
 }
 
-# The pool waits a fifth of a second for output, so a test of one second takes about five turns.
+# The pool waits a fifth of a second for output, so a test of one second takes about five turns that hold its pipe.
 # The limit leaves room for a slow machine and stays far below the count of a loop without a wait.
+# After the end of the output the pool may turn without a handle until it reaps the process.
+# The load of the machine decides how long that takes, so the count of the control takes the turns that hold the pipe.
 my $LIMIT = 100;
 my $QUIET = q{$| = 1; print "1..1\nok 1\n"; %s select undef, undef, undef, 1;};
 
 subtest 'the count rejects no loop that waits: a silent test with an open pipe takes a few turns' => sub {
     my $open = measured( script( 'open.t', sprintf $QUIET, q{} ) );
-    is $open->{passed},         1, 'the test passes';
-    is $open->{without_handle}, 0, 'the pool holds the pipe of the test in every turn';
-    ok $open->{turns} >= 2 && $open->{turns} <= $LIMIT, "the loop turns $open->{turns} times in the second of the test";
+    my $held = $open->{turns} - $open->{without_handle};
+    is $open->{passed}, 1, 'the test passes';
+    ok $held >= 2 && $held <= $LIMIT, "the loop turns $held times with the pipe in the second of the test";
 };
 
 my $closed = measured( script( 'closed.t', sprintf $QUIET, 'close STDOUT;' ) );
