@@ -1,8 +1,10 @@
 use v5.36;
 use Test2::V0;
 use lib 't/lib', 'xt/discovery/lib';
+use Capability;
 use Gate;
 use Discovery::Check;
+use Discovery::Differential;
 use Discovery::Engine;
 use Discovery::Known;
 use Discovery::Project;
@@ -62,11 +64,38 @@ for my $name ( sort keys %subject ) {
     };
 }
 
+# The bench of a relation runs the code of the relation on the small project.
+$bench{'jobs'}     = sub ($engine) { return [ Discovery::Differential::jobs( $engine, $project ) ] };
+$bench{'in-place'} = sub ($engine) { return [ Discovery::Differential::in_place( $engine, $project ) ] };
+$bench{'coverage'} = sub ($engine) { return [ Discovery::Differential::coverage( $engine, $project ) ] };
+$bench{'shard'}    = sub ($engine) { return [ Discovery::Differential::shard( $engine, $project ) ] };
+$bench{'single'}   = sub ($engine) { return [ Discovery::Differential::single( $engine, $project ) ] };
+$bench{'prove'}    = sub ($engine) { return [ Discovery::Differential::prove( $engine, $project, undef ) ] };
+
+my $stores = Discovery::Differential::cache_bench();
+$bench{'cache'} = sub ($engine) {
+    return [ Discovery::Differential::cache( $engine, $stores, classes => ['source'] ) ];
+};
+
+# The relation of a run on the changed lines needs a repository with one changed line.
+my $git     = length qx{git --version 2>/dev/null};
+my $changed = Discovery::Project->new;
+$known->write($changed);
+if ($git) {
+    $changed->git( 'init',   '-q' );
+    $changed->git( 'add',    '.' );
+    $changed->git( 'commit', '-q', '-m', 'the cells' );
+    $changed->write( 'lib/Known.pm', $known->module('Known') =~ s/^(sub cell_1 .*)$/$1 # changed/mr );
+}
+$bench{'since'} = sub ($engine) { return [ Discovery::Differential::since( $engine, $changed, 'HEAD' ) ] };
+
 is [ sort keys %bench ],             [ Discovery::Check::names() ], 'every check has a bench';
 is [ Discovery::Saboteur::names() ], [ Discovery::Check::names() ], 'the saboteur set equals the invariant set';
 
 my $saboteurs = 0;
 for my $name ( Discovery::Check::names() ) {
+    next
+      if $name eq 'since' && !Capability::has( 'git', $git, 'the relation of the changed lines needs the git command' );
     subtest "the check $name rejects its saboteurs" => sub {
         my $subject  = $subject{$name} || $honest;
         my %accepted = map { $_ => 1 } $bench{$name}->($subject)->@*;

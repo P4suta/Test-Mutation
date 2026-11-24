@@ -13,7 +13,8 @@ use Time::HiRes ();
 # The scratch directory holds every file of a case, so one removal ends the case.
 
 my $GRACE_SECONDS = 2;
-my %OUTSIDE       = map { $_ => 1 } '.mutation', 'mutation-report';
+my $PROVE_SECONDS = 30;
+my %OUTSIDE       = map { $_ => 1 } '.mutation', 'mutation-report', '.git';
 my %OWNER;
 
 sub new ( $class, %arg ) {
@@ -127,12 +128,23 @@ sub proves ( $self, @arguments ) {
     my $pid = open my $result, q{-|};
     die "fork: $!" if !defined $pid;
     if ( !$pid ) {
+        setpgrp 0, 0;
         chdir $self->{root} or POSIX::_exit(126);
         exec {$^X} $^X, $script, '-l', @arguments or POSIX::_exit(127);
     }
-    my %verdict = map { /\A(.*)\t(pass|fail)\n\z/ ? ( $1 => $2 ) : () } readline $result;
+
+    # A test may loop under a mutant, and prove waits for it without a limit of its own.
+    my @lines = eval {
+        local $SIG{ALRM} = sub { die "the time of prove is over\n" };
+        alarm $PROVE_SECONDS;
+        my @read = readline $result;
+        alarm 0;
+        @read;
+    };
+    alarm 0;
+    kill 'KILL', -$pid, $pid;
     close $result or 1;
-    return \%verdict;
+    return { map { /\A(.*)\t(pass|fail)\n\z/ ? ( $1 => $2 ) : () } @lines };
 }
 
 sub text ( $self, $path ) {

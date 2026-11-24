@@ -202,7 +202,7 @@ sub key ($mutant) {
     return join q{:}, $mutant->@{qw(line column end_line end_column replacement)};
 }
 
-sub _spliced ( $text, $mutant ) {
+sub spliced ( $text, $mutant ) {
     my @lines  = split /^/, $text;
     my $offset = sub ( $line, $column ) {
         my $before = 0;
@@ -224,7 +224,7 @@ sub _line_of ( $self, $mutant ) {
 sub _question ( $self, $mutant ) {
     my $line     = $self->_line_of($mutant);
     my @reaching = $line->{kind} eq 'guard' ? $self->_cells : $line;
-    return { $self->_ask( _spliced( $self->module('Known'), $mutant ), _calls(@reaching) )->%*, line => $line };
+    return { $self->_ask( spliced( $self->module('Known'), $mutant ), _calls(@reaching) )->%*, line => $line };
 }
 
 sub _outcome ( $self, $question ) {

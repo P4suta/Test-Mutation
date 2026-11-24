@@ -23,6 +23,14 @@ my %CHECK = (
     'I8'         => \&_same_under_styles,
     'tap'        => \&_tap,
     'tap-prefix' => \&_tap_prefix,
+    'jobs'       => \&_jobs,
+    'in-place'   => \&_in_place,
+    'coverage'   => \&_coverage,
+    'shard'      => \&_shard,
+    'since'      => \&_since,
+    'single'     => \&_single,
+    'cache'      => \&_cache,
+    'prove'      => \&_prove,
 );
 
 # The ways a test process ends after a stream, apart from status 0: each one fails the test under prove.
@@ -113,7 +121,7 @@ sub _truth ($arg) {
     my $member = { %PLAIN, %{ $arg->{member} || {} } };
     my $cells  = _cells( $run, $known, $member );
     my $truth  = _verdicts( $known, $cells, $arg->{coverage} );
-    my @found  = _changes( $run, _deviations( { $arg->%*, reference => undef } ), 'I7', 'the truth' );
+    my @found  = _changes( $run, _deviations( { $arg->%*, reference => undef } ), 'I7 the run', 'the truth' );
     for my $key ( keys $cells->%* ) {
         my ( $want, $killer ) = $truth->{$key}->@*;
         my $id = $cells->{$key}{id};
@@ -130,11 +138,138 @@ sub _truth ($arg) {
 }
 
 # One line for each status that the run gives in place of the statuses of the source.
-sub _changes ( $run, $deviations, $invariant, $source ) {
+sub _changes ( $run, $deviations, $subject, $source ) {
     my %from;
     $from{ $run->{status}{ $_->{id} } }{ $_->{want} } = 1 for grep { defined $_->{id} } $deviations->@*;
-    return map { "$invariant the run gives $_ where $source gives " . join ' and ', sort keys $from{$_}->%* }
-      sort keys %from;
+    return map { "$subject gives $_ where $source gives " . join ' and ', sort keys $from{$_}->%* } sort keys %from;
+}
+
+# The statuses of two runs of one project, where `allowed` tells which pairs the relation of the two accepts.
+# A relation between whole runs also requires the mutants of the earlier run in the later one.
+sub _between ( $earlier, $later, $names, $allowed, $whole = 1 ) {
+    my ( %from, @found );
+    for my $id ( keys $later->{status}->%* ) {
+        my ( $was, $is ) = ( $earlier->{status}{$id}, $later->{status}{$id} );
+        if ( !defined $was ) {
+            push @found, "$names->[1] holds a mutant that $names->[0] lacks";
+            next;
+        }
+        $from{$is}{$was} = 1 if !$allowed->( $was, $is );
+    }
+    push @found, "$names->[1] lacks a mutant of $names->[0]"
+      if $whole && grep { !exists $later->{status}{$_} } keys $earlier->{status}->%*;
+    push @found,
+      map { "$names->[1] gives $_ where $names->[0] gives " . join ' and ', sort keys $from{$_}->%* } sort keys %from;
+    return _unique(@found);
+}
+
+sub _timed_out (@statuses) {
+    return scalar grep { $_ eq 'Timeout' } @statuses;
+}
+
+my %SIDE = ( Killed => 'detected', Survived => 'undetected', NoCoverage => 'undetected' );
+
+# One job and several jobs give the same detected and the same undetected mutants, apart from timeouts.
+sub _jobs ($arg) {
+    return _between(
+        $arg->@{qw(run other)},
+        [ 'the run with one job', 'the run with more jobs' ],
+        sub ( $was, $is ) {
+            return _timed_out( $was, $is ) || ( $SIDE{$was} || 'neither' ) eq ( $SIDE{$is} || 'neither' );
+        }
+    );
+}
+
+# A run in the project gives the statuses of a run in copies, or no verdict.
+sub _in_place ($arg) {
+    return _between(
+        $arg->@{qw(run other)},
+        [ 'the run in copies', 'the run in the project' ],
+        sub ( $was, $is ) { return $was eq $is || $is eq 'NoVerdict' }
+    );
+}
+
+# File coverage runs more tests for a mutant, so it may turn a mutant without coverage into a survivor and no more.
+sub _coverage ($arg) {
+    return _between(
+        $arg->@{qw(run other)},
+        [ 'the run with line coverage', 'the run with file coverage' ],
+        sub ( $was, $is ) { return $was eq $is || ( $was eq 'NoCoverage' && $is eq 'Survived' ) }
+    );
+}
+
+sub _shard ($arg) {
+    return _between(
+        $arg->@{qw(run other)},
+        [ 'the whole run', 'the merge of the parts' ],
+        sub ( $was, $is ) { return $was eq $is }
+    );
+}
+
+sub _since ($arg) {
+    return _between(
+        $arg->@{qw(run other)},
+        [ 'the whole run', 'the run on the changed lines' ],
+        sub ( $was, $is ) { return $was eq $is }, 0
+    );
+}
+
+sub _single ($arg) {
+    return _unique(
+        map {
+            _between(
+                $arg->{run}, $_,
+                [ 'the whole run', 'the run of one mutant' ],
+                sub ( $was, $is ) { return $was eq $is || _timed_out( $was, $is ) }, 0
+            )
+        } $arg->{others}->@*
+    );
+}
+
+my @KEPT = qw(Killed Survived CompileError Ignored);
+
+# A run with the cache gives the truth of the files as they are, whatever an earlier run stored.
+# `reuse` says what the run may take from the cache: `all` on unchanged inputs, `none` after a change that every result depends on.
+# `stored` lists the mutants that the cache holds after the run.
+sub _cache ($arg) {
+    my $run = $arg->{run};
+    my @found =
+      _changes( $run, _deviations( { $arg->%*, reference => undef } ), 'the run with the cache', 'the truth' );
+    my %count;
+    $count{$_}++ for values $run->{status}->%*;
+    my $kept = 0;
+    $kept += $count{$_} || 0 for @KEPT;
+    my $reuse = defined $arg->{reuse} ? $arg->{reuse} : 'any';
+    push @found, 'the run reuses a result that depends on the changed input' if $reuse eq 'none' && $run->{reused} > 0;
+    push @found,
+        $run->{reused} < $kept                               ? 'the run measures again a result that the cache holds'
+      : $run->{reused} < $kept + ( $count{NoCoverage} || 0 ) ? 'the run measures again a mutant without coverage'
+      : ()
+      if $reuse eq 'all';
+    push @found, 'the cache keeps the record of a mutant that is gone'
+      if grep { !exists $run->{mutants}{$_} } @{ $arg->{stored} || [] };
+    return _unique(@found);
+}
+
+# prove runs the tests on the files with one mutant in place, and `verdicts` holds its answer for each test.
+# The test that detects a mutant fails there, and no test fails on a mutant that the run calls undetected.
+sub _prove ($arg) {
+    my ( $run, $verdicts ) = $arg->@{qw(run verdicts)};
+    my @found;
+    for my $id ( keys $verdicts->%* ) {
+        my $status  = $run->{status}{$id};
+        my $under   = $verdicts->{$id};
+        my @failing = grep { $under->{$_} ne 'pass' } keys $under->%*;
+        if ( $status eq 'Killed' ) {
+            my $by = $run->{by}{$id};
+            push @found, 'prove passes the test that detects a mutant in the run'
+              if defined $by && defined $under->{$by} && $under->{$by} eq 'pass';
+        }
+        elsif ( $UNDETECTED{$status} && @failing ) {
+            push @found, "prove fails a test on a mutant that the run gives as $status";
+        }
+    }
+    return _unique(@found);
 }
 
 # The mutants of a member whose status differs from the one the reference gives, each with both statuses.
@@ -167,7 +302,7 @@ sub _same_under_styles ($arg) {
       if @absent && !%{ _cells( $run, $arg->{known}, $arg->{member} ) };
     return (
         ( @absent ? 'I8 the style lacks a mutant of the reference style' : () ),
-        _changes( $run, $deviations, 'I8', 'the reference style' ),
+        _changes( $run, $deviations, 'I8 the run', 'the reference style' ),
     );
 }
 

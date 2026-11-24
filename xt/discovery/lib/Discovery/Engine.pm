@@ -45,7 +45,8 @@ my %FLAG = (
 );
 
 # The settings that the adapter keeps for itself.
-my %OWN = map { $_ => 1 } qw(deadline environment during);
+# `state` names an input outside the project that changed, which the memo has no other way to tell.
+my %OWN = map { $_ => 1 } qw(deadline environment during words state);
 
 sub new ( $class, %part ) {
     return
@@ -134,7 +135,8 @@ sub _await ( $pid, $limit, $during ) {
 sub execute ( $self, $project, $temporary, %settings ) {
     my $files       = $project->directory('output');
     my $report      = File::Spec->rel2abs( defined $settings{report} ? $settings{report} : $REPORT, $project->root );
-    my @command     = ( $self->{perl}, "-I$self->{library}", $self->{command}, $self->arguments(%settings) );
+    my @words       = $settings{words} ? $settings{words}->@* : ();
+    my @command     = ( $self->{perl}, "-I$self->{library}", $self->{command}, @words, $self->arguments(%settings) );
     my %environment = ( TMPDIR => $temporary, ( $settings{environment} || {} )->%* );
     my $started     = Time::HiRes::time();
     my $pid         = fork;
@@ -149,9 +151,9 @@ sub execute ( $self, $project, $temporary, %settings ) {
         signal  => $status & 127,
         hung    => $hung,
         seconds => Time::HiRes::time() - $started,
-        stdout  => _slurp("$files/stdout"),
-        stderr  => _slurp("$files/stderr"),
-        report  => _slurp("$report/mutation.json"),
+        stdout  => scalar _slurp("$files/stdout"),
+        stderr  => scalar _slurp("$files/stderr"),
+        report  => scalar _slurp("$report/mutation.json"),
     };
 }
 
@@ -223,9 +225,36 @@ sub _left ( $temporary, $root ) {
     ];
 }
 
-sub _key ( $project, %settings ) {
+sub _cache_file ($project) {
+    return $project->root . '/.mutation/cache.json';
+}
+
+# The identifiers of the mutants that the cache of the project holds a record of.
+sub cache_ids ( $self, $project ) {
+    my $text    = _slurp( _cache_file($project) );
+    my $content = defined $text ? eval { JSON::PP->new->utf8->decode($text) } : undef;
+    my @ids     = ref $content eq 'HASH' && ref $content->{mutants} eq 'HASH' ? sort keys $content->{mutants}->%* : ();
+    return \@ids;
+}
+
+# A repeated run answers from the memo when the settings, the files, and the cache are what they were.
+sub _key ( $project, $before, %settings ) {
     my %plain = map { $_ => $settings{$_} } grep { !ref $settings{$_} || ref $settings{$_} ne 'CODE' } keys %settings;
-    return JSON::PP->new->canonical->encode( [ $project->root, \%plain ] );
+    return JSON::PP->new->canonical->encode(
+        [ $project->root, \%plain, $before, scalar _slurp( _cache_file($project) ) ] );
+}
+
+sub _executed ( $self, $project, $temporary, $before, %settings ) {
+    my $memo = $self->{memo} or return $self->execute( $project, $temporary, %settings );
+    my $key  = _key( $project, $before, %settings );
+    my $file = _cache_file($project);
+    if ( !$memo->{$key} ) {
+        $memo->{$key} = { raw => $self->execute( $project, $temporary, %settings ), cache => scalar _slurp($file) };
+    }
+    elsif ( defined $memo->{$key}{cache} ) {
+        $project->write( '.mutation/cache.json', $memo->{$key}{cache} );
+    }
+    return $memo->{$key}{raw};
 }
 
 # A run starts with a private temporary directory and without a report, so everything it leaves is its own.
@@ -233,10 +262,7 @@ sub run ( $self, $project, %settings ) {
     my $temporary = $project->directory('temporary');
     $project->remove( defined $settings{report} ? $settings{report} : $REPORT );
     my $before = $project->snapshot;
-    my $memo   = $self->{memo};
-    my $key = $memo                  ? _key( $project, %settings ) : undef;
-    my $raw = $memo && $memo->{$key} ? $memo->{$key}               : $self->execute( $project, $temporary, %settings );
-    $memo->{$key} = $raw if $memo;
+    my $raw    = $self->_executed( $project, $temporary, $before, %settings );
     $self->{damage}->( $project, $temporary, \%settings ) if $self->{damage};
 
     my $run = $self->normalize($raw);
@@ -246,6 +272,11 @@ sub run ( $self, $project, %settings ) {
     $project->reap;
     $self->{distort}->( $run, \%settings ) if $self->{distort};
     return $run;
+}
+
+# The whole run that the tool gives for the reports of every part of a split run.
+sub merge ( $self, $project, $reports, %settings ) {
+    return $self->run( $project, %settings, words => [ 'merge', $reports->@* ], report => "$REPORT/merged" );
 }
 
 # A harness that a signal ends still runs its END blocks, which end the tool and remove the scratch files.

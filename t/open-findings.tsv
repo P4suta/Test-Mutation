@@ -119,6 +119,15 @@ contract-no-leak-process	a variable of the code; cases boolean-in-the-file gate-
 contract-no-leak-process	wording of the option parser; cases help-after-list help-after-run version-after-list; part commands	the commands table
 contract-no-leak-process	wording of the option parser; cases missing-value negated-value unknown-option value-for-a-flag word-for-a-number; part settings	the settings table
 contract-no-leak-process	wording of the type library; cases boolean-in-the-file gate-out-of-range number-out-of-range value-in-the-file; part settings	the settings table
+engine-differential	cache perturbation=data-file: the run reuses a result that depends on the changed input	the cache key over every input of a result
+engine-differential	cache perturbation=data-file: the run with the cache gives Survived where the truth gives Killed	the cache key over every input of a result
+engine-differential	cache perturbation=environment: the run reuses a result that depends on the changed input	the cache key over every input of a result
+engine-differential	cache perturbation=environment: the run with the cache gives Survived where the truth gives Killed	the cache key over every input of a result
+engine-differential	cache perturbation=outside-inc: the run reuses a result that depends on the changed input	the cache key over every input of a result
+engine-differential	cache perturbation=outside-inc: the run with the cache gives Survived where the truth gives Killed	the cache key over every input of a result
+engine-differential	cache perturbation=shadow: the run reuses a result that depends on the changed input	the cache key over every input of a result
+engine-differential	cache perturbation=shadow: the run with the cache gives Survived where the truth gives Killed	the cache key over every input of a result
+engine-differential	cache perturbation=source: the cache keeps the record of a mutant that is gone	the cache key over every input of a result
 engine-known	I5 NoCoverage carries no reason	the status catalog and its reasons
 engine-tap	nested=inner-bails: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
 engine-tap	numbers=gap: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser

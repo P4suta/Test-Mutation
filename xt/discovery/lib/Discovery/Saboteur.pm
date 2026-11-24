@@ -48,6 +48,19 @@ sub _first ( $run, @statuses ) {
     return _first_in( $run, qr/./, @statuses );
 }
 
+# A run that the condition names loses its first kill, and a run without a kill stays as it is.
+sub _loses_when ($condition) {
+    return _distort(
+        sub ( $run, $settings ) {
+            my %given = ( jobs => 0, coverage => q{}, $settings->%* );
+            return if !$condition->( \%given );
+            my ($id) = grep { $run->{status}{$_} eq 'Killed' } sort keys $run->{status}->%*;
+            $run->{status}{$id} = 'Survived' if defined $id;
+            return;
+        }
+    );
+}
+
 # The sleeper leaves the harness as a grandchild, registers itself, and ends on its own after its sleep.
 sub _leave_process ( $project, $temporary, $settings ) {
     my $registry = $project->registry;
@@ -193,6 +206,45 @@ my %SABOTEUR = (
         'a reader that takes a todo for a failure' => sub ($reader) {
             return $reader->with( rewrite => sub ($line) { return $line =~ s/[#]\s*TODO.*//ir } );
         },
+    },
+
+    # The saboteur of a relation loses a kill in the runs on one side of the relation alone.
+    'jobs'     => { 'a kill that more jobs lose' => _loses_when( sub ($settings) { $settings->{jobs} > 1 } ) },
+    'in-place' =>
+      { 'a kill that the project itself loses' => _loses_when( sub ($settings) { $settings->{in_place} } ) },
+    'coverage' => {
+        'a kill that file coverage loses' => _loses_when( sub ($settings) { $settings->{coverage} eq 'file' } )
+    },
+    'shard'  => { 'a kill that the merged parts lose'  => _loses_when( sub ($settings) { $settings->{words} } ) },
+    'since'  => { 'a kill that the changed lines lose' => _loses_when( sub ($settings) { $settings->{since} } ) },
+    'single' =>
+      { 'a kill that the run of one mutant loses' => _loses_when( sub ($settings) { $settings->{mutants} } ) },
+    'prove' => {
+        'a kill that prove contradicts' => _distort(
+            sub ( $run, $settings ) {
+                my $id = _first( $run, 'Survived', 'NoCoverage' );
+                $run->{status}{$id} = 'Killed';
+                $run->{by}{$id}     = 't/a.t';
+            }
+        ),
+        'a survivor that prove contradicts' => _loses_when( sub ($settings) { 1 } ),
+    },
+    'cache' => {
+        'a stale record' => sub ($engine) {
+            my %stored;
+            return $engine->with(
+                distort => sub ( $run, $settings ) {
+                    return if !$settings->{cache};
+                    if ( !%stored ) {
+                        %stored = $run->{status}->%*;
+                        return;
+                    }
+                    $run->{status}{$_} = $stored{$_} for grep { exists $stored{$_} } keys $run->{status}->%*;
+                    $run->{reused} = keys $run->{status}->%*;
+                }
+            );
+        },
+        'a cache that reuses nothing' => _distort( sub ( $run, $settings ) { $run->{reused} = 0 } ),
     },
 );
 
