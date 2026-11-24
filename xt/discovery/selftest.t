@@ -27,7 +27,15 @@ $known->write($project);
 sub single ($name) {
     return sub ($engine) {
         my $run = $engine->run($project);
-        return [ Discovery::Check::findings( [$name], run => $run, known => $known, coverage => 'line', idle => 1 ) ];
+        return [
+            Discovery::Check::findings(
+                [$name],
+                run      => $run,
+                known    => $known,
+                coverage => 'line',
+                quiet    => { seconds => 1, cpu => 0.5 }
+            )
+        ];
     };
 }
 

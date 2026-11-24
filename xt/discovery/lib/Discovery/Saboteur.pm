@@ -248,7 +248,7 @@ my %SABOTEUR = (
     'I1' => {
         'a run that outlasts its tests'          => _distort( sub ( $run, $settings ) { $run->{seconds} = 10_000 } ),
         'a tool that works while its tests wait' =>
-          _distort( sub ( $run, $settings ) { $run->{cpu} = $run->{seconds} + 2 } ),
+          _distort( sub ( $run, $settings ) { $run->@{qw(seconds cpu)} = ( 10, 9 ) } ),
     },
     'cache' => {
         'a stale record' => sub ($engine) {

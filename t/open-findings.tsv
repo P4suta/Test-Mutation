@@ -144,6 +144,14 @@ engine-faults	fault=TERM again during the removal of the copies: I3 the run leav
 engine-faults	fault=TERM again during the removal of the copies: the run ends by signal 15	the signals of the whole run
 engine-faults	fault=a project without the right to write: the run exits with status 4	the workspace outside the project
 engine-faults	fault=an interpreter that is no file: standard error ends without one line of the tool	the exit table and its messages
+engine-faults-full	fault=HUP again during the removal of the copies: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
+engine-faults-full	fault=HUP again during the removal of the copies: the run ends by signal 1	the signals of the whole run
+engine-faults-full	fault=HUP during the copy: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
+engine-faults-full	fault=HUP during the copy: the run ends by signal 1	the signals of the whole run
+engine-faults-full	fault=INT again during the removal of the copies: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
+engine-faults-full	fault=INT again during the removal of the copies: the run ends by signal 2	the signals of the whole run
+engine-faults-full	fault=TERM during the copy: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
+engine-faults-full	fault=TERM during the copy: the run ends by signal 15	the signals of the whole run
 engine-known	I5 NoCoverage carries no reason	the status catalog and its reasons
 engine-tap	nested=inner-bails: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
 engine-tap	numbers=gap: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
@@ -187,6 +195,7 @@ engine-zoo	path=path-quote: I6 the verdicts deviate without a warning or a reaso
 engine-zoo	path=path-quote: I7 the run gives Survived where the truth gives NoCoverage	the witness that a target writes for itself
 engine-zoo	path=path-space: the run exits with status 4	the records without a pattern over the path of a project
 engine-zoo	process: I2 a process outlives the run: the child of t/child-leaves-group.t that left the process group	the workspace that owns every resource of a run
+engine-zoo	process=close-stdout: I1 the tool uses the processor while its tests wait	the pool that waits in one select call
 engine-zoo	process: I2 a process outlives the run: the daemon of t/daemonize.t	the workspace that owns every resource of a run
 records	the record table parses the kind error into errors, and the runner never reads errors	the closed record vocabulary and its evidence
 records	the shim writes the kind end, and the record table drops it	the closed record vocabulary and its evidence

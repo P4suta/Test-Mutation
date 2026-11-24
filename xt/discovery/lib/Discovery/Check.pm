@@ -40,7 +40,8 @@ my %SIGNAL_NUMBER = ( HUP => 1, INT => 2, TERM => 15 );
 my $SIGNAL_BASE   = 128;
 my $BASE_SECONDS  = 5;
 my $SLACK         = 5;
-my $IDLE_SHARE    = 0.5;
+my $IDLE_SHARE    = 0.3;
+my $WAIT_SECONDS  = 0.5;
 
 # The ways a test process ends after a stream, apart from status 0: each one fails the test under prove.
 my @FAILING_ENDS = ( [ 'exit=1', 1, 0 ], [ 'exit=255', 255, 0 ], [ 'exit=signal', 0, 15 ] );
@@ -75,7 +76,8 @@ sub _completes ($arg) {
 
 # The run ends within a bound that the durations of its tests give, and the tool waits without work of its own.
 # The unmodified run times every test, and a mutant runs the tests that reach it, or meets their time limits.
-# `idle` says that the tests of the project sleep, so the processor time of the tool must stay far below the time of the run.
+# `quiet` holds the time and the processor time of a run of the same cells whose test waits for nothing.
+# The run of a test that waits lasts longer, and the tool must use no more processor time for that wait.
 sub _bounded ($arg) {
     my $run = $arg->{run};
     return if !$run->{reported};
@@ -88,16 +90,14 @@ sub _bounded ($arg) {
         my @limits    = map { $_ * $factor > $floor ? $_ * $factor : $floor } @durations;
         $expected += $_ for $run->{status}{$id} eq 'Timeout' ? @limits : @durations;
     }
-    return (
-        (
-            $run->{seconds} > $BASE_SECONDS + $SLACK * $expected ? 'I1 the run takes longer than its tests explain' : ()
-        ),
-        (
-            $arg->{idle} && defined $run->{cpu} && $run->{cpu} > 1 + $IDLE_SHARE * $run->{seconds}
-            ? 'I1 the tool uses the processor while its tests wait'
-            : ()
-        ),
-    );
+    my @found =
+      $run->{seconds} > $BASE_SECONDS + $SLACK * $expected ? 'I1 the run takes longer than its tests explain' : ();
+    my $quiet = $arg->{quiet};
+    return @found if !$quiet || !defined $run->{cpu} || !defined $quiet->{cpu};
+    my $waited = $run->{seconds} - $quiet->{seconds};
+    push @found, 'I1 the tool uses the processor while its tests wait'
+      if $waited > $WAIT_SECONDS && $run->{cpu} - $quiet->{cpu} > $IDLE_SHARE * $waited;
+    return @found;
 }
 
 sub _no_process ($arg) {

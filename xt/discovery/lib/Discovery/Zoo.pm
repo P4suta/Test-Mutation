@@ -242,7 +242,13 @@ my @MEMBERS = (
     [ process => 'daemonize',          { load => $PLAIN . $REGISTER . $DAEMON } ],
     [
         process => 'close-stdout',
-        { load => $PLAIN, end => "close STDOUT;\nselect undef, undef, undef, 0.4;\n", idle => 1, alone => 1 }
+        {
+            load     => $PLAIN,
+            end      => "close STDOUT;\nselect undef, undef, undef, 0.6;\n",
+            settings => { jobs => 1 },
+            idle     => 1,
+            alone    => 1
+        }
     ],
     [
         process => 'redirect-stdout',
