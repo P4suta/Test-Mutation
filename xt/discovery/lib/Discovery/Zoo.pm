@@ -238,11 +238,16 @@ BEGIN {
 }
 PERL
 
-my $WRONG_IN_END  = qq[END { die "a cell was wrong\\n" if \$main::wrong }\n];
-my $ANOTHER       = q[exec $^X, '-e', 'print "not ok 99 - another program\n"; exit 1' or die "exec: $!";];
-my $FLOOD         = q[print '# ' . ( 'x' x 1022 ) . "\n" for 1 .. 100_000; line("not ok $number - $cell");];
-my $EMPTY_INPUT   = qq[{ my \$line = <STDIN>; die "standard input holds a line\\n" if defined \$line; }\n];
-my $IN_TAINT_MODE = qq[die "the test runs without taint mode\\n" if !\${^TAINT};\n];
+my $WRONG_IN_END = qq[END { die "a cell was wrong\\n" if \$main::wrong }\n];
+my $ANOTHER      = q[exec $^X, '-e', 'print "not ok 99 - another program\n"; exit 1' or die "exec: $!";];
+my $FLOOD        = q[print '# ' . ( 'x' x 1022 ) . "\n" for 1 .. 100_000; line("not ok $number - $cell");];
+my $FLOOD_ERRORS = q[print STDERR 'x' x 1023, "\n" for 1 .. 100_000; line("not ok $number - $cell");];
+
+# A test that prints without end fills whatever holds its output, as a loop that warns did in a real distribution.
+my $ENDLESS        = q[print '# ' . ( 'x' x 65_533 ) . "\n" while 1;];
+my $ENDLESS_ERRORS = q[print STDERR 'x' x 65_536 while 1;];
+my $EMPTY_INPUT    = qq[{ my \$line = <STDIN>; die "standard input holds a line\\n" if defined \$line; }\n];
+my $IN_TAINT_MODE  = qq[die "the test runs without taint mode\\n" if !\${^TAINT};\n];
 
 # A process may inherit a signal as ignored, so the test takes the default action back before it signals itself.
 # The build directory stands before the library directory, as a test under `-Mblib` or `make test` has it.
@@ -377,7 +382,23 @@ my @MEMBERS = (
         }
     ],
 
-    [ io => 'big-output',       { load => $PLAIN, wrong   => $FLOOD, settings => { shard => '1/8' }, alone => 1 } ],
+    [ io => 'big-output', { load => $PLAIN, wrong => $FLOOD,        settings => { shard => '1/8' }, alone => 1 } ],
+    [ io => 'big-errors', { load => $PLAIN, wrong => $FLOOD_ERRORS, settings => { shard => '1/8' }, alone => 1 } ],
+    (
+        map {
+            [
+                io => $_->[0],
+                {
+                    load     => $PLAIN,
+                    wrong    => $_->[1],
+                    turns    => { Killed => 'Timeout' },
+                    settings => { shard  => '1/8' },
+                    alone    => 1
+                }
+            ]
+        } [ 'endless-output', $ENDLESS ],
+        [ 'endless-errors', $ENDLESS_ERRORS ]
+    ),
     [ io => 'no-final-newline', { load => $PLAIN, newline => 'before' } ],
     [ io => 'read-stdin',       { load => $PLAIN . $EMPTY_INPUT } ],
 

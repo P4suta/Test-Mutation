@@ -42,10 +42,7 @@ my %CHECK = (
 my %SIGNAL_NUMBER = ( HUP => 1, INT => 2, QUIT => 3, PIPE => 13, TERM => 15 );
 my $INTERNAL      = 6;
 my $SIGNAL_BASE   = 128;
-my $BASE_SECONDS  = 30;
-my $SLACK         = 5;
-my $IDLE_SHARE    = 0.1;
-my $WAIT_SECONDS  = 0.5;
+my $TURN_SLACK    = 5;
 
 # The ways a test process ends after a stream, apart from status 0.
 # Each one fails the test under prove, unless the stream asks the parser to ignore the end of its process.
@@ -79,32 +76,37 @@ sub _completes ($arg) {
     return;
 }
 
-# The run ends within a bound that the durations of its tests give.
-# The unmodified run times every test, and a mutant runs the tests that reach it, or meets their time limits.
-# The bound leaves the tool half a minute of its own, so a busy machine stays inside it and a run that hangs does not.
+# The run does the work that its tests explain, in the counts of the run itself, so a busy machine changes no answer.
+# Each test of the unmodified run, each run that verifies it, each compile, and each test of a mutant is one process.
+# A run that reused or never reached a result leaves processes that the report cannot explain, so the identity needs a whole run.
+# A mutant takes a copy once at most and walks it twice, and a run in the project walks it twice more.
 sub _bounded ($arg) {
     my $run = $arg->{run};
     return if !$run->{reported};
-    my ( $floor, $factor ) =
-      ( defined $arg->{floor} ? $arg->{floor} : 10, defined $arg->{factor} ? $arg->{factor} : 4 );
-    my $expected = 0;
-    $expected += $_ for values $run->{tests}->%*;
-    for my $id ( keys $run->{status}->%* ) {
-        my @durations = map { $run->{tests}{$_} || 0 } $run->{covered}{$id}->@*;
-        my @limits    = map { $_ * $factor > $floor ? $_ * $factor : $floor } @durations;
-        $expected += $_ for $run->{status}{$id} eq 'Timeout' ? @limits : @durations;
+    my $stats   = $run->{stats};
+    my $mutants = keys $run->{status}->%*;
+    my @found;
+    push @found, 'I1 the unmodified run starts another number of tests than it names'
+      if $stats->{baselineTests} != keys $run->{tests}->%*;
+    if ( !$run->{reused} && !defined $run->{interrupted} ) {
+        my $explained = $stats->{baselineTests} + $stats->{verifications} + $stats->{compiles};
+        $explained += $_ for values $run->{completed}->%*;
+        push @found, 'I1 the run starts more processes than its tests explain'  if $stats->{spawns} > $explained;
+        push @found, 'I1 the run starts fewer processes than its tests explain' if $stats->{spawns} < $explained;
     }
-    return $run->{seconds} > $BASE_SECONDS + $SLACK * $expected ? 'I1 the run takes longer than its tests explain' : ();
+    push @found, 'I1 the run copies the project more often than its mutants explain' if $stats->{copies} > 1 + $mutants;
+    push @found, 'I1 the run walks a tree more often than its mutants explain' if $stats->{walks} > 2 + 2 * $mutants;
+    return @found;
 }
 
-# The pool waits for a test without work of its own.
-# `wait` holds the seconds that one test waited after its stream and the processor time of the pool meanwhile.
-# A pool that sleeps uses a thousandth of the wait, and one that asks again and again uses whatever share the machine gives it.
-# The limit is a tenth of the wait: far above the first, and below the second on any machine that still runs tests.
+# The pool waits for a test without turns of its own.
+# `wait` holds the turns that a wait of one test after its stream added to the turns of the same test without the wait.
+# A pool that only events wake meets the same events either way, and a wait splits them into a few more turns at most.
+# A pool that asks again and again turns for as long as the test waits, thousands of times in a second.
 sub _waits ($arg) {
     my $wait = $arg->{wait};
     return 'I1 the pool fails a test that waits after its stream' if !$wait->{passed};
-    return $wait->{cpu} > $IDLE_SHARE * $wait->{waited} ? 'I1 the tool uses the processor while its tests wait' : ();
+    return $wait->{turns} > $TURN_SLACK ? 'I1 the pool turns while its tests wait' : ();
 }
 
 sub _no_process ($arg) {

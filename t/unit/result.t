@@ -80,4 +80,13 @@ subtest 'construction checks the entries' => sub {
       'a reason of the status, with a detail';
 };
 
+subtest 'the work of a run' => sub {
+    my %none = map { $_ => 0 } qw(copies walks compiles spawns listings baseline_tests verifications);
+    is result( [] )->stats, \%none, 'a result that names no work counts none';
+    my %some = ( %none, spawns => 4, walks => 6 );
+    is result( [], stats => \%some )->stats, \%some, 'a result keeps the counts that it names';
+    like dies { result( [], stats => { %none, turns  =>  3 } ) }, qr/stats/, 'a count of another name is refused';
+    like dies { result( [], stats => { %none, spawns => -1 } ) }, qr/stats/, 'a negative count is refused';
+};
+
 done_testing;

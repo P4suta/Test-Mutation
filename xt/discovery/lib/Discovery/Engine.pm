@@ -189,6 +189,8 @@ sub normalize ( $self, $raw ) {
         baseline_failures => [],
         reused            => 0,
         interrupted       => undef,
+        stats             => {},
+        completed         => {},
     );
     my $document = defined $raw->{report} ? eval { JSON::PP->new->utf8->decode( $raw->{report} ) } : undef;
     return \%run if ref $document ne 'HASH' || ref $document->{testMutation} ne 'HASH';
@@ -200,6 +202,7 @@ sub normalize ( $self, $raw ) {
     $run{baseline_failures} = [ sort $facts->{baselineFailures}->@* ];
     $run{reused}            = $facts->{reused};
     $run{interrupted}       = $facts->{interrupted};
+    $run{stats}             = $facts->{stats};
 
     # The status of a mutant in the schema is the one that a viewer counts, and the facts beside it keep the status of the run.
     for my $path ( sort keys $document->{files}->%* ) {
@@ -216,10 +219,11 @@ sub normalize ( $self, $raw ) {
                 replacement => $mutant->{replacement},
                 mutator     => $mutant->{mutatorName},
             };
-            $run{status}{$id}  = $status;
-            $run{reason}{$id}  = $mutant->{testMutation}{reason};
-            $run{by}{$id}      = $mutant->{killedBy} ? $mutant->{killedBy}[0] : undef;
-            $run{covered}{$id} = [ sort $mutant->{coveredBy}->@* ];
+            $run{status}{$id}    = $status;
+            $run{reason}{$id}    = $mutant->{testMutation}{reason};
+            $run{by}{$id}        = $mutant->{killedBy} ? $mutant->{killedBy}[0] : undef;
+            $run{covered}{$id}   = [ sort $mutant->{coveredBy}->@* ];
+            $run{completed}{$id} = $mutant->{testsCompleted};
             $run{counts}{$status}++;
         }
     }

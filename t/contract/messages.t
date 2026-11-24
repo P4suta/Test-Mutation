@@ -148,6 +148,7 @@ sub copied ( $from, $to, @link ) {
 }
 
 # One test in the pool, with the parts of its task that a case changes.
+# The text is what the pool raised and what the test printed on its standard error.
 sub pooled (%task) {
     my @queue = (
         {
@@ -155,16 +156,22 @@ sub pooled (%task) {
             env             => {},
             cwd             => $scratch,
             timeout         => 20,
+            output_limit    => 1_000_000,
             stop_on_failure => 0,
-            stderr          => "$scratch/task.err",
             %task
         }
     );
-    return raised(
+    my $errors = q{};
+    my $raised = raised(
         sub {
-            Test::Mutation::Pool::run( jobs => 1, next => sub { shift @queue }, done => sub { return } );
+            Test::Mutation::Pool::run(
+                jobs => 1,
+                next => sub { shift @queue },
+                done => sub ( $task, $result ) { $errors = $result->{errors}; return }
+            );
         }
     );
+    return $raised . $errors;
 }
 
 # A test that fails before it has its own streams writes to standard error of the driver, which is the one of this file.
@@ -330,10 +337,14 @@ copied( $from, directory( 'linked'     => 'a file' ), 'linked' );
     local $failing{close} = 1;
     pooled();
 }
-heard( 'test-directory-closed', on_standard_error( sub { pooled( cwd    => "$scratch/absent" ) } ) );
-heard( 'test-streams-unset',    on_standard_error( sub { pooled( stderr => "$scratch/absent/task.err" ) } ) );
-pooled( command => ["$scratch/no-such-program"] );
-heard( 'command-unstartable', Sources::slurp("$scratch/task.err") );
+heard( 'test-directory-closed', on_standard_error( sub { pooled( cwd => "$scratch/absent" ) } ) );
+{
+    # The child of the pool inherits the replaced function, so its standard streams stay those of this file.
+    no warnings 'redefine';
+    local *POSIX::dup2 = sub (@) { $! = 9; return };    ## no critic (Variables::RequireLocalizedPunctuationVars)
+    heard( 'test-streams-unset', on_standard_error( sub { pooled() } ) );
+}
+heard( 'command-unstartable', pooled( command => ["$scratch/no-such-program"] ) );
 
 # The defects of the tool: an error without a type, a message with other values, a shim without its lines, and a verdict.
 {

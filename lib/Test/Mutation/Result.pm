@@ -2,7 +2,7 @@ package Test::Mutation::Result;
 use v5.36;
 use Moo;
 use Types::Standard        qw(ArrayRef Bool Dict Enum HashRef Int Maybe Num Str StrMatch);
-use Types::Common::Numeric qw(PositiveInt);
+use Types::Common::Numeric qw(PositiveInt PositiveOrZeroInt);
 use Type::Params           qw(signature_for);
 use Test::Mutation::Exit;
 use Test::Mutation::Score;
@@ -28,6 +28,15 @@ has inventory =>
   ( is => 'ro', isa => Maybe [ Dict [ mutants => Int, digest => StrMatch [qr/\A[0-9a-f]{64}\z/] ] ], default => undef );
 has started  => ( is => 'ro', isa => Num, required => 1 );
 has finished => ( is => 'ro', isa => Num, required => 1 );
+
+my @WORK = qw(copies walks compiles spawns listings baseline_tests verifications);
+has stats => (
+    is      => 'ro',
+    isa     => Dict [ map { $_ => PositiveOrZeroInt } @WORK ],
+    default => sub {
+        return { map { $_ => 0 } @WORK };
+    },
+);
 
 signature_for tally => (
     method     => 1,
@@ -121,6 +130,15 @@ Two results with the same inventory measured the same mutants of the same source
 =head2 started, finished
 
 Epoch seconds.
+
+=head2 stats
+
+The work of the run, as counts that a busy machine leaves the same.
+C<copies> counts the copies of the project, and C<walks> the walks over a tree that record its state.
+C<compiles> counts the processes that compile a file without its tests: the syntax checks and the decompiled code.
+C<spawns> counts every process that the pool started, and C<listings> every list of processes that it read before it ended a test.
+C<baseline_tests> counts the runs of tests in the unmodified run, and C<verifications> the runs that check the unmodified run once more.
+Such a run follows a failure of tests side by side and a change of the project by the mutants.
 
 =head1 METHODS
 

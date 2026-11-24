@@ -1,6 +1,6 @@
 package Test::Mutation::Signals;
 use v5.36;
-use Types::Standard qw(Bool CodeRef Defined Dict Enum Int Maybe Undef);
+use Types::Standard qw(Bool CodeRef Defined Dict Enum FileHandle Int Maybe Undef);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Exit;
 use Test::Mutation::Interrupted;
@@ -10,7 +10,7 @@ our $VERSION = '0.001';
 my @SIGNALS = Test::Mutation::Exit::signals()->@*;
 my $STATE   = Dict [ owner => Int, signal => Maybe [ Enum [@SIGNALS] ], raised => Bool, deferred => Bool ];
 
-# The state of the watch that the process stands under, and nothing outside a watch.
+# The state of the watch that the process stands under, and the handle of the code that waits under it.
 my %HELD;
 
 signature_for decide => ( positional => [ $STATE, Int ], returns => Enum [qw(default record)] );
@@ -37,6 +37,9 @@ sub _arrived ($signal) {
         return;
     }
     $watch->{signal} = $signal if !defined $watch->{signal};
+
+    # A full pipe already wakes the reader, so a write that fails loses nothing.
+    syswrite $HELD{wake}, q{.} if $HELD{wake};
     return;
 }
 
@@ -46,6 +49,15 @@ sub watch ($code) {
     return $code->() if $HELD{watch};
     local $HELD{watch} = { owner => $$, signal => undef, raised => 0, deferred => 0 };
     local @SIG{@SIGNALS} = ( \&_arrived ) x @SIGNALS;
+    return $code->();
+}
+
+signature_for waking => ( positional => [ FileHandle, CodeRef ], returns => Defined );
+
+# Perl runs a handler after the system call that the signal met, so a signal just before a wait would wait with it.
+# The byte on the handle ends such a wait at once.
+sub waking ( $handle, $code ) {
+    local $HELD{wake} = $handle;
     return $code->();
 }
 
@@ -112,6 +124,13 @@ A watch inside a watch runs its code and leaves the signals to the outer one.
 Dies with the interruption of a signal that waits, and returns otherwise.
 A long step calls it at each point where it holds a state that the run can release.
 Without a watch the function returns.
+
+=head2 waking
+
+    my $value = Test::Mutation::Signals::waking( $pipe, sub { return wait_for_events() } );
+
+Runs the code and returns its value, and a signal that the watch notes meanwhile writes one byte to the handle.
+Code that waits in C<select> includes the other end of the pipe, so the signal ends the wait at once.
 
 =head2 deferred
 

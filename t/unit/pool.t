@@ -4,6 +4,8 @@ use Digest::SHA ();
 use File::Temp  ();
 use POSIX       ();
 use Time::HiRes ();
+use lib 't/lib';
+use ManualClock;
 use Test::Mutation::Pool;
 
 my $dir = File::Temp::tempdir( CLEANUP => 1 );
@@ -25,13 +27,14 @@ sub task ( $path, %fields ) {
         env             => {},
         cwd             => $dir,
         timeout         => 20,
+        output_limit    => 10_000_000,
         stop_on_failure => 0,
-        stderr          => "$path.err",
         %fields,
     };
 }
 
 sub run_one ( $path, %fields ) {
+    my $clock = delete $fields{clock};
     my $result;
     Test::Mutation::Pool::run(
         jobs => 1,
@@ -40,6 +43,7 @@ sub run_one ( $path, %fields ) {
             sub { shift @queue }
         },
         done => sub ( $task, $got ) { $result = $got; return },
+        ( $clock ? ( clock => $clock ) : () ),
     );
     return $result;
 }
@@ -83,11 +87,13 @@ subtest 'the environment and the working directory reach the test' => sub {
       'variables are set and removed, and the directory is changed';
 };
 
-subtest 'standard error goes to the named file' => sub {
-    my $path = script( 'stderr.t', qq{print STDERR "diagnostic\\n"; print "1..1\\nok 1\\n";\n} );
-    run_one($path);
-    open my $handle, '<', "$path.err" or die "open: $!";
-    is scalar( readline $handle ), "diagnostic\n", 'standard error is kept apart from the TAP stream';
+subtest 'standard error reaches the result apart from the TAP stream' => sub {
+    my $path   = script( 'stderr.t', qq{print STDERR "not ok 1 - a diagnostic\\n"; print "1..1\\nok 1\\n";\n} );
+    my $result = run_one($path);
+    is [ $result->@{qw(output errors passed)} ], [ "1..1\nok 1\n", "not ok 1 - a diagnostic\n", 1 ],
+      'each stream in its place, and standard error is no part of the TAP stream';
+    is $result->{digest}, Digest::SHA::sha256_hex("1..1\nok 1\n"), 'nor of the digest';
+    ok !-e "$path.err", 'and no file holds it';
 };
 
 subtest 'a time limit ends the test and its children' => sub {
@@ -153,16 +159,16 @@ subtest 'a command that cannot start fails' => sub {
 
 subtest 'tasks run in parallel and follow-up tasks run first' => sub {
     my $sleeper = script( 'sleep.t', qq{sleep 1; print "1..1\\nok 1\\n";\n} );
-    my @queue   = map { task( $sleeper, payload => "first-$_" ) } 1 .. 4;
+    my @queue   = map { task( $sleeper, payload => { name => "first-$_" } ) } 1 .. 4;
     my @order;
     my $started = Time::HiRes::time();
     my $count   = Test::Mutation::Pool::run(
         jobs => 4,
         next => sub { shift @queue },
         done => sub ( $task, $result ) {
-            push @order, $task->{payload};
-            return task( script( 'quick.t', qq{print "1..1\\nok 1\\n";\n} ), payload => 'follow-up' )
-              if $task->{payload} eq 'first-1';
+            push @order, $task->{payload}{name};
+            return task( script( 'quick.t', qq{print "1..1\\nok 1\\n";\n} ), payload => { name => 'follow-up' } )
+              if $task->{payload}{name} eq 'first-1';
             return;
         },
     );
@@ -204,6 +210,65 @@ subtest 'the captured output keeps its end when a test prints a lot' => sub {
 
     my $short = run_one( script( 'short.t', qq{print "1..1\\n"; print "ok 1\\n";\n} ) );
     is $short->{output}, "1..1\nok 1\n", 'a short stream is captured whole';
+
+    my $warns = run_one(
+        script(
+            'warns.t', q{print STDERR "# warning number $_\n" for 1 .. 20_000; print STDERR "the last warning\n";}
+        )
+    );
+    is length( $warns->{errors} ), 262_144, 'standard error stops at the same limit';
+    like $warns->{errors}, qr/the last warning\n\z/, 'and keeps its end too';
+};
+
+# The stream passes and asks to ignore the end of its process, so the limit alone fails the test.
+subtest 'a test that prints without end is stopped at its output limit' => sub {
+    my %stream = ( output => 'STDOUT', errors => 'STDERR' );
+    my $passes = q{$| = 1; print "TAP version 13\npragma +ignore_exit\n1..1\nok 1\n";};
+    for my $name ( sort keys %stream ) {
+        my $path = script( "endless-$name.t", qq{$passes print $stream{$name} '#' . ( 'x' x 1000 ) . "\\n" while 1;} );
+        my $started = Time::HiRes::time();
+        my $result  = run_one( $path, output_limit => 1_000_000 );
+        is $result, hash {
+            field overflowed => 1;
+            field timed_out  => 0;
+            field stopped    => 0;
+            field passed     => 0;
+            field signal     => 15;
+            etc
+        }, "a test that fills its $stream{$name} is ended";
+        is length( $result->{$name} ), 262_144, 'the end of the stream is kept';
+        ok Time::HiRes::time() - $started < 15, 'long before its time limit';
+    }
+};
+
+# The test prints and closes both streams before its gate, so the step opens the gate once the pool read all of it.
+subtest 'the output limit counts the bytes of both streams together' => sub {
+    my $code = <<'PERL';
+$| = 1;
+print STDOUT 'o' x 150_000;
+print STDERR 'e' x %d;
+close STDOUT;
+close STDERR;
+select undef, undef, undef, 0.01 until -e "$0.gate";
+PERL
+    my $limit = 300_000;
+    for my $case ( [ 'at', 150_000, 0, 0 ], [ 'past', 150_001, 1, 15 ] ) {
+        my ( $name, $errors, $overflowed, $signal ) = $case->@*;
+        my $path  = script( "$name-limit.t", sprintf $code, $errors );
+        my $clock = ManualClock->new(
+            steps => [
+                sub ( $clock, $seconds, $select ) {
+                    return 0 if $select->count > 1;
+                    open my $gate, '>', "$path.gate" or die "open: $!";
+                    return 1;
+                }
+            ]
+        );
+        my $result = run_one( $path, output_limit => $limit, clock => $clock );
+        is [ $result->@{qw(overflowed signal)} ], [ $overflowed, $signal ],
+          "$name the limit the test is " . ( $overflowed ? 'ended' : 'left alone' );
+        is length( $result->{output} ) + length( $result->{errors} ), 150_000 + $errors, 'the pool read every byte';
+    }
 };
 
 subtest 'the result carries a digest of the whole output' => sub {
@@ -354,16 +419,22 @@ subtest 'a test that exits cleanly after its time limit does not pass' => sub {
 subtest 'a test that ended within its time limit keeps its result when the pool looks late' => sub {
     my $quick = script( 'at-once.t', qq{print "1..1\\nok 1\\n";\n} );
     my $brief = script( 'in-time.t', qq{select undef, undef, undef, 0.5; print "1..1\\nok 1\\n";\n} );
-    my @queue = ( task( $quick, payload => 'first' ), task( $brief, payload => 'second', timeout => 1.5 ) );
+    my @queue = (
+        task( $quick, payload => { name => 'first' } ),
+        task( $brief, payload => { name => 'second' }, timeout => 1.5 )
+    );
     my %result;
     Test::Mutation::Pool::run(
         jobs => 2,
         next => sub { shift @queue },
         done => sub ( $task, $got ) {
-            $result{ $task->{payload} } = $got;
+            $result{ $task->{payload}{name} } = $got;
 
             # The callback of the first task holds the pool until the limit of the second task is over.
-            Time::HiRes::sleep(2.5) if $task->{payload} eq 'first';
+            # The end of a test cuts a sleep short, so the callback sleeps until the time is over.
+            my $until = Time::HiRes::time() + 2.5;
+            Time::HiRes::sleep( $until - Time::HiRes::time() )
+              while $task->{payload}{name} eq 'first' && Time::HiRes::time() < $until;
             return;
         },
     );
@@ -372,16 +443,21 @@ subtest 'a test that ended within its time limit keeps its result when the pool 
 };
 
 subtest 'a malformed task is refused' => sub {
-    like dies {
-        Test::Mutation::Pool::run(
-            jobs => 1,
-            next => do {
-                my @queue = ( { command => 'perl' } );
-                sub { shift @queue }
-            },
-            done => sub { return }
-        )
-    }, qr/did not pass type constraint/, 'refused';
+    for my $case ( [ 'a command without a list', { command => 'perl' } ],
+        [ 'a payload that is no hash', { payload => 'x' } ] )
+    {
+        my ( $name, $fields ) = $case->@*;
+        like dies {
+            Test::Mutation::Pool::run(
+                jobs => 1,
+                next => do {
+                    my @queue = ( task( 'x.t', $fields->%* ) );
+                    sub { shift @queue }
+                },
+                done => sub { return }
+            )
+        }, qr/did not pass type constraint/, $name;
+    }
 };
 
 done_testing;

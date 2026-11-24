@@ -255,23 +255,16 @@ my %SABOTEUR = (
         'one more variable' => _damage( _rewrites_state( 'tab', sub ($text) { "${text}env=DISCOVERY_SABOTEUR=1\n" } ) ),
         'another verdict'   => _distort( sub ( $run, $settings ) { $run->{baseline_failures} = ['t/plain.t'] } ),
     },
-    'I1' => { 'a run that outlasts its tests' => _distort( sub ( $run, $settings ) { $run->{seconds} = 10_000 } ) },
-
-    # The saboteur of the wait is the pool adapter with a part that uses the processor for half of the wait.
-    # It counts processor time and no clock, so a busy machine changes how long it takes and not how much it uses.
-    'I1-wait' => {
-        'a pool that works while its test waits' => sub ($waiter) {
-            return $waiter->with(
-                burn => sub ($seconds) {
-                    my $used  = sub { my ( $user, $system ) = times; return $user + $system };
-                    my $until = $used->() + 0.5 * $seconds;
-                    1 while $used->() < $until;
-                    return;
-                }
-            );
-        },
+    'I1' => {
+        'a process that the tests leave unexplained' => _distort( sub ( $run, $settings ) { $run->{stats}{spawns}++ } ),
+        'a walk of a tree for each test'             =>
+          _distort( sub ( $run, $settings ) { $run->{stats}{walks} += 2 + keys $run->{status}->%* } ),
     },
-    'cache' => {
+
+    # The saboteur of the wait is the pool adapter with a clock whose wait returns at once.
+    # The pool then turns for as long as its test waits, as the loop of the pool did while a test held no pipe.
+    'I1-wait' => { 'a pool that turns while its test waits' => sub ($waiter) { return $waiter->with( spins => 1 ) } },
+    'cache'   => {
         'a stale record' => sub ($engine) {
             my %stored;
             return $engine->with(

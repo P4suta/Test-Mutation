@@ -2,7 +2,7 @@ package Test::Mutation::Report::Json;
 use v5.36;
 use JSON::PP               ();
 use Types::Standard        qw(ArrayRef Dict Enum HashRef InstanceOf Int Maybe Num Optional Str StrMatch Tuple);
-use Types::Common::Numeric qw(PositiveInt);
+use Types::Common::Numeric qw(PositiveInt PositiveOrZeroInt);
 use Type::Params           qw(signature_for);
 use Test::Mutation::Error;
 use Test::Mutation::Exit;
@@ -16,6 +16,17 @@ use Test::Mutation::Types qw(Reason StatusName);
 our $VERSION = '0.001';
 
 my $MILLISECONDS = 1000;
+
+# The counts of the work of a run under the names of the report, which writes its keys in camel case.
+my %WORK_KEY = (
+    copies         => 'copies',
+    walks          => 'walks',
+    compiles       => 'compiles',
+    spawns         => 'spawns',
+    listings       => 'listings',
+    baseline_tests => 'baselineTests',
+    verifications  => 'verifications',
+);
 
 # The document names the values that a result accepts, so that a refusal points at a place in the report.
 # The status of a mutant is the name of the schema, and the facts beside it keep the status of the run and its reason.
@@ -64,6 +75,7 @@ my $DOCUMENT = Dict [
         problems         => ArrayRef [ Dict [ path => Str, problem => Str ] ],
         baselineFailures => ArrayRef [Str],
         tests            => ArrayRef [ Dict [ name => Str, duration => Num ] ],
+        stats            => Dict [ map { $_ => PositiveOrZeroInt } values %WORK_KEY ],
     ],
 ];
 
@@ -119,6 +131,7 @@ sub _facts ($result) {
         problems     => [ map { { path => $_->{path}, problem => $_->{problem} } } $result->problems->@* ],
         baselineFailures => [ map { $_->{test} } $result->baseline_failures->@* ],
         tests            => [ map { { name => $_->{name}, duration => 0 + $_->{duration} } } $result->tests->@* ],
+        stats            => { map { $WORK_KEY{$_} => 0 + $result->stats->{$_} } keys %WORK_KEY },
     };
 }
 
@@ -220,6 +233,7 @@ sub _result ($document) {
         inventory         => $facts->{inventory},
         started           => $facts->{started},
         finished          => $facts->{finished},
+        stats             => { map { $_ => $facts->{stats}{ $WORK_KEY{$_} } } keys %WORK_KEY },
     );
 }
 

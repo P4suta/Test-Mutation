@@ -65,6 +65,8 @@ my $result = Test::Mutation::Result->new(
     inventory         => { mutants => 12, digest => 'ab' x 32 },
     started           => 100,
     finished          => 103.5,
+    stats             =>
+      { copies => 1, walks => 2, compiles => 3, spawns => 4, listings => 5, baseline_tests => 6, verifications => 7 },
 );
 my $text = Test::Mutation::Report::Json::render( $result, high => 80, low => 60 );
 my $back = Test::Mutation::Report::Json::parse($text);
@@ -83,6 +85,7 @@ is $back->entries->[0], hash { field by => 't/sign.t'; field duration => 0.25; f
 is $back->baseline_failures, [ { test => 't/broken.t', output => q{}, errors => q{} } ],
   'a failing test of the unmodified run keeps its name';
 is $back->sources, { 'lib/Calc.pm' => $source }, 'the sources';
+is $back->stats, $result->stats, 'the work of the run';
 
 like Raised::message( sub { Test::Mutation::Report::Json::parse('{') } ), qr/\Athe text is no JSON document/,
   'broken JSON is refused';
@@ -141,6 +144,10 @@ subtest 'a value of the wrong type is refused with its place in the report' => s
             sub ($t) { $t =~ s/"warnings" : \[/"warnings" : [ "first", {},/r },
             q{->{"testMutation"}->{"warnings"}->[1]}
         ],
+        'a count of work that is negative' =>
+          [ sub ($t) { $t =~ s/"spawns" : 4/"spawns" : -4/r }, q{->{"testMutation"}->{"stats"}->{"spawns"}} ],
+        'a count of work that is missing' =>
+          [ sub ($t) { $t =~ s/"listings" : 5,//r }, q{->{"testMutation"}->{"stats"}->{"listings"}} ],
     );
     for my $name ( sort keys %cases ) {
         my ( $change, $place ) = $cases{$name}->@*;

@@ -41,7 +41,7 @@ sub script ( $name, $code ) {
 }
 
 sub pool_error (%task) {
-    my @queue = ( { env => {}, cwd => $dir, timeout => 20, stop_on_failure => 0, %task } );
+    my @queue = ( { env => {}, cwd => $dir, timeout => 20, output_limit => 10_000_000, stop_on_failure => 0, %task } );
     return dies {
         Test::Mutation::Pool::run( jobs => 1, next => sub { shift @queue }, done => sub { return } )
     };
@@ -57,20 +57,18 @@ subtest 'a process that cannot start stops the pool' => sub {
     my $path  = script( 'unreached.t', 'exit 3;' );
     my $error = do {
         local $fork_fails = 1;
-        pool_error( command => [ $^X, $path ], stderr => "$path.err" );
+        pool_error( command => [ $^X, $path ] );
     };
     like $error, qr/\Acannot start a process: \S/, 'the error names the reason';
 };
 
 subtest 'a pipe that does not close stops the pool' => sub {
-
-    # The turns of the pool are a subroutine without a name.
-    my %place = ( 'the turns of the pool' => '__ANON__', 'the start of a test' => '_started' );
+    my %place = ( 'the end of a test' => '_close_streams', 'the start of a test' => '_started' );
     for my $name ( sort keys %place ) {
         my $path  = script( "$place{$name}.t", qq{print "1..1\\nok 1\\n";\n} );
         my $error = do {
             local $close_fails_in = qr/::Pool::\Q$place{$name}\E\z/;
-            pool_error( command => [ $^X, $path ], stderr => "$path.err" );
+            pool_error( command => [ $^X, $path ] );
         };
         is [ $error->kind, $error->id ], [ 'environment', 'pipe-unclosable' ], "a failure in $name is typed";
         like $error->message, qr/\Acannot close a pipe: \S/, "and a failure in $name names the reason";
@@ -91,7 +89,7 @@ sleep 30;
 PERL
     my $error = do {
         local $close_fails_in = qr/::Pool::_descendants\z/;
-        pool_error( command => [ $^X, $path ], stderr => "$path.err", timeout => 2 );
+        pool_error( command => [ $^X, $path ], timeout => 2 );
     };
     is $error, undef, 'the pool ends the test at its time limit';
     my $grandchild = text_of("$path.grandchild");

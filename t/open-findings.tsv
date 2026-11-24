@@ -1,11 +1,9 @@
 gates	xt/release/self-mutation.t has no rejecting subtest	the release gate for the run of the tool on itself
 gates	xt/release/self-mutation.t states no count	the release gate for the run of the tool on itself
-pool	the loop of the pool turns without a wait while a running test is silent	the pool loop that waits on a pipe of its own
 realworld	CPAN-Audit: the unmodified run fails where the tests of the distribution pass	the expectations of the real distributions, where a run of every test file as prove does fails with the name of the test
 realworld	Moo: the run reports a mutant that fails to compile	the kinds of compile error, which tell a mutant whose code dies at compile time from invalid code
 realworld	Params-Util: the unmodified run fails where the tests of the distribution pass	the build of a distribution in the copy
 realworld	TOML-Tiny: the run warns that B::Deparse gives no stable output	the comparison of compiled code without the addresses that B::Deparse prints
-realworld	URI: the run fills its scratch space	the pool loop with a bound on what a test prints
 realworld	URI: the run warns that B::Deparse gives no stable output	the kinds of compile error, which name a source that fails to compile alone
 realworld	URI: the run warns that a test loads a source around the hook	the placement of each mutant in the copy of its job
 realworld	Variable-Magic with blib: the run reports a mutant that fails to compile	the kinds of compile error, which tell a module that fails to load from invalid code
@@ -221,7 +219,6 @@ mutants-suppress-pairs	the parser reads no mutate sub as the start of a block	th
 mutants-suppress-pairs	the parser starts a second block inside an open block and never ends the first one	the suppression grammar
 type-contracts	lib/Test/Mutation.pm uses 3 bare HashRef	the settings table gives every setting of a call its type
 type-contracts	lib/Test/Mutation/Config.pm uses 4 bare HashRef	the settings table gives every layer of settings its type
-type-contracts	lib/Test/Mutation/Pool.pm uses 1 Any	the pool loop with a typed payload
 contract-exit-table-arguments	missing: accepted; flags --disable --enable --mutant --perl --report-dir --since --source --test; commands exec	the settings table
 contract-one-line-arguments	equals: no line with the prefix; flags --cache --equivalence --in-place --keep-work; commands default exec list merge run show	the settings table
 contract-one-line-arguments	missing: no line with the prefix; flags --config --coverage --disable --enable --format --mutant --perl --profile --report-dir --root --shard --since --source --test; commands default list merge run show	the settings table
@@ -386,9 +383,7 @@ engine-zoo	path=path-quote: I6 the verdicts deviate without a warning or a reaso
 engine-zoo	path=path-quote: I7 the run gives Survived where the truth gives NoCoverage	the witness that a target writes for itself
 engine-zoo	path=path-space: the run exits with status 5	the records without a pattern over the path of a project
 engine-zoo	process: I2 a process outlives the run: the child of t/child-leaves-group.t that left the process group	the workspace that owns every resource of a run
-engine-zoo	process=close-stdout: I1 the tool uses the processor while its tests wait	the pool that waits in one select call
 engine-zoo	process: I2 a process outlives the run: the daemon of t/daemonize.t	the workspace that owns every resource of a run
-engine-zoo	process=redirect-stdout: I1 the tool uses the processor while its tests wait	the pool that waits in one select call
 engine-zoo	suite=inc-assert: the unmodified run fails	the placement of a mutant in the copy
 engine-zoo	suite=lib-checksum: I6 the verdicts deviate without a warning or a reason	the placement of a mutant in the copy
 engine-zoo	suite=lib-checksum: I7 the run gives NoCoverage where the truth gives Killed	the placement of a mutant in the copy

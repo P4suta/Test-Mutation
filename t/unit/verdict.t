@@ -33,15 +33,16 @@ sub decided (@outcomes) {
 
 subtest 'single outcomes over the whole input domain' => sub {
     my @rows;
-    for my $result (qw(pass fail timeout)) {
+    my %limit = ( timeout => 1, overflow => 1 );
+    for my $result (qw(pass fail timeout overflow)) {
         for my $served ( 0, 1 ) {
             for my $load_failed ( 0, 1 ) {
                 for my $bypassed ( 0, 1 ) {
                     for my $syntax (qw(ok compile-phase standalone)) {
                         my $expected =
                             $bypassed                       ? 'NoVerdict loaded-around-hook'
-                          : $result eq 'timeout' && $served ? 'Timeout time-limit'
-                          : $result eq 'timeout'            ? 'NoVerdict unstable-test'
+                          : $limit{$result} && $served      ? 'Timeout time-limit'
+                          : $limit{$result}                 ? 'NoVerdict unstable-test'
                           : !$served                        ? 'NoCoverage not-loaded'
                           : $load_failed && $syntax ne 'ok' ? "CompileError $syntax"
                           : $result eq 'fail'               ? 'Killed'
@@ -120,6 +121,15 @@ subtest 'a timeout waits for a later test to decide' => sub {
     is $twice->( \%timeout, \%early ),
       [ 'Timeout', 'time-limit', 't/first.t', 't/first.t exceeded its time limit' ],
       'and keeps its place against a later one before the load';
+
+    my %overflow = ( result => 'overflow' );
+    is $twice->( \%overflow, \%timeout ),
+      [ 'Timeout', 'time-limit', 't/first.t', 't/first.t exceeded its output limit' ],
+      'a test that the output limit ended counts as one that ran out of time, with its own detail';
+    is $twice->( { %overflow, served => 0 }, { %overflow, served => 0 } ),
+      [ 'NoVerdict', 'unstable-test', 't/first.t', 't/first.t exceeded its output limit before it loaded the mutant' ],
+      'also before the load';
+    is verdict( outcome(%overflow), outcome( result => 'fail' ) ), 'Killed', 'and a later failure detects the mutant';
 
     my $state = Test::Mutation::Verdict::start();
     $state = Test::Mutation::Verdict::step( $state, outcome( test => 't/slow.t', %timeout ) );

@@ -1,5 +1,6 @@
 use v5.36;
 use Test2::V0;
+use IO::Select  ();
 use POSIX       ();
 use Time::HiRes ();
 use Test::Mutation::Signals;
@@ -81,6 +82,53 @@ subtest 'each signal ends the watched code at its next check, under its name' =>
         is \@reached, [ 'no signal', 'the signal is noted' ], "at the check that follows SIG$signal";
     }
     is ended( sub { Test::Mutation::Signals::check(); return } ), 'nothing', 'a check without a watch does nothing';
+};
+
+subtest 'a signal under a watch writes a byte to the handle of the code that waits' => sub {
+    pipe my $read, my $write or die "pipe: $!";
+    my $waiting = IO::Select->new($read);
+    my $bytes   = sub {
+        return if !$waiting->can_read(1);
+        my $count = sysread $read, my $chunk, 64;
+        return $chunk;
+    };
+    is ended(
+        sub {
+            Test::Mutation::Signals::watch(
+                sub {
+                    Test::Mutation::Signals::waking( $write,
+                        sub { kill 'TERM', $$; Test::Mutation::Signals::check() } );
+                }
+            );
+        }
+      ),
+      'TERM', 'the signal ends the code as before';
+    is $bytes->(), q{.}, 'and the handle holds one byte';
+
+    is Test::Mutation::Signals::watch(
+        sub {
+            Test::Mutation::Signals::waking( $write, sub { 7 } );
+        }
+      ),
+      7,
+      'the value of the code';
+    is ended(
+        sub {
+            Test::Mutation::Signals::watch(
+                sub {
+                    Test::Mutation::Signals::waking( $write, sub { 1 } );
+                    kill 'TERM', $$;
+                    syswrite $write, 'x' or die "write: $!";
+                    Test::Mutation::Signals::check();
+                }
+            );
+        }
+      ),
+      'TERM', 'a signal after the waiting code';
+    is $bytes->(), 'x', 'leaves the handle alone';
+    like dies {
+        Test::Mutation::Signals::waking( 'no handle', sub { 1 } )
+    }, qr/did not pass type constraint/, 'a value that is no handle is refused';
 };
 
 subtest 'the first signal ends the work once' => sub {

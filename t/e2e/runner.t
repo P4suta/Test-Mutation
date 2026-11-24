@@ -195,8 +195,20 @@ subtest 'the work files of a finished task are removed while the run goes on' =>
       'the run has compile errors, detected mutants, and mutants whose code is compared';
     my ($work) = glob "$root/.mutation/run-*";
     ok defined $work && -d "$work/shim", 'the work directory stays on request';
-    is [ map { s{\A\Q$work\E/}{}r } map { glob "$work/$_/*" } qw(records tmp stderr mutants) ], [],
-      'and it holds no record, no temporary directory, no error output, and no mutant file';
+    is [ map { s{\A\Q$work\E/}{}r } map { glob "$work/$_/*" } qw(records tmp mutants) ], [],
+      'and it holds no record, no temporary directory, and no mutant file';
+    ok !-e "$work/stderr", 'and no file of error output, which the pool holds in memory';
+};
+
+subtest 'a mutant that makes a test print without end is a timeout that names the output limit' => sub {
+    my $endless = "use Small;\nmy \$next = Small::next_one(2);\ndefined \$next or die \"no value\\n\";\n"
+      . "if ( \$next != 3 ) { print STDERR 'x' x 65_536 while 1 }\nprint \"1..1\\nok 1\\n\";\n";
+    my ($result)  = run_fixture( project( 'lib/Small.pm' => $MODULE, 't/endless.t' => $endless ), equivalence => 0 );
+    my ($flooded) = grep { $_->{status} ne 'Killed' } $result->entries->@*;
+    is [ $flooded->@{qw(status reason detail)} ], [ 'Timeout', 'time-limit', 't/endless.t exceeded its output limit' ],
+      'the mutant that turns the test into a flood';
+    is [ grep { $_->{status} eq 'Killed' } $result->entries->@* ], bag { item D(); item D(); end },
+      'and the other two mutants are detected';
 };
 
 subtest 'the time limit grows with the duration of the unmodified test' => sub {

@@ -61,7 +61,16 @@ sub merge ($reports) {
         inventory         => $results[0]->inventory,
         started           => min( map { $_->started } @results ),
         finished          => max( map { $_->finished } @results ),
+        stats             => _work(@results),
     );
+}
+
+sub _work (@results) {
+    my %work;
+    for my $stats ( map { $_->stats } @results ) {
+        $work{$_} += $stats->{$_} for keys $stats->%*;
+    }
+    return \%work;
 }
 
 sub _parts ($reports) {
@@ -133,5 +142,6 @@ Every result must name the same C<N> and the same inventory, and hold the mutant
 
 The merged result lists the mutants in the order of a whole run.
 It keeps each test with its longest duration, each warning and problem once, the largest job count, and the whole time span.
+It adds up the reused results and each count of the work of the parts.
 
 =cut

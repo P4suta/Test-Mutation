@@ -164,7 +164,7 @@ sub alone ( $axis, $name, %more ) {
     $compared += keys $run->{mutants}->%*;
     $ran{"$axis=$name"}++;
     $project->discard;
-    my @observed = ( run => $run, member => $member, floor => $member->{settings}{timeout_floor} );
+    my @observed = ( run => $run, member => $member );
     return ( findings( ['I5'], run => $run ),
         map { "$axis=$name: $_" } findings( [ @run, 'I1', 'I7', 'I6' ], @observed ) );
 }
@@ -187,15 +187,15 @@ for my $axis (@axes) {
 }
 
 # The pool waits for a test that keeps its output, that closes it, and that sends it elsewhere.
-# The processor time of the pool during the wait is counted, and no clock is read, so a busy machine changes nothing.
+# The turns of the pool during the wait are counted, and no clock is read, so a busy machine changes nothing.
 my $waiter = Discovery::Waiter->new;
 my %waits  = ( 'close-stdout' => 'closed', 'redirect-stdout' => 'redirected' );
 my $kept   = $waiter->waited( 'kept', 1 );
-note sprintf 'the pool used the processor for %.3f seconds of a wait of 1 second with the output kept', $kept->{cpu};
-is [ findings( ['I1-wait'], wait => $kept ) ], [], 'the pool waits without work for a test that keeps its output';
+note "the pool turned $kept->{turns} more times for a wait of 1 second with the output kept";
+is [ findings( ['I1-wait'], wait => $kept ) ], [], 'the pool waits without turns for a test that keeps its output';
 for my $name ( sort keys %waits ) {
     my $wait = $waiter->waited( $waits{$name}, 1 );
-    note sprintf 'process=%s: the pool used the processor for %.2f seconds of a wait of 1 second', $name, $wait->{cpu};
+    note "process=$name: the pool turned $wait->{turns} more times for a wait of 1 second";
     push $found{fast}->@*, map { "process=$name: $_" } findings( ['I1-wait'], wait => $wait );
 }
 
@@ -257,7 +257,7 @@ if ( Discovery::Tier::full() ) {
 
 Discovery::Tier::report( 'zoo', \%found );
 is [ sort keys %ran ], [ sort @members ], 'every member of every axis ran';
-Gate::checked( 'members',            scalar keys %ran, at_least => $toolchain ? 75 : 74 );
+Gate::checked( 'members',            scalar keys %ran, at_least => $toolchain ? 78 : 77 );
 Gate::checked( 'runs',               $runs,            at_least => 22 );
 Gate::checked( 'mutants in the zoo', $compared,        at_least => 600 );
 

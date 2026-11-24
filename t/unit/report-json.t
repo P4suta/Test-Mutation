@@ -69,6 +69,8 @@ my $result = Test::Mutation::Result->new(
     parallel_safe     => 1,
     started           => 100,
     finished          => 103.5,
+    stats             =>
+      { copies => 2, walks => 8, compiles => 3, spawns => 9, listings => 1, baseline_tests => 2, verifications => 0 },
 );
 
 my $document = Test::Mutation::Report::Json::document( $result, high => 80, low => 60 );
@@ -177,6 +179,15 @@ subtest 'the document carries the facts of the run that the schema has no place 
         problems         => [],
         baselineFailures => [],
         tests            => [ { name => 't/sign.t', duration => 0.5 }, { name => 't/add.t', duration => 0.25 } ],
+        stats            => {
+            copies        => 2,
+            walks         => 8,
+            compiles      => 3,
+            spawns        => 9,
+            listings      => 1,
+            baselineTests => 2,
+            verifications => 0
+        },
       },
       'the run facts';
 };

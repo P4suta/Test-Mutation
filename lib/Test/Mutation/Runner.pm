@@ -38,6 +38,10 @@ my $CHANGES_NAMED = 5;
 my $TYPED         = InstanceOf ['Test::Mutation::Error'];
 my $INTERRUPTION  = InstanceOf ['Test::Mutation::Interrupted'];
 
+# A test that prints a quarter of a gigabyte prints without end, as a loop that warns does, and the pool ends it.
+# The bytes stay in no file, and a test that prints a hundred megabytes and then fails still fails on its own.
+my $OUTPUT_LIMIT = 268_435_456;
+
 my $ANALYSIS = Dict [
     sources   => HashRef [ InstanceOf ['Test::Mutation::Source'] ],
     mutants   => ArrayRef [ InstanceOf ['Test::Mutation::Mutant'] ],
@@ -140,6 +144,7 @@ sub run ( $config, $listener ) {
         taint    => {},
         warnings => {},
         free     => {},
+        stats    => { map { $_ => 0 } qw(copies walks compiles spawns listings baseline_tests verifications) },
     };
     my $measure = sub {
         _copy_project($run) if !$config->in_place;
@@ -181,7 +186,13 @@ sub _inside ( $project, $path ) {
 sub _new_copy ( $run, $from, $skip, $link ) {
     my $to = Test::Mutation::Tree::temporary( $run->{copies}, q{} ) . "/$run->{name}";
     Test::Mutation::Tree::copy( from => $from, to => $to, skip => $skip, link => $link );
+    $run->{stats}{copies}++;
     return $to;
+}
+
+sub _walk ( $run, $root, @skip ) {
+    $run->{stats}{walks}++;
+    return Test::Mutation::Tree::snapshot( root => $root, skip => \@skip );
 }
 
 # Every mutant starts from the state that the unmodified run left, so each job works in a copy of its own.
@@ -192,7 +203,7 @@ sub _job_root ( $run, $job ) {
         my ($free) = sort keys $run->{free}->%*;
         my $root = defined $free ? $free : _new_copy( $run, $run->{root}, [], [] );
         delete $run->{free}{$root};
-        $job->{copy} = { root => $root, state => Test::Mutation::Tree::snapshot( root => $root, skip => [] ) };
+        $job->{copy} = { root => $root, state => _walk( $run, $root ) };
     }
     return $job->{copy}{root};
 }
@@ -200,10 +211,9 @@ sub _job_root ( $run, $job ) {
 # A mutant may leave a changed copy behind, so the copy returns to its state before the next job takes it.
 # A copy that fails to return stays out of use, and the next job makes a new one.
 sub _release ( $run, $job ) {
-    my $copy = delete $job->{copy} or return;
-    my $root = $copy->{root};
-    my $changes =
-      Test::Mutation::Tree::changes( $copy->{state}, Test::Mutation::Tree::snapshot( root => $root, skip => [] ) );
+    my $copy    = delete $job->{copy} or return;
+    my $root    = $copy->{root};
+    my $changes = Test::Mutation::Tree::changes( $copy->{state}, _walk( $run, $root ) );
     my $restore = sub { Test::Mutation::Tree::restore( from => $run->{root}, to => $root, changes => $changes ) };
     return if $changes->@* && exists Test::Mutation::Try::attempt($restore)->{error};
     $run->{free}{$root} = 1;
@@ -293,6 +303,7 @@ sub _measure ( $run, $started ) {
         reused      => $run->{reused} || 0,
         in_copies   => defined $run->{copies} ? 1 : 0,
         finished    => Time::HiRes::time(),
+        stats       => $run->{stats},
     );
 }
 
@@ -353,7 +364,7 @@ sub _prepare_work ($run) {
     $run->{work} = $work;
     my $outer      = $ENV{TEST_MUTATION_GENERATION};
     my $generation = defined $outer ? $outer + 1 : 1;
-    Test::Mutation::Tree::make( map { "$work/$_" } 'shim/Test/Mutation/Shim', 'mutants', 'records', 'tmp', 'stderr' );
+    Test::Mutation::Tree::make( map { "$work/$_" } 'shim/Test/Mutation/Shim', 'mutants', 'records', 'tmp' );
     _spew( "$work/shim/Test/Mutation/Shim/G$generation.pm", shim_text($generation) );
     $run->{generation} = $generation;
     $run->{package}    = "Test::Mutation::Shim::G$generation";
@@ -524,8 +535,8 @@ sub _test_task ( $run, %arg ) {
         },
         cwd             => $arg{root},
         timeout         => $arg{timeout},
+        output_limit    => $OUTPUT_LIMIT,
         stop_on_failure => $arg{stop_on_failure},
-        stderr          => "$work/stderr/$sequence.txt",
         payload         => { $arg{payload}->%*, test => $arg{test}, record => $record, tmp => $tmp },
     };
 }
@@ -533,22 +544,23 @@ sub _test_task ( $run, %arg ) {
 sub _collect ($task) {
     my $payload = $task->{payload};
     my $record  = Test::Mutation::Record::read_directory( $payload->{record} );
-    my $errors  = -f $task->{stderr} ? _slurp( $task->{stderr} ) : q{};
     _discard( $payload->{record}, $payload->{tmp} );
-    unlink $task->{stderr};
-    return ( $record, $errors );
+    return $record;
 }
 
 # Runs tests against the unmodified sources, which the hook serves as it serves a mutant.
-sub _unmodified ( $run, $name, $trace, $jobs, $tests ) {
+# `counted` names the count of the work that the runs of these tests add to.
+sub _unmodified ( $run, $name, $trace, $jobs, $tests, $counted ) {
     my $root  = $run->{root};
     my $spec  = _spec( $run, $name, $trace, [ map { [ "$root/$_", "$root/$_" ] } $run->{targets}->@* ] );
     my @queue = $tests->@*;
     my %outcome;
     Test::Mutation::Pool::run(
         jobs => $jobs,
+        work => $run->{stats},
         next => sub {
             my $test = shift @queue or return;
+            $run->{stats}{$counted}++;
             return _test_task(
                 $run,
                 root            => $root,
@@ -560,8 +572,7 @@ sub _unmodified ( $run, $name, $trace, $jobs, $tests ) {
             );
         },
         done => sub ( $task, $result ) {
-            my ( $record, $errors ) = _collect($task);
-            $outcome{ $task->{payload}{test} } = { result => $result, record => $record, errors => $errors };
+            $outcome{ $task->{payload}{test} } = { result => $result, record => _collect($task) };
             return;
         },
     );
@@ -570,15 +581,15 @@ sub _unmodified ( $run, $name, $trace, $jobs, $tests ) {
 
 sub _baseline ( $run, $tests, $targets ) {
     my $root = $run->{root};
-    my $pass = sub ( $jobs, $names ) {
-        return _unmodified( $run, 'baseline', $run->{config}->coverage eq 'line', $jobs, $names );
+    my $pass = sub ( $jobs, $names, $counted ) {
+        return _unmodified( $run, 'baseline', $run->{config}->coverage eq 'line', $jobs, $names, $counted );
     };
 
-    my $outcome       = $pass->( $run->{jobs}, $tests );
+    my $outcome       = $pass->( $run->{jobs}, $tests, 'baseline_tests' );
     my @failed        = grep { !$outcome->{$_}{result}{passed} } $tests->@*;
     my $parallel_safe = 1;
     if ( @failed && $run->{jobs} > 1 ) {
-        my $serial = $pass->( 1, \@failed );
+        my $serial = $pass->( 1, \@failed, 'verifications' );
         $outcome->{$_} = $serial->{$_} for @failed;
         @failed = grep { !$outcome->{$_}{result}{passed} } @failed;
         if ( !@failed ) {
@@ -606,9 +617,7 @@ sub _baseline ( $run, $tests, $targets ) {
         tests         => \%tests,
         breakable     => \%breakable,
         parallel_safe => $parallel_safe,
-        failures      => [
-            map { { test => $_, output => $outcome->{$_}{result}{output}, errors => $outcome->{$_}{errors} } } @failed
-        ],
+        failures      => [ map { { test => $_, $outcome->{$_}{result}->%{qw(output errors)} } } @failed ],
     };
 }
 
@@ -650,6 +659,7 @@ sub _mutants ( $run, $mutants, $baseline ) {
     my $measure = sub {
         return Test::Mutation::Pool::run(
             jobs => $run->{jobs},
+            work => $run->{stats},
             next => sub {
                 while ( my $job = shift @waiting ) {
                     my $task = $job->{tests}->@* ? _next_test( $run, $job, $baseline ) : _next_code( $run, $job );
@@ -689,7 +699,7 @@ sub _mutants ( $run, $mutants, $baseline ) {
 }
 
 sub _tree ($run) {
-    return Test::Mutation::Tree::snapshot( root => $run->{root}, skip => [ '.git', $run->{config}->work_directory ] );
+    return _walk( $run, $run->{root}, '.git', $run->{config}->work_directory );
 }
 
 # A mutant runs with the rights of the tests, so it may leave a file that makes a test fail from then on.
@@ -700,7 +710,7 @@ sub _recheck ( $run, $tests, $entries, $changes ) {
     my $changed = join( ', ', @named ) . ( $rest ? " and $rest more" : q{} );
     _warn( $run, Test::Mutation::Message::warning( 'project-changed', changes => $changed ) );
 
-    my $outcome = _unmodified( $run, 'recheck', 0, $run->{jobs}, $tests );
+    my $outcome = _unmodified( $run, 'recheck', 0, $run->{jobs}, $tests, 'verifications' );
     my %broken  = map { $_ => 1 } grep { !$outcome->{$_}{result}{passed} } $tests->@*;
     for my $entry ( grep { $_->{status} eq 'Killed' && $broken{ $_->{by} } } $entries->@* ) {
         $entry->@{qw(status reason detail)} =
@@ -854,7 +864,6 @@ sub _after_code ( $run, $task, $result ) {
     my $job    = $task->{payload}{job};
     my $usable = $result->{exit} == 0 && !$result->{timed_out} && length $result->{output};
     my $digest = $usable ? $result->{digest} : q{};
-    unlink $task->{stderr};
     if ( $task->{payload}{kind} eq 'code-original' ) {
         push $run->{code_of_original}{ $job->{mutant}->path }->@*, $digest;
         return;
@@ -868,11 +877,11 @@ sub _after_test ( $run, $task, $result ) {
     my $job      = $payload->{job};
     my $path     = $job->{mutant}->path;
     my $absolute = _job_root( $run, $job ) . "/$path";
-    my ($record) = _collect($task);
+    my $record   = _collect($task);
     $job->{duration} += $result->{duration};
     $job->{outcome} = {
         test        => $payload->{test},
-        result      => $result->{timed_out} ? 'timeout' : $result->{passed} ? 'pass' : 'fail',
+        result      => _ending($result),
         served      => $record->{served}{$absolute}                                         ? 1 : 0,
         load_failed => $record->{load_failed}{$absolute} || !$record->{compiled}{$absolute} ? 1 : 0,
         bypassed    => $record->{bypassed}{$absolute}                                       ? 1 : 0,
@@ -893,7 +902,6 @@ sub _after_syntax ( $run, $task, $result ) {
     my $path     = $job->{mutant}->path;
     my $ok       = $result->{exit} == 0 && !$result->{timed_out} ? 1 : 0;
     my $original = $task->{payload}{kind} eq 'syntax-original';
-    unlink $task->{stderr};
     if ($original) {
         $run->{syntax_of_original}{$path} = $ok;
         return _compile_task( $run, $job, 'syntax-mutant', $job->{file}, '-c' ) if $ok;
@@ -924,18 +932,25 @@ sub _next_test ( $run, $job, $baseline ) {
 }
 
 sub _compile_task ( $run, $job, $kind, $file, $switch ) {
-    my $sequence = ++$run->{sequence};
-    my $config   = $run->{config};
-    my $root     = _job_root( $run, $job );
+    my $config = $run->{config};
+    my $root   = _job_root( $run, $job );
+    $run->{stats}{compiles}++;
     return {
         command         => [ $config->perl, $config->switches->@*, $switch, $file ],
         env             => { PERL_HASH_SEED => '0', PERL_PERTURB_KEYS => '0', PWD => $root },
         cwd             => $root,
         timeout         => $config->baseline_timeout,
+        output_limit    => $OUTPUT_LIMIT,
         stop_on_failure => 0,
-        stderr          => "$run->{work}/stderr/$sequence.txt",
         payload         => { kind => $kind, job => $job },
     };
+}
+
+# The outcome of a test: the limit of the pool that ended it, or its own verdict.
+sub _ending ($result) {
+    return 'timeout'  if $result->{timed_out};
+    return 'overflow' if $result->{overflowed};
+    return $result->{passed} ? 'pass' : 'fail';
 }
 
 sub _finish ( $run, $job ) {

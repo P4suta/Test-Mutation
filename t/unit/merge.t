@@ -54,6 +54,11 @@ sub part ( $shard, $entries, %fields ) {
     );
 }
 
+sub work (@counts) {
+    my @names = qw(copies walks compiles spawns listings baseline_tests verifications);
+    return { map { $names[$_] => $counts[$_] } 0 .. $#names };
+}
+
 sub merged (@parts) {
     my $number = 0;
     return Test::Mutation::Merge::merge( [ map { { name => 'report ' . ++$number, result => $_ } } @parts ] );
@@ -78,6 +83,7 @@ subtest 'the parts of one run merge into the result of the whole run' => sub {
             reused   => 2,
             started  => 90,
             finished => 105,
+            stats    => work( 1 .. 7 ),
         ),
         part(
             '1/2', \@first,
@@ -85,8 +91,10 @@ subtest 'the parts of one run merge into the result of the whole run' => sub {
             warnings => ['shared warning'],
             problems => [ { path => 'lib/Odd.pm', problem => 'the file has carriage returns' } ],
             reused   => 1,
+            stats    => work( 10, 20, 30, 40, 50, 60, 70 ),
         ),
     );
+    is $whole->stats, work( 11, 22, 33, 44, 55, 66, 77 ), 'the work of every part adds up';
     is [ map { $_->{mutant}->id + 0 } $whole->entries->@* ], [ 1 .. 6 ],
       'the mutants return to the order of the whole run';
     is [ map { $_->{status} } $whole->entries->@* ], [qw(Killed Timeout Survived Killed Killed NoCoverage)],

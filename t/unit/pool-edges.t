@@ -24,8 +24,8 @@ sub task ( $path, %fields ) {
         env             => {},
         cwd             => $dir,
         timeout         => 20,
+        output_limit    => 10_000_000,
         stop_on_failure => 0,
-        stderr          => "$path.err",
         %fields,
     };
 }
@@ -149,17 +149,17 @@ subtest 'the driver may hold its standard handles in memory' => sub {
     close STDERR or die "close: $!";
     open STDOUT, '>&', $saved_output or die "restore: $!";
     open STDERR, '>&', $saved_errors or die "restore: $!";
-    is $result->{$path}, hash { field passed => 1; field output => "1..1\nok 1\n"; etc },
-      'the pool reads the output of the test';
-    is text_of("$path.err"),           "a diagnostic\n", 'and the standard error of the test goes to its file';
+    is $result->{$path},
+      hash { field passed => 1; field output => "1..1\nok 1\n"; field errors => "a diagnostic\n"; etc },
+      'the pool reads both streams of the test';
     is [ $held_output, $held_errors ], [ undef, undef ], 'nothing reaches the handles of the driver';
 };
 
 subtest 'a command that cannot start leaves its reason in standard error' => sub {
     my $missing = "$dir/no-such-program";
-    my $result  = run_all( 1, { task('absent')->%*, command => [$missing], stderr => "$dir/absent.err" } );
-    is [ values $result->%* ]->[0]{exit}, 127, 'the exit status of a command that was not found';
-    like text_of("$dir/absent.err"), qr/\Amutation: cannot start \Q$missing\E: [^\n]+\n\z/,
+    my $result  = [ values run_all( 1, { task('absent')->%*, command => [$missing] } )->%* ]->[0];
+    is $result->{exit}, 127, 'the exit status of a command that was not found';
+    like $result->{errors}, qr/\Amutation: cannot start \Q$missing\E: [^\n]+\n\z/,
       'the message names the command and the reason';
 };
 
