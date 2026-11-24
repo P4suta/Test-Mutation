@@ -1,0 +1,145 @@
+use v5.36;
+use Test2::V0;
+use lib 't/contract/lib', 't/e2e/lib', 't/lib';
+use Gate;
+use Invariants;
+use Samples;
+use Space;
+use World;
+use Test::Mutation::CLI;
+use Test::Mutation::Runner;
+use Test::Mutation::Status;
+
+# S7, the progress: every sequence of up to four statuses, on a terminal and in a log.
+# No test runs: the run sends the events of a made sequence, and the command prints its progress lines.
+
+my @statuses = Test::Mutation::Status::rows()->@*;
+my %word     = map { $_->name => $_->word } @statuses;
+my $longest  = 4;
+my $scratch  = Space::scratch();
+my $plan     = World::observe( [ 'run', '--config', 'quiet.toml' ], cwd => $scratch, run => 'cheap' )->{plan};
+my $nothing  = Samples::result( statuses => [] );
+my %stream   = ( 0 => 'log', 1 => 'terminal' );
+my %violations;
+
+# What the command prints to standard error while a run sends its events.
+# The run calls `work` once for each step of its work, with the text that the command has printed so far.
+sub printed ( $terminal, $events ) {
+    my $text = q{};
+    open my $errors, '>', \$text or die "open: $!";
+    my $world = { World::facts( cwd => $scratch, err_tty => $terminal ), out => $errors, err => $errors };
+    no warnings 'redefine';
+    local *Test::Mutation::Runner::run = sub ( $config, $listener ) {
+        $events->( $listener, sub { return length $text } );
+        return $nothing;
+    };
+    Test::Mutation::CLI::execute( $plan, $world );
+    return $text;
+}
+
+# The progress lines of a sequence of statuses: the command prints one after each mutant.
+sub progress_lines ( $terminal, $sequence ) {
+    my $text = printed(
+        $terminal,
+        sub ( $listener, $length ) {
+            $listener->( 'analyzed', { mutants => scalar $sequence->@*, files => 1, tests => 1 } );
+            $listener->( 'mutant',   { status  => $_ } ) for $sequence->@*;
+        }
+    );
+    return [ grep { /\A\[/ } split /[\r\n]+/, $text ];
+}
+
+subtest 'the progress of a made run rejects a line that drops a mutant' => sub {
+    is progress_lines( 0, [qw(Killed Survived)] ), [ '[1/2] 1 killed', '[2/2] 1 killed, 1 survived' ],
+      'the lines of a log';
+    is progress_lines( 1, [qw(Killed Survived)] ), [ '[1/2] 1 killed', '[2/2] 1 killed, 1 survived' ],
+      'the lines of a terminal';
+    is [ Invariants::progress_sum( progress_lines( 0, [qw(Killed Killed)] ) ) ], [], 'two counted mutants';
+    is [ Invariants::progress_sum( [ '[1/2] 1 killed', '[2/2] 1 killed' ] ) ],
+      ['the counts of a line sum to less than its position'],
+      'a line that leaves a mutant out';
+};
+
+my @sequences = ( [] );
+my @grown     = ( [] );
+for my $length ( 1 .. $longest ) {
+    my @longer;
+    for my $head (@grown) {
+        push @longer, map { [ $head->@*, $_->name ] } @statuses;
+    }
+    @grown = @longer;
+    push @sequences, @grown;
+}
+
+my $count = 0;
+for my $terminal ( 0, 1 ) {
+    for my $sequence (@sequences) {
+        my $lines = progress_lines( $terminal, $sequence );
+        my %counts;
+        $counts{$_}++ for $sequence->@*;
+        $count++;
+        push $violations{'progress-sum'}->@*,
+          map { [ $_, scalar $sequence->@*, $stream{$terminal} ] } Invariants::progress_sum($lines);
+        push $violations{'progress-final'}->@*,
+          map { [ 'the last line states another count than the result', $_, $stream{$terminal} ] }
+          Invariants::progress_final( $lines, \%counts, \%word );
+    }
+}
+
+my $expected = 0;
+$expected += @statuses**$_ for 0 .. $longest;
+is scalar @sequences, $expected,     'every sequence of the statuses of the table, up to four';
+is $count,            2 * $expected, 'each sequence on a terminal and in a log';
+Gate::checked( 'sequences of statuses', $count, at_least => 9000 );
+
+# The silence of a run in steps of its work: the tests of the unmodified run, and the mutants.
+# The run sends its events as the runner does: one when the analysis ends, one when the unmodified run ends, and one for each mutant.
+sub silences ( $terminal, $size ) {
+    my %silence = ( baseline => 0, mutants => 0 );
+    printed(
+        $terminal,
+        sub ( $listener, $length ) {
+            my ( $quiet, $seen ) = ( 0, 0 );
+            my $step = sub ( $phase, @event ) {
+                $quiet++;
+                $listener->(@event) if @event;
+                return              if $length->() == $seen;
+                $silence{$phase} = $quiet if $quiet > $silence{$phase};
+                ( $quiet, $seen ) = ( 0, $length->() );
+            };
+            $listener->( 'analyzed', { mutants => $size, files => 1, tests => $size } );
+            $seen = $length->();
+            $step->('baseline') for 2 .. $size;
+            $step->( 'baseline', 'baseline', { tests  => $size, jobs => 1 } );
+            $step->( 'mutants',  'mutant',   { status => 'Killed' } ) for 1 .. $size;
+        }
+    );
+    return \%silence;
+}
+
+subtest 'the silence of a made run rejects a phase that prints nothing' => sub {
+    is silences( 1, 10 ), { baseline => 10, mutants => 1 },
+      'a terminal waits for the unmodified run and then prints every mutant';
+    is silences( 0, 10 ), { baseline => 10, mutants => 1 }, 'a log of a small run prints every mutant';
+    is [ Invariants::liveness( silences( 1, 10 )->{mutants}, silences( 1, 1000 )->{mutants} ) ], [],
+      'the mutants on a terminal';
+    is [ Invariants::liveness( silences( 1, 10 )->{baseline}, silences( 1, 1000 )->{baseline} ) ],
+      ['the silence grows with the run'],
+      'the unmodified run';
+};
+
+my @sizes = ( 10, 1000 );
+for my $terminal ( 0, 1 ) {
+    my ( $small, $large ) = map { silences( $terminal, $_ ) } @sizes;
+    push $violations{liveness}->@*, map { [ 'the silence grows with the run', $_, $stream{$terminal} ] }
+      grep { Invariants::liveness( $small->{$_}, $large->{$_} ) } sort keys $small->%*;
+}
+Gate::checked( 'phases of a run', 2 * 2, at_least => 4 );
+
+Gate::findings( 'contract-progress-sum-progress',
+    Space::folded( $violations{'progress-sum'} || [], 'lengths', 'streams' ) );
+Gate::findings( 'contract-progress-final-progress',
+    Space::folded( $violations{'progress-final'} || [], 'statuses', 'streams' ) );
+Gate::findings( 'contract-liveness-progress', Space::folded( $violations{liveness} || [], 'phases', 'streams' ) );
+
+done_testing;

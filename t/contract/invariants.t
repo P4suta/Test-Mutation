@@ -145,6 +145,17 @@ subtest 'stdout rejects text on the wrong stream' => sub {
       ['the report of the run on standard error'], 'the report on standard error';
 };
 
+subtest 'stdout rejects bytes that are another text than the report' => sub {
+    my $report = "- caf\x{e9} \x{65e5}\n";
+    is [ Invariants::encoded( "- caf\xC3\xA9 \xE6\x97\xA5\n", $report ) ], [], 'the report in UTF-8';
+    is [ Invariants::encoded( "- caf\xE9\n", "- caf\x{e9}\n" ) ],
+      ['the bytes of the output are no UTF-8 form of the report'],
+      'a letter as one byte of Latin-1';
+    is [ Invariants::encoded( "- cafe\n", "- caf\x{e9}\n" ) ],
+      ['the bytes of the output are no UTF-8 form of the report'],
+      'another letter';
+};
+
 subtest 'the outcome of a result calls for one exit status' => sub {
     my $exit = sub ( $counts, %fact ) { [ Invariants::outcome( $counts, %fact ) ] };
     is $exit->( { Killed => 1, Pending => 1 }, signal => 130 ), [ 'interrupted', 130 ],   'a signal';
@@ -176,6 +187,103 @@ subtest 'three-deciders rejects deciders that disagree' => sub {
     is [ Invariants::three_deciders( run => 0, merge => undef, assertion => 0 ) ], [], 'all fail, and one is left out';
     is [ Invariants::three_deciders( run => 1, merge => 1, assertion => 0 ) ], ['pass: merge, run; fail: assertion'],
       'one decider fails alone';
+};
+
+subtest 'independent rejects a pair that differs from its two settings' => sub {
+    my %base = ( jobs => 3, cache => 0, formats => 'terminal json html' );
+    my %one  = ( %base, jobs  => 2 );
+    my %two  = ( %base, cache => 1 );
+    is [ Invariants::independent( \%base, \%one, \%two, { %base, jobs => 2, cache => 1 } ) ], [],
+      'each setting keeps its value in the pair';
+    is [ Invariants::independent( \%base, \%one, \%two, { %base, jobs => 2 } ) ], ['cache'],
+      'a value that the pair loses';
+    is [ Invariants::independent( \%base, \%one, \%two, { %base, jobs => 2, cache => 1, formats => 'json' } ) ],
+      ['formats'],
+      'a value that neither setting gives';
+    is [ Invariants::independent( \%base, \%one, \%two, undef ) ], ['the pair is refused'], 'a pair that is refused';
+};
+
+subtest 'round-trip rejects a report that loses a status or a reason' => sub {
+    my @written = (
+        { id => 'a', status => 'Killed',  reason => 't/a.t failed' },
+        { id => 'b', status => 'Timeout', reason => undef }
+    );
+    my @other =
+      ( { id => 'b', status => 'Ignored', reason => undef }, { id => 'a', status => 'Killed', reason => undef } );
+    is [ Invariants::round_trip( \@written, [ reverse @written ] ) ],       [], 'the same statuses and reasons';
+    is [ Invariants::round_trip( \@written, [ $written[0], $other[0] ] ) ], ['a status changes'], 'another status';
+    is [ Invariants::round_trip( \@written, [ $other[1], $written[1] ] ) ], ['a reason changes'], 'a lost reason';
+    is [ Invariants::round_trip( \@written, [ $written[0] ] ) ],            ['a mutant is gone'], 'a lost mutant';
+};
+
+subtest 'role rejects a score that the formula of the report schema gives another way' => sub {
+    my @differs = ('the score differs from the formula of the report schema');
+    is [ Invariants::role( { Killed  => 1, Survived => 1 }, 50 ) ],    [], 'detected among valid';
+    is [ Invariants::role( { Ignored => 2 },                undef ) ], [], 'no valid mutant and no score';
+    is [ Invariants::role( { Killed  => 1, Survived => 1, Timeout => 2 }, 50 ) ], \@differs,
+      'a timeout counts as detected there';
+    is [ Invariants::role( { Timeout => 1 }, undef ) ], \@differs, 'a timeout alone has a score there';
+};
+
+subtest 'counts rejects a report that states another count' => sub {
+    is [ Invariants::counts( { Killed => 2, Timeout => 1 }, { Killed => 2, Timeout => 1, Survived => 0 } ) ], [],
+      'the counts of the result';
+    is [ Invariants::counts( { Killed => 2, Timeout => 1 }, { Killed => 2 } ) ],
+      [ [ 'the report states no count', 'Timeout' ] ],
+      'a status without a count';
+    is [ Invariants::counts( { Killed => 2 }, { Killed => 1 } ) ], [ [ 'the report states another count', 'Killed' ] ],
+      'another count';
+};
+
+subtest 'progress-sum rejects a line whose counts miss its position' => sub {
+    is [ Invariants::progress_sum( [ '[1/2] 1 killed', '[2/2] 1 killed, 1 no coverage' ] ) ], [],
+      'counts that sum to the position';
+    is [ Invariants::progress_sum( [ '[1/2]', '[2/2] 1 killed' ] ) ],
+      ['the counts of a line sum to less than its position'],
+      'a mutant that no count holds';
+    is [ Invariants::progress_sum( ['[1/2] 2 killed'] ) ], ['the counts of a line sum to more than its position'],
+      'a mutant that two counts hold';
+};
+
+subtest 'progress-final rejects a last line that differs from the tally' => sub {
+    my %word = ( Killed => 'killed', Ignored => 'ignored', NoCoverage => 'no coverage' );
+    is [
+        Invariants::progress_final(
+            [ '[1/2] 1 killed', '[2/2] 1 killed, 1 no coverage' ],
+            { Killed => 1, NoCoverage => 1 }, \%word
+        )
+      ],
+      [],
+      'the tally of the result';
+    is [ Invariants::progress_final( [], {}, \%word ) ], [], 'a run without a mutant has no line';
+    is [ Invariants::progress_final( ['[2/2] 1 killed'], { Killed => 1, Ignored => 1 }, \%word ) ], ['Ignored'],
+      'a status that the last line lacks';
+    is [ Invariants::progress_final( ['[1/2] 1 killed'], { Killed => 2 }, \%word ) ], ['Killed'],
+      'a line before the end';
+    is [ Invariants::progress_final( [], { Killed => 1 }, \%word ) ], ['Killed'], 'no line at all';
+};
+
+subtest 'liveness rejects a silence that grows with the run' => sub {
+    is [ Invariants::liveness( 1, 1 ) ],   [], 'the same silence in a small and a large run';
+    is [ Invariants::liveness( 1, 100 ) ], ['the silence grows with the run'], 'a longer silence in the large run';
+};
+
+subtest 'message rejects a message that no case produces' => sub {
+    my $value    = "\x{2026}";
+    my @messages = ( "cannot read $value: $value", "cannot write $value: $value", 'merge needs at least one report' );
+    my @texts    = ( "mutation: cannot read a.toml: No such file or directory\n", 'merge needs at least one report' );
+    is [ Invariants::message( \@messages, \@texts ) ], ["cannot write $value: $value"],
+      'a text may stand behind the name of the command, and a message without a text is left';
+    is [
+        Invariants::message(
+            [ 'a location lies outside the source of ' . $value ],
+            ['the report is malformed: a location lies outside the source of lib/A.pm']
+        )
+      ],
+      [], 'a message inside another message';
+    is [ Invariants::message( ['cannot read the file'], ['cannot read the file of settings'] ) ],
+      ['cannot read the file'],
+      'a longer text is another message';
 };
 
 subtest 'the fold rejects a line that hides where a violation holds' => sub {

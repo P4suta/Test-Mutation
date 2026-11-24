@@ -75,46 +75,71 @@ sub toml ( $type, $value ) {
 my $SAMPLE_PATH = 'lib/Sample.pm';
 my $SAMPLE_TEST = 't/sample.t';
 
-sub _line ($number) {
-    return "sub f$number { return \$_[0] + $number }\n";
+# The letters that a source may hold next to its code: none, letters of Latin-1, and letters beyond it.
+my %LETTERS = ( ascii => q{}, latin1 => "    # caf\x{e9}", utf8 => "    # \x{65e5}\x{672c}" );
+
+sub letters () {
+    return [ sort keys %LETTERS ];
 }
 
-# A result with one mutant for each status, in a source with one line for each mutant.
+# The lines of the source that belong to one mutant: one line of code, and a second line when the change spans two.
+sub _unit ( $number, $letters, $lines ) {
+    my $code = "sub f$number { return \$_[0] + $number }$LETTERS{$letters}\n";
+    return $lines > 1 ? ( $code, "# after $number\n" ) : ($code);
+}
+
+sub _reason ($status) {
+    return $status eq 'Killed' ? "$SAMPLE_TEST failed" : $status eq 'Survived' ? undef : "reason of $status";
+}
+
+# A result with one mutant for each status, in a source with the lines of each mutant in turn.
+# `letters` names the letters of the source, and `lines` is the number of lines that each change spans.
 sub result (%arg) {
     my @statuses = @{ delete $arg{statuses} || [] };
-    my ( @entries, $offset );
-    $offset = 0;
+    my $letters  = exists $arg{letters} ? delete $arg{letters} : 'ascii';
+    my $lines    = exists $arg{lines}   ? delete $arg{lines}   : 1;
+    my ( @entries, @text );
+    my $offset = 0;
     for my $number ( 1 .. @statuses ) {
         my $status = $statuses[ $number - 1 ];
-        my $column = 1 + index _line($number), q{+};
+        my ( $code, @rest ) = _unit( $number, $letters, $lines );
+        my $first  = 1 + $lines * ( $number - 1 );
+        my $column = 1 + index $code, q{+};
+        my $start  = $offset + $column - 1;
+
+        # A change of one line replaces the operator, and a change of two lines runs to the end of the second line.
+        my $after  = @rest ? length( $rest[0] ) - 1           : 0;
+        my $end    = @rest ? $offset + length($code) + $after : $start + 1;
+        my $unit   = join q{}, $code, @rest;
         my $mutant = Test::Mutation::Mutant->new(
             id          => sprintf( '%012x', $number ),
             path        => $SAMPLE_PATH,
             mutator     => 'arithmetic',
-            start       => $offset + $column - 1,
-            end         => $offset + $column,
-            original    => q{+},
-            replacement => q{-},
+            start       => $start,
+            end         => $end,
+            original    => substr( $unit, $column - 1, $end - $start ),
+            replacement => @rest ? "-\n" : q{-},
             description => 'replaced + with -',
-            from        => [ $number, $column ],
-            to          => [ $number, $column + 1 ],
-            scope       => [ $number, $number ],
+            from        => [ $first, $column ],
+            to          => @rest ? [ $first + 1, $after + 1 ] : [ $first, $column + 1 ],
+            scope       => [ $first, $first + @rest ],
         );
         push @entries,
           {
-            mutant => $mutant,
-            status => $status,
-            reason => $status eq 'Killed' ? "$SAMPLE_TEST failed" : $status eq 'Survived' ? undef : "reason of $status",
-            by         => $status eq 'Killed'     ? $SAMPLE_TEST  : undef,
-            covered_by => $status eq 'NoCoverage' ? []            : [$SAMPLE_TEST],
-            tests_run  => $status eq 'NoCoverage' ? 0             : 1,
+            mutant     => $mutant,
+            status     => $status,
+            reason     => _reason($status),
+            by         => $status eq 'Killed'     ? $SAMPLE_TEST : undef,
+            covered_by => $status eq 'NoCoverage' ? []           : [$SAMPLE_TEST],
+            tests_run  => $status eq 'NoCoverage' ? 0            : 1,
             duration   => 0.25,
           };
-        $offset += length _line($number);
+        push @text, $unit;
+        $offset += length $unit;
     }
     return Test::Mutation::Result->new(
         root              => '/project',
-        sources           => { $SAMPLE_PATH => join q{}, map { _line($_) } 1 .. @statuses },
+        sources           => { $SAMPLE_PATH => join q{}, @text },
         tests             => [ { name => $SAMPLE_TEST, duration => 0.5 } ],
         entries           => \@entries,
         problems          => [],

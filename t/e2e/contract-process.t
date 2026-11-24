@@ -104,7 +104,8 @@ my @cases = (
 );
 
 my %violations;
-my $started = 0;
+my $started  = 0;
+my $progress = q{};
 for my $case (@cases) {
     my ( $name, $part, $project, $expected, @line ) = $case->@*;
     my $before = tree_digest($project);
@@ -120,6 +121,7 @@ for my $case (@cases) {
     my $observation = { $run->%*, warnings => [] };
     my $ran         = -e $marker ? 1 : 0;
     $started += $ran;
+    $progress = $run->{stderr} if $name eq 'measured';
     if ($ran) {
         unlink $marker or die "unlink $marker: $!";
     }
@@ -142,6 +144,11 @@ for my $case (@cases) {
 }
 
 ok $started, 'the sentinel reports the tests of a run that measures';
+
+# The progress space of t/contract sends these events in this order from a made run.
+like $progress,
+  qr/\A\d+ mutants? in \d+ files?, \d+ tests?\nThe unmodified run passed: [^\n]+\n(?:\[\s*\d+\/\d+\][^\n]*\n)+\z/,
+  'a run reports its analysis, then the end of the unmodified run, then each mutant';
 Gate::checked( 'command lines in a process', scalar @cases, at_least => 40 );
 
 for my $gate (qw(exit-domain exit-table one-line no-leak no-effect stdout)) {

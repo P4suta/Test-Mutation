@@ -17,6 +17,9 @@ use Test::Mutation::Status;
 use Test2::API ();
 
 # The spaces of cases come from the tables alone, so a new row brings its cases with it.
+# A table builds its rows on every call, so the spaces read each table once.
+my $SETTINGS = Test::Mutation::Settings::rows();
+my $COMMANDS = Test::Mutation::Commands::rows();
 
 # What differs between a table and the surface it describes, both as maps from a name to a text.
 sub differences ( $table, $surface ) {
@@ -165,7 +168,7 @@ sub status_sets () {
 # The command lines that select a command: each of its words, and no word at all for the default command.
 sub forms () {
     my @forms;
-    for my $command ( Test::Mutation::Commands::rows()->@* ) {
+    for my $command ( $COMMANDS->@* ) {
         push @forms, map { { command => $command, word => $_, label => $command->name } }
           grep { !/\A-/ } $command->words->@*;
         push @forms, { command => $command, word => undef, label => 'default' } if $command->default;
@@ -194,7 +197,7 @@ sub samples ($setting) {
 }
 
 sub flags () {
-    return [ grep { defined $_->flag } Test::Mutation::Settings::rows()->@* ];
+    return [ grep { defined $_->flag } $SETTINGS->@* ];
 }
 
 # The proper prefixes of a flag that are no flag themselves.
@@ -358,7 +361,7 @@ sub surfaces () {
 # The cases of S3: each setting, each sample of its type, and each surface that can say it.
 sub settings () {
     my @cases;
-    for my $setting ( Test::Mutation::Settings::rows()->@* ) {
+    for my $setting ( $SETTINGS->@* ) {
         my $type = samples($setting);
         for my $expect (qw(valid invalid)) {
             for my $sample ( $type->{$expect}->@* ) {
@@ -377,7 +380,7 @@ sub settings () {
 # The number of those cases, counted from the sizes of the tables.
 sub settings_count () {
     my $count = 0;
-    for my $setting ( Test::Mutation::Settings::rows()->@* ) {
+    for my $setting ( $SETTINGS->@* ) {
         my $type    = samples($setting);
         my $samples = $type->{valid}->@* + $type->{invalid}->@*;
         $count += $samples * grep { defined } $setting->flag, $setting->key, $setting->attribute;
@@ -515,7 +518,7 @@ sub states () {
 }
 
 sub selectors () {
-    my %setting = map { $_->name => $_ } Test::Mutation::Settings::rows()->@*;
+    my %setting = map { $_->name => $_ } $SETTINGS->@*;
     my @selectors;
     for my $selector (@SELECTORS) {
         my %with = ( $selector->%*, row => defined $selector->{setting} ? $setting{ $selector->{setting} } : undef );
@@ -628,6 +631,67 @@ sub selection_tree ($case) {
     _git( $root, 'commit', '-q', '-m', 'the project' );
     Fixture::write_file( "$root/lib/Tiny.pm", $TINY{'lib/Tiny.pm'} =~ s/[+]/*/r ) if $case->{state} eq 'matches';
     return $root;
+}
+
+# S6, the reports: the sets of statuses that a result holds, each status once present and once absent.
+sub result_sets () {
+    my @names = map { $_->name } Test::Mutation::Status::rows()->@*;
+    my @sets  = ( [ 'none', [] ], [ 'all', [@names] ] );
+    for my $name (@names) {
+        push @sets, [ "only-$name", [$name] ], [ "all-but-$name", [ grep { $_ ne $name } @names ] ];
+    }
+    return \@sets;
+}
+
+# The shapes of a source and its changes: the letters next to the code, and the lines that a change spans.
+sub shapes () {
+    my @shapes;
+    for my $letters ( Samples::letters()->@* ) {
+        push @shapes, map { { label => "$letters-$_", letters => $letters, lines => $_ } } 1, 2;
+    }
+    return \@shapes;
+}
+
+# S2, the pairs: two settings on one command line, under each state of the environment that the command reads.
+sub environments () {
+    my @environments;
+    for my $github ( 0, 1 ) {
+        for my $plain ( 0, 1 ) {
+            for my $terminal ( 0, 1 ) {
+                my @named = (
+                    ( $github   ? 'GITHUB_ACTIONS' : () ),
+                    ( $plain    ? 'NO_COLOR'       : () ),
+                    ( $terminal ? 'terminal'       : () )
+                );
+                my %env = ( ( $github ? ( GITHUB_ACTIONS => 'true' ) : () ), ( $plain ? ( NO_COLOR => '1' ) : () ) );
+                push @environments,
+                  {
+                    label => @named ? join( q{+}, @named ) : 'plain',
+                    named => \@named,
+                    fact  => { env => \%env, out_tty => $terminal, err_tty => $terminal },
+                  };
+            }
+        }
+    }
+    return \@environments;
+}
+
+# What a part of the environment may change today: the attributes of the plan, and the stream of the output.
+my %DECLARED =
+  ( GITHUB_ACTIONS => { attributes => ['formats'], streams => ['stdout'] }, terminal => { streams => ['stderr'] } );
+
+sub declared ( $named, $kind ) {
+    return { map { $_ => 1 } map { @{ $DECLARED{$_}{$kind} || [] } } $named->@* };
+}
+
+# The settings of a plan as texts.
+sub config_text ($config) {
+    return { map { $_->attribute => value_text( $_, $config ) } grep { defined $_->attribute } $SETTINGS->@* };
+}
+
+# The words that set one setting on the command line to its first sample.
+sub flag_words ($setting) {
+    return on_surface( $setting, 'flag', samples($setting)->{valid}[0] );
 }
 
 # The findings of one invariant.

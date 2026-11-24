@@ -1,5 +1,6 @@
 package Invariants;
 use v5.36;
+use Encode ();
 
 # Each invariant reads one observation and returns the symptoms that break it, or nothing.
 # A symptom is a fixed phrase and never the text of the tool, so a finding reads the same on every machine.
@@ -162,6 +163,112 @@ sub three_deciders (%success) {
     return 'pass: ' . join( ', ', @passing ) . '; fail: ' . join ', ', grep { !$success{$_} } @deciders;
 }
 
+# independent: one setting changes the effect of another only through a declared interaction.
+# Each argument maps the attributes to their texts: with no setting, with each of two settings, and with both.
+# The answer names the attributes that the pair sets another way than its two settings do alone.
+sub independent ( $base, $one, $other, $both ) {
+    return 'the pair is refused' if !$both;
+    my @differ;
+    for my $name ( sort keys $base->%* ) {
+        my $expected = $one->{$name} ne $base->{$name} ? $one->{$name} : $other->{$name};
+        push @differ, $name if $both->{$name} ne $expected;
+    }
+    return @differ;
+}
+
+# round-trip: a report that is written and read again keeps every status and every reason.
+# Each side lists the identifier, the status, and the reason of its mutants.
+sub round_trip ( $written, $read ) {
+    my %read = map { $_->{id} => $_ } $read->@*;
+    my %symptom;
+    for my $fact ( $written->@* ) {
+        my $again = $read{ $fact->{id} };
+        if ( !$again ) {
+            $symptom{'a mutant is gone'} = 1;
+            next;
+        }
+        $symptom{'a status changes'} = 1 if $again->{status} ne $fact->{status};
+        my ( $before, $after ) = map { defined $_->{reason} ? "reason $_->{reason}" : 'none' } $fact, $again;
+        $symptom{'a reason changes'} = 1 if $before ne $after;
+    }
+    my @symptoms = sort keys %symptom;
+    return @symptoms;
+}
+
+# role: the score equals the one that the formula of the report schema gives for the statuses of the report.
+# A viewer of the report computes its score that way: a timeout counts as detected.
+sub role ( $counts, $score ) {
+    my %count    = ( ( map { $_ => 0 } qw(Killed Timeout Survived NoCoverage) ), $counts->%* );
+    my $detected = $count{Killed} + $count{Timeout};
+    my $valid    = $detected + $count{Survived} + $count{NoCoverage};
+    my $share    = $valid ? $detected / $valid : undef;
+    my ( $theirs, $ours ) = map { defined $_ ? sprintf '%.6f', $_ : 'none' } ( defined $share ? 100 * $share : undef ),
+      $score;
+    return $theirs eq $ours ? () : ('the score differs from the formula of the report schema');
+}
+
+# counts: a report states the count of the result for every status that the result holds.
+# The answer pairs each symptom with its status.
+sub counts ( $expected, $stated ) {
+    return map {
+            !exists $stated->{$_}            ? [ 'the report states no count',      $_ ]
+          : $stated->{$_} != $expected->{$_} ? [ 'the report states another count', $_ ]
+          : ()
+    } grep { $expected->{$_} } sort keys $expected->%*;
+}
+
+sub _progress_line ($line) {
+    my ( $position, $total, $rest ) = $line =~ /\A\[\s*(\d+)\/(\d+)\](.*)\z/ or return;
+    my %stated = map { /\A(\d+) (.+)\z/ ? ( $2 => $1 ) : () } split /, /, $rest =~ s/\A //r;
+    return { position => $position, total => $total, stated => \%stated };
+}
+
+# progress-sum: the counts of a progress line sum to its position.
+sub progress_sum ($lines) {
+    my %symptom;
+    for my $line ( grep { defined } map { _progress_line($_) } $lines->@* ) {
+        my $sum = 0;
+        $sum += $_ for values $line->{stated}->%*;
+        $symptom{'the counts of a line sum to less than its position'} = 1 if $sum < $line->{position};
+        $symptom{'the counts of a line sum to more than its position'} = 1 if $sum > $line->{position};
+    }
+    my @symptoms = sort keys %symptom;
+    return @symptoms;
+}
+
+# progress-final: the last progress line states the tally of the result.
+# `words` maps each status to the word that counts it, and the answer names the statuses that the last line gets wrong.
+sub progress_final ( $lines, $counts, $words ) {
+    my @parsed = grep { defined } map { _progress_line($_) } $lines->@*;
+    my $last   = @parsed ? $parsed[-1] : { position => 0, total => 0, stated => {} };
+    my $ended  = $last->{position} == $last->{total};
+    return grep {
+        my $stated = $last->{stated}{ $words->{$_} };
+        !$ended || !defined $stated || $stated != $counts->{$_}
+    } grep { $counts->{$_} } sort keys $counts->%*;
+}
+
+# liveness: the progress never stays silent for longer than a fixed time.
+# Each argument is the longest silence of a run in steps of its work, for a small run and for a large one.
+sub liveness ( $small, $large ) {
+    return $large > $small ? ('the silence grows with the run') : ();
+}
+
+# message: some case produces every message that a user may read.
+# A message holds a mark where the code puts a value, and a text may carry the message behind the words of its sender.
+# The answer lists the messages that no text carries.
+sub message ( $messages, $texts ) {
+    my @heard;
+    for my $line ( map { split /\n/ } $texts->@* ) {
+        my @parts = split /: /, $line, -1;
+        push @heard, map { join ': ', @parts[ $_ .. $#parts ] } 0 .. $#parts;
+    }
+    return grep {
+        my $pattern = join '.*', map { quotemeta } split /\x{2026}/, $_, -1;
+        !grep { /\A$pattern\z/ } @heard
+    } $messages->@*;
+}
+
 # stdout: standard output holds the report alone, so a refusal prints nothing there and no progress line lands there.
 sub stdout ($observation) {
     my $text = $observation->{stdout};
@@ -169,6 +276,12 @@ sub stdout ($observation) {
     return 'a progress line on standard output'  if $text =~ /^\[\s*\d+\/\d+\]|^The unmodified run passed|^mutation: /m;
     return 'the report of the run on standard error' if $observation->{stderr} =~ /^Score: |^\d+ mutants?: /m;
     return;
+}
+
+# stdout, for the letters of a report: the bytes that the command writes are the UTF-8 form of the text of the report.
+sub encoded ( $bytes, $text ) {
+    my $read = eval { Encode::decode( 'UTF-8', $bytes, Encode::FB_CROAK | Encode::LEAVE_SRC ) };
+    return defined $read && $read eq $text ? () : ('the bytes of the output are no UTF-8 form of the report');
 }
 
 # help: the word prints its text, succeeds, and leaves standard error empty, wherever it stands.

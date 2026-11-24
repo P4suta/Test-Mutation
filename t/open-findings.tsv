@@ -199,3 +199,11 @@ engine-zoo	process=close-stdout: I1 the tool uses the processor while its tests 
 engine-zoo	process: I2 a process outlives the run: the daemon of t/daemonize.t	the workspace that owns every resource of a run
 records	the record table parses the kind error into errors, and the runner never reads errors	the closed record vocabulary and its evidence
 records	the shim writes the kind end, and the record table drops it	the closed record vocabulary and its evidence
+contract-progress-sum-progress	the counts of a line sum to less than its position; lengths 1 2 3 4; streams log terminal	the progress display
+contract-progress-final-progress	the last line states another count than the result; statuses Ignored Pending; streams log terminal	the progress display
+contract-liveness-progress	the silence grows with the run; phases baseline; streams log terminal	the progress display
+contract-liveness-progress	the silence grows with the run; phases mutants; streams log	the progress display
+contract-counts-reports	the report states no count; statuses CompileError Ignored Pending RuntimeError; formats github	the terminal report and the summary of GitHub
+contract-role-reports	the score differs from the formula of the report schema; results all all-but-CompileError all-but-Ignored all-but-Killed all-but-NoCoverage all-but-Pending all-but-RuntimeError all-but-Survived only-Timeout; formats html json	the status catalog
+contract-stdout-reports	the bytes of the output are no UTF-8 form of the report; shapes latin1-1 latin1-2; formats terminal	the encoding of the output
+contract-no-leak-reports	a warning of Perl; shapes utf8-1 utf8-2; formats terminal	the encoding of the output
