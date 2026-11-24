@@ -199,6 +199,7 @@ mutants-context-generated	the context changes the mutants of an expression: modi
 mutants-context-generated	the context changes the mutants of an expression: use statement	the typed analysis with its count of dropped sites
 mutants-context-product	the context changes the mutants of an expression: modifier	the typed analysis with its count of dropped sites
 mutants-context-product	the context changes the mutants of an expression: use statement	the typed analysis with its count of dropped sites
+mutants-kills-fixtures	run_command serves no mutant to a test under taint mode	the exec command inside a copy of the project
 mutants-literal-installed	number-literal reads an octal literal as a decimal number	the number-literal mutator that keeps the base of a literal
 mutants-refusal-installed	boolean-literal has a change refused under unresolved-call that perl accepts	the import resolution of the validity boundary
 mutants-refusal-installed	statement-removal has a change refused under declaration that perl accepts	the validity boundary of the generator
