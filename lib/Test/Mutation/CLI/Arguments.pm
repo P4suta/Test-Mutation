@@ -9,18 +9,13 @@ use Test::Mutation::Settings;
 our $VERSION = '0.001';
 
 # The words that select a command, and the options that answer without a project.
-my ( %COMMAND, %ANSWER, @ANSWERS );
+my ( %COMMAND, %ANSWER );
 for my $command ( Test::Mutation::Commands::rows()->@* ) {
     for my $word ( $command->words->@* ) {
-        if ( $word =~ /\A-/ ) {
-            $ANSWER{$word} = $command->name;
-            push @ANSWERS, $word;
-        }
-        else {
-            $COMMAND{$word} = $command->name;
-        }
+        ( $word =~ /\A-/ ? $ANSWER{$word} : $COMMAND{$word} ) = $command->name;
     }
 }
+my @ANSWERS = sort keys %ANSWER;
 
 # Every spelling of a setting on the command line: its flag, the negation of a flag, and its short option.
 my ( %OPTION, @SPELLINGS );

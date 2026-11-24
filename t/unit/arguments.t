@@ -88,6 +88,11 @@ subtest 'the refusals, each with the spelling of the user' => sub {
     is refused('--min_score'), [ 'option-unknown', '--min_score names no option; the nearest is --min-score' ],
       'the name of another surface';
     is refused('-x'), [ 'option-unknown', '-x names no option; the nearest is -C' ], 'a short option';
+    is [ map { refused($_)->[1] } '--halp', '--versoin' ],
+      [ '--halp names no option; the nearest is --help', '--versoin names no option; the nearest is --version' ],
+      'and the nearest option may answer without a command';
+    is refused( 'mutators', '-' . 'hh' ), [ 'option-unknown', '-hh names no option; the nearest is -h' ],
+      'and the help is among the options of every command';
     is refused( 'mutators', '--jobs', 2 ), [ 'option-elsewhere', '--jobs is no option of mutators' ],
       'an option of another command';
     is refused( 'mutators', '--jobz' ), [ 'option-unknown', '--jobz names no option; the nearest is --root' ],

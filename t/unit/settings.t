@@ -169,7 +169,7 @@ subtest 'one value of each type' => sub {
       'whole numbers above zero';
     is [ map { $decoded->( 'jobs', $_ ) } 0, -1, '1.5', 'x', '0x10', '9007199254740993', '99999999999999999999' ],
       [ ('refused') x 7 ], 'and nothing else, also nothing above the largest exact number';
-    is [ map { $decoded->( 'timeout-factor', $_ ) } '0.5', 2, '1e3', '.5' ], [ 0.5, 2, 1000, 0.5 ],
+    is [ map { $decoded->( 'timeout-factor', $_ ) } '0.5', 2, '1e3', '.5', '1e300' ], [ 0.5, 2, 1000, 0.5, 1e300 ],
       'numbers above zero';
     is [ map { $decoded->( 'timeout-factor', $_ ) } 0, -1, 'inf', 'nan', '1e400', 'x' ], [ ('refused') x 6 ],
       'and no infinity';

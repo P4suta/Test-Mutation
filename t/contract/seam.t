@@ -196,6 +196,12 @@ subtest 'carrying out a refusal prints its text and returns its status' => sub {
         q{}
       ],
       'the help';
+
+    # Each option and its line of help stand apart by two spaces at least, and every line of help starts in one column.
+    my ($options) = $help->{stdout} =~ /\nOptions:\n(.*)\z/s;
+    my %column = map { /\A(  \S.*?  +)\S/ ? ( length $1 => 1 ) : ( 'a line without help' => 1 ) } split /\n/, $options;
+    my ($longest) = sort { $b <=> $a } map { /\A  (\S.*?)  / ? length $1 : 0 } split /\n/, $options;
+    is [ keys %column ], [ $longest + 4 ], 'the lines of help line up two spaces after the longest option';
 };
 
 subtest 'carrying out a plan enters the directory and prints to the streams of the world' => sub {
