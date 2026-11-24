@@ -224,8 +224,8 @@ contract-plan-settings	the default of switch differs from the contract	the launc
 contract-plan-settings	the table lacks the setting color of the contract	the progress display
 contract-plan-settings	the table lacks the setting github of the contract	the terminal report and the summary of GitHub
 contract-plan-settings	the table lacks the setting lib of the contract	the launch of a test command
-contract-plan-settings	the table lacks the setting suppress-require-names of the contract	the grammar of suppression comments
-contract-plan-settings	the table lacks the setting suppress-require-reason of the contract	the grammar of suppression comments
+contract-plan-settings	the table lacks the setting suppress-require-names of the contract	the suppression grammar
+contract-plan-settings	the table lacks the setting suppress-require-reason of the contract	the suppression grammar
 contract-stray-arguments	after-dashes: accepted; flags --baseline-timeout --cache --cache-dir --config --coverage --disable --enable --equivalence --format --in-place --jobs --keep-work --link --min-score --mutant --perl --profile --report-dir --root --shard --since --source --source-exclude --switch --test --test-exclude --threshold-high --threshold-low --timeout-factor --timeout-floor; commands list show	the commands table
 contract-stray-arguments	operands: accepted; counts 1; commands list	the commands table
 contract-stray-arguments	operands: accepted; counts 2; commands show	the commands table
