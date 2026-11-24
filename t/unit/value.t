@@ -39,6 +39,19 @@ is refusal( sub { Test::Mutation::Mutant::Validity->new(%validity) } ), 'no refu
 is refusal( sub { Test::Mutation::Mutant::Validity->new( %validity, _wide => \q{} ) } ),
   "the class Test::Mutation::Mutant::Validity takes no argument _wide\n", 'which no argument sets';
 
+# An analysis builds hundreds of thousands of values, so the role reads the arguments of a class once.
+{
+    my $reads = 0;
+    my $read  = \&Method::Generate::Constructor::all_attribute_specs;
+    no warnings 'redefine';
+    local *Method::Generate::Constructor::all_attribute_specs =
+      sub (@arguments) { $reads++; return $read->(@arguments) };
+    Test::Mutation::Exit->new(%exit) for 1 .. 3;
+    is $reads, 0, 'a class that built a value before reads its arguments no more';
+    is refusal( sub { Test::Mutation::Exit->new( %exit, colour => 'red' ) } ),
+      "the class Test::Mutation::Exit takes no argument colour\n", 'and refuses an unknown one all the same';
+}
+
 my @classes = map { "Test::Mutation::$_" }
   qw(Clock Command Config Coverage Error Exit Interrupted Message Mutant Mutant::Validity Mutator Result Setting Site Source Status);
 for my $class (@classes) {

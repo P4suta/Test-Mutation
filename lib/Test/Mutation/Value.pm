@@ -6,12 +6,21 @@ our $VERSION = '0.001';
 
 # Moo keeps the arguments that a class takes with the maker of its constructor, and offers no other reader.
 # An attribute without an argument has an undefined name of its argument, and an argument of another name has that name.
-around BUILDARGS => sub ( $build, $class, @arguments ) {
-    my $given = $class->$build(@arguments);
+sub _taken ($class) {
     my $specs = Moo->_constructor_maker_for($class)->all_attribute_specs;    ## no critic (Subroutines::ProtectPrivateSubs)
-    my %taken = map { $_ => 1 } grep { defined }
-      map { exists $specs->{$_}{init_arg} ? $specs->{$_}{init_arg} : $_ } keys $specs->%*;
-    my @unknown = sort grep { !$taken{$_} } keys $given->%*;
+    return {
+        map { $_ => 1 } grep { defined }
+        map { exists $specs->{$_}{init_arg} ? $specs->{$_}{init_arg} : $_ } keys $specs->%*
+    };
+}
+
+# A class declares its attributes before it builds its first value, so each class reads them once.
+my %TAKEN;
+
+around BUILDARGS => sub ( $build, $class, @arguments ) {
+    my $given   = $class->$build(@arguments);
+    my $taken   = $TAKEN{$class} ||= _taken($class);
+    my @unknown = sort grep { !$taken->{$_} } keys $given->%*;
     return $given if !@unknown;
 
     # The catalog is itself a class with this role, so it loads when a class first needs a message.
