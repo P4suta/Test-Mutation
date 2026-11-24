@@ -2,9 +2,11 @@ package Discovery::Project;
 use v5.36;
 use Cwd         ();
 use Digest::SHA ();
+use File::Copy  ();
 use File::Find  ();
 use File::Path  ();
 use File::Temp  ();
+use POSIX       ();
 use Time::HiRes ();
 
 # A generated project stands in a scratch directory of its own, next to the registry of the processes its tests start.
@@ -43,7 +45,94 @@ sub write ( $self, $path, $content, %arg ) {    ## no critic (Subroutines::Prohi
     print {$handle} $content or die "write $target: $!";
     close $handle            or die "close $target: $!";
     chmod $arg{mode}, $target or die "chmod $target: $!" if defined $arg{mode};
+    utime $arg{time}, $arg{time}, $target or die "utime $target: $!" if defined $arg{time};
     return $target;
+}
+
+# A second project with the same files, for an oracle that may change them.
+sub copy ($self) {
+    my $copy = ref($self)->new;
+    my ( $from, $to ) = ( $self->{root}, $copy->{root} );
+    my @directories;
+    File::Find::find(
+        {
+            no_chdir => 1,
+            wanted   => sub {
+                return if $File::Find::name eq $from;
+                my $path = substr $File::Find::name, 1 + length $from;
+                if ( $OUTSIDE{$path} ) {
+                    $File::Find::prune = 1;
+                    return;
+                }
+                my @status = lstat $File::Find::name or die "read $File::Find::name: $!";
+                if ( -l _ ) {
+                    symlink readlink($File::Find::name), "$to/$path" or die "link $to/$path: $!";
+                }
+                elsif ( -d _ ) {
+                    mkdir "$to/$path" or die "create $to/$path: $!";
+                    push @directories, [ "$to/$path", $status[2] & oct '7777' ];
+                }
+                elsif ( -f _ ) {
+                    File::Copy::copy( $File::Find::name, "$to/$path" ) or die "copy $path: $!";
+                    chmod $status[2] & oct('7777'), "$to/$path" or die "chmod $to/$path: $!";
+                    utime @status[ 8, 9 ], "$to/$path" or die "utime $to/$path: $!";
+                }
+                return;
+            },
+        },
+        $from,
+    );
+    chmod $_->[1], $_->[0] or die "chmod $_->[0]: $!" for reverse @directories;
+    return $copy;
+}
+
+my $PROVE = <<'PERL';
+use strict;
+use warnings;
+use App::Prove;
+use TAP::Harness;
+BEGIN { $INC{'Discovery/Recording.pm'} = __FILE__ }
+
+package Discovery::Recording {
+    use parent -norequire, 'TAP::Harness';
+
+    sub runtests {
+        my ( $self, @tests ) = @_;
+        my $aggregate = $self->SUPER::runtests(@tests);
+        for my $test ( $aggregate->descriptions ) {
+            my ($parser) = $aggregate->parsers($test);
+            print {$main::RESULT} "$test\t", ( $parser->has_problems ? 'fail' : 'pass' ), "\n";
+        }
+        return $aggregate;
+    }
+}
+
+open our $RESULT, '>&', \*STDOUT    or die "result: $!";
+open STDOUT,      '>',  '/dev/null' or die "stdout: $!";
+open STDERR,      '>',  '/dev/null' or die "stderr: $!";
+my $app = App::Prove->new;
+$app->process_args( '--harness', 'Discovery::Recording', @ARGV );
+exit( $app->run ? 0 : 1 );
+PERL
+
+# The verdict of prove on each test, as `prove -l` gives it in the root of the project.
+# prove runs the tests in the project itself, so a project whose tests write files goes there as a copy.
+sub proves ( $self, @arguments ) {
+    my $script = "$self->{scratch}/prove.pl";
+    if ( !-e $script ) {
+        open my $handle, '>', $script or die "write $script: $!";
+        print {$handle} $PROVE or die "write $script: $!";
+        close $handle          or die "close $script: $!";
+    }
+    my $pid = open my $result, q{-|};
+    die "fork: $!" if !defined $pid;
+    if ( !$pid ) {
+        chdir $self->{root} or POSIX::_exit(126);
+        exec {$^X} $^X, $script, '-l', @arguments or POSIX::_exit(127);
+    }
+    my %verdict = map { /\A(.*)\t(pass|fail)\n\z/ ? ( $1 => $2 ) : () } readline $result;
+    close $result or 1;
+    return \%verdict;
 }
 
 sub text ( $self, $path ) {

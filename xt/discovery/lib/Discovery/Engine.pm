@@ -61,6 +61,18 @@ sub with ( $self, %part ) {
     return bless { $self->%*, %part }, ref $self;
 }
 
+# A copy whose results pass through the code before any distortion that the adapter already has.
+sub before ( $self, $code ) {
+    my $later = $self->{distort};
+    return $self->with(
+        distort => sub ( $run, $settings ) {
+            $code->( $run, $settings );
+            $later->( $run, $settings ) if $later;
+            return;
+        }
+    );
+}
+
 sub arguments ( $self, %settings ) {
     my @unknown = sort grep { !$FLAG{$_} && !$OWN{$_} } keys %settings;
     die "the adapter has no setting named @unknown\n" if @unknown;

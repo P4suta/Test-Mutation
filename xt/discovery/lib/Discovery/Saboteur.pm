@@ -36,11 +36,16 @@ sub _distort ($code) {
     };
 }
 
-sub _first ( $run, @statuses ) {
+sub _first_in ( $run, $path, @statuses ) {
     my %wanted = map { $_ => 1 } @statuses;
-    my ($id) = grep { $wanted{ $run->{status}{$_} } } sort keys $run->{status}->%*;
+    my ($id) =
+      grep { $wanted{ $run->{status}{$_} } && $run->{mutants}{$_}{path} =~ $path } sort keys $run->{status}->%*;
     die "the bench has no mutant with the status @statuses\n" if !defined $id;
     return $id;
+}
+
+sub _first ( $run, @statuses ) {
+    return _first_in( $run, qr/./, @statuses );
 }
 
 # The sleeper leaves the harness as a grandchild, registers itself, and ends on its own after its sleep.
@@ -131,6 +136,27 @@ my %SABOTEUR = (
                 my $id = _first( $run, 'Killed' );
                 $run->@{qw(status reason)} =
                   ( { $run->{status}->%*, $id => 'Timeout' }, { $run->{reason}->%*, $id => undef } );
+            }
+        ),
+    },
+    I6 => {
+        'a deviation without its warning' => _distort(
+            sub ( $run, $settings ) {
+                $run->{warnings} = [];
+            }
+        ),
+    },
+    I8 => {
+        'a kill that one loading style loses' => _distort(
+            sub ( $run, $settings ) {
+                $run->{status}{ _first_in( $run, qr/Require/, 'Killed' ) } = 'NoCoverage';
+            }
+        ),
+        'a loading style without its mutants' => _distort(
+            sub ( $run, $settings ) {
+                for my $id ( grep { $run->{mutants}{$_}{path} =~ /Require/ } keys $run->{mutants}->%* ) {
+                    delete $run->{$_}{$id} for qw(mutants status reason by covered);
+                }
             }
         ),
     },

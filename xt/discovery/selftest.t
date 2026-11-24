@@ -7,6 +7,7 @@ use Discovery::Engine;
 use Discovery::Known;
 use Discovery::Project;
 use Discovery::Saboteur;
+use Discovery::Zoo;
 
 # A check that accepts every input finds nothing for the wrong reason.
 # Each invariant and each relation therefore meets its saboteurs: adapters that break it and that the check must reject.
@@ -25,6 +26,29 @@ sub single ($name) {
 }
 
 my %bench = map { $_ => single($_) } qw(completes I2 I3 I4 I5 I7);
+
+# Two loading styles that the tool serves alike, so every difference between them comes from a saboteur.
+my $zoo     = Discovery::Zoo->new( known => $known );
+my $styles  = Discovery::Project->new;
+my $built   = $zoo->build( $styles, 'use', 'require' );
+my @between = ( known => $known, member => $built->{require}, reference => $built->{use} );
+
+$bench{I8} = sub ($engine) {
+    return [ Discovery::Check::findings( ['I8'], run => $engine->run( $styles, equivalence => 0 ), @between ) ];
+};
+
+# The bench gives one style a lost kill that a warning names, which is how the tool reports a deviation.
+$bench{I6} = sub ($engine) {
+    my $reporting = $engine->before(
+        sub ( $run, $settings ) {
+            my ($id) = grep { $run->{mutants}{$_}{path} eq 'lib/Zoo/Require.pm' && $run->{status}{$_} eq 'Killed' }
+              sort keys $run->{status}->%*;
+            $run->{status}{$id} = 'NoCoverage';
+            push $run->{warnings}->@*, 't/require.t loads lib/Zoo/Require.pm around the hook';
+        }
+    );
+    return [ Discovery::Check::findings( ['I6'], run => $reporting->run( $styles, equivalence => 0 ), @between ) ];
+};
 
 is [ sort keys %bench ],             [ Discovery::Check::names() ], 'every check has a bench';
 is [ Discovery::Saboteur::names() ], [ Discovery::Check::names() ], 'the saboteur set equals the invariant set';

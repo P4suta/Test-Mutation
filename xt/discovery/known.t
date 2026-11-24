@@ -107,16 +107,14 @@ subtest 'the truth rejects a verdict that the cells contradict' => sub {
     my $found = sub (%status) {
         return [ Discovery::Check::findings( ['I7'], run => $run->(%status), known => $known, coverage => 'line' ) ];
     };
-    is $found->(%truth),                                           [], 'the statuses of the truth pass';
+    is $found->(%truth), [], 'the statuses of the truth pass';
     is $found->( %truth, idle => 'Ignored', passes => 'Ignored' ), [], 'a mutant that no test kills may be ignored';
-    is $found->( %truth, kills => 'Ignored' ), ['I7 truth Killed, run Ignored'], 'a mutant that a test kills may not';
+    is $found->( %truth, kills => 'Ignored' ), ['I7 the run gives Ignored where the truth gives Killed'],
+      'a mutant that a test kills may not';
     is $found->( kills => 'Survived', passes => 'Killed', idle => 'Survived', loops => 'Killed', broken => 'Killed' ),
       [
-        'I7 truth CompileError, run Killed',
-        'I7 truth Killed, run Survived',
-        'I7 truth NoCoverage, run Survived',
-        'I7 truth Survived, run Killed',
-        'I7 truth Timeout, run Killed',
+        'I7 the run gives Killed where the truth gives CompileError and Survived and Timeout',
+        'I7 the run gives Survived where the truth gives Killed and NoCoverage',
       ],
       'every other status is a finding';
     is [ Discovery::Check::findings( ['I7'], run => $run->( idle => 'Survived' ), known => $known, coverage => 'file' )

@@ -125,6 +125,21 @@ sub module ( $self, $package ) {
     return sprintf( $HEADER, $package ) . join( q{}, map { "$_->{text}\n" } $self->{lines}->@* ) . "1;\n";
 }
 
+my $ANSWER = <<'PERL';
+my ( $cell, @arguments ) = @ARGV;
+my $value = main->can($cell)->(@arguments);
+print defined $value ? "value $value\n" : "undefined\n";
+PERL
+
+# The cells as a program that answers one call, with the cells on the lines that they have in the module.
+sub script ( $self, $first ) {
+    return "$first\nuse strict;\nuse warnings;\n" . join( q{}, map { "$_->{text}\n" } $self->{lines}->@* ) . $ANSWER;
+}
+
+sub holds ( $self, $line ) {
+    return $line >= $FIRST_LINE && $line < $FIRST_LINE + $self->{lines}->@* ? 1 : 0;
+}
+
 # The rows that a test asserts: a cell, its inputs, and the value of the original.
 sub rows ( $self, $test ) {
     my @rows;
