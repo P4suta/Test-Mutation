@@ -25,7 +25,7 @@ my $known  = Discovery::Known->new(
 my $zoo      = Discovery::Zoo->new( known => $known );
 my @run      = qw(completes I2 I3 I4);
 my %settings = ( sources => Discovery::Zoo::sources(), equivalence => 0 );
-my %together = ( loading => 'use' );
+my $plain    = 'use';
 my ( %found, %ran );
 my ( $runs,  $compared ) = ( 0, 0 );
 
@@ -91,23 +91,32 @@ subtest 'the comparison of two members rejects a lost kill and a silent one' => 
 };
 
 # prove is the oracle of the unmodified run: every member passes there, in a copy that its tests may change.
-sub passes_under_prove ( $project, $built ) {
+# The tests run side by side, so a test that leaves a process with its output costs the time of one such process.
+sub passes_under_prove ( $project, $built, @arguments ) {
     my @tests   = sort map { $_->{test} } values $built->%*;
     my $copy    = $project->copy;
-    my $verdict = $copy->proves(@tests);
+    my $verdict = $copy->proves( '-j4', @arguments, @tests );
     $copy->discard;
+
+    # A process that a test left under prove would count as one that the tool left.
+    $project->reap;
     return is $verdict, { map { $_ => 'pass' } @tests }, "prove passes @tests";
 }
 
-# The members of an axis that touch their own process alone share one project and one run.
+# The members of an axis that touch their own process alone share one project and one run with the plain member.
 # A member whose test fails without a mutant is a finding, and the others are measured without it.
-sub together ( $axis, @names ) {
+# The full tier repeats such a run under other settings, which come in `more`.
+sub together ( $axis, $members, %more ) {
+    my @members = $members->@*;
+    my @names   = ( ( grep { $_ eq $plain } @members ) ? () : $plain, @members );
+    my @truth   = defined $more{coverage} ? ( coverage => $more{coverage} ) : ();
     my ( $project, $built, $run, @failed );
     while (@names) {
         $project = Discovery::Project->new;
         $built   = $zoo->build( $project, @names );
-        passes_under_prove( $project, $built ) if !@failed;
-        $run = $engine->run( $project, %settings );
+        passes_under_prove( $project, $built ) if !@failed && !%more;
+        $run = $engine->run( $project, %settings, %more );
+        note sprintf '%s: the run of %d members took %.1f seconds', $axis, scalar @names, $run->{seconds};
         $runs++;
         my %broken  = map { $_ => 1 } $run->{baseline_failures}->@*;
         my %failing = map { $_ => 1 } grep { $broken{ $built->{$_}{test} } } @names;
@@ -115,48 +124,69 @@ sub together ( $axis, @names ) {
         push @failed, sort keys %failing;
         @names = grep { !$failing{$_} } @names;
     }
-    my $reference = $built->{ $together{$axis} } or die "the reference of $axis fails without a mutant\n";
+    my $reference = $built->{$plain} or die "the plain member of $axis fails without a mutant\n";
     my @found     = (
         ( map { "$axis=$_: the unmodified run fails" } @failed ),
-        ( map { "$axis: $_" } findings( \@run, run => $run ) ),
+        ( map { "$axis: $_" } findings( [ @run, 'I1' ], run => $run ) ),
         findings( ['I5'], run => $run ),
-        ( map { "$axis=$reference->{name}: $_" } findings( ['I7'], run => $run, member => $reference ) ),
+        ( map { "$axis=$plain: $_" } findings( ['I7'], run => $run, member => $reference, @truth ) ),
     );
-    for my $name ( grep { $_ ne $reference->{name} } @names ) {
+    for my $name ( grep { $_ ne $plain } @names ) {
         push @found,
           map { "$axis=$name: $_" }
           findings( [ 'I8', 'I6' ], run => $run, member => $built->{$name}, reference => $reference );
     }
     $compared += keys $run->{mutants}->%*;
-    $ran{"$axis=$_"}++ for @names, @failed;
+    $ran{"$axis=$_"}++ for @members;
     return @found;
 }
 
-# A member that changes files gets a project and a run of its own, so its damage reaches no other member.
+# A member that changes more than its own process gets a project and a run of its own.
 sub alone ( $axis, $name ) {
-    my $project = Discovery::Project->new;
+    my $project = Discovery::Project->new( name => Discovery::Zoo::directory($name) );
     my $member  = $zoo->build( $project, $name )->{$name};
-    passes_under_prove( $project, { $name => $member } );
-    my $run = $engine->run( $project, %settings, jobs => defined $member->{jobs} ? $member->{jobs} : 2 );
+    passes_under_prove( $project, { $name => $member }, $member->{prove}->@* );
+    my $run = $engine->run( $project, %settings, $member->{settings}->%*, cpu => $member->{idle} );
+    note sprintf '%s=%s: the run took %.1f seconds', $axis, $name, $run->{seconds};
     $runs++;
     $compared += keys $run->{mutants}->%*;
     $ran{"$axis=$name"}++;
     $project->discard;
+    my @observed =
+      ( run => $run, member => $member, idle => $member->{idle}, floor => $member->{settings}{timeout_floor} );
     return ( findings( ['I5'], run => $run ),
-        map { "$axis=$name: $_" } findings( [ @run, 'I7', 'I6' ], run => $run, member => $member ) );
+        map { "$axis=$name: $_" } findings( [ @run, 'I1', 'I7', 'I6' ], @observed ) );
 }
 
-push $found{fast}->@*, together( 'loading', Discovery::Zoo::names('loading') );
-push $found{fast}->@*, map { alone( 'files', $_ ) } Discovery::Zoo::names('files');
+my @members;
+for my $axis (qw(loading process io taint files path)) {
+    my @names = Discovery::Zoo::names($axis);
+    push @members, map { "$axis=$_" } @names;
+    my @shared = grep { !Discovery::Zoo::alone($_) } @names;
+    push $found{fast}->@*, together( $axis, \@shared ) if @shared;
+    push $found{fast}->@*, map { alone( $axis, $_ ) } grep { Discovery::Zoo::alone($_) } @names;
+}
+
+# The full tier measures the loading styles again in the project itself, under file coverage, and with one job.
+# A finding of the fast tier says nothing new there, and each other one names the setting it came from.
+if ( Discovery::Tier::full() ) {
+    my %fast   = map  { $_ => 1 } $found{fast}->@*;
+    my @styles = grep { !Discovery::Zoo::alone($_) } Discovery::Zoo::names('loading');
+    for my $variant (
+        [ 'in the project', in_place => 1 ],
+        [ 'file coverage',  coverage => 'file' ],
+        [ 'one job',        jobs     => 1 ]
+      )
+    {
+        my ( $label, @more ) = $variant->@*;
+        push $found{full}->@*, map { "$label, $_" } grep { !$fast{$_} } together( 'loading', \@styles, @more );
+    }
+}
 
 Discovery::Tier::report( 'zoo', \%found );
-my @members;
-for my $axis (qw(loading files)) {
-    push @members, map { "$axis=$_" } Discovery::Zoo::names($axis);
-}
 is [ sort keys %ran ], [ sort @members ], 'every member of every axis ran';
-Gate::checked( 'members',            scalar keys %ran, at_least => 27 );
-Gate::checked( 'runs',               $runs,            at_least => 11 );
-Gate::checked( 'mutants in the zoo', $compared,        at_least => 200 );
+Gate::checked( 'members',            scalar keys %ran, at_least => 62 );
+Gate::checked( 'runs',               $runs,            at_least => 18 );
+Gate::checked( 'mutants in the zoo', $compared,        at_least => 500 );
 
 done_testing;

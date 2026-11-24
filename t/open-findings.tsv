@@ -119,6 +119,16 @@ contract-no-leak-process	a variable of the code; cases boolean-in-the-file gate-
 contract-no-leak-process	wording of the option parser; cases help-after-list help-after-run version-after-list; part commands	the commands table
 contract-no-leak-process	wording of the option parser; cases missing-value negated-value unknown-option value-for-a-flag word-for-a-number; part settings	the settings table
 contract-no-leak-process	wording of the type library; cases boolean-in-the-file gate-out-of-range number-out-of-range value-in-the-file; part settings	the settings table
+engine-baseline	every first line: the tool leaves out the variable HARNESS_VERSION of prove	the launch of a test command
+engine-baseline	first-line=T: the search path of modules lacks an entry of prove	the launch of a test command
+engine-baseline	first-line=bundle-Tw: the search path of modules lacks an entry of prove	the launch of a test command
+engine-baseline	first-line=bundle-wT: the search path of modules lacks an entry of prove	the launch of a test command
+engine-baseline	first-line=include: the search path of modules lacks an entry of prove	the launch of a test command
+engine-baseline	first-line=lower: the search path of modules lacks an entry of prove	the launch of a test command
+engine-baseline	first-line=plain: the variable PERL5LIB differs from the one of prove	the launch of a test command
+engine-baseline	first-line=separate: the search path of modules lacks an entry of prove	the launch of a test command
+engine-baseline	first-line=space: the search path of modules lacks an entry of prove	the launch of a test command
+engine-baseline	first-line=tab: the search path of modules lacks an entry of prove	the launch of a test command
 engine-differential	cache perturbation=data-file: the run reuses a result that depends on the changed input	the cache key over every input of a result
 engine-differential	cache perturbation=data-file: the run with the cache gives Survived where the truth gives Killed	the cache key over every input of a result
 engine-differential	cache perturbation=environment: the run reuses a result that depends on the changed input	the cache key over every input of a result
@@ -128,6 +138,12 @@ engine-differential	cache perturbation=outside-inc: the run with the cache gives
 engine-differential	cache perturbation=shadow: the run reuses a result that depends on the changed input	the cache key over every input of a result
 engine-differential	cache perturbation=shadow: the run with the cache gives Survived where the truth gives Killed	the cache key over every input of a result
 engine-differential	cache perturbation=source: the cache keeps the record of a mutant that is gone	the cache key over every input of a result
+engine-faults	fault=INT during the copy: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
+engine-faults	fault=INT during the copy: the run ends by signal 2	the signals of the whole run
+engine-faults	fault=TERM again during the removal of the copies: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
+engine-faults	fault=TERM again during the removal of the copies: the run ends by signal 15	the signals of the whole run
+engine-faults	fault=a project without the right to write: the run exits with status 4	the workspace outside the project
+engine-faults	fault=an interpreter that is no file: standard error ends without one line of the tool	the exit table and its messages
 engine-known	I5 NoCoverage carries no reason	the status catalog and its reasons
 engine-tap	nested=inner-bails: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
 engine-tap	numbers=gap: the reader passes a stream that TAP::Parser fails	a TAP reader with the grammar of TAP::Parser
@@ -165,5 +181,12 @@ engine-zoo	loading=fresh-inc: I8 the run gives NoCoverage where the reference st
 engine-zoo	loading=local-inc: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the placement of a mutant in the copy
 engine-zoo	loading=perl-x: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the placement of a mutant in the copy
 engine-zoo	loading=system-perl: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the placement of a mutant in the copy
+engine-zoo	path=path-glob: I6 the verdicts deviate without a warning or a reason	the records without a pattern over the path of a project
+engine-zoo	path=path-glob: I7 the run gives NoCoverage where the truth gives Killed and Survived	the records without a pattern over the path of a project
+engine-zoo	path=path-quote: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
+engine-zoo	path=path-quote: I7 the run gives Survived where the truth gives NoCoverage	the witness that a target writes for itself
+engine-zoo	path=path-space: the run exits with status 4	the records without a pattern over the path of a project
+engine-zoo	process: I2 a process outlives the run: the child of t/child-leaves-group.t that left the process group	the workspace that owns every resource of a run
+engine-zoo	process: I2 a process outlives the run: the daemon of t/daemonize.t	the workspace that owns every resource of a run
 records	the record table parses the kind error into errors, and the runner never reads errors	the closed record vocabulary and its evidence
 records	the shim writes the kind end, and the record table drops it	the closed record vocabulary and its evidence

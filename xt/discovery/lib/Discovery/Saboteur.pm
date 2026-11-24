@@ -48,6 +48,15 @@ sub _first ( $run, @statuses ) {
     return _first_in( $run, qr/./, @statuses );
 }
 
+# The state that a test of the probe bench wrote under the tool, rewritten before the harness reads it.
+sub _rewrites_state ( $name, $code ) {
+    return sub ( $project, $temporary, $settings ) {
+        my $path = $project->scratch . "/states/$name";
+        _spew( $path, $code->( _slurp($path) ) );
+        return;
+    };
+}
+
 # A run that the condition names loses its first kill, and a run without a kill stays as it is.
 sub _loses_when ($condition) {
     return _distort(
@@ -229,6 +238,18 @@ my %SABOTEUR = (
         ),
         'a survivor that prove contradicts' => _loses_when( sub ($settings) { 1 } ),
     },
+    'baseline' => {
+        'another taint mode' => _damage( _rewrites_state( 'T', sub ($text) { $text =~ s/^taint=.*$/taint=0/mr } ) ),
+        'a lost entry of the search path' =>
+          _damage( _rewrites_state( 'plain', sub ($text) { $text =~ s/^inc=.*\n//mgr } ) ),
+        'one more variable' => _damage( _rewrites_state( 'tab', sub ($text) { "${text}env=DISCOVERY_SABOTEUR=1\n" } ) ),
+        'another verdict'   => _distort( sub ( $run, $settings ) { $run->{baseline_failures} = ['t/plain.t'] } ),
+    },
+    'I1' => {
+        'a run that outlasts its tests'          => _distort( sub ( $run, $settings ) { $run->{seconds} = 10_000 } ),
+        'a tool that works while its tests wait' =>
+          _distort( sub ( $run, $settings ) { $run->{cpu} = $run->{seconds} + 2 } ),
+    },
     'cache' => {
         'a stale record' => sub ($engine) {
             my %stored;
@@ -245,6 +266,19 @@ my %SABOTEUR = (
             );
         },
         'a cache that reuses nothing' => _distort( sub ( $run, $settings ) { $run->{reused} = 0 } ),
+    },
+    'fault' => {
+        'a status that the contract leaves out' => _distort( sub ( $run, $settings ) { $run->{exit}   = 77 } ),
+        'a death by a signal'                   => _distort( sub ( $run, $settings ) { $run->{signal} = 15 } ),
+        'a lost line of the tool'   => _distort( sub ( $run, $settings ) { $run->{stderr} = "3 mutants in 1 file\n" } ),
+        'a second line of the tool' =>
+          _distort( sub ( $run, $settings ) { $run->{stderr} .= "mutation: once more\n" } ),
+        'a place in the code' => _distort(
+            sub ( $run, $settings ) {
+                $run->{stderr} = "mutation: cannot copy at lib/Test/Mutation/Tree.pm line 113.\n";
+            }
+        ),
+        'a success after the fault' => _distort( sub ( $run, $settings ) { $run->{exit} = 0 } ),
     },
 );
 

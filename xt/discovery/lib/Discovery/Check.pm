@@ -14,6 +14,7 @@ my %PLAIN      = ( target => 'lib/Known.pm', shift => 0 );
 
 my %CHECK = (
     'completes'  => \&_completes,
+    'I1'         => \&_bounded,
     'I2'         => \&_no_process,
     'I3'         => \&_no_leftover,
     'I4'         => \&_unchanged,
@@ -31,7 +32,15 @@ my %CHECK = (
     'single'     => \&_single,
     'cache'      => \&_cache,
     'prove'      => \&_prove,
+    'fault'      => \&_fault,
+    'baseline'   => \&_baseline,
 );
+
+my %SIGNAL_NUMBER = ( HUP => 1, INT => 2, TERM => 15 );
+my $SIGNAL_BASE   = 128;
+my $BASE_SECONDS  = 5;
+my $SLACK         = 5;
+my $IDLE_SHARE    = 0.5;
 
 # The ways a test process ends after a stream, apart from status 0: each one fails the test under prove.
 my @FAILING_ENDS = ( [ 'exit=1', 1, 0 ], [ 'exit=255', 255, 0 ], [ 'exit=signal', 0, 15 ] );
@@ -62,6 +71,33 @@ sub _completes ($arg) {
     return "the run exits with status $run->{exit}" if $run->{exit} != 0;
     return 'the run writes no report'               if !$run->{reported};
     return;
+}
+
+# The run ends within a bound that the durations of its tests give, and the tool waits without work of its own.
+# The unmodified run times every test, and a mutant runs the tests that reach it, or meets their time limits.
+# `idle` says that the tests of the project sleep, so the processor time of the tool must stay far below the time of the run.
+sub _bounded ($arg) {
+    my $run = $arg->{run};
+    return if !$run->{reported};
+    my ( $floor, $factor ) =
+      ( defined $arg->{floor} ? $arg->{floor} : 10, defined $arg->{factor} ? $arg->{factor} : 4 );
+    my $expected = 0;
+    $expected += $_ for values $run->{tests}->%*;
+    for my $id ( keys $run->{status}->%* ) {
+        my @durations = map { $run->{tests}{$_} || 0 } $run->{covered}{$id}->@*;
+        my @limits    = map { $_ * $factor > $floor ? $_ * $factor : $floor } @durations;
+        $expected += $_ for $run->{status}{$id} eq 'Timeout' ? @limits : @durations;
+    }
+    return (
+        (
+            $run->{seconds} > $BASE_SECONDS + $SLACK * $expected ? 'I1 the run takes longer than its tests explain' : ()
+        ),
+        (
+            $arg->{idle} && defined $run->{cpu} && $run->{cpu} > 1 + $IDLE_SHARE * $run->{seconds}
+            ? 'I1 the tool uses the processor while its tests wait'
+            : ()
+        ),
+    );
 }
 
 sub _no_process ($arg) {
@@ -251,6 +287,68 @@ sub _cache ($arg) {
     return _unique(@found);
 }
 
+# A fault ends the run with a status that the contract names and with one line of the tool on standard error.
+# `signal` names the signal that met the run, and `fails` says that the fault leaves nothing to measure.
+sub _fault ($arg) {
+    my $run = $arg->{run};
+    return 'the run exceeds its deadline'          if $run->{hung};
+    return "the run ends by signal $run->{signal}" if $run->{signal};
+    my %named = map { $_ => 1 } Discovery::Engine::exits();
+    my $exit  = $run->{exit};
+    my @found;
+    push @found, "the run exits with status $exit, which the contract leaves out" if !$named{$exit};
+    push @found, "the run exits with status $exit after the signal"
+      if defined $arg->{signal} && $named{$exit} && $exit != $SIGNAL_BASE + $SIGNAL_NUMBER{ $arg->{signal} };
+    push @found, 'the run exits with status 0 after the fault' if $arg->{fails} && $exit == 0;
+    return @found if $exit == 0;
+
+    my @lines = grep { length } split /\n/, $run->{stderr};
+    my @own   = grep { /\Amutation: / } @lines;
+    push @found, 'standard error ends without one line of the tool' if @own != 1 || $lines[-1] ne $own[0];
+    push @found, 'standard error names a place in the code'         if grep { / at \S+ line [0-9]+/ } @lines;
+    return @found;
+}
+
+sub _state_differences ( $want, $got ) {
+    return 'the verdict of prove differs from the unmodified run of the tool' if $want->{verdict} ne $got->{verdict};
+    return 'the test leaves no state under the tool'                          if !defined $got->{taint};
+    return 'the test leaves no state under prove'                             if !defined $want->{taint};
+    my %under = map { $_ => 1 } $want->{inc}->@*;
+    my %given = map { $_ => 1 } $got->{inc}->@*;
+    my %names = ( $want->{env}->%*, $got->{env}->%* );
+    return (
+        ( $want->{taint} ne $got->{taint}      ? 'the taint mode differs from the one of prove'               : () ),
+        ( ( grep { !$given{$_} } keys %under ) ? 'the search path of modules lacks an entry of prove'         : () ),
+        ( ( grep { !$under{$_} } keys %given ) ? 'the search path of modules holds an entry that prove lacks' : () ),
+        (
+            map {
+                    !defined $got->{env}{$_}            ? "the tool leaves out the variable $_ of prove"
+                  : !defined $want->{env}{$_}           ? "the tool adds the variable $_"
+                  : $want->{env}{$_} ne $got->{env}{$_} ? "the variable $_ differs from the one of prove"
+                  : ()
+            } sort keys %names
+        ),
+    );
+}
+
+# A test starts under the tool as it starts under prove: the same verdict, taint mode, search path, and environment.
+# `prove` and `tool` hold the state of each test, and a difference of every test names no single first line.
+sub _baseline ($arg) {
+    my ( $prove, $tool ) = $arg->@{qw(prove tool)};
+    my @tests = sort keys $prove->%*;
+    my %where;
+    for my $test (@tests) {
+        $where{$_}{$test} = 1 for _state_differences( $prove->{$test}, $tool->{$test} );
+    }
+    my @found;
+    for my $text ( sort keys %where ) {
+        my @at = sort keys $where{$text}->%*;
+        push @found,
+          @at == @tests ? "every first line: $text" : map { 'first-line=' . s{\At/|[.]t\z}{}gr . ": $text" } @at;
+    }
+    return @found;
+}
+
 # prove runs the tests on the files with one mutant in place, and `verdicts` holds its answer for each test.
 # The test that detects a mutant fails there, and no test fails on a mutant that the run calls undetected.
 sub _prove ($arg) {
@@ -287,6 +385,10 @@ sub _deviations ($arg) {
         my $truth = _verdicts( $known, $cells, $arg->{coverage} );
         %want = map { $_ => $truth->{$_}[0] } keys $truth->%*;
     }
+
+    # The behavior of a member may turn one status into another: a test that loops on a wrong value times out.
+    my $turns = $member->{turns} || {};
+    $want{$_} = $turns->{ $want{$_} } for grep { defined $turns->{ $want{$_} } } keys %want;
     return [
         map  { { want => $want{$_}, id => $cells->{$_} ? $cells->{$_}{id} : undef } }
         grep { !$cells->{$_} || _differs( $want{$_}, $run->{status}{ $cells->{$_}{id} } ) } sort keys %want

@@ -13,10 +13,14 @@ use Discovery::Project;
 
 my @STATUSES     = qw(Killed Survived NoCoverage Timeout CompileError NoVerdict Ignored Pending);
 my %STATUS       = ( RuntimeError => 'NoVerdict' );
+my @EXITS        = ( 0 .. 6, 125, 129, 130, 143 );
 my $JOBS         = 2;
 my $DEADLINE     = 120;
 my $POLL_SECONDS = 0.01;
+my $CPU_SECONDS  = 0.2;
 my $END_SECONDS  = 5;
+my $MINUTE       = 60;
+my $TICK_SECONDS = 1 / ( POSIX::sysconf( POSIX::_SC_CLK_TCK() ) || 100 );
 my $REPORT       = 'mutation-report';
 my %RUNNING;
 
@@ -46,7 +50,7 @@ my %FLAG = (
 
 # The settings that the adapter keeps for itself.
 # `state` names an input outside the project that changed, which the memo has no other way to tell.
-my %OWN = map { $_ => 1 } qw(deadline environment during words state);
+my %OWN = map { $_ => 1 } qw(deadline environment during words state poll prepare cpu);
 
 sub new ( $class, %part ) {
     return
@@ -56,6 +60,11 @@ sub new ( $class, %part ) {
 
 sub statuses () {
     return @STATUSES;
+}
+
+# The exit statuses that the contract of the command names.
+sub exits () {
+    return @EXITS;
 }
 
 sub with ( $self, %part ) {
@@ -122,35 +131,66 @@ sub _end ($pid) {
     return $?;
 }
 
-sub _await ( $pid, $limit, $during ) {
+sub _await ( $pid, $limit, $poll, $tick ) {
     while (1) {
         return ( $?,         0 ) if waitpid( $pid, POSIX::WNOHANG ) == $pid;
         return ( _end($pid), 1 ) if Time::HiRes::time() > $limit;
-        $during->($pid) if $during;
-        Time::HiRes::sleep($POLL_SECONDS);
+        $tick->();
+        Time::HiRes::sleep($poll);
     }
     return;
 }
 
+# The processor time of the tool itself, without its tests: the kernel tells it for a process that still runs.
+sub _cpu_seconds ($pid) {
+    if ( open my $stat, '<', "/proc/$pid/stat" ) {
+        my $line = readline $stat;
+        close $stat or return;
+        my ($after) = defined $line ? $line =~ /\A.*[)]\s*(.*)/s : ();
+        my @fields  = split q{ }, defined $after ? $after : q{};
+        return $TICK_SECONDS * ( $fields[11] + $fields[12] ) if @fields > 12;
+    }
+    open my $listing, q{-|}, 'ps', '-o', 'cputime=', '-p', $pid or return;
+    my $listed = readline $listing;
+    close $listing or return;
+    my @parts = reverse split /:/, ( defined $listed ? $listed : q{} ) =~ s/\s+//gr;
+    return if !@parts || grep { !/\A[0-9.]+\z/ } @parts;
+    return $parts[0] + $MINUTE * ( $parts[1] || 0 ) + $MINUTE * $MINUTE * ( $parts[2] || 0 );
+}
+
+# `prepare` changes the temporary directory before the run, and `during` reads the files of the run while the tool works.
+# `cpu` asks for the processor time of the tool, which costs a question to the kernel a few times each second.
 sub execute ( $self, $project, $temporary, %settings ) {
     my $files       = $project->directory('output');
     my $report      = File::Spec->rel2abs( defined $settings{report} ? $settings{report} : $REPORT, $project->root );
     my @words       = $settings{words} ? $settings{words}->@* : ();
     my @command     = ( $self->{perl}, "-I$self->{library}", $self->{command}, @words, $self->arguments(%settings) );
     my %environment = ( TMPDIR => $temporary, ( $settings{environment} || {} )->%* );
-    my $started     = Time::HiRes::time();
-    my $pid         = fork;
+    $settings{prepare}->($temporary) if $settings{prepare};
+    my $started = Time::HiRes::time();
+    my $pid     = fork;
     die "fork: $!"                                              if !defined $pid;
     _become( $project->root, \%environment, $files, \@command ) if !$pid;
     $RUNNING{$pid} = 1;
+
+    my %at = ( pid => $pid, temporary => $temporary, root => $project->root, stderr => "$files/stderr" );
+    my ( $cpu, $asked ) = ( undef, 0 );
+    my $tick = sub {
+        $settings{during}->( \%at ) if $settings{during};
+        return                      if !$settings{cpu} || Time::HiRes::time() - $asked < $CPU_SECONDS;
+        my $used = _cpu_seconds($pid);
+        ( $cpu, $asked ) = ( defined $used ? $used : $cpu, Time::HiRes::time() );
+        return;
+    };
     my $limit = $started + ( defined $settings{deadline} ? $settings{deadline} : $DEADLINE );
-    my ( $status, $hung ) = _await( $pid, $limit, $settings{during} );
+    my ( $status, $hung ) = _await( $pid, $limit, defined $settings{poll} ? $settings{poll} : $POLL_SECONDS, $tick );
     delete $RUNNING{$pid};
     return {
         exit    => $status >> 8,
         signal  => $status & 127,
         hung    => $hung,
         seconds => Time::HiRes::time() - $started,
+        cpu     => $cpu,
         stdout  => scalar _slurp("$files/stdout"),
         stderr  => scalar _slurp("$files/stderr"),
         report  => scalar _slurp("$report/mutation.json"),
@@ -163,7 +203,7 @@ sub _position ($location) {
 
 sub normalize ( $self, $raw ) {
     my %run = (
-        $raw->%{qw(exit signal hung seconds stdout stderr)},
+        $raw->%{qw(exit signal hung seconds cpu stdout stderr)},
         reported          => 0,
         mutants           => {},
         status            => {},
@@ -262,11 +302,12 @@ sub run ( $self, $project, %settings ) {
     my $temporary = $project->directory('temporary');
     $project->remove( defined $settings{report} ? $settings{report} : $REPORT );
     my $before = $project->snapshot;
+    my %stood  = map { $_ => 1 } _left( $temporary, $project->root )->@*;
     my $raw    = $self->_executed( $project, $temporary, $before, %settings );
     $self->{damage}->( $project, $temporary, \%settings ) if $self->{damage};
 
     my $run = $self->normalize($raw);
-    $run->{left}      = _left( $temporary, $project->root );
+    $run->{left}      = [ grep { !$stood{$_} } _left( $temporary, $project->root )->@* ];
     $run->{changed}   = Discovery::Project::changes( $before, $project->snapshot );
     $run->{processes} = $project->living;
     $project->reap;

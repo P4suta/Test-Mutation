@@ -12,7 +12,7 @@ use Time::HiRes ();
 # A generated project stands in a scratch directory of its own, next to the registry of the processes its tests start.
 # The scratch directory holds every file of a case, so one removal ends the case.
 
-my $GRACE_SECONDS = 2;
+my $GRACE_SECONDS = 1;
 my $PROVE_SECONDS = 30;
 my %OUTSIDE       = map { $_ => 1 } '.mutation', 'mutation-report', '.git';
 my %OWNER;
@@ -52,7 +52,8 @@ sub write ( $self, $path, $content, %arg ) {    ## no critic (Subroutines::Prohi
 
 # A second project with the same files, for an oracle that may change them.
 sub copy ($self) {
-    my $copy = ref($self)->new;
+    my ($name) = $self->{root} =~ m{([^/]+)\z};
+    my $copy = ref($self)->new( name => $name );
     my ( $from, $to ) = ( $self->{root}, $copy->{root} );
     my @directories;
     File::Find::find(
@@ -130,6 +131,9 @@ sub proves ( $self, @arguments ) {
     if ( !$pid ) {
         setpgrp 0, 0;
         chdir $self->{root} or POSIX::_exit(126);
+
+        # A test that reads its standard input waits for a terminal, which the tool never gives it.
+        open STDIN, '<', '/dev/null' or POSIX::_exit(126);
         exec {$^X} $^X, $script, '-l', @arguments or POSIX::_exit(127);
     }
 

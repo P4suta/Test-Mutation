@@ -50,12 +50,13 @@ run = "prove -l xt"
 
 [tasks.discover-fast]
 description = "Compare runs of the engine with independent oracles, each axis value once"
-run = "prove -l xt/discovery"
+# The files run side by side: each one works in scratch directories of its own.
+run = "prove -l -j4 xt/discovery"
 
 [tasks.discover]
 description = "Compare runs of the engine with independent oracles over every seed and every product of the axes"
 env = { DISCOVERY_TIER = "full" }
-run = "prove -l xt/discovery"
+run = "prove -l -j4 xt/discovery"
 
 [tasks.mutation]
 description = "Measure the tests of Test::Mutation with its own command"

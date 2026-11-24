@@ -6,7 +6,9 @@ use Gate;
 use Discovery::Check;
 use Discovery::Differential;
 use Discovery::Engine;
+use Discovery::Faults;
 use Discovery::Known;
+use Discovery::Probe;
 use Discovery::Project;
 use Discovery::Reader;
 use Discovery::Saboteur;
@@ -25,11 +27,11 @@ $known->write($project);
 sub single ($name) {
     return sub ($engine) {
         my $run = $engine->run($project);
-        return [ Discovery::Check::findings( [$name], run => $run, known => $known, coverage => 'line' ) ];
+        return [ Discovery::Check::findings( [$name], run => $run, known => $known, coverage => 'line', idle => 1 ) ];
     };
 }
 
-my %bench = map { $_ => single($_) } qw(completes I2 I3 I4 I5 I7);
+my %bench = map { $_ => single($_) } qw(completes I1 I2 I3 I4 I5 I7);
 
 # Two loading styles that the tool serves alike, so every difference between them comes from a saboteur.
 my $zoo     = Discovery::Zoo->new( known => $known );
@@ -88,6 +90,14 @@ if ($git) {
     $changed->write( 'lib/Known.pm', $known->module('Known') =~ s/^(sub cell_1 .*)$/$1 # changed/mr );
 }
 $bench{'since'} = sub ($engine) { return [ Discovery::Differential::since( $engine, $changed, 'HEAD' ) ] };
+
+# The bench of the faults ends the copy of a project with a file that refuses to be read.
+my $faulty = Discovery::Faults::bench(20);
+$bench{'fault'} = sub ($engine) { return [ Discovery::Faults::unreadable_file( $engine, $faulty ) ] };
+
+# The bench of the unmodified run compares what a test is given under prove and under the tool.
+my $probes = Discovery::Probe::bench();
+$bench{'baseline'} = sub ($engine) { return [ Discovery::Probe::compared( $engine, $probes ) ] };
 
 is [ sort keys %bench ],             [ Discovery::Check::names() ], 'every check has a bench';
 is [ Discovery::Saboteur::names() ], [ Discovery::Check::names() ], 'the saboteur set equals the invariant set';

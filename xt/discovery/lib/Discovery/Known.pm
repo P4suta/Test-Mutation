@@ -281,18 +281,35 @@ my $PLAIN = <<'PERL';
 use Known;
 sub value { my ( $cell, @arguments ) = @_; return scalar Known->can($cell)->(@arguments) }
 PERL
-my $FAILS = q[print "not ok $number - $cell\n";];
+my $FAILS = q[line("not ok $number - $cell");];
+my $PLAN  = qq[line( '1..' . scalar \@rows );\n];
+
+# A line of the stream ends with a newline, or every line but the first starts with one.
+my %LINE = (
+    after  => qq[sub line { print "\$_[0]\\n"; return }\n],
+    before => qq[{ my \$lines = 0; sub line { print( ( \$lines++ ? "\\n" : q{} ) . \$_[0] ); return } }\n],
+);
+
+# The rows of a test as the elements of a list in Perl.
+sub rows_text ( $self, $test ) {
+    return join q{}, map {
+        sprintf "    [ %s, [ %s ], %s ],\n", quoted( $_->[0] ), join( ', ', map { quoted($_) } $_->[1]->@* ),
+          quoted( $_->[2] )
+    } $self->rows($test)->@*;
+}
 
 # A test in raw TAP that asserts its rows.
 # `load` defines the function value in a loading style, and `wrong` is the code that answers a wrong value.
+# `first` is the first line of the file, `plan` puts the plan first or last, and `end` is code after the last row.
+# `newline` puts the newline of each line after it or before it, which leaves the stream without a final one.
 sub test_text ( $self, $test, %arg ) {
     my $first = defined $arg{first} ? "$arg{first}\n" : q{};
     my $load  = defined $arg{load}  ? $arg{load}      : $PLAIN;
     my $wrong = defined $arg{wrong} ? $arg{wrong}     : $FAILS;
-    my $rows  = join q{}, map {
-        sprintf "    [ %s, [ %s ], %s ],\n", quoted( $_->[0] ), join( ', ', map { quoted($_) } $_->[1]->@* ),
-          quoted( $_->[2] )
-    } $self->rows($test)->@*;
+    my $end   = defined $arg{end}   ? $arg{end}       : q{};
+    my $line  = $LINE{ defined $arg{newline} ? $arg{newline} : 'after' };
+    my ( $early, $late ) = defined $arg{plan} && $arg{plan} eq 'last' ? ( q{}, $PLAN ) : ( $PLAN, q{} );
+    my $rows = $self->rows_text($test);
     return <<"PERL";
 ${first}use strict;
 use warnings;
@@ -300,15 +317,15 @@ $load
 my \@rows = (
 $rows);
 local \$| = 1;
-print '1..', scalar \@rows, "\\n";
-my \$number = 0;
+$line${early}my \$number = 0;
 for my \$row (\@rows) {
     my ( \$cell, \$arguments, \$want ) = \@{\$row};
     my \$got = value( \$cell, \@{\$arguments} );
     \$number++;
-    if ( defined \$got && \$got eq \$want ) { print "ok \$number - \$cell\\n" }
+    if ( defined \$got && \$got eq \$want ) { line("ok \$number - \$cell") }
     else { $wrong }
 }
+$late$end
 PERL
 }
 
