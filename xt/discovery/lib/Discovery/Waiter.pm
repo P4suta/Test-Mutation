@@ -34,10 +34,9 @@ sub _own_cpu () {
     return $user + $system;
 }
 
-# One test that passes, treats its output as named, and waits the given seconds before it ends.
-# The result holds the wait, whether the pool passed the test, and the processor time that this process used meanwhile.
-sub waited ( $self, $output, $seconds ) {
-    die "no treatment of the output is named $output\n" if !exists $OUTPUT{$output};
+# The pool with one test that passes, treats its output as named, and waits the given seconds before it ends.
+# Returns whether the pool passed the test, and the processor time that this process used meanwhile.
+sub _pooled ( $output, $seconds ) {
     my $program = qq[\$| = 1; print "1..1\\nok 1 - waits\\n"; $OUTPUT{$output} select undef, undef, undef, $seconds;];
     my $errors  = File::Temp->new;
     my @tasks   = (
@@ -60,8 +59,19 @@ sub waited ( $self, $output, $seconds ) {
             return;
         },
     );
+    return ( $passed ? 1 : 0, _own_cpu() - $used );
+}
+
+# The start and the end of a test cost the pool some processor time whatever the test does.
+# The same test without a wait gives that cost, and the result holds what the wait added to it.
+sub waited ( $self, $output, $seconds ) {
+    die "no treatment of the output is named $output\n" if !exists $OUTPUT{$output};
+    my ( undef,   $fixed ) = _pooled( $output, 0 );
+    my ( $passed, $used )  = _pooled( $output, $seconds );
+    my $before = _own_cpu();
     $self->{burn}->($seconds) if $self->{burn};
-    return { waited => $seconds, passed => $passed ? 1 : 0, cpu => _own_cpu() - $used };
+    my $added = $used - $fixed + _own_cpu() - $before;
+    return { waited => $seconds, passed => $passed, cpu => $added > 0 ? $added : 0 };
 }
 
 1;

@@ -54,7 +54,8 @@ PERL
 my $ANSWER =
     q[my ( $cell, @arguments ) = @ARGV; my $value = <<package>>->can($cell)->(@arguments); ]
   . q[print defined $value ? "value $value\n" : "undefined\n";];
-my $ONE_LINER = q[$^X, '-Ilib', '-M<<package>>', '-e', ] . Discovery::Known::quoted($ANSWER);
+my $ONE_LINER   = q[$^X, '-Ilib', '-M<<package>>', '-e', ] . Discovery::Known::quoted($ANSWER);
+my $TAINT_LINER = q[$^X, '-T', '-Ilib', '-M<<package>>', '-e', ] . Discovery::Known::quoted($ANSWER);
 
 my $EVALUATE = <<'PERL';
 {
@@ -111,28 +112,58 @@ my $REWRITE_TABLE = <<'PERL';
 print "not ok $number - $cell\n";
 PERL
 
+# A test that takes a resource of the whole machine fails when another run of the same test holds it.
+# Whether two runs meet would depend on the clock, so the two runs tell each other instead.
+# The run that finds the resource taken leaves a mark and fails, and the run that holds it waits for that mark.
+# The wait has an end for the run that no other run meets, such as the unmodified run.
 my $TAKE_PATH = <<'PERL';
 use Fcntl qw(O_CREAT O_EXCL O_WRONLY);
-sysopen my $fixed, '<<fixed>>', O_CREAT | O_EXCL | O_WRONLY or die "the fixed path is taken: $!\n";
-close $fixed;
+use Time::HiRes ();
+if ( !sysopen my $fixed, '<<fixed>>', O_CREAT | O_EXCL | O_WRONLY ) {
+    open my $mark, '>', '<<fixed>>.mark';
+    die "the fixed path is taken\n";
+}
 my $holds = 1;
-END { unlink '<<fixed>>' if $holds }
-select undef, undef, undef, <<hold>>;
+END { unlink '<<fixed>>', '<<fixed>>.mark' if $holds }
+for ( 1 .. 100 * <<hold>> ) {
+    last if -e '<<fixed>>.mark';
+    Time::HiRes::sleep(0.01);
+}
 PERL
 
 my $TAKE_PORT = <<'PERL';
+use IO::Select       ();
 use IO::Socket::INET ();
-my $listener = IO::Socket::INET->new( Listen => 1, LocalAddr => '127.0.0.1', LocalPort => <<port>>, Proto => 'tcp' )
-  or die "the fixed port is taken: $!\n";
-select undef, undef, undef, <<hold>>;
+my $listener = IO::Socket::INET->new( Listen => 5, LocalAddr => '127.0.0.1', LocalPort => <<port>>, Proto => 'tcp' );
+if ( !$listener ) {
+    IO::Socket::INET->new( PeerAddr => '127.0.0.1', PeerPort => <<port>>, Proto => 'tcp' );
+    die "the fixed port is taken\n";
+}
+IO::Select->new($listener)->can_read(<<hold>>);
 PERL
 
+# Each job has a copy of the project and a lock of its own, so the run in copies waits for no mark.
+# The run in the project itself sets the variable, and two jobs then meet at the one lock.
 my $TAKE_LOCK = <<'PERL';
 use Fcntl qw(LOCK_EX LOCK_NB);
+use Time::HiRes ();
 open my $lock, '>>', 'data/lock' or die "open: $!";
-flock $lock, LOCK_EX | LOCK_NB or die "the lock is taken: $!\n";
-select undef, undef, undef, 0.2;
+if ( !flock $lock, LOCK_EX | LOCK_NB ) {
+    open my $mark, '>', '<<fixed>>.mark';
+    die "the lock is taken\n";
+}
+my $holds = 1;
+END { unlink '<<fixed>>.mark' if $holds }
+for ( 1 .. 100 * ( $ENV{DISCOVERY_WAIT} || 0 ) ) {
+    last if -e '<<fixed>>.mark';
+    Time::HiRes::sleep(0.01);
+}
 PERL
+
+# A test of these members passes whatever a cell returns, so every mutant that it reaches survives in truth.
+# A run that fails can then have one cause alone: it met another run of the same test.
+my $NEVER_WRONG = q[line("ok $number - $cell");];
+my %MEETS       = ( wrong => $NEVER_WRONG, turns => { Killed => 'Survived' } );
 
 my $PLAIN = "use <<package>>;\n" . $BY_PACKAGE;
 
@@ -445,6 +476,7 @@ my @MEMBERS = (
     [ loading => 'cleared-perl5opt', { load => "delete \$ENV{PERL5OPT};\n" . $BY_CHILD, command => $ONE_LINER } ],
     [ loading => 'cleared-perl5lib', { load => "delete \$ENV{PERL5LIB};\n" . $BY_CHILD, command => $ONE_LINER } ],
     [ loading => 'cleared-env',      { load => "%ENV = ();\n" . $BY_CHILD,              command => $ONE_LINER } ],
+    [ loading => 'taint-child',      { load => $BY_CHILD,                               command => $TAINT_LINER } ],
 
     [ files => 'chdir', { load => "BEGIN { chdir 't' or die \"chdir: \$!\" }\nuse <<package>>;\n" . $BY_PACKAGE } ],
     [ files => 'write-file', { load => "use <<package>>;\n" . $WRITE_FILE . $BY_PACKAGE } ],
@@ -477,11 +509,11 @@ my @MEMBERS = (
             alone => 1
         }
     ],
-    [ files => 'fixed-tmp-path', { load => "use <<package>>;\n" . $TAKE_PATH . $BY_PACKAGE, alone => 1 } ],
-    [ files => 'fixed-port',     { load => "use <<package>>;\n" . $TAKE_PORT . $BY_PACKAGE, alone => 1 } ],
+    [ files => 'fixed-tmp-path', { load => "use <<package>>;\n" . $TAKE_PATH . $BY_PACKAGE, %MEETS, alone => 1 } ],
+    [ files => 'fixed-port',     { load => "use <<package>>;\n" . $TAKE_PORT . $BY_PACKAGE, %MEETS, alone => 1 } ],
     [
         files => 'lock-file',
-        { load => "use <<package>>;\n" . $TAKE_LOCK . $BY_PACKAGE, files => { 'data/lock' => q{} } }
+        { load => "use <<package>>;\n" . $TAKE_LOCK . $BY_PACKAGE, %MEETS, files => { 'data/lock' => q{} } }
     ],
 );
 

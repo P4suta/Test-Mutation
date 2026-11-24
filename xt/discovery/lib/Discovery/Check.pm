@@ -41,7 +41,7 @@ my %SIGNAL_NUMBER = ( HUP => 1, INT => 2, TERM => 15 );
 my $SIGNAL_BASE   = 128;
 my $BASE_SECONDS  = 30;
 my $SLACK         = 5;
-my $IDLE_SHARE    = 0.05;
+my $IDLE_SHARE    = 0.1;
 my $WAIT_SECONDS  = 0.5;
 
 # The ways a test process ends after a stream, apart from status 0: each one fails the test under prove.
@@ -96,6 +96,7 @@ sub _bounded ($arg) {
 # The pool waits for a test without work of its own.
 # `wait` holds the seconds that one test waited after its stream and the processor time of the pool meanwhile.
 # A pool that sleeps uses a thousandth of the wait, and one that asks again and again uses whatever share the machine gives it.
+# The limit is a tenth of the wait: far above the first, and below the second on any machine that still runs tests.
 sub _waits ($arg) {
     my $wait = $arg->{wait};
     return 'I1 the pool fails a test that waits after its stream' if !$wait->{passed};

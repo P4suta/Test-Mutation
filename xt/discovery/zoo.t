@@ -190,8 +190,9 @@ for my $axis (@axes) {
 # The processor time of the pool during the wait is counted, and no clock is read, so a busy machine changes nothing.
 my $waiter = Discovery::Waiter->new;
 my %waits  = ( 'close-stdout' => 'closed', 'redirect-stdout' => 'redirected' );
-is [ findings( ['I1-wait'], wait => $waiter->waited( 'kept', 1 ) ) ], [],
-  'the pool waits without work for a test that keeps its output';
+my $kept   = $waiter->waited( 'kept', 1 );
+note sprintf 'the pool used the processor for %.3f seconds of a wait of 1 second with the output kept', $kept->{cpu};
+is [ findings( ['I1-wait'], wait => $kept ) ], [], 'the pool waits without work for a test that keeps its output';
 for my $name ( sort keys %waits ) {
     my $wait = $waiter->waited( $waits{$name}, 1 );
     note sprintf 'process=%s: the pool used the processor for %.2f seconds of a wait of 1 second', $name, $wait->{cpu};
@@ -220,13 +221,14 @@ if ( Discovery::Tier::full() ) {
         push $found{full}->@*, $fresh->( 'apart', together( $member->[0], [ $member->[1] ], sanity => 0 ) );
     }
     for my $name ( Discovery::Zoo::names('files') ) {
-        push $found{full}->@*, $fresh->( 'in the project', alone( 'files', $name, in_place => 1 ) );
+        push $found{full}->@*,
+          $fresh->( 'in the project', alone( 'files', $name, in_place => 1, environment => { DISCOVERY_WAIT => 1 } ) );
     }
 }
 
 Discovery::Tier::report( 'zoo', \%found );
 is [ sort keys %ran ], [ sort @members ], 'every member of every axis ran';
-Gate::checked( 'members',            scalar keys %ran, at_least => $toolchain ? 74 : 73 );
+Gate::checked( 'members',            scalar keys %ran, at_least => $toolchain ? 75 : 74 );
 Gate::checked( 'runs',               $runs,            at_least => 22 );
 Gate::checked( 'mutants in the zoo', $compared,        at_least => 600 );
 

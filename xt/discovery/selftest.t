@@ -70,7 +70,7 @@ for my $name ( sort keys %subject ) {
 # The check of the wait takes the adapter of the pool, with a test that keeps its output: the pool of today sleeps there.
 $subject{'I1-wait'} = Discovery::Waiter->new;
 $bench{'I1-wait'}   = sub ($waiter) {
-    return [ Discovery::Check::findings( ['I1-wait'], wait => $waiter->waited( 'kept', 0.5 ) ) ];
+    return [ Discovery::Check::findings( ['I1-wait'], wait => $waiter->waited( 'kept', 1 ) ) ];
 };
 
 # The bench of a relation runs the code of the relation on the small project.

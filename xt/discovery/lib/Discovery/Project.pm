@@ -200,6 +200,9 @@ sub _signature ($path) {
 sub snapshot ($self) {
     my $root = $self->{root};
     my %state;
+
+    # A test may leave a directory without any right: the directory itself is an entry, and its content stays out of reach.
+    no warnings 'File::Find';
     File::Find::find(
         {
             no_chdir => 1,
@@ -293,6 +296,10 @@ sub _discard ($scratch) {
     _reap("$scratch/registry");
     _open_up($scratch);
     File::Path::remove_tree($scratch);
+
+    # A test of a case may hold a fixed path outside the scratch directory, which carries the name of that directory.
+    my ($token) = $scratch =~ m{([^/]+)\z};
+    unlink glob "/tmp/$token-*";
     return;
 }
 
