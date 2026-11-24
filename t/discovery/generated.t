@@ -3,6 +3,7 @@ use Test2::V0;
 use List::Util qw(min sum0);
 use lib 't/lib';
 use Gate;
+use Matrix;
 use Oracle;
 use Snippets;
 use Test::Mutation::Project;
@@ -98,6 +99,40 @@ subtest 'the context check rejects a context that changes the mutants of an expr
       'a context that the analysis never reads loses every change';
 };
 
+subtest 'the matrix rejects a mutant that no input tells from the original' => sub {
+    my ($return) = grep { $_->{name} eq 'return' } Snippets::contexts();
+    my $file     = Snippets::file( $return, { text => '$x + 0 > $y', body => q{} } );
+    my $source   = Oracle::text_source( 'lib/Snippet.pm', $file->{text} );
+    my @mutants  = (
+        Oracle::by_hand( $source, '+ 0',  '- 0' ),
+        Oracle::by_hand( $source, '> $y', '>= $y' ),
+        Oracle::by_hand( $source, '+ 0',  '+' ),
+    );
+    my $replaced = sub ($rows) {
+        my $result = Matrix::inseparable( $source, \@mutants, $rows );
+        return [
+            map {
+                [ map { $_->replacement } $_->@* ]
+            } $result->@{qw(executed equal)}
+        ];
+    };
+    is $replaced->( [ Matrix::rows() ] ), [ [ '- 0', '>= $y' ], ['- 0'] ],
+      'a change that keeps every value is refused, the boundary of a comparison is accepted, and code that perl refuses never runs';
+    is $replaced->( [ grep { $_->[0] != $_->[1] } Matrix::rows( -2, 1, 3 ) ] ),
+      [ [ '- 0', '>= $y' ], [ '- 0', '>= $y' ] ],
+      'a matrix without an equal pair has no input that tells the boundary apart';
+    is Matrix::observed( [ $file->{text} =~ s/return/retrun/r ], [ Matrix::rows() ] ), [undef],
+      'a text that perl refuses has nothing to observe';
+
+    my @records = Matrix::judged_records( $source, \@mutants, [ Matrix::rows() ], 'by hand' );
+    is [ grep { $_->[0] eq 'expression' } @records ], [ [ 'expression', 'run' ] ], 'perl runs the original';
+    my $summary = Oracle::summary( [ map { [ 'lib/Snippet.pm', $_->@* ] } grep { $_->[0] ne 'expression' } @records ] );
+    is Oracle::found( $summary, 'c2' ), ['by-hand has no input of the matrix that tells it from the original'],
+      'the change that no row separates is a finding of its mutator';
+    is Gate::outcomes( sub { Gate::findings( 'mutants-c2-rejected', Oracle::found( $summary, 'c2' ) ) } ),
+      [ 'fail', 'pass' ], 'and a finding outside the list fails the gate';
+};
+
 # Perl compiles each snippet alone first, so a combination that is no code leaves the list.
 my @snippets = Snippets::chosen( Snippets::pairwise( Snippets::sizes() ) );
 my $workers  = min( 8, Test::Mutation::Project::cpu_count() );
@@ -119,5 +154,17 @@ Gate::checked(
     at_least => 1400
 );
 Gate::checked( 'refused changes that perl judged', $total->{asked}, at_least => 15 );
+
+# Each expression runs as the value of a subroutine over the matrix, with every operator beside every operand shape.
+my @expressions = Matrix::expressions( Snippets::pairwise( ( Snippets::sizes() )[ 0 .. 2 ] ) );
+my $matrix      = Matrix::surveyed( \@expressions, $workers, [ Matrix::rows() ] );
+note $_ for Oracle::table( $matrix->{tally}, 'executed', 'inseparable:executed' ), Oracle::lines($matrix);
+note "$_: $matrix->{expressions}{$_}" for sort keys $matrix->{expressions}->%*;
+is $matrix->{problems}, {}, 'the tool analyzes every expression';
+Gate::findings( 'mutants-c2-generated', Oracle::found( $matrix, 'c2' ) );
+Gate::checked( 'expressions',                      scalar @expressions,                           at_least => 400 );
+Gate::checked( 'expressions that perl runs',       $matrix->{expressions}{run},                   at_least => 300 );
+Gate::checked( 'mutants that ran over the matrix', Oracle::total( $matrix->{tally} )->{executed}, at_least => 600 );
+Gate::checked( 'rows of the matrix',               scalar( () = Matrix::rows() ),                 at_least => 100 );
 
 done_testing;

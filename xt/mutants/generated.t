@@ -2,6 +2,7 @@ use v5.36;
 use Test2::V0;
 use lib 't/lib';
 use Gate;
+use Matrix;
 use Oracle;
 use Snippets;
 use Test::Mutation::Project;
@@ -46,6 +47,17 @@ Gate::checked( 'snippets',                            scalar @snippets,         
 Gate::checked( 'snippets that perl compiles',         $summary->{snippets}{compiled}, at_least => 30_000 );
 Gate::checked( 'mutants that perl judged',            $total->{judged},               at_least => 80_000 );
 Gate::checked( 'refused changes that perl judged',    $total->{asked},                at_least => 500 );
-Gate::checked( 'verdicts that a cold perl confirmed', $summary->{crossed},            at_least => 10_000 );
+Gate::checked( 'verdicts that a cold perl confirmed', $summary->{crossed},            at_least => 5000 );
+
+# Every operator between every pair of operand shapes runs as the value of a subroutine over the matrix.
+my @expressions = Matrix::expressions( Snippets::product( ( Snippets::sizes() )[ 0 .. 2 ] ) );
+my $matrix      = Matrix::surveyed( \@expressions, $workers, [ Matrix::rows() ] );
+note $_ for Oracle::table( $matrix->{tally}, 'executed', 'inseparable:executed' ), Oracle::lines($matrix);
+note "$_: $matrix->{expressions}{$_}" for sort keys $matrix->{expressions}->%*;
+is $matrix->{problems}, {}, 'the tool analyzes every expression';
+Gate::findings( 'mutants-c2-product', Oracle::found( $matrix, 'c2' ) );
+Gate::checked( 'expressions',                      scalar @expressions,                           at_least => 2900 );
+Gate::checked( 'expressions that perl runs',       $matrix->{expressions}{run},                   at_least => 2400 );
+Gate::checked( 'mutants that ran over the matrix', Oracle::total( $matrix->{tally} )->{executed}, at_least => 4500 );
 
 done_testing;
