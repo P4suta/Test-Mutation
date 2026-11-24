@@ -4,9 +4,7 @@ use Cwd             ();
 use Digest::SHA     ();
 use File::Basename  ();
 use File::Find      ();
-use File::Path      ();
 use File::Spec      ();
-use File::Temp      ();
 use List::Util      ();
 use Time::HiRes     ();
 use Types::Standard qw(ArrayRef CodeRef Dict HashRef InstanceOf Int Str Tuple);
@@ -14,16 +12,20 @@ use Type::Params    qw(signature_for);
 use Test::Mutation::Cache;
 use Test::Mutation::Coverage;
 use Test::Mutation::Diff;
+use Test::Mutation::Error;
 use Test::Mutation::Git;
+use Test::Mutation::Message;
 use Test::Mutation::Mutant::Generator;
 use Test::Mutation::Mutator::Catalog;
 use Test::Mutation::Pool;
 use Test::Mutation::Project;
 use Test::Mutation::Record;
 use Test::Mutation::Result;
+use Test::Mutation::Signals;
 use Test::Mutation::Source;
 use Test::Mutation::Syntax::PPI;
 use Test::Mutation::Tree;
+use Test::Mutation::Try;
 use Test::Mutation::Verdict;
 
 our $VERSION = '0.001';
@@ -31,6 +33,8 @@ our $VERSION = '0.001';
 my $SHIM_FILE     = 'Test/Mutation/Shim.pm';
 my %UNDETECTED    = ( Survived => 1, NoCoverage => 1 );
 my $CHANGES_NAMED = 5;
+my $TYPED         = InstanceOf ['Test::Mutation::Error'];
+my $INTERRUPTION  = InstanceOf ['Test::Mutation::Interrupted'];
 
 my $ANALYSIS = Dict [
     sources   => HashRef [ InstanceOf ['Test::Mutation::Source'] ],
@@ -63,6 +67,9 @@ sub _analysis ( $config, $project, $root ) {
         next if $changed && !$changed->{$path};
         my $source   = Test::Mutation::Source->from_bytes( path => $path, bytes => _slurp("$root/$path") );
         my $analysis = Test::Mutation::Syntax::PPI::analyze($source);
+
+        # The analysis of a file is the longest step outside the tests, so a signal ends the work after the file it met.
+        Test::Mutation::Signals::check();
         if ( defined $analysis->{problem} ) {
             push @problems, { path => $path, problem => $analysis->{problem} };
             next;
@@ -132,30 +139,33 @@ sub run ( $config, $listener ) {
         warnings => {},
         free     => {},
     };
-    my $result = eval {
+    my $measure = sub {
         _copy_project($run) if !$config->in_place;
-        _measure( $run, $started );
+        return _measure( $run, $started );
     };
-    my $error = $@;
-    _discard( $run->{copies} ) if defined $run->{copies};
-    die $error                 if !$result;                 ## no critic (ErrorHandling::RequireCarping)
-    return $result;
+    my $release = sub { _discard( $run->{copies} ) if defined $run->{copies}; return };
+    return Test::Mutation::Signals::watch( sub { Test::Mutation::Try::with_cleanup( $measure, $release ) } );
 }
 
 # The tests run in a copy of the project, so a file that a test writes or removes leaves the project as it was.
 sub _copy_project ($run) {
     my $config  = $run->{config};
     my $project = $run->{project};
-    $run->{name}   = File::Basename::basename($project);
-    $run->{copies} = Cwd::abs_path( File::Temp::tempdir( q{mutation-XXXXXX}, TMPDIR => 1 ) );
+    $run->{name} = File::Basename::basename($project);
+
+    $run->{copies} = Cwd::abs_path( Test::Mutation::Tree::temporary( File::Spec->tmpdir, 'mutation-' ) );
 
     # A temporary directory inside the project holds the copies, which are no part of a copy.
     my @skip =
       ( q{.git}, map { _inside( $project, $_ ) } $config->work_directory, $config->report_directory, $run->{copies} );
-    my $copied = eval { $run->{root} = _new_copy( $run, $project, \@skip, $config->link ); 1 };
-    return if $copied;
-    chomp( my $reason = "$@" );
-    die "cannot copy the project: $reason; --in-place runs the tests in the project itself\n";
+    my $copied =
+      Test::Mutation::Try::attempt( sub { $run->{root} = _new_copy( $run, $project, \@skip, $config->link ) } );
+    return if exists $copied->{value};
+
+    # A failure of the system names its path, and the run adds what the user can do about it.
+    my $error = $copied->{error};
+    die $error if !$TYPED->check($error);    ## no critic (ErrorHandling::RequireCarping)
+    return Test::Mutation::Error::raise( 'project-uncopyable', reason => $error->message );
 }
 
 # The path from the project to a place inside it, and nothing for a place outside.
@@ -167,7 +177,7 @@ sub _inside ( $project, $path ) {
 
 # Each copy has the name of the project inside a directory of its own.
 sub _new_copy ( $run, $from, $skip, $link ) {
-    my $to = File::Temp::tempdir( q{XXXXXX}, DIR => $run->{copies} ) . "/$run->{name}";
+    my $to = Test::Mutation::Tree::temporary( $run->{copies}, q{} ) . "/$run->{name}";
     Test::Mutation::Tree::copy( from => $from, to => $to, skip => $skip, link => $link );
     return $to;
 }
@@ -192,9 +202,8 @@ sub _release ( $run, $job ) {
     my $root = $copy->{root};
     my $changes =
       Test::Mutation::Tree::changes( $copy->{state}, Test::Mutation::Tree::snapshot( root => $root, skip => [] ) );
-    return
-      if $changes->@*
-      && !eval { Test::Mutation::Tree::restore( from => $run->{root}, to => $root, changes => $changes ); 1 };
+    my $restore = sub { Test::Mutation::Tree::restore( from => $run->{root}, to => $root, changes => $changes ) };
+    return if $changes->@* && exists Test::Mutation::Try::attempt($restore)->{error};
     $run->{free}{$root} = 1;
     return;
 }
@@ -202,7 +211,8 @@ sub _release ( $run, $job ) {
 # A test may leave a directory without any right, and such a leftover must not end the run.
 sub _discard (@paths) {
     return scalar grep {
-        !eval { Test::Mutation::Tree::remove($_); 1 }
+        my $path = $_;
+        exists Test::Mutation::Try::attempt( sub { Test::Mutation::Tree::remove($path) } )->{error}
     } @paths;
 }
 
@@ -240,7 +250,7 @@ sub _measure ( $run, $started ) {
     );
 
     if ( @active && @tests ) {
-        my $measured = eval {
+        my $measure = sub {
             _prepare_work($run);
             $run->{targets} = [ sort keys $analysis->{sources}->%* ];
             my $baseline = _baseline( $run, \@tests, $run->{targets} );
@@ -253,12 +263,14 @@ sub _measure ( $run, $started ) {
                 $run->{tree} = _tree($run) if !defined $run->{copies};
                 $result{entries} = _mutants( $run, $analysis->{mutants}, $baseline );
             }
-            1;
+            return 1;
         };
-        my $error = $@;
-        _warn( $run, "the work directory $run->{work} stays, because a file in it resists removal" )
-          if !$config->keep_work && _leave_work($run);
-        die $error if !$measured;    ## no critic (ErrorHandling::RequireCarping)
+        my $leave = sub {
+            _warn( $run, "the work directory $run->{work} stays, because a file in it resists removal" )
+              if !$config->keep_work && _leave_work($run);
+            return;
+        };
+        Test::Mutation::Try::with_cleanup( $measure, $leave );
     }
     else {
         _warn( $run, 'no test files match' ) if @active && !@tests;
@@ -279,17 +291,17 @@ sub _measure ( $run, $started ) {
 }
 
 sub _slurp ($path) {
-    open my $handle, '<:raw', $path or die "cannot read $path: $!\n";
+    open my $handle, '<:raw', $path or Test::Mutation::Error::raise( 'file-unreadable', path => $path, reason => "$!" );
     local $/ = undef;
     my $content = readline $handle;
-    close $handle or die "cannot close $path: $!\n";
+    close $handle or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
     return $content // q{};
 }
 
 sub _spew ( $path, $content ) {
-    open my $handle, '>:raw', $path or die "cannot write $path: $!\n";
-    print {$handle} $content or die "cannot write $path: $!\n";
-    close $handle            or die "cannot close $path: $!\n";
+    open my $handle, '>:raw', $path or Test::Mutation::Error::raise( 'file-unwritable', path => $path, reason => "$!" );
+    print {$handle} $content or Test::Mutation::Error::raise( 'file-unwritable', path => $path, reason => "$!" );
+    close $handle            or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
     return;
 }
 
@@ -326,14 +338,15 @@ sub _leave_work ($run) {
 
 sub _prepare_work ($run) {
     my $base = $run->{project} . q{/} . $run->{config}->work_directory;
-    File::Path::make_path($base);
-    my $work = File::Temp::tempdir( 'run-XXXXXX', DIR => $base );
+
+    Test::Mutation::Tree::make($base);
+    my $work = Test::Mutation::Tree::temporary( $base, 'run-' );
 
     # The run owns the directory from here on, so a failure below still removes it.
     $run->{work} = $work;
     my $outer      = $ENV{TEST_MUTATION_GENERATION};
     my $generation = defined $outer ? $outer + 1 : 1;
-    File::Path::make_path( map { "$work/$_" } 'shim/Test/Mutation/Shim', 'mutants', 'records', 'tmp', 'stderr' );
+    Test::Mutation::Tree::make( map { "$work/$_" } 'shim/Test/Mutation/Shim', 'mutants', 'records', 'tmp', 'stderr' );
     _spew( "$work/shim/Test/Mutation/Shim/G$generation.pm", shim_text($generation) );
     $run->{generation} = $generation;
     $run->{package}    = "Test::Mutation::Shim::G$generation";
@@ -346,7 +359,8 @@ sub shim_text ($generation) {
     my $text    = _module_text($SHIM_FILE);
     my $renamed = $text =~ s/^package Test::Mutation::Shim;$/package Test::Mutation::Shim::G$generation;/m;
     my $marked  = $text =~ s/^my \$GENERATION = 0;$/my \$GENERATION = $generation;/m;
-    die "cannot prepare the shim for generation $generation\n" if !$renamed || !$marked;
+    die Test::Mutation::Message::text_of( 'shim-unprepared', generation => $generation ) . "\n"
+      if !$renamed || !$marked;
     return $text;
 }
 
@@ -376,14 +390,15 @@ sub _module_text ($file) {
         next                          if ref $entry;
         return _slurp("$entry/$file") if -f "$entry/$file";
     }
-    die "cannot find $file\n";
+    die Test::Mutation::Message::text_of( 'shim-missing', file => $file ) . "\n";
 }
 
 sub _taint_switch ( $run, $test ) {
     if ( !exists $run->{taint}{$test} ) {
-        open my $handle, '<', "$run->{root}/$test" or die "cannot read $test: $!\n";
+        open my $handle, '<', "$run->{root}/$test"
+          or Test::Mutation::Error::raise( 'file-unreadable', path => $test, reason => "$!" );
         my $first = readline $handle;
-        close $handle or die "cannot close $test: $!\n";
+        close $handle or Test::Mutation::Error::raise( 'file-unclosable', path => $test, reason => "$!" );
         $run->{taint}{$test} = defined $first && $first =~ /\A[#]!.*perl.*\s-\w*([Tt])/ ? "-$1" : undef;
     }
     return $run->{taint}{$test};
@@ -444,18 +459,28 @@ signature_for run_command => (
 sub run_command ( $config, $source, $mutant, $command ) {
     my $root = Cwd::abs_path( $config->root );
     my $run  = { config => $config, project => $root, root => $root };
-    my $ran  = eval {
+    my $work = sub {
         _prepare_work($run);
         my ( undef, $spec ) = _write_mutant( $run, $source, $mutant, $root );
         local %ENV = ( %ENV, _environment( $run, $spec, $root ) );
-        [ system { $command->[0] } $command->@* ];
+
+        # A command that cannot start ends exec with one line of the tool, and the warning of Perl would add another.
+        no warnings 'exec';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
+        my $status = system { $command->[0] } $command->@*;
+        my $reason = "$!";
+
+        # A signal for the tool alone waits while the command runs, and it ends the work when the command has ended.
+        Test::Mutation::Signals::check();
+        return [ $status, $reason ];
     };
-    my $error = $@;
-    _leave_work($run);
-    die $error if !$ran;    ## no critic (ErrorHandling::RequireCarping)
-    my ($status) = $ran->@*;
-    return 127                     if $status == -1;
-    return 128 + ( $status & 127 ) if $status & 127;
+    my $ran = Test::Mutation::Signals::watch(
+        sub {
+            Test::Mutation::Try::with_cleanup( $work, sub { _leave_work($run) } );
+        }
+    );
+    my ( $status, $reason ) = $ran->@*;
+    Test::Mutation::Error::raise( 'command-unstartable', command => $command->[0], reason => $reason ) if $status == -1;
+    return 128 + ( $status & 127 )                                                                     if $status & 127;
     return $status >> 8;
 }
 
@@ -470,7 +495,7 @@ sub _test_task ( $run, %arg ) {
     my $generation = $run->{generation};
     my $record     = "$work/records/$sequence";
     my $tmp        = "$work/tmp/$sequence";
-    File::Path::make_path( $record, $tmp );
+    Test::Mutation::Tree::make( $record, $tmp );
     my $taint = _taint_switch( $run, $arg{test} );
     my $load  = '-M' . $run->{package};
     return {
@@ -611,7 +636,7 @@ sub _mutants ( $run, $mutants, $baseline ) {
         _release( $run, $job );
         return;
     };
-    my $completed = eval {
+    my $measure = sub {
         Test::Mutation::Pool::run(
             jobs => $run->{jobs},
             next => sub {
@@ -626,11 +651,15 @@ sub _mutants ( $run, $mutants, $baseline ) {
                 return _after_task( $run, $baseline, $task, $result ) || $finish->( $task->{payload}{job} );
             },
         );
-        1;
+        return 1;
     };
+
+    # A signal ends the measurement, and the mutants that it measured keep their results.
+    my $attempt   = Test::Mutation::Try::attempt( $measure, 'interruption' );
+    my $completed = exists $attempt->{value};
     if ( !$completed ) {
-        my $error = $@;
-        die $error if !eval { $error->isa('Test::Mutation::Interrupted') };    ## no critic (ErrorHandling::RequireCarping)
+        my $error = $attempt->{error};
+        die $error if !$INTERRUPTION->check($error);    ## no critic (ErrorHandling::RequireCarping)
         $run->{interrupted} = $error->signal;
         for my $job ( grep { !$entry_of{ $_->{mutant}->id } } @jobs ) {
             $entry_of{ $job->{mutant}->id } = _entry(

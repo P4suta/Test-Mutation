@@ -20,6 +20,7 @@ BEGIN {
 
 use lib 't/e2e/lib', 't/lib';
 use Capability;
+use Raised;
 use Fixture qw(copy_of leftovers run_fixture);
 use Test::Mutation::CLI;
 use Test::Mutation::Config;
@@ -84,26 +85,29 @@ for my $part ( 1, 2 ) {
 my @reports = ( 'part1/mutation.json', 'part2/mutation.json' );
 
 my ( $status, $errors ) = failing_in( qr/::CLI::_read_report\z/, sub { command( 'merge', @reports ) } );
-is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 2, 'mutation: cannot close part1/mutation.json' ],
-  'a report that does not close is a usage error';
+is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 5, 'mutation: cannot close part1/mutation.json' ],
+  'a report that does not close is an error of the environment';
 
 ( $status, $errors ) =
-  failing_in( qr/::CLI::_report\z/, sub { command( 'merge', @reports, '--format', 'json', '--report-dir', 'whole' ) } );
-is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 4, 'mutation: cannot close whole/mutation.json' ],
+  failing_in( qr/::CLI::_write\z/, sub { command( 'merge', @reports, '--format', 'json', '--report-dir', 'whole' ) } );
+is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 5, 'mutation: cannot close whole/mutation.json' ],
   'a report file that does not close after the write fails the command';
 
 {
     local $ENV{GITHUB_STEP_SUMMARY} = "$root/summary.md";
     ( $status, $errors ) =
-      failing_in( qr/::CLI::_report_to_github\z/, sub { command( 'merge', @reports, '--format', 'github' ) } );
-    is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 4, "mutation: cannot close $root/summary.md" ],
+      failing_in( qr/::CLI::_write\z/, sub { command( 'merge', @reports, '--format', 'github' ) } );
+    is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 5, "mutation: cannot close $root/summary.md" ],
       'a job summary that does not close fails the command';
 }
 
 if ( Capability::has( 'git', length qx{git --version 2>/dev/null}, 'the case needs the git command' ) ) {
-    is dies {
-        failing_in( qr/::Git::_git\z/, sub { Test::Mutation::Git::changed( $root, 'HEAD' ) } )
-    }, "git diff failed\n", 'a git answer that does not close fails without a reason';
+    is Raised::error(
+        sub {
+            failing_in( qr/::Git::_git\z/, sub { Test::Mutation::Git::changed( $root, 'HEAD' ) } );
+        }
+      ),
+      [ 'environment', 'git-silent', 'git diff failed' ], 'a git answer that does not close fails without a reason';
 }
 
 done_testing;

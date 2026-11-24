@@ -2,6 +2,7 @@ package Test::Mutation::Record;
 use v5.36;
 use Types::Standard qw(ArrayRef Bool Dict HashRef Str);
 use Type::Params    qw(signature_for);
+use Test::Mutation::Error;
 
 our $VERSION = '0.001';
 
@@ -78,11 +79,12 @@ signature_for read_directory => ( positional => [Str], returns => $RECORD );
 sub read_directory ($directory) {
     my @texts;
     for my $path ( sort glob "$directory/*.rec" ) {
-        open my $handle, '<:raw', $path or die "cannot read $path: $!\n";
+        open my $handle, '<:raw', $path
+          or Test::Mutation::Error::raise( 'file-unreadable', path => $path, reason => "$!" );
         local $/ = undef;
         my $text = readline $handle;
         push @texts, $text if defined $text;
-        close $handle or die "cannot close $path: $!\n";
+        close $handle or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
     }
     return parse( \@texts );
 }

@@ -2,6 +2,11 @@ use v5.36;
 use Test2::V0;
 use File::Path ();
 use File::Temp ();
+use List::Util ();
+use lib 't/lib';
+use Capability;
+use Raised;
+use Test::Mutation::Signals;
 use Test::Mutation::Tree;
 
 # The modes of the trees below follow from one mask, whatever mask the caller of the test has.
@@ -255,14 +260,88 @@ like dies { Test::Mutation::Tree::remove() },          qr/Wrong number of parame
 like dies { Test::Mutation::Tree::copy( from => 1 ) }, qr/Wrong number of parameters/, 'copy checks its arguments';
 like dies { Test::Mutation::Tree::restore( from => 1 ) }, qr/Wrong number of parameters/,
   'restore checks its arguments';
-like dies {
-    Test::Mutation::Tree::copy(
-        from => '/nonexistent/at/all',
-        to   => File::Temp::tempdir( CLEANUP => 1 ) . '/x',
-        skip => [],
-        link => []
-    )
-}, qr{cannot read /nonexistent/at/all}, 'copy names a tree it cannot read';
+subtest 'make creates a directory with every parent that it lacks' => sub {
+    my $root = tree( 'plain.txt' => 'a file' );
+    is Test::Mutation::Tree::make( "$root/a/b/c", "$root/a/d" ), 4, 'the number of new directories';
+    ok -d "$root/a/b/c" && -d "$root/a/d", 'each directory stands';
+    is Test::Mutation::Tree::make( "$root/a/b", $root ), 0, 'a directory that stands counts nothing';
+    is Test::Mutation::Tree::make(),                     0, 'and neither does no directory at all';
+    is Raised::error( sub { Test::Mutation::Tree::make("$root/plain.txt/below") } ),
+      [ 'environment', 'directory-uncreatable', "cannot create $root/plain.txt: File exists" ],
+      'a file in the way is named with the reason of the system';
+};
+
+subtest 'temporary creates a new directory for its caller alone' => sub {
+    my $root  = tree();
+    my @paths = map { Test::Mutation::Tree::temporary( $root, 'run-' ) } 1 .. 3;
+    like \@paths, [ map { qr{\A\Q$root\E/run-[[:alnum:]]{6}\z} } 1 .. 3 ], 'a name with the prefix and six letters';
+    is [ List::Util::uniq(@paths) ], \@paths, 'each call gives another name';
+    is [ map { sprintf '%04o', ( stat $_ )[2] & oct '7777' } @paths ], [ ('0700') x 3 ],
+      'the directory is open to its owner alone';
+    like Raised::error( sub { Test::Mutation::Tree::temporary( "$root/absent", 'run-' ) } ),
+      [
+        'environment', 'directory-uncreatable',
+        qr{\Acannot create \Q$root\E/absent/run-[[:alnum:]]{6}: No such file or directory\z}
+      ],
+      'a parent that is absent is named with the reason of the system';
+};
+
+subtest 'a failure of the system is an error of the environment with the path' => sub {
+    my $root  = tree( 'from/dir/file.txt' => 'x', 'from/linked/file.txt' => 'y', 'in-the-way' => 'a file' );
+    my $error = sub (%arg) {
+        return Raised::error(
+            sub { Test::Mutation::Tree::copy( from => "$root/from", skip => [], link => [], %arg ) } );
+    };
+    is $error->( from => '/nonexistent/at/all', to => "$root/x" ),
+      [ 'environment', 'directory-missing', 'cannot read /nonexistent/at/all: no such directory' ],
+      'copy names a tree that it cannot read';
+    is $error->( to => "$root/in-the-way/copy" ),
+      [ 'environment', 'directory-uncreatable', "cannot create $root/in-the-way: File exists" ],
+      'copy names a target that it cannot create';
+
+    File::Path::make_path("$root/taken/dir");
+    is $error->( to => "$root/taken" ),
+      [ 'environment', 'directory-uncreatable', "cannot create $root/taken/dir: File exists" ],
+      'copy names a directory that stands in the target';
+    File::Path::make_path("$root/held/linked");
+    is $error->( to => "$root/held", link => ['linked'] ),
+      [ 'environment', 'file-unlinkable', "cannot link $root/held/linked: File exists" ],
+      'copy names a link that it cannot make';
+};
+
+subtest 'a copy ends at a signal that waits' => sub {
+    my $root  = tree( map { ( "f$_.txt" => 'x' ) } 1 .. 5 );
+    my $error = dies {
+        Test::Mutation::Signals::watch(
+            sub {
+                kill 'TERM', $$;
+                Test::Mutation::Tree::copy( from => $root, to => "$root-copy", skip => [], link => [] );
+            }
+        )
+    };
+    isa_ok $error, ['Test::Mutation::Interrupted'], 'the copy dies with the interruption';
+    is [ glob "$root-copy/*" ], [], 'before it copies a file';
+    Test::Mutation::Tree::remove("$root-copy");
+};
+
+subtest 'a path that the system refuses to change is named' => sub {
+    Capability::has( 'unprivileged', $> != 0, 'the superuser changes every path' ) or return;
+    my $root = tree( 'from/sealed.txt' => 'x', 'closed/inner/file.txt' => 'y' );
+    chmod 0, "$root/from/sealed.txt" or die "chmod: $!";
+    like Raised::error(
+        sub { Test::Mutation::Tree::copy( from => "$root/from", to => "$root/to", skip => [], link => [] ) } ),
+      [
+        'environment', 'file-uncopyable',
+        qr{\Acannot copy \Q$root\E/from/sealed[.]txt to \Q$root\E/to/sealed[.]txt: Permission denied\z}
+      ],
+      'a file without the right to read';
+
+    chmod oct '500', "$root/closed" or die "chmod: $!";
+    is Raised::error( sub { Test::Mutation::Tree::remove("$root/closed/inner") } ),
+      [ 'environment', 'file-unremovable', "cannot remove $root/closed/inner: Permission denied" ],
+      'a directory whose parent keeps its entries';
+    chmod oct '700', "$root/closed" or die "chmod: $!";
+};
 like dies { Test::Mutation::Tree::snapshot( root => 1 ) }, qr/Wrong number of parameters/,
   'snapshot checks its arguments';
 like dies { Test::Mutation::Tree::changes( {}, [] ) }, qr/did not pass type constraint/, 'changes checks its arguments';

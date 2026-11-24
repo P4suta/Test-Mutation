@@ -1,5 +1,7 @@
 use v5.36;
 use Test2::V0;
+use lib 't/lib';
+use Raised;
 use Test::Mutation::Mutant;
 use Test::Mutation::Report::Json;
 use Test::Mutation::Result;
@@ -80,9 +82,11 @@ is $back->baseline_failures, [ { test => 't/broken.t', output => q{}, errors => 
   'a failing test of the unmodified run keeps its name';
 is $back->sources, { 'lib/Calc.pm' => $source }, 'the sources';
 
-like dies { Test::Mutation::Report::Json::parse('{') }, qr/\Athe text is no JSON document/, 'broken JSON is refused';
-like dies { Test::Mutation::Report::Json::parse('{"schemaVersion":"2","thresholds":{"high":80,"low":60},"files":{}}') },
-  qr/\Athe report holds no run facts of Test::Mutation/, 'a report of another tool is refused';
+like Raised::message( sub { Test::Mutation::Report::Json::parse('{') } ), qr/\Athe text is no JSON document/,
+  'broken JSON is refused';
+like Raised::message(
+    sub { Test::Mutation::Report::Json::parse('{"schemaVersion":"2","thresholds":{"high":80,"low":60},"files":{}}') } ),
+  qr/\Athe report holds no facts of a mutation run\z/, 'a report of another tool is refused';
 
 like dies { Test::Mutation::Report::Json::parse(undef) }, qr/did not pass type constraint "Str"/,
   'the text is a string';
@@ -90,7 +94,7 @@ like dies { Test::Mutation::Report::Json::parse(undef) }, qr/did not pass type c
 sub refusal ($change) {
     my $changed = $change->($text);
     die 'the change matches nothing' if $changed eq $text;
-    return dies { Test::Mutation::Report::Json::parse($changed) };
+    return Raised::message( sub { Test::Mutation::Report::Json::parse($changed) } );
 }
 
 subtest 'a value of the wrong type is refused with its place in the report' => sub {
@@ -122,7 +126,7 @@ subtest 'a value of the wrong type is refused with its place in the report' => s
     );
     for my $name ( sort keys %cases ) {
         my ( $change, $place ) = $cases{$name}->@*;
-        is refusal($change), "the report is malformed: no valid value at \$report$place\n", $name;
+        is refusal($change), "the report is malformed: no valid value at \$report$place", $name;
     }
 };
 
@@ -137,7 +141,7 @@ subtest 'a location outside the source is refused' => sub {
     );
     for my $name ( sort keys %cases ) {
         my ( $change, $reason ) = $cases{$name}->@*;
-        is refusal($change), "the report is malformed: $reason\n", $name;
+        is refusal($change), "the report is malformed: $reason", $name;
     }
 };
 

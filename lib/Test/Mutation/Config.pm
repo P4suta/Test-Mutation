@@ -5,6 +5,7 @@ use Types::Standard        qw(ArrayRef Bool Enum HashRef InstanceOf Maybe Num St
 use Types::Common::Numeric qw(PositiveInt PositiveNum);
 use Type::Params           qw(signature_for);
 use TOML::Tiny             ();
+use Test::Mutation::Error;
 
 our $VERSION = '0.001';
 
@@ -61,14 +62,17 @@ my %FILE_KEYS = (
     thresholds => { high      => 'threshold_high',   low     => 'threshold_low', break => 'threshold_break' },
 );
 
-signature_for read_file => ( positional => [Str], returns => HashRef );
+signature_for read_file => ( positional => [ Str, Maybe [Str], { default => undef } ], returns => HashRef );
 
-sub read_file ($path) {
-    open my $handle, '<:encoding(UTF-8)', $path or die "cannot read $path: $!\n";
+sub read_file ( $path, $name ) {
+    my $named = defined $name ? $name : $path;
+    open my $handle, '<:encoding(UTF-8)', $path
+      or Test::Mutation::Error::raise( 'input-unreadable', path => $named, reason => "$!" );
     my $text = do { local $/ = undef; readline $handle };
-    close $handle or die "cannot close $path: $!\n";
+    close $handle or Test::Mutation::Error::raise( 'file-unclosable', path => $named, reason => "$!" );
     my ( $data, $error ) = TOML::Tiny::from_toml($text);
-    die "$path: " . ( split /\n/, "$error" )[0] . "\n" if !defined $data;
+    Test::Mutation::Error::raise( 'input-malformed', path => $named, reason => ( split /\n/, "$error" )[0] )
+      if !defined $data;
     return $data;
 }
 
@@ -88,14 +92,16 @@ sub _file_settings ($file) {
     for my $key ( sort keys $file->%* ) {
         my $value = $file->{$key};
         if ( ref $value eq 'HASH' ) {
-            my $section = $FILE_KEYS{$key} or die "unknown configuration section [$key]\n";
+            my $section = $FILE_KEYS{$key}
+              or Test::Mutation::Error::raise( 'config-section-unknown', section => $key );
             for my $name ( sort keys $value->%* ) {
-                my $attribute = $section->{$name} or die "unknown configuration key $name in [$key]\n";
+                my $attribute = $section->{$name}
+                  or Test::Mutation::Error::raise( 'config-key-unknown-in-section', key => $name, section => $key );
                 $settings{$attribute} = $value->{$name};
             }
         }
         else {
-            my $attribute = $FILE_KEYS{q{}}{$key} or die "unknown configuration key $key\n";
+            my $attribute = $FILE_KEYS{q{}}{$key} or Test::Mutation::Error::raise( 'config-key-unknown', key => $key );
             $settings{$attribute} = $value;
         }
     }
@@ -136,8 +142,11 @@ The file uses sections and hyphenated keys, and an unknown section or key is a f
 =head2 read_file
 
     my $parsed = Test::Mutation::Config::read_file('mutation.toml');
+    my $named  = Test::Mutation::Config::read_file( "$directory/ci.toml", 'ci.toml' );
 
-Returns the parsed content of a configuration file, and dies with the path and the first line of the error when the file is malformed.
+Returns the parsed content of a configuration file.
+The function dies with a L<Test::Mutation::Error> of the kind C<usage> when the file cannot be read or is malformed.
+Its message holds the second argument as the name of the file, or the path without one, and the first line of the reason.
 
 =head1 ATTRIBUTES
 

@@ -9,6 +9,7 @@ use Fixture qw(copy_of write_file);
 use Samples;
 use World;
 use Test::Mutation::CLI;
+use Test::Mutation::Error;
 use Test::Mutation::Interrupted;
 use Test::Mutation::Runner;
 
@@ -213,12 +214,12 @@ subtest 'carrying out a plan enters the directory and prints to the streams of t
         no warnings 'redefine';
         local *Test::Mutation::Runner::analyze = sub { @inc = @INC; $entered = Cwd::getcwd(); die ['no text'] };
         local @INC                             = ( 'relative/entry', @INC );
-        is Test::Mutation::CLI::execute( $plan, $world ), 4, 'an error that is no text ends the command with status 4';
+        is Test::Mutation::CLI::execute( $plan, $world ), 6, 'an error that is no text ends the command with status 6';
         chdir $here or die "chdir: $!";
     }
     is [ $inc[0], $entered ], [ "$here/relative/entry", $root ],
       'the command enters the directory, and a relative entry of the search path names its place in full';
-    like $text, qr/\Amutation: ARRAY[(]0x[0-9a-f]+[)]\n\z/, 'the error has its line';
+    is $text, "mutation: internal error: ARRAY\n", 'the error has its line, which names the type of the value';
     $text = q{};
     seek $errors, 0, 0 or die "seek: $!";
     is Test::Mutation::CLI::execute( { $plan->%*, directory => 'gone' }, { $world->%*, err => $errors } ), 2,
@@ -227,15 +228,62 @@ subtest 'carrying out a plan enters the directory and prints to the streams of t
     is Cwd::getcwd(), $here,                                                      'and the command stays where it was';
 };
 
-subtest 'the errors of a run end the command with one line' => sub {
-    my $failing = sub ($failure) {
+subtest 'the errors of a run end the command with one line and the status of their kind' => sub {
+    my $failing = sub ( $failure, @line ) {
         no warnings 'redefine';
         local *Test::Mutation::Runner::analyze = $failure;
-        return [ World::observe( ['list'], cwd => $root )->@{qw(exit stdout stderr)} ];
+        return [ World::observe( @line ? \@line : ['list'], cwd => $root )->@{qw(exit stdout stderr)} ];
     };
-    is $failing->( sub { die 'the analysis broke' } ), [ 4, q{}, "mutation: the analysis broke\n" ], 'an error';
+    my $usage       = sub { Test::Mutation::Error::raise( 'mutator-unknown', names => 'nonesuch' ) };
+    my $environment = sub { Test::Mutation::Error::raise( 'file-unreadable', path  => 'lib/A.pm', reason => 'gone' ) };
+    is $failing->($usage),       [ 2, q{}, "mutation: unknown mutator: nonesuch\n" ],  'a usage error';
+    is $failing->($environment), [ 5, q{}, "mutation: cannot read lib/A.pm: gone\n" ], 'an error of the environment';
+    is $failing->( sub { die 'the analysis broke' } ), [ 6, q{}, "mutation: internal error: the analysis broke\n" ],
+      'an error without a type is an internal error, and its line shows no place in the code';
+    is $failing->( sub { die "first line\nsecond line\n" } ), [ 6, q{}, "mutation: internal error: first line\n" ],
+      'an internal error of several lines keeps the first';
+    is $failing->( sub { die "\n" } ), [ 6, q{}, "mutation: internal error: \n" ], 'an error without a text';
+    is $failing->( sub { die bless {}, 'Some::Exception' } ), [ 6, q{}, "mutation: internal error: Some::Exception\n" ],
+      'an exception object without a text names its class';
     is $failing->( sub { die Test::Mutation::Interrupted->new( signal => 'TERM' ) } ),
       [ 143, q{}, "mutation: interrupted by SIGTERM\n" ], 'an interruption';
+
+    my @exec = ( 'exec', 'zzzz', q{--}, 'true' );
+    is $failing->( $usage, @exec ), [ 2, q{}, "mutation: unknown mutator: nonesuch\n" ],
+      'a usage error of exec keeps its status, since nothing ran';
+    is $failing->( $environment, @exec ), [ 125, q{}, "mutation: cannot read lib/A.pm: gone\n" ],
+      'an error of the environment inside exec has the status of exec itself';
+    is $failing->( sub { die 'the analysis broke' }, @exec ),
+      [ 125, q{}, "mutation: internal error: the analysis broke\n" ], 'and so has an internal error';
+    is $failing->( sub { die Test::Mutation::Interrupted->new( signal => 'QUIT' ) }, @exec ),
+      [ 131, q{}, "mutation: interrupted by SIGQUIT\n" ], 'an interruption of exec keeps the status of its signal';
+};
+
+subtest 'a run that ends without success says why in one line' => sub {
+    my $failure = [ { test => 't/a.t', output => "not ok 1\n", errors => q{} } ];
+    my $ended   = sub ( $result, @line ) {
+        no warnings 'redefine';
+        local *Test::Mutation::Runner::run = sub { return $result };
+        my $observation =
+          World::observe( [ 'run', '--format', 'json', '--report-dir', "$elsewhere/out", @line ], cwd => $root );
+
+        # The first line of a run names its processors, and the outcome follows it.
+        my ( $first, $rest ) = split /\n/, $observation->{stderr}, 2;
+        is $first, '4 processors online', 'the first line of the run';
+        return [ $observation->{exit}, $rest ];
+    };
+    is $ended->( Samples::result( statuses => [qw(Killed Killed Survived)] ), '--min-score', 67 ),
+      [ 1, "mutation: the score 66.7% is below the gate of 67%\n" ], 'a score below the gate';
+    is $ended->( Samples::result( statuses => [qw(Killed Killed Survived)] ), '--min-score', 66.5 ),
+      [ 0, q{} ], 'a score above the gate says nothing';
+    is $ended->( Samples::result( statuses => [], baseline_failures => [ $failure->@*, $failure->@* ] ) ),
+      [ 3, "mutation: tests that fail without a mutant: 2\n" ], 'a failing unmodified run';
+    is $ended->( Samples::result( statuses => ['RuntimeError'] ) ), [ 4, "mutation: the run states no score\n" ],
+      'a run without a score';
+    is $ended->( Samples::result( statuses => [qw(Killed Pending)], interrupted => 'PIPE' ) ),
+      [ 141, "mutation: interrupted by SIGPIPE\n" ], 'an interrupted run';
+    is $ended->( Samples::result( statuses => ['Killed'], interrupted => 'HUP', baseline_failures => $failure ) ),
+      [ 129, "mutation: interrupted by SIGHUP\n" ], 'the signal comes before every other outcome';
 };
 
 subtest 'a run reports its progress to the errors of the world and its result to the output' => sub {

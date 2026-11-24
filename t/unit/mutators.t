@@ -1,6 +1,8 @@
 use v5.36;
 use Test2::V0;
 use File::Temp ();
+use lib 't/lib';
+use Raised;
 use Test::Mutation::Mutant::Generator;
 use Test::Mutation::Mutator::Catalog;
 use Test::Mutation::Source;
@@ -292,8 +294,12 @@ subtest 'selection' => sub {
           Test::Mutation::Mutator::Catalog::choose( profile => 'default', enable => [], disable => ['arithmetic'] )->@*
       ],
       [], 'a disabled mutator is removed';
-    like dies { Test::Mutation::Mutator::Catalog::choose( profile => 'default', enable => ['nope'], disable => [] ) },
-      qr/unknown mutator: nope/, 'an unknown name is refused';
+    is Raised::error(
+        sub {
+            Test::Mutation::Mutator::Catalog::choose( profile => 'default', enable => [qw(nope none)], disable => [] );
+        }
+      ),
+      [ 'usage', 'mutator-unknown', 'unknown mutator: nope, none' ], 'unknown names are refused together';
 };
 
 subtest 'every mutant of the corpus changes its span alone' => sub {

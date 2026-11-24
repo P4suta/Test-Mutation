@@ -3,6 +3,7 @@ use v5.36;
 use Encode          ();
 use Types::Standard qw(ArrayRef Bool Dict Enum HashRef Int Maybe Num Str StrMatch);
 use Type::Params    qw(signature_for);
+use Test::Mutation::Try;
 
 our $VERSION = '0.001';
 
@@ -153,8 +154,9 @@ sub _is_document (@lines) {
     require TAP::Parser::YAMLish::Reader;
     local $@ = q{};
     local $SIG{__WARN__} = sub { };
-    my $next = sub { return @lines ? shift @lines : die $PAST_THE_BLOCK };    ## no critic (ErrorHandling::RequireCarping)
-    return eval { TAP::Parser::YAMLish::Reader->new->read($next); 1 } ? 1 : 0;
+    my $next = sub { return @lines ? shift @lines : die $PAST_THE_BLOCK };                                         ## no critic (ErrorHandling::RequireCarping)
+    my $read = Test::Mutation::Try::attempt( sub { TAP::Parser::YAMLish::Reader->new->read($next); return 1 } );
+    return exists $read->{value} ? 1 : 0;
 }
 
 # A YAML block holds every line up to three dots at its own indentation, and TAP::Parser reads none of them as TAP.

@@ -1,13 +1,49 @@
 package Test::Mutation::Tree;
 use v5.36;
+use File::Basename  ();
 use File::Copy      ();
 use File::Find      ();
-use File::Path      ();
+use List::Util      ();
 use Time::HiRes     ();
-use Types::Standard qw(ArrayRef HashRef Int Str);
+use Types::Standard qw(ArrayRef HashRef Int Slurpy Str);
 use Type::Params    qw(signature_for);
+use Test::Mutation::Error;
+use Test::Mutation::Signals;
 
 our $VERSION = '0.001';
+
+my @LETTERS     = ( 'a' .. 'z', 'A' .. 'Z', 0 .. 9 );
+my $NAME_LENGTH = 6;
+my $NAME_TRIES  = 20;
+
+signature_for make => ( positional => [ Slurpy [ ArrayRef [Str] ] ], returns => Int );
+
+sub make ($paths) {
+    return List::Util::sum0( map { _make($_) } $paths->@* );
+}
+
+sub _make ($path) {
+    return 0 if -d $path;
+    my $made = _make( File::Basename::dirname($path) );
+    mkdir $path or Test::Mutation::Error::raise( 'directory-uncreatable', path => $path, reason => "$!" );
+    return $made + 1;
+}
+
+signature_for temporary => ( positional => [ Str, Str ], returns => Str );
+
+sub temporary ( $parent, $prefix ) {
+    my @candidates =
+      map {
+        "$parent/$prefix" . join q{},
+          map { $LETTERS[ rand @LETTERS ] }
+          1 .. $NAME_LENGTH
+      } 1 .. $NAME_TRIES;
+
+    # A name that another process took a moment ago is no failure, so the next candidate has its turn.
+    my $made = List::Util::first { mkdir $_, oct '700' } @candidates;
+    Test::Mutation::Error::raise( 'directory-uncreatable', path => $candidates[-1], reason => "$!" ) if !defined $made;
+    return $made;
+}
 
 signature_for snapshot => (
     named   => [ root => Str, skip => ArrayRef [Str] ],
@@ -66,21 +102,25 @@ signature_for copy => (
 
 sub copy ($arg) {
     my ( $from, $to ) = ( $arg->from, $arg->to );
-    die "cannot read $from: no such directory\n" if !-d $from;
+    Test::Mutation::Error::raise( 'directory-missing', path => $from ) if !-d $from;
     my %skip = map { $_ => 1 } $arg->skip->@*;
     my %link = map { $_ => 1 } $arg->link->@*;
-    File::Path::make_path($to);
+    make($to);
     my ( $count, %directory ) = (0);
     File::Find::find(
         {
             no_chdir => 1,
             wanted   => sub {
                 return if $File::Find::name eq $from;
+
+                # The copy of a large tree takes its time, so a signal ends the work between two paths.
+                Test::Mutation::Signals::check();
                 my $path = substr $File::Find::name, 1 + length $from;
                 if ( $skip{$path} || $link{$path} ) {
                     $File::Find::prune = 1;
                     return if $skip{$path};
-                    symlink $File::Find::name, "$to/$path" or die "cannot link $to/$path: $!\n";
+                    symlink $File::Find::name, "$to/$path"
+                      or Test::Mutation::Error::raise( 'file-unlinkable', path => "$to/$path", reason => "$!" );
                     return;
                 }
                 my $kind = _copy_node( $File::Find::name, "$to/$path" );
@@ -100,19 +140,23 @@ sub copy ($arg) {
 # Copies one file, directory, or link without the content of a directory, and returns its kind.
 # A pipe, a socket, or a device has no kind and stays out.
 sub _copy_node ( $source, $target ) {
-    my @status = Time::HiRes::lstat($source) or die "cannot read $source: $!\n";
+    my @status = Time::HiRes::lstat($source)
+      or Test::Mutation::Error::raise( 'file-unreadable', path => $source, reason => "$!" );
     if ( -l _ ) {
-        symlink readlink($source), $target or die "cannot link $target: $!\n";
+        symlink readlink($source), $target
+          or Test::Mutation::Error::raise( 'file-unlinkable', path => $target, reason => "$!" );
         return q{link};
     }
     if ( -d _ ) {
-        mkdir $target or die "cannot create $target: $!\n";
+        mkdir $target or Test::Mutation::Error::raise( 'directory-uncreatable', path => $target, reason => "$!" );
         return q{directory};
     }
     return q{} if !-f _;
-    File::Copy::copy( $source, $target ) or die "cannot copy $source to $target: $!\n";
+    File::Copy::copy( $source, $target )
+      or Test::Mutation::Error::raise( 'file-uncopyable', source => $source, target => $target, reason => "$!" );
     _copy_mode( $source, $target );
-    Time::HiRes::utime( $status[8], $status[9], $target ) or die "cannot set the time of $target: $!\n";
+    Time::HiRes::utime( $status[8], $status[9], $target )
+      or Test::Mutation::Error::raise( 'file-time-unsettable', path => $target, reason => "$!" );
     return q{file};
 }
 
@@ -122,7 +166,8 @@ sub _is_directory ($path) {
 
 sub _copy_mode ( $source, $target ) {
     my $mode = ( stat $source )[2];
-    chmod $mode & oct '7777', $target or die "cannot set the mode of $target: $!\n";
+    chmod $mode & oct '7777', $target
+      or Test::Mutation::Error::raise( 'file-mode-unsettable', path => $target, reason => "$!" );
     return;
 }
 
@@ -153,7 +198,8 @@ sub restore ($arg) {
         if ( _is_directory($source) && _is_directory($target) ) {
 
             # A directory that stays may forbid new entries, so its own mode waits for its content.
-            chmod oct q{700}, $target or die "cannot open $target: $!\n";
+            chmod oct q{700}, $target
+              or Test::Mutation::Error::raise( 'directory-unopenable', path => $target, reason => "$!" );
         }
         else {
             remove($target);
@@ -168,7 +214,7 @@ sub restore ($arg) {
 
 # The handle of the directory closes with the call, so a deep tree holds no handle open for each level.
 sub _names ($path) {
-    opendir my $handle, $path or die "cannot read $path: $!\n";
+    opendir my $handle, $path or Test::Mutation::Error::raise( 'file-unreadable', path => $path, reason => "$!" );
     return grep { $_ ne q{.} && $_ ne q{..} } readdir $handle;
 }
 
@@ -178,14 +224,15 @@ sub remove ($path) {
     if ( _is_directory($path) ) {
 
         # A test may take the rights of a directory away, and its content is out of reach without them.
-        chmod oct q{700}, $path or die "cannot open $path: $!\n";
+        chmod oct q{700}, $path
+          or Test::Mutation::Error::raise( 'directory-unopenable', path => $path, reason => "$!" );
         my $count = 1;
         $count += remove("$path/$_") for _names($path);
-        rmdir $path or die "cannot remove $path: $!\n";
+        rmdir $path or Test::Mutation::Error::raise( 'file-unremovable', path => $path, reason => "$!" );
         return $count;
     }
     return 0 if !-e $path && !-l $path;
-    unlink $path or die "cannot remove $path: $!\n";
+    unlink $path or Test::Mutation::Error::raise( 'file-unremovable', path => $path, reason => "$!" );
     return 1;
 }
 
@@ -212,7 +259,22 @@ A mutant runs with the rights of the tests, so it may create, change, or remove 
 The run compares the state of a tree before and after a mutant to find such a change.
 The tests run in copies of the project, and a changed copy returns to the state of its source.
 
+Every function dies with a L<Test::Mutation::Error> of the kind C<environment> when the system refuses a step.
+
 =head1 FUNCTIONS
+
+=head2 make
+
+    my $made = Test::Mutation::Tree::make( "$root/.mutation", "$root/mutation-report" );
+
+Creates each directory with every parent that it lacks, and returns the number of new directories.
+
+=head2 temporary
+
+    my $work = Test::Mutation::Tree::temporary( "$root/.mutation", 'run-' );
+
+Creates a new directory below the parent and returns its path.
+Its name is the prefix and six letters that no other entry has, and its owner alone may enter it.
 
 =head2 snapshot
 

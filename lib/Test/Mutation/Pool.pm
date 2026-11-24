@@ -8,8 +8,11 @@ use Time::HiRes            ();
 use Types::Standard        qw(Any ArrayRef Bool CodeRef Dict HashRef Int Maybe Num Optional Str);
 use Types::Common::Numeric qw(PositiveInt PositiveNum);
 use Type::Params           qw(signature_for);
-use Test::Mutation::Interrupted;
+use Test::Mutation::Error;
+use Test::Mutation::Message;
+use Test::Mutation::Signals;
 use Test::Mutation::Tap;
+use Test::Mutation::Try;
 
 our $VERSION = '0.001';
 
@@ -38,10 +41,6 @@ sub run ($arg) {
     my $select    = IO::Select->new;
     my $exhausted = 0;
     my $completed = 0;
-    my $signal;
-    local $SIG{HUP}  = sub { $signal = 'HUP' };
-    local $SIG{INT}  = sub { $signal = 'INT' };
-    local $SIG{TERM} = sub { $signal = 'TERM' };
 
     my $start = sub ($task) {
         my $slot = _spawn( $TASK->assert_return($task) );
@@ -49,9 +48,11 @@ sub run ($arg) {
         $select->add( $slot->{handle} );
         return;
     };
-    my $ended = eval {
+
+    # A signal waits for the top of a turn, where every started test stands in a slot.
+    my $turns = sub {
         while (1) {
-            die Test::Mutation::Interrupted->new( signal => $signal ) if $signal;    ## no critic (ErrorHandling::RequireCarping)
+            Test::Mutation::Signals::check();
             while ( !$exhausted && keys %slots < $arg->jobs ) {
                 my $task = $arg->next->();
                 $exhausted = 1 if !$task;
@@ -63,21 +64,19 @@ sub run ($arg) {
             _supervise($_) for values %slots;
             for my $slot ( grep { _finished($_) } values %slots ) {
                 $select->remove( $slot->{handle} ) if !$slot->{eof};
-                close $slot->{handle} or die "close pipe: $!\n";
+                close $slot->{handle} or Test::Mutation::Error::raise( 'pipe-unclosable', reason => "$!" );
                 delete $slots{ $slot->{pid} };
                 $completed++;
                 my $follow_up = $arg->done->( $slot->{task}, _result($slot) );
                 $start->($follow_up) if $follow_up;
             }
         }
-        1;
+        return $completed;
     };
-    return $completed if $ended;
 
-    # A signal, a callback, or the pool itself failed, and no test may outlive the run.
-    my $error = $@;
-    _end_all( values %slots );
-    die $error;    ## no critic (ErrorHandling::RequireCarping)
+    # A signal, a callback, or the pool itself may end the turns, and no test may outlive the run.
+    my $end = sub { _end_all( values %slots ) if %slots; return };
+    return Test::Mutation::Signals::watch( sub { Test::Mutation::Try::with_cleanup( $turns, $end ) } );
 }
 
 sub _end_all (@slots) {
@@ -99,14 +98,14 @@ sub _end_all (@slots) {
 }
 
 sub _spawn ($task) {
-    pipe my $read, my $write or die "pipe: $!\n";
+    pipe my $read, my $write or Test::Mutation::Error::raise( 'pipe-unopenable', reason => "$!" );
     my $pid = fork;
-    die "fork: $!\n" if !defined $pid;
+    Test::Mutation::Error::raise( 'process-unstartable', reason => "$!" ) if !defined $pid;
     if ( !$pid ) {
         setpgrp 0, 0;
         _exec_child( $task, $write );
     }
-    close $write or die "close pipe: $!\n";
+    close $write or Test::Mutation::Error::raise( 'pipe-unclosable', reason => "$!" );
     my $now = Time::HiRes::time();
     return {
         task     => $task,
@@ -121,21 +120,28 @@ sub _spawn ($task) {
 }
 
 sub _exec_child ( $task, $write ) {
-    my $ok = eval {
-        chdir $task->{cwd} or die "chdir $task->{cwd}: $!\n";
-        my %environment = ( %ENV, $task->{env}->%* );
-        delete @environment{ grep { !defined $environment{$_} } keys %environment };
-        local %ENV = %environment;
-        ## no critic (InputOutput::RequireBriefOpen)
-        open my $input,  '<', '/dev/null'     or die "stdin: $!\n";
-        open my $errors, '>', $task->{stderr} or die "stderr: $!\n";
-        ## use critic
-        _take_standard_descriptors( $input, $write, $errors );
-        no warnings 'exec';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
-        exec { $task->{command}[0] } $task->{command}->@* or die "exec $task->{command}[0]: $!\n";
-    };
-    my $message = "mutation: $@";
-    POSIX::write( 2, $message, length $message ) if !$ok;
+    my $attempt = Test::Mutation::Try::attempt(
+        sub {
+            chdir $task->{cwd}
+              or Test::Mutation::Error::raise( 'test-directory-closed', directory => $task->{cwd}, reason => "$!" );
+            my %environment = ( %ENV, $task->{env}->%* );
+            delete @environment{ grep { !defined $environment{$_} } keys %environment };
+            local %ENV = %environment;
+            ## no critic (InputOutput::RequireBriefOpen)
+            open my $input, '<', '/dev/null' or Test::Mutation::Error::raise( 'test-streams-unset', reason => "$!" );
+            open my $errors, '>', $task->{stderr}
+              or Test::Mutation::Error::raise( 'test-streams-unset', reason => "$!" );
+            ## use critic
+            _take_standard_descriptors( $input, $write, $errors );
+            no warnings 'exec';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
+            exec { $task->{command}[0] } $task->{command}->@*
+              or Test::Mutation::Error::raise( 'command-unstartable', command => $task->{command}[0], reason => "$!" );
+        }
+    );
+
+    # The error reads as its message, and the line reaches the file that holds the standard error of the test.
+    my $line = Test::Mutation::Message::line( $attempt->{error} =~ s/\n\z//r );
+    POSIX::write( 2, $line, length $line );
     POSIX::_exit(127);
     return;
 }
@@ -144,9 +150,10 @@ sub _exec_child ( $task, $write ) {
 # Each source moves above the three first, because a source that sits on one of them would be replaced too early.
 sub _take_standard_descriptors (@handles) {
     my @copies = map { fcntl $_, Fcntl::F_DUPFD(), 3 } @handles;
-    die "dup: $!\n" if grep { !defined } @copies;
+    Test::Mutation::Error::raise( 'test-streams-unset', reason => "$!" ) if grep { !defined } @copies;
     for my $target ( 0 .. 2 ) {
-        defined POSIX::dup2( $copies[$target], $target ) or die "dup2: $!\n";
+        defined POSIX::dup2( $copies[$target], $target )
+          or Test::Mutation::Error::raise( 'test-streams-unset', reason => "$!" );
     }
     POSIX::close($_) for @copies;
     return;

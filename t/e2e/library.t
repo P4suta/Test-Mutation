@@ -1,5 +1,7 @@
 use v5.36;
 use Test2::V0;
+use lib 't/lib';
+use Raised;
 use lib 't/e2e/lib';
 use Cwd     ();
 use Fixture qw(copy_of);
@@ -24,9 +26,10 @@ subtest 'run measures a project and returns the result' => sub {
 };
 
 subtest 'settings are checked' => sub {
-    like dies { Test::Mutation::run( root => $root, jobs      => 0 ) }, qr/jobs/, 'a value outside its type is refused';
-    like dies { Test::Mutation::run( root => $root, speed     => 'fast' ) }, qr/speed/, 'an unknown setting is refused';
-    like dies { Test::Mutation::run( root => $root, read_file => 1 ) }, qr/unknown setting: read_file/,
+    like dies { Test::Mutation::run( root => $root, jobs => 0 ) }, qr/jobs/, 'a value outside its type is refused';
+    is Raised::error( sub { Test::Mutation::run( root => $root, speed => 'fast', hurry => 1 ) } ),
+      [ 'usage', 'setting-unknown', 'unknown setting: hurry, speed' ], 'unknown settings are refused together';
+    is Raised::message( sub { Test::Mutation::run( root => $root, read_file => 1 ) } ), 'unknown setting: read_file',
       'a function of the configuration class is not a setting';
 };
 

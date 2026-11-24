@@ -1,5 +1,44 @@
 use v5.36;
 use Test2::V0;
+use Cwd        ();
+use File::Path ();
+use File::Temp ();
+
+# A system that refuses a step is rare, so each override fails one builtin while a case asks for it.
+our %failing;    ## no critic (Variables::ProhibitPackageVars)
+
+BEGIN {
+    no warnings 'once';
+    ## no critic (Variables::RequireLocalizedPunctuationVars)
+    *CORE::GLOBAL::close = sub : prototype(;*) (@handle) {
+        my $closed = @handle ? CORE::close( $handle[0] ) : CORE::close();
+        return $closed if !$failing{close};
+        $! = 5;
+        return !1;
+    };
+    *CORE::GLOBAL::fork = sub {
+        return CORE::fork() if !$failing{fork};
+        $! = 35;
+        return;
+    };
+    *CORE::GLOBAL::pipe = sub : prototype(**) {
+        return CORE::pipe( $_[0], $_[1] ) if !$failing{pipe};
+        $! = 24;
+        return !1;
+    };
+    *CORE::GLOBAL::chmod = sub (@arguments) {
+        return CORE::chmod(@arguments) if !$failing{chmod};
+        $! = 1;
+        return 0;
+    };
+    *CORE::GLOBAL::rmdir = sub : prototype(_) ($path) {
+        return CORE::rmdir($path) if !$failing{rmdir};
+        $! = 13;
+        return !1;
+    };
+    ## use critic
+}
+
 use lib 't/contract/lib', 't/e2e/lib', 't/lib';
 use Gate;
 use Invariants;
@@ -9,38 +48,65 @@ use Sources;
 use Space;
 use World;
 use Test::Mutation ();
+use Test::Mutation::Cache;
 use Test::Mutation::CLI;
 use Test::Mutation::Config;
+use Test::Mutation::Git;
 use Test::Mutation::Merge;
+use Test::Mutation::Message;
 use Test::Mutation::Mutator::Catalog;
+use Test::Mutation::Pool;
+use Test::Mutation::Record;
 use Test::Mutation::Report::Json;
 use Test::Mutation::Runner;
+use Test::Mutation::Tree;
+use Test::Mutation::Verdict;
 
-# S8, the messages: every message that the code raises, and the cases of this file that make the code say it.
-# No catalog names the messages yet, so the space reads them from the die statements and from the subroutines that report.
+# S8, the messages: every message of the catalog, and the cases of this file that make the code say it.
+# The catalog gives each message its text in one function, so the space counts the identifiers that pass there.
+# A message that another process says reaches this one as text, and the case names the message that the text holds.
 
-my @reporters = qw(_warn _usage _refused);
-my @files     = ( 'bin/mutation', Library::modules()->@* );
-my %inventory;
-for my $file (@files) {
-    my %message = map { $_ => 1 } Sources::messages( Sources::slurp($file), @reporters )->@*;
-    $inventory{$file} = [ sort keys %message ] if %message;
+my $VALUE   = "\x{2026}";
+my @catalog = map { $_->id } Test::Mutation::Message::rows()->@*;
+my %said;
+{
+    # The type library compiles the check of a subroutine on its first call and puts the result in its place.
+    # A call before the count keeps that step from replacing the counter.
+    Test::Mutation::Message::text_of('inconclusive');
+    no warnings 'redefine';
+    my $text_of = \&Test::Mutation::Message::text_of;
+    *Test::Mutation::Message::text_of = sub ( $id, @values ) {
+        $said{$id} = 1;
+        return $text_of->( $id, @values );
+    };
 }
 
-my $tree = Space::tree();
-my %text;
+my $tree    = Space::tree();
+my $scratch = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
 
 # What a piece of code says when it dies, and what a command line prints.
-sub raised ( $file, $code ) {
+sub raised ($code) {
     my $lived = eval { $code->(); 1 };
-    push $text{$file}->@*, $lived ? () : "$@";
+    return $lived ? q{} : "$@";
+}
+
+sub printed ( $argv, %fact ) {
+    my $observation = World::observe( $argv, cwd => $tree, %fact );
+    return $observation->{stderr} . $observation->{stdout};
+}
+
+sub template ($id) {
+    return Test::Mutation::Message::row($id)->text =~ s/[{]\w+[}]/$VALUE/gr;
+}
+
+# A message that another process said reaches this one as text alone, so the case names the message that the text holds.
+sub heard ( $id, $text ) {
+    $said{$id} = 1 if !Invariants::message( [ template($id) ], [$text] );
     return;
 }
 
-sub printed ( $file, $argv, %fact ) {
-    my $observation = World::observe( $argv, cwd => $tree, %fact );
-    push $text{$file}->@*, $observation->{stderr}, $observation->{stdout};
-    return $observation;
+sub unsaid ( $ids, $said ) {
+    return grep { !$said->{$_} } $ids->@*;
 }
 
 sub part ( $shard, %arg ) {
@@ -56,7 +122,62 @@ sub part ( $shard, %arg ) {
 }
 
 sub merged (@parts) {
-    return raised( 'lib/Test/Mutation/Merge.pm', sub { Test::Mutation::Merge::merge( \@parts ) } );
+    return raised( sub { Test::Mutation::Merge::merge( \@parts ) } );
+}
+
+sub directory (%files) {
+    my $root = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1, DIR => $scratch ) );
+    for my $path ( sort keys %files ) {
+        my ($parent) = "$root/$path" =~ m{\A(.*)/};
+        File::Path::make_path($parent);
+        open my $handle, '>', "$root/$path" or die "write $path: $!";
+        print {$handle} $files{$path} or die "write $path: $!";
+        CORE::close($handle)          or die "close $path: $!";
+    }
+    return $root;
+}
+
+sub copied ( $from, $to, @link ) {
+    return raised( sub { Test::Mutation::Tree::copy( from => $from, to => $to, skip => [], link => \@link ) } );
+}
+
+# One test in the pool, with the parts of its task that a case changes.
+sub pooled (%task) {
+    my @queue = (
+        {
+            command         => [ $^X, '-e', '1' ],
+            env             => {},
+            cwd             => $scratch,
+            timeout         => 20,
+            stop_on_failure => 0,
+            stderr          => "$scratch/task.err",
+            %task
+        }
+    );
+    return raised(
+        sub {
+            Test::Mutation::Pool::run( jobs => 1, next => sub { shift @queue }, done => sub { return } );
+        }
+    );
+}
+
+# A test that fails before it has its own streams writes to standard error of the driver, which is the one of this file.
+sub on_standard_error ($code) {
+    open my $saved, '>&', \*STDERR              or die "save: $!";
+    open STDERR,    '>',  "$scratch/driver.err" or die "redirect: $!";
+    $code->();
+    open STDERR, '>&', $saved or die "restore: $!";
+    return Sources::slurp("$scratch/driver.err");
+}
+
+# A process of its own that loads the shim with a specification, and what it writes.
+sub shim_says ( $spec, $before ) {
+    local $ENV{TEST_MUTATION_SPEC} = $spec;
+    my $code = "$before open STDERR, '>&', \\*STDOUT; require Test::Mutation::Shim; Test::Mutation::Shim->import;";
+    open my $output, q{-|}, $^X, '-Ilib', '-e', $code or die "start: $!";
+    my $text = do { local $/ = undef; readline $output };
+    CORE::close($output);
+    return defined $text ? $text : q{};
 }
 
 subtest 'the space rejects a message that no case produces' => sub {
@@ -64,38 +185,34 @@ subtest 'the space rejects a message that no case produces' => sub {
       . "sub check (\$n) { die \"the count \$n is too large\\n\" if \$n > 9; return }\n";
     my $messages = Sources::messages($code);
     is [ Invariants::message( $messages, ["mutation: cannot read a.toml: No such file or directory\n"] ) ],
-      ["the count \x{2026} is too large"], 'the message without a case';
+      ["the count $VALUE is too large"], 'the message without a case';
     is [ Invariants::message( $messages, [ "cannot read a: gone\n", "the count 12 is too large\n" ] ) ], [],
       'a case for each message';
+
+    is [ unsaid( [qw(file-unreadable inconclusive)], { inconclusive => 1 } ) ], ['file-unreadable'],
+      'the identifier that no case made the code say';
+    my %before = %said;
+    %said = ();
+    heard( 'directory-closed',      "mutation: cannot write report.json: full\n" );
+    heard( 'test-directory-closed', "3 mutants\nmutation: cannot run the test in /copy: Permission denied\n" );
+    is [ sort keys %said ], ['test-directory-closed'], 'a text counts for the message whose words it holds';
+    %said = %before;
 };
 
-# The library and the configuration.
-raised( 'lib/Test/Mutation.pm', sub { Test::Mutation::mutants( root => $tree, nonesuch => 1 ) } );
+# The command line: the refusals of the plan, and the refusals while the command runs.
+printed($_)
+  for [ 'run', 'surplus' ], ['show'], ['exec'], ['merge'], [ '--root', 'absent', 'list' ], [ 'show', 'zzzz' ],
+  [ 'show', q{} ], [ 'merge', 'absent.json' ], [ 'merge', 'broken.json' ];
+
+# The library, the configuration, and the mutators.
+raised( sub { Test::Mutation::mutants( root => $tree, nonesuch => 1 ) } );
 my %layers = ( root => $tree, defaults => {}, cli => {} );
 for my $file ( { nonesuch => 1 }, { nonesuch => {} }, { test => { nonesuch => 1 } } ) {
-    raised( 'lib/Test/Mutation/Config.pm', sub { Test::Mutation::Config->from_layers( %layers, file => $file ) } );
+    raised( sub { Test::Mutation::Config->from_layers( %layers, file => $file ) } );
 }
-raised( 'lib/Test/Mutation/Config.pm', sub { Test::Mutation::Config::read_file("$tree/absent.toml") } );
-raised( 'lib/Test/Mutation/Mutator/Catalog.pm',
+raised( sub { Test::Mutation::Config::read_file("$tree/broken.toml") } );
+raised(
     sub { Test::Mutation::Mutator::Catalog::choose( profile => 'default', enable => ['nonesuch'], disable => [] ) } );
-
-# The command line: a refusal of the plan, a refusal while the command runs, and an error of a run.
-printed( 'lib/Test/Mutation/CLI.pm', $_ )
-  for [ '--root', 'absent', 'list' ], [ 'show', 'zzzz' ], [ 'merge', 'absent.json' ];
-{
-    my $plan = World::observe( [ '--root', $tree, 'list' ], cwd => $tree, run => 'cheap' )->{plan};
-    open my $errors, '>', \my $said or die "open: $!";
-    Test::Mutation::CLI::execute( { $plan->%*, directory => 'gone' },
-        { World::facts( cwd => $tree ), out => $errors, err => $errors } );
-    push $text{'lib/Test/Mutation/CLI.pm'}->@*, $said;
-    no warnings 'redefine';
-    local *Test::Mutation::Runner::run = sub { return Samples::result( statuses => ['Survived'] ) };
-    printed(
-        'lib/Test/Mutation/CLI.pm',
-        [ 'run', '--format', 'github' ],
-        env => { GITHUB_STEP_SUMMARY => "$tree/absent/summary.md" }
-    );
-}
 
 # The merge of the parts of a run, and the report file that it reads.
 merged();
@@ -124,24 +241,134 @@ for my $broken (
     s/"id" : "[0-9a-f]+"/"id" : "short"/r
   )
 {
-    raised( 'lib/Test/Mutation/Report/Json.pm', sub { Test::Mutation::Report::Json::parse($broken) } );
+    raised( sub { Test::Mutation::Report::Json::parse($broken) } );
 }
 
-# A run without a test: the runner warns, and the report prints the warning.
-printed( 'lib/Test/Mutation/Runner.pm', [ 'run', '--format', 'terminal', '--jobs', 1, '--test', 't/nothing*.t' ] );
-
-my ( @unheard, $messages, $heard );
-for my $file ( sort keys %inventory ) {
-    my @unsaid = Invariants::message( $inventory{$file}, $text{$file} || [] );
-    $messages += $inventory{$file}->@*;
-    $heard    += $inventory{$file}->@* - @unsaid;
-    note "$file: no case produces: $_" for @unsaid;
-    push @unheard, sprintf '%s: %d of %d messages that no case produces', $file, scalar @unsaid,
-      scalar $inventory{$file}->@*
-      if @unsaid;
+# The files of a run: a record that is gone, a report that has no place, a file that fails to close, and a cache in the way.
+symlink "$scratch/nowhere", "$scratch/gone.rec" or die "symlink: $!";
+raised( sub { Test::Mutation::Record::read_directory($scratch) } );
+unlink "$scratch/gone.rec" or die "unlink: $!";
+{
+    no warnings 'redefine';
+    local *Test::Mutation::Runner::run = sub { return Samples::result( statuses => ['Survived'] ) };
+    printed( [ 'run', '--format', 'github' ], env => { GITHUB_STEP_SUMMARY => "$tree/absent/summary.md" } );
 }
-Gate::findings( 'contract-message-messages', \@unheard );
-Gate::checked( 'messages of the library',       $messages, at_least => 75 );
-Gate::checked( 'messages that a case produces', $heard,    at_least => 25 );
+{
+    local $failing{close} = 1;
+    raised( sub { Test::Mutation::Config::read_file("$tree/ci.toml") } );
+}
+mkdir "$scratch/cache.json" or die "mkdir: $!";
+raised( sub { Test::Mutation::Cache::save( "$scratch/cache.json", {} ) } );
+
+# The copy of a tree: each step that the system may refuse.
+my $from = directory( 'dir/file.txt' => 'x', 'linked/file.txt' => 'y' );
+copied( "$scratch/absent", "$scratch/copy-of-nothing" );
+copied( $from, directory( 'in-the-way' => 'a file' ) . '/in-the-way/copy' );
+copied( $from, directory( 'linked'     => 'a file' ), 'linked' );
+{
+    no warnings 'redefine';
+    local *File::Copy::copy = sub { $! = 13; return 0 };    ## no critic (Variables::RequireLocalizedPunctuationVars)
+    copied( $from, "$scratch/copy-without-content" );
+}
+{
+    no warnings 'redefine';
+    local *Time::HiRes::utime = sub { $! = 1; return 0 };    ## no critic (Variables::RequireLocalizedPunctuationVars)
+    copied( $from, "$scratch/copy-without-time" );
+}
+{
+    local $failing{chmod} = 1;
+    copied( $from, "$scratch/copy-without-mode" );
+    raised( sub { Test::Mutation::Tree::remove( directory( 'file.txt' => 'x' ) ) } );
+}
+{
+    local $failing{rmdir} = 1;
+    raised( sub { Test::Mutation::Tree::remove( directory() ) } );
+}
+{
+    no warnings 'redefine';
+    local *Test::Mutation::Tree::copy =
+      sub { Test::Mutation::Error::raise( 'directory-missing', path => 'the project' ) };
+    raised(
+        sub {
+            Test::Mutation::Runner::run( Test::Mutation::Config->new( root => $tree ), sub { } );
+        }
+    );
+}
+
+# Git: a command that fails, a machine without it, and a command that fails without a word.
+{
+    local $ENV{PATH} = directory();
+    heard( 'git-unstartable', raised( sub { Test::Mutation::Git::changed( $tree, 'HEAD' ) } ) );
+}
+{
+    my $silent = directory( 'git' => "#!/bin/sh\nexit 3\n" );
+    CORE::chmod( oct '755', "$silent/git" ) or die "chmod: $!";
+    local $ENV{PATH} = $silent;
+    raised( sub { Test::Mutation::Git::changed( $tree, 'HEAD' ) } );
+}
+
+# The pool: a process, a pipe, and the three steps of a test before its first line.
+{
+    local $failing{fork} = 1;
+    pooled();
+}
+{
+    local $failing{pipe} = 1;
+    pooled();
+}
+{
+    local $failing{close} = 1;
+    pooled();
+}
+heard( 'test-directory-closed', on_standard_error( sub { pooled( cwd    => "$scratch/absent" ) } ) );
+heard( 'test-streams-unset',    on_standard_error( sub { pooled( stderr => "$scratch/absent/task.err" ) } ) );
+pooled( command => ["$scratch/no-such-program"] );
+heard( 'command-unstartable', Sources::slurp("$scratch/task.err") );
+
+# The defects of the tool: an error without a type, a message with other values, a shim without its lines, and a verdict.
+{
+    no warnings 'redefine';
+    local *Test::Mutation::Runner::analyze = sub { die "the analysis broke\n" };
+    printed( ['list'] );
+}
+heard( 'message-slots', raised( sub { Test::Mutation::Message::text_of( 'inconclusive', reason => 'none' ) } ) );
+{
+    local @INC = ( directory( 'Test/Mutation/Shim.pm' => "1;\n" ) );
+    raised( sub { Test::Mutation::Runner::shim_text(3) } );
+}
+{
+    local @INC = ( directory() );
+    raised( sub { Test::Mutation::Runner::shim_text(3) } );
+}
+raised(
+    sub {
+        Test::Mutation::Verdict::step( Test::Mutation::Verdict::start(),
+            { test => 't/a.t', result => 'fail', served => 1, load_failed => 1, bypassed => 0, syntax_ok => undef } );
+    }
+);
+
+# The outcomes of a run that is no success: each one ends standard error with its line.
+my $failure = { test => 't/a.t', output => "not ok 1\n", errors => q{} };
+for my $case (
+    [ [ statuses => [qw(Killed Survived)] ], '--min-score', 100 ],
+    [ [ statuses => [], baseline_failures => [$failure] ] ],
+    [ [ statuses => ['RuntimeError'] ] ],
+    [ [ statuses => [qw(Killed Pending)], interrupted => 'TERM' ] ],
+  )
+{
+    my ( $result, @line ) = $case->@*;
+    no warnings 'redefine';
+    local *Test::Mutation::Runner::run = sub { return Samples::result( $result->@* ) };
+    printed( [ 'run', '--config', 'ci.toml', '--format', 'terminal', @line ] );
+}
+
+# The shim says the lines of its two messages itself, in a process of its own.
+heard( 'spec-unreadable', shim_says( "$scratch/absent.spec", q{} ) );
+heard( 'spec-unclosable', shim_says( "$tree/ci.toml",        'BEGIN { *CORE::GLOBAL::close = sub { return !1 } }' ) );
+
+my @unsaid = unsaid( \@catalog, \%said );
+Gate::findings( 'contract-message-messages', [ map { "no case produces the message $_" } @unsaid ] );
+Gate::checked( 'messages of the catalog',       scalar @catalog,    at_least => 64 );
+Gate::checked( 'messages that a case produces', @catalog - @unsaid, at_least => 64 );
 
 done_testing;

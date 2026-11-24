@@ -31,7 +31,7 @@ sub text_of ($path) {
     return defined $text ? $text : q{};
 }
 
-my %status_of = ( HUP => 129, INT => 130, TERM => 143 );
+my %status_of = ( HUP => 129, INT => 130, QUIT => 131, PIPE => 141, TERM => 143 );
 
 for my $signal ( sort keys %status_of ) {
     subtest "SIG$signal ends the tests and removes the work directory" => sub {

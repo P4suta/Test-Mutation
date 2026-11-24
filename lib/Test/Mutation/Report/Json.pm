@@ -4,9 +4,12 @@ use JSON::PP               ();
 use Types::Standard        qw(ArrayRef Dict Enum HashRef InstanceOf Int Maybe Num Optional Slurpy Str StrMatch Tuple);
 use Types::Common::Numeric qw(PositiveInt);
 use Type::Params           qw(signature_for);
+use Test::Mutation::Error;
+use Test::Mutation::Exit;
 use Test::Mutation::Mutant;
 use Test::Mutation::Result;
 use Test::Mutation::Source;
+use Test::Mutation::Try;
 
 our $VERSION = '0.001';
 
@@ -126,7 +129,7 @@ my $DOCUMENT = Dict [
         inventory        => Maybe [ Dict [ mutants => Int, digest => StrMatch [qr/\A[0-9a-f]{64}\z/] ] ],
         jobs             => PositiveInt,
         parallelSafe     => $FLAG,
-        interrupted      => Maybe [ Enum [qw(HUP INT TERM)] ],
+        interrupted      => Maybe [ Enum [ Test::Mutation::Exit::signals()->@* ] ],
         reused           => Int,
         started          => Num,
         finished         => Num,
@@ -141,15 +144,20 @@ my $DOCUMENT = Dict [
 signature_for parse => ( positional => [Str], returns => InstanceOf ['Test::Mutation::Result'] );
 
 sub parse ($text) {
-    my $document = eval { JSON::PP->new->decode($text) };
-    die "the text is no JSON document\n"                    if ref $document ne 'HASH';
-    die "the report holds no run facts of Test::Mutation\n" if !exists $document->{testMutation};
+    my $read = Test::Mutation::Try::attempt( sub { return [ JSON::PP->new->decode($text) ] } );
+    my ($document) = ( $read->{value} || [] )->@*;
+    Test::Mutation::Error::raise('report-not-json')      if ref $document ne 'HASH';
+    Test::Mutation::Error::raise('report-without-facts') if !exists $document->{testMutation};
     my $problem = $DOCUMENT->validate_explain( $document, '$report' );
-    die 'the report is malformed: no valid value at ' . _place($problem) . "\n" if $problem;
-    my $result = eval { _result($document) };
-    return $result if $result;
-    my ($reason) = split /\n/, "$@";
-    die 'the report is malformed: ' . $reason =~ s/ at \S+ line \d+[.]?\z//r . "\n";
+    Test::Mutation::Error::raise( 'report-invalid-value', place => _place($problem) ) if $problem;
+    my $made = Test::Mutation::Try::attempt( sub { _result($document) } );
+    return $made->{value} if exists $made->{value};
+
+    # A location outside its source has its own message, and every other fault is a value that fits no result.
+    my $error = $made->{error};
+    die $error if ( InstanceOf ['Test::Mutation::Error'] )->check($error);    ## no critic (ErrorHandling::RequireCarping)
+    my ($reason) = split /\n/, "$error";
+    return Test::Mutation::Error::raise( 'report-malformed', reason => $reason =~ s/ at \S+ line \d+[.]?\z//r );
 }
 
 # The explanation of the type library walks from the document down to the value that fails.
@@ -196,13 +204,14 @@ sub _result ($document) {
 sub _offset ( $source, $position ) {
     my $text   = $source->text;
     my $offset = $position->{line} <= 1 + $text =~ tr/\n// ? $source->offset_of( $position->@{qw(line column)} ) : -1;
-    die 'a location lies outside the source of ' . $source->path . "\n" if $offset < 0 || $offset > length $text;
+    Test::Mutation::Error::raise( 'report-location-outside', path => $source->path )
+      if $offset < 0 || $offset > length $text;
     return $offset;
 }
 
 sub _entry ( $source, $mutant ) {
     my ( $start, $end ) = map { _offset( $source, $mutant->{location}{$_} ) } qw(start end);
-    die 'a location ends before its start in ' . $source->path . "\n" if $end < $start;
+    Test::Mutation::Error::raise( 'report-location-reversed', path => $source->path ) if $end < $start;
     my ( $extra, $duration ) = $mutant->@{qw(testMutation duration)};
     return {
         mutant => Test::Mutation::Mutant->new(

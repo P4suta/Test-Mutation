@@ -1,0 +1,397 @@
+package Test::Mutation::Message;
+use v5.36;
+use Moo;
+use Types::Standard qw(ArrayRef Enum HashRef InstanceOf Slurpy Str);
+use Type::Params    qw(signature_for);
+
+our $VERSION = '0.001';
+
+# Each row: the identifier, the kind, the text with its slots, and the description for the manual.
+my @ROWS = (
+    [
+        'argument-unexpected',            'usage',
+        'unexpected argument {argument}', 'The command line holds an operand, and the command takes none.'
+    ],
+    [
+        'show-without-identifier',        'usage',
+        'show needs a mutant identifier', 'The command line of show names no mutant.'
+    ],
+    [
+        'exec-without-command', 'usage',
+        'exec needs a mutant identifier and a command',
+        'The command line of exec names no mutant or no command to run.'
+    ],
+    [
+        'merge-without-report',                 'usage',
+        'merge needs the report of every part', 'The command line of merge names no report file.'
+    ],
+    [
+        'directory-closed', 'usage',
+        'cannot enter {directory}: {reason}',
+        'The directory that --root names is absent, is no directory, or refuses the user.'
+    ],
+    [
+        'mutant-unknown', 'usage',
+        'no mutant has the identifier {identifier}',
+        'No mutant of the project has an identifier that starts with the given text.'
+    ],
+    [
+        'mutant-ambiguous', 'usage',
+        'more than one mutant has the identifier {identifier}',
+        'Several mutants have an identifier that starts with the given text.'
+    ],
+    [ 'mutator-unknown', 'usage', 'unknown mutator: {names}', 'A setting names a mutator that the tool lacks.' ],
+    [
+        'setting-unknown',          'usage',
+        'unknown setting: {names}', 'A call of the library names a setting that the tool lacks.'
+    ],
+    [
+        'config-section-unknown',                    'usage',
+        'unknown configuration section [{section}]', 'The configuration file holds a section that the tool lacks.'
+    ],
+    [
+        'config-key-unknown',              'usage',
+        'unknown configuration key {key}', 'The configuration file holds a key that the tool lacks.'
+    ],
+    [
+        'config-key-unknown-in-section',
+        'usage',
+        'unknown configuration key {key} in [{section}]',
+        'A section of the configuration file holds a key that the tool lacks.'
+    ],
+    [
+        'input-unreadable', 'usage',
+        'cannot read {path}: {reason}',
+        'A file that the user names, such as the configuration file or a report, cannot be read.'
+    ],
+    [
+        'input-malformed', 'usage',
+        '{path}: {reason}',
+        'A file that the user names holds a text that the tool cannot use, for the reason that follows its name.'
+    ],
+    [ 'merge-empty', 'usage', 'merge needs at least one report', 'A merge got no report.' ],
+    [
+        'merge-repeated-mutant',                     'usage',
+        'mutant {id} appears in more than one part', 'Two reports of a merge hold the same mutant.'
+    ],
+    [
+        'merge-part-size', 'usage',
+        '{name} holds {held} mutants, and part {part} of {parts} has {expected}',
+        'A report of a merge holds another number of mutants than its part of the run has.'
+    ],
+    [
+        'merge-whole-run',                                    'usage',
+        '{name} is the report of a whole run, not of a part', 'A report of a merge comes from a run without --shard.'
+    ],
+    [
+        'merge-without-inventory',   'usage',
+        '{name} names no inventory', 'A report of a merge lacks the count and the digest of the mutants of its run.'
+    ],
+    [
+        'merge-failed-baseline', 'usage',
+        '{name} has failing tests in its unmodified run, so its part measured nothing',
+        'A report of a merge comes from a part whose tests fail without a mutant.'
+    ],
+    [
+        'merge-other-split', 'usage',
+        '{first} holds part {first_part} of {first_parts}, and {name} holds part {part} of {parts}',
+        'Two reports of a merge come from runs that split the mutants into different numbers of parts.'
+    ],
+    [
+        'merge-other-mutants',                      'usage',
+        '{name} covers other mutants than {first}', 'Two reports of a merge come from runs over different mutants.'
+    ],
+    [
+        'merge-repeated-part',
+        'usage',
+        '{first} and {name} both hold part {part} of {parts}',
+        'Two reports of a merge hold the same part of the run.'
+    ],
+    [
+        'merge-missing-part',                'usage',
+        'part {part} of {parts} is missing', 'The reports of a merge lack one part of the run.'
+    ],
+    [
+        'merge-missing-parts',                 'usage',
+        'parts {list} of {parts} are missing', 'The reports of a merge lack several parts of the run.'
+    ],
+    [
+        'report-not-json',              'usage',
+        'the text is no JSON document', 'A report file holds a text that is no JSON object.'
+    ],
+    [
+        'report-without-facts', 'usage',
+        'the report holds no facts of a mutation run',
+        'A report file is a JSON document that this tool did not write.'
+    ],
+    [
+        'report-invalid-value', 'usage',
+        'the report is malformed: no valid value at {place}',
+        'A value of a report file has another type than the report format gives it.'
+    ],
+    [
+        'report-malformed',                  'usage',
+        'the report is malformed: {reason}', 'A report file holds facts that form no result of a run.'
+    ],
+    [
+        'report-location-outside', 'usage',
+        'the report is malformed: a location lies outside the source of {path}',
+        'A mutant of a report file starts or ends outside the text of its source file.'
+    ],
+    [
+        'report-location-reversed', 'usage',
+        'the report is malformed: a location ends before its start in {path}',
+        'A mutant of a report file ends before it starts.'
+    ],
+    [
+        'file-unreadable',              'environment',
+        'cannot read {path}: {reason}', 'A file or a directory of the project or of the run cannot be read.'
+    ],
+    [
+        'file-unwritable',               'environment',
+        'cannot write {path}: {reason}', 'A file of the run or of a report cannot be written.'
+    ],
+    [
+        'file-unclosable',               'environment',
+        'cannot close {path}: {reason}', 'A file reports an error when it closes, so its content may be incomplete.'
+    ],
+    [
+        'file-unrenamable',               'environment',
+        'cannot rename {path}: {reason}', 'A file that the tool wrote cannot take its final name.'
+    ],
+    [
+        'file-unremovable',               'environment',
+        'cannot remove {path}: {reason}', 'A file or a directory of a copy cannot be removed.'
+    ],
+    [ 'file-unlinkable', 'environment', 'cannot link {path}: {reason}', 'A copy of the project cannot hold a link.' ],
+    [
+        'file-uncopyable',                            'environment',
+        'cannot copy {source} to {target}: {reason}', 'A file of the project cannot be copied.'
+    ],
+    [
+        'file-time-unsettable',                    'environment',
+        'cannot set the time of {path}: {reason}', 'A copied file cannot take the time of its original.'
+    ],
+    [
+        'file-mode-unsettable',                    'environment',
+        'cannot set the mode of {path}: {reason}', 'A copied file or directory cannot take the mode of its original.'
+    ],
+    [ 'directory-missing', 'environment', 'cannot read {path}: no such directory', 'The directory to copy is absent.' ],
+    [
+        'directory-uncreatable',          'environment',
+        'cannot create {path}: {reason}', 'A directory of the run, of a copy, or of a report cannot be created.'
+    ],
+    [
+        'directory-unopenable',         'environment',
+        'cannot open {path}: {reason}', 'A directory of a copy refuses the rights that the tool needs to change it.'
+    ],
+    [
+        'project-uncopyable', 'environment',
+        'cannot copy the project: {reason}; --in-place runs the tests in the project itself',
+        'The copy of the project that the tests run in cannot be made.'
+    ],
+    [ 'git-unstartable', 'environment', 'cannot start git: {reason}', 'The git program cannot be started.' ],
+    [
+        'git-failed',                     'environment',
+        'git {command} failed: {reason}', 'A git command failed, with the first line of its error.'
+    ],
+    [ 'git-silent', 'environment', 'git {command} failed', 'A git command failed and left no error to read.' ],
+    [
+        'process-unstartable',              'environment',
+        'cannot start a process: {reason}', 'The system refuses a new process for a test.'
+    ],
+    [
+        'pipe-unopenable',              'environment',
+        'cannot open a pipe: {reason}', 'The system refuses the pipe that carries the output of a test.'
+    ],
+    [
+        'pipe-unclosable', 'environment',
+        'cannot close a pipe: {reason}',
+        'The pipe that carries the output of a test reports an error when it closes.'
+    ],
+    [
+        'test-directory-closed', 'environment',
+        'cannot run the test in {directory}: {reason}',
+        'The process of a test cannot enter the directory that the test runs in.'
+    ],
+    [
+        'test-streams-unset',                           'environment',
+        'cannot set the streams of the test: {reason}', 'The process of a test cannot open its standard streams.'
+    ],
+    [
+        'command-unstartable',              'environment',
+        'cannot start {command}: {reason}', 'The interpreter of the tests or the command of exec cannot be started.'
+    ],
+
+    # The shim runs on Perl 5.10 without the catalog, so it holds a copy of the line of each of these two messages.
+    [
+        'spec-unreadable', 'environment',
+        'cannot read spec {path}: {reason}',
+        'A test process cannot read the file that names the mutants and the lines of its run.'
+    ],
+    [
+        'spec-unclosable', 'environment',
+        'cannot close spec {path}: {reason}',
+        'A test process reports an error when it closes the file that names the mutants and the lines of its run.'
+    ],
+    [
+        'internal-error',         'internal',
+        'internal error: {text}', 'An error that the tool did not foresee ended the command.'
+    ],
+    [
+        'message-slots', 'internal',
+        'the message {id} takes the slots {expected}, and the call gives {given}',
+        'The code asks for a message with other values than its text holds.'
+    ],
+    [
+        'shim-unprepared',
+        'internal',
+        'cannot prepare the shim for generation {generation}',
+        'The text of the shim lacks the lines that a run rewrites.'
+    ],
+    [ 'shim-missing', 'internal', 'cannot find {file}', 'The module search path holds no file of the shim.' ],
+    [
+        'verdict-without-syntax-check',
+        'internal',
+        'a load failure needs a syntax check',
+        'The verdict of a mutant got a failed load without the result of its syntax check.'
+    ],
+    [
+        'below-gate', 'below-gate',
+        'the score {score}% is below the gate of {gate}%',
+        'The run measured a score below the one that --min-score asks for.'
+    ],
+    [
+        'baseline-failed', 'baseline-failed',
+        'tests that fail without a mutant: {failed}',
+        'Tests fail in the unmodified run, so the run measured no mutant.'
+    ],
+    [
+        'inconclusive',            'inconclusive',
+        'the run states no score', 'The run ended without a score that the user can rely on.'
+    ],
+    [
+        'interrupted',                'interrupted',
+        'interrupted by SIG{signal}', 'A signal ended the command before its work was done.'
+    ],
+);
+my $ID = Enum [ map { $_->[0] } @ROWS ];
+
+has id => ( is => 'ro', isa => $ID, required => 1 );
+has kind => (
+    is       => 'ro',
+    isa      => Enum [qw(usage environment internal below-gate baseline-failed inconclusive interrupted)],
+    required => 1
+);
+has text        => ( is => 'ro', isa => Str, required => 1 );
+has description => ( is => 'ro', isa => Str, required => 1 );
+
+my @CATALOG =
+  map { __PACKAGE__->new( id => $_->[0], kind => $_->[1], text => $_->[2], description => $_->[3] ) } @ROWS;
+my %ROW = map { $_->id => $_ } @CATALOG;
+
+signature_for rows => ( positional => [], returns => ArrayRef [ InstanceOf ['Test::Mutation::Message'] ] );
+
+sub rows () {
+    return [@CATALOG];
+}
+
+signature_for row => ( positional => [$ID], returns => InstanceOf ['Test::Mutation::Message'] );
+
+sub row ($id) {
+    return $ROW{$id};
+}
+
+sub _filled ( $text, $values ) {
+    return $text =~ s/[{](\w+)[}]/$values->{$1}/gr;
+}
+
+signature_for text_of => ( positional => [ $ID, Slurpy [ HashRef [Str] ] ], returns => Str );
+
+sub text_of ( $id, $values ) {
+    my $text = $ROW{$id}->text;
+    my ( $expected, $given ) = map { join( q{ }, sort $_->@* ) || 'none' } [ $text =~ /[{](\w+)[}]/g ],
+      [ keys $values->%* ];
+    die _filled( Test::Mutation::Message::row('message-slots')->text,
+        { id => $id, expected => $expected, given => $given } )
+      . "\n"
+      if $expected ne $given;
+    return _filled( $text, $values );
+}
+
+signature_for line => ( positional => [Str], returns => Str );
+
+sub line ($text) {
+    return "mutation: $text\n";
+}
+
+1;
+
+__END__
+
+=head1 NAME
+
+Test::Mutation::Message - the catalog of the messages of a failure
+
+=head1 SYNOPSIS
+
+    say Test::Mutation::Message::text_of( 'mutant-unknown', identifier => 'zzzz' );
+
+    for my $message ( Test::Mutation::Message::rows()->@* ) {
+        printf "%s (%s): %s\n", $message->id, $message->kind, $message->description;
+    }
+
+=head1 DESCRIPTION
+
+The catalog states every text that the tool gives for a failure, each once.
+A text holds a slot such as C<{path}> where a call puts a value.
+No other place of the library holds the words of a failure, so a reader finds every message here.
+
+=head1 FUNCTIONS
+
+=head2 rows
+
+Returns a L<Test::Mutation::Message> for every message, in the order of the catalog.
+
+=head2 row
+
+    my $message = Test::Mutation::Message::row('file-unreadable');
+
+Returns the message with the given identifier.
+
+=head2 text_of
+
+    my $text = Test::Mutation::Message::text_of( 'directory-closed', directory => $name, reason => "$!" );
+
+Returns the text of a message with a value in each slot.
+The call names every slot of the text and no other one, and the function dies when it names others.
+
+=head2 line
+
+    print {*STDERR} Test::Mutation::Message::line($text);
+
+Returns the text as a line of the command: the name of the command, the text, and a newline.
+
+=head1 ATTRIBUTES
+
+=head2 id
+
+The identifier of the message, lowercase words with hyphens between them.
+
+=head2 kind
+
+What the message states about the command.
+C<usage> and C<environment> are the kinds of a L<Test::Mutation::Error>.
+C<internal> marks a defect of the tool.
+C<below-gate>, C<baseline-failed>, C<inconclusive>, and C<interrupted> mark the line that ends a run with that outcome.
+Every kind apart from C<interrupted> is the name of a row of L<Test::Mutation::Exit>, which gives the exit status.
+
+=head2 text
+
+The words of the message, with a name in braces for each value.
+
+=head2 description
+
+One sentence for the manual that tells when the message appears.
+
+=cut

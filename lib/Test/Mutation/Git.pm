@@ -5,6 +5,8 @@ use POSIX           ();
 use Types::Standard qw(ArrayRef HashRef Int Str Tuple);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Diff;
+use Test::Mutation::Error;
+use Test::Mutation::Message;
 
 our $VERSION = '0.001';
 
@@ -27,25 +29,28 @@ sub changed ( $root, $revision ) {
 sub _git ( $root, @arguments ) {
     my $errors = File::Temp->new;
     my $pid    = open my $output, q{-|};    ## no critic (InputOutput::RequireBriefOpen)
-    die "cannot start git: $!\n" if !defined $pid;
+    Test::Mutation::Error::raise( 'git-unstartable', reason => "$!" ) if !defined $pid;
     if ( !$pid ) {
 
         # The child must end here: an exception would run the rest of the caller in a second process.
         if ( open my $log, '>', $errors->filename ) {    ## no critic (InputOutput::RequireBriefOpen)
             POSIX::dup2( fileno $log, 2 );
             no warnings 'exec';                          ## no critic (TestingAndDebugging::ProhibitNoWarnings)
-            exec {'git'} 'git', '-C', $root, @arguments or syswrite $log, "cannot start git: $!\n";
+            exec {'git'} 'git', '-C', $root, @arguments
+              or syswrite $log, Test::Mutation::Message::text_of( 'git-unstartable', reason => "$!" ) . "\n";
         }
         POSIX::_exit(127);
     }
     my $text = do { local $/ = undef; readline $output };
     return defined $text ? $text : q{} if close $output;
 
-    open my $handle, '<', $errors->filename or die "git $arguments[0] failed\n";
+    my $command = $arguments[0];
+    open my $handle, '<', $errors->filename or Test::Mutation::Error::raise( 'git-silent', command => $command );
     my $reason = readline $handle;
-    close $handle or die "git $arguments[0] failed\n";
-    chomp $reason if defined $reason;
-    die 'git ' . $arguments[0] . ' failed: ' . ( defined $reason ? $reason : 'no message' ) . "\n";
+    close $handle or Test::Mutation::Error::raise( 'git-silent', command => $command );
+    Test::Mutation::Error::raise( 'git-silent', command => $command ) if !defined $reason;
+    chomp $reason;
+    return Test::Mutation::Error::raise( 'git-failed', command => $command, reason => $reason );
 }
 
 1;
@@ -66,6 +71,6 @@ Test::Mutation::Git - ask Git which lines changed
 
 Returns, for each file under C<$root>, the line ranges that differ from the revision.
 A file that Git does not track counts as changed from its first line to its last.
-The function dies with the first line of the Git error when Git fails.
+The function dies with a L<Test::Mutation::Error> of the kind C<environment> when Git fails, and its message holds the first line of the Git error.
 
 =cut

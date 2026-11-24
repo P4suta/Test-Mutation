@@ -6,6 +6,7 @@ use File::Path     ();
 use File::Temp     ();
 use lib 't/lib';
 use Capability;
+use Raised;
 use Test::Mutation::Diff;
 use Test::Mutation::Git;
 
@@ -50,20 +51,22 @@ is [ sort keys $changed->%* ], [ 'lib/Added.pm', 'lib/Kept.pm' ], 'a file that g
 ok Test::Mutation::Diff::touches( $changed->{'lib/Added.pm'}, 100_000, 100_000 ),
   'and every line of it counts as changed';
 
-like dies { Test::Mutation::Git::changed( $root, 'no-such-revision' ) },
-  qr/\Agit diff failed: [^\n]*no-such-revision[^\n]*\n\z/, 'an unknown revision gives one line with the reason of git';
+like Raised::error( sub { Test::Mutation::Git::changed( $root, 'no-such-revision' ) } ),
+  [ 'environment', 'git-failed', qr/\Agit diff failed: [^\n]*no-such-revision[^\n]*\z/ ],
+  'an unknown revision gives one line with the reason of git';
 
 # The temporary directory may lie inside a work tree, so the search of git for a repository stops at its parent.
 my $plain = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
 {
     local $ENV{GIT_CEILING_DIRECTORIES} = File::Basename::dirname($plain);
-    like dies { Test::Mutation::Git::changed( $plain, 'HEAD' ) }, qr/\Agit diff failed: [^\n]+\n\z/,
+    like Raised::message( sub { Test::Mutation::Git::changed( $plain, 'HEAD' ) } ), qr/\Agit diff failed: [^\n]+\z/,
       'a directory outside a repository gives the reason of git';
 }
 
 {
     local $ENV{PATH} = $plain;
-    like dies { Test::Mutation::Git::changed( $root, 'HEAD' ) }, qr/\Agit diff failed: cannot start git: [^\n]+\n\z/,
+    like Raised::message( sub { Test::Mutation::Git::changed( $root, 'HEAD' ) } ),
+      qr/\Agit diff failed: cannot start git: [^\n]+\z/,
       'a machine without git gets a message that names the command';
 }
 

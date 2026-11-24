@@ -59,17 +59,21 @@ subtest 'a process that cannot start stops the pool' => sub {
         local $fork_fails = 1;
         pool_error( command => [ $^X, $path ], stderr => "$path.err" );
     };
-    like $error, qr/\Afork: \S/, 'the error names the reason';
+    like $error, qr/\Acannot start a process: \S/, 'the error names the reason';
 };
 
 subtest 'a pipe that does not close stops the pool' => sub {
-    for my $place (qw(run _spawn)) {
-        my $path  = script( "$place.t", qq{print "1..1\\nok 1\\n";\n} );
+
+    # The turns of the pool are a subroutine without a name.
+    my %place = ( 'the turns of the pool' => '__ANON__', 'the start of a test' => '_spawn' );
+    for my $name ( sort keys %place ) {
+        my $path  = script( "$place{$name}.t", qq{print "1..1\\nok 1\\n";\n} );
         my $error = do {
-            local $close_fails_in = qr/::Pool::\Q$place\E\z/;
+            local $close_fails_in = qr/::Pool::\Q$place{$name}\E\z/;
             pool_error( command => [ $^X, $path ], stderr => "$path.err" );
         };
-        like $error, qr/\Aclose pipe: \S/, "a failure in $place";
+        is [ $error->kind, $error->id ], [ 'environment', 'pipe-unclosable' ], "a failure in $name is typed";
+        like $error->message, qr/\Acannot close a pipe: \S/, "and a failure in $name names the reason";
     }
 };
 

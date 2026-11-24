@@ -39,7 +39,8 @@ my %CHECK = (
     'baseline'    => \&_baseline,
 );
 
-my %SIGNAL_NUMBER = ( HUP => 1, INT => 2, TERM => 15 );
+my %SIGNAL_NUMBER = ( HUP => 1, INT => 2, QUIT => 3, PIPE => 13, TERM => 15 );
+my $INTERNAL      = 6;
 my $SIGNAL_BASE   = 128;
 my $BASE_SECONDS  = 30;
 my $SLACK         = 5;
@@ -295,6 +296,7 @@ sub _cache ($arg) {
 
 # A fault ends the run with a status that the contract names and with one line of the tool on standard error.
 # `signal` names the signal that met the run, and `fails` says that the fault leaves nothing to measure.
+# The status of an internal error states a defect of the tool, so it is a finding unless `internal` says that the fault is one.
 sub _fault ($arg) {
     my $run = $arg->{run};
     return 'the run exceeds its deadline'          if $run->{hung};
@@ -303,6 +305,9 @@ sub _fault ($arg) {
     my $exit  = $run->{exit};
     my @found;
     push @found, "the run exits with status $exit, which the contract leaves out" if !$named{$exit};
+    push @found, "the run exits with status $exit, an internal error" if $exit == $INTERNAL && !$arg->{internal};
+    push @found, "the run exits with status $exit, where the fault is an internal error"
+      if $arg->{internal} && $exit != $INTERNAL;
     push @found, "the run exits with status $exit after the signal"
       if defined $arg->{signal} && $named{$exit} && $exit != $SIGNAL_BASE + $SIGNAL_NUMBER{ $arg->{signal} };
     push @found, 'the run exits with status 0 after the fault' if $arg->{fails} && $exit == 0;

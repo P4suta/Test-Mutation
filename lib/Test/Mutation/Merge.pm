@@ -3,6 +3,7 @@ use v5.36;
 use List::Util      qw(all first max min sum0 uniq);
 use Types::Standard qw(ArrayRef Dict InstanceOf Str);
 use Type::Params    qw(signature_for);
+use Test::Mutation::Error;
 use Test::Mutation::Result;
 
 our $VERSION = '0.001';
@@ -13,7 +14,7 @@ signature_for merge => (
 );
 
 sub merge ($reports) {
-    die "merge needs at least one report\n" if !$reports->@*;
+    Test::Mutation::Error::raise('merge-empty') if !$reports->@*;
     my @parts   = _parts($reports);
     my @results = map { $_->{result} } @parts;
     my $count   = $results[0]->inventory->{mutants};
@@ -22,16 +23,21 @@ sub merge ($reports) {
     my %seen;
     for my $entry ( map { $_->entries->@* } @results ) {
         my $id = $entry->{mutant}->id;
-        die "mutant $id appears in more than one part\n" if $seen{$id};
+        Test::Mutation::Error::raise( 'merge-repeated-mutant', id => $id ) if $seen{$id};
         $seen{$id} = 1;
     }
     for my $index ( 0 .. $#parts ) {
         my $rounded  = $count - $index + $parts - 1;
         my $expected = int $rounded / $parts;
         my $held     = scalar $results[$index]->entries->@*;
-        my $number   = $index + 1;
-        die "$parts[$index]{name} holds $held mutants, and part $number of $parts has $expected\n"
-          if $held != $expected;
+        Test::Mutation::Error::raise(
+            'merge-part-size',
+            name     => $parts[$index]{name},
+            held     => $held,
+            part     => $index + 1,
+            parts    => $parts,
+            expected => $expected
+        ) if $held != $expected;
     }
 
     my %duration;
@@ -62,24 +68,37 @@ sub _parts ($reports) {
     my ( @parts, $whole );
     for my $report ( $reports->@* ) {
         my ( $name, $result ) = $report->@{qw(name result)};
-        die "$name is the report of a whole run, not of a part\n" if !defined $result->shard;
-        die "$name names no inventory\n"                          if !$result->inventory;
-        die "$name has failing tests in its unmodified run, so its part measured nothing\n"
-          if $result->baseline_failures->@*;
+        Test::Mutation::Error::raise( 'merge-whole-run',         name => $name ) if !defined $result->shard;
+        Test::Mutation::Error::raise( 'merge-without-inventory', name => $name ) if !$result->inventory;
+        Test::Mutation::Error::raise( 'merge-failed-baseline',   name => $name ) if $result->baseline_failures->@*;
         my ( $part, $of ) = split m{/}, $result->shard;
         $whole ||= { name => $name, part => $part, of => $of, digest => $result->inventory->{digest} };
-        die "$whole->{name} holds part $whole->{part} of $whole->{of}, and $name holds part $part of $of\n"
-          if $of != $whole->{of};
-        die "$name covers other mutants than $whole->{name}\n" if $result->inventory->{digest} ne $whole->{digest};
-        die "$parts[$part - 1]{name} and $name both hold part $part of $of\n" if $parts[ $part - 1 ];
+        Test::Mutation::Error::raise(
+            'merge-other-split',
+            first       => $whole->{name},
+            first_part  => $whole->{part},
+            first_parts => $whole->{of},
+            name        => $name,
+            part        => $part,
+            parts       => $of
+        ) if $of != $whole->{of};
+        Test::Mutation::Error::raise( 'merge-other-mutants', name => $name, first => $whole->{name} )
+          if $result->inventory->{digest} ne $whole->{digest};
+        Test::Mutation::Error::raise(
+            'merge-repeated-part',
+            first => $parts[ $part - 1 ]{name},
+            name  => $name,
+            part  => $part,
+            parts => $of
+        ) if $parts[ $part - 1 ];
         $parts[ $part - 1 ] = $report;
     }
     my @missing = grep { !$parts[ $_ - 1 ] } 1 .. $whole->{of};
     return @parts if !@missing;
     my $last = pop @missing;
-    die "part $last of $whole->{of} is missing\n" if !@missing;
+    Test::Mutation::Error::raise( 'merge-missing-part', part => $last, parts => $whole->{of} ) if !@missing;
     my $list = join @missing > 1 ? ', ' : q{ }, @missing, "and $last";
-    die "parts $list of $whole->{of} are missing\n";
+    return Test::Mutation::Error::raise( 'merge-missing-parts', list => $list, parts => $whole->{of} );
 }
 
 1;
@@ -109,7 +128,7 @@ This module joins the results of all parts into the result that one run without 
 =head2 merge
 
 Takes the results with the names that error messages use, and returns one L<Test::Mutation::Result>.
-The function dies unless the results are the parts 1 to C<N> of one run, each exactly once.
+The function dies with a L<Test::Mutation::Error> of the kind C<usage> unless the results are the parts 1 to C<N> of one run, each exactly once.
 Every result must name the same C<N> and the same inventory, and hold the mutants of its part.
 
 The merged result lists the mutants in the order of a whole run.

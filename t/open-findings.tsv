@@ -79,31 +79,25 @@ contract-selector-selectors	malformed: status 0, where the selector calls for 2;
 contract-selector-selectors	malformed: status 0, where the selector calls for 2; selectors source test; origins file line	the selection resolved before the first write
 contract-selector-selectors	malformed: status 0, where the selector calls for 2; selectors suppression; origins source	the selection resolved before the first write
 contract-selector-selectors	malformed: status 3, where the selector calls for 2; selectors perl; origins file line	the selection resolved before the first write
-contract-selector-selectors	malformed: status 4, where the selector calls for 2; selectors mutator; origins file line	the selection resolved before the first write
-contract-selector-selectors	malformed: status 4, where the selector calls for 2; selectors since; origins line	the selection resolved before the first write
+contract-selector-selectors	malformed: status 5, where the selector calls for 2; selectors since; origins line	the selection resolved before the first write
 contract-selector-selectors	nothing: status 0, where the selector calls for 2; selectors exclude; origins file	the selection resolved before the first write
 contract-selector-selectors	nothing: status 0, where the selector calls for 2; selectors mutant; origins line	the selection resolved before the first write
 contract-selector-selectors	nothing: status 0, where the selector calls for 2; selectors source test; origins file line	the selection resolved before the first write
 contract-selector-selectors	nothing: status 0, where the selector calls for 2; selectors suppression; origins source	the selection resolved before the first write
 contract-selector-selectors	nothing: status 3, where the selector calls for 2; selectors perl; origins file line	the selection resolved before the first write
-contract-selector-selectors	nothing: status 4, where the selector calls for 2; selectors mutator; origins file line	the selection resolved before the first write
-contract-one-line-selectors	malformed: no line with the prefix; selectors perl; origins file line	the selection resolved before the first write
-contract-one-line-selectors	nothing: no line with the prefix; selectors perl; origins file line	the selection resolved before the first write
+contract-one-line-selectors	malformed: other lines before the refusal; selectors mutator; origins file line	the selection resolved before the first write
+contract-one-line-selectors	nothing: other lines before the refusal; selectors mutator; origins file line	the selection resolved before the first write
 contract-no-leak-selectors	malformed: a warning of Perl; selectors perl; origins file line	the selection resolved before the first write
 contract-no-effect-selectors	malformed: a test started before the refusal; selectors perl; origins file line	the selection resolved before the first write
 contract-no-effect-selectors	malformed: the project was copied before the refusal; selectors mutator perl test; origins file line	the selection resolved before the first write
 contract-no-effect-selectors	nothing: a test started before the refusal; selectors perl; origins file line	the selection resolved before the first write
 contract-no-effect-selectors	nothing: the project was copied before the refusal; selectors mutator perl test; origins file line	the selection resolved before the first write
-contract-exit-table-outcomes	an error of the command: status 4, the status of an inconclusive run; gates none; parts whole	the typed errors and the message catalog
 contract-exit-table-outcomes	inconclusive: status 0, where the table calls for 4; gates 0 100 50 none; parts one whole	the single outcome of a run
 contract-exit-table-outcomes	inconclusive: status 1, where the table calls for 4; gates 100 50; parts one whole	the single outcome of a run
 contract-exit-table-outcomes	measured: status 1, where the table calls for 0; gates 100 50; parts one	the single outcome of a run
 contract-exit-table-outcomes	nothing: status 0, where the table calls for 4; gates 0 100 50; parts whole	the single outcome of a run
 contract-exit-table-outcomes	nothing: status 4, where the table calls for 0; gates 0 100 50; parts one	the single outcome of a run
 contract-exit-table-outcomes	nothing: status 4, where the table calls for 0; gates none; parts one whole	the single outcome of a run
-contract-one-line-outcomes	status 1: no line with the prefix; gates 100 50; parts one whole	the typed errors and the message catalog
-contract-one-line-outcomes	status 3: no line with the prefix; gates 0 100 50 none; parts one whole	the typed errors and the message catalog
-contract-one-line-outcomes	status 4: no line with the prefix; gates 0 100 50 none; parts one whole	the typed errors and the message catalog
 contract-gate-outcomes	success without a score; gates any; parts whole	the single outcome of a run
 contract-three-deciders-outcomes	pass: merge, run; fail: assertion; gates 50; parts whole	the single outcome of a run
 contract-three-deciders-outcomes	pass: run; fail: assertion; gates 0 100; parts whole	the single outcome of a run
@@ -115,11 +109,10 @@ contract-exit-table-process	status 0, where the table calls for 4; cases no-sour
 contract-exit-table-process	status 2, where the table calls for 0; cases boolean-in-the-file; part settings	the settings table
 contract-exit-table-process	status 2, where the table calls for 0; cases help-after-list help-after-mutators help-after-run version-after-list; part commands	the commands table
 contract-exit-table-process	status 3, where the table calls for 2; cases missing-interpreter; part selection	the selection resolved before the first write
-contract-exit-table-process	status 4, where the table calls for 2; cases unknown-mutator unknown-revision; part selection	the selection resolved before the first write
-contract-one-line-process	no line with the prefix; cases below-the-gate failing-baseline; part outcome	the single outcome of a run
+contract-exit-table-process	status 5, where the table calls for 2; cases unknown-revision; part selection	the selection resolved before the first write
 contract-one-line-process	no line with the prefix; cases help-after-list help-after-run version-after-list; part commands	the commands table
-contract-one-line-process	no line with the prefix; cases missing-interpreter; part selection	the selection resolved before the first write
 contract-one-line-process	no line with the prefix; cases missing-value negated-value unknown-option value-for-a-flag word-for-a-number; part settings	the settings table
+contract-one-line-process	other lines before the refusal; cases unknown-mutator; part selection	the selection resolved before the first write
 contract-no-leak-process	a package name; cases boolean-in-the-file; part settings	the settings table
 contract-no-leak-process	a place in the source; cases letters-in-a-patch; part report	the encoding of the output
 contract-no-leak-process	a variable of the code; cases boolean-in-the-file gate-out-of-range number-out-of-range value-in-the-file; part settings	the settings table
@@ -150,35 +143,7 @@ engine-differential	cache perturbation=shadow: the run reuses a result that depe
 engine-differential	cache perturbation=shadow: the run with the cache gives Survived where the truth gives Killed	the cache key over every input of a result
 engine-differential	cache perturbation=source: the cache keeps the record of a mutant that is gone	the cache key over every input of a result
 engine-differential	cache selection=since: the run measures again a result that the cache holds	the cache key over every input of a result
-engine-faults	fault=INT during the cache digest: I3 the run leaves .mutation/run-* in the project	the workspace that owns every resource of a run
-engine-faults	fault=INT during the cache digest: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
-engine-faults	fault=INT during the cache digest: the run ends by signal 2	the signals of the whole run
-engine-faults	fault=INT during the copy: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
-engine-faults	fault=INT during the copy: the run ends by signal 2	the signals of the whole run
-engine-faults	fault=TERM again during the removal of the copies: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
-engine-faults	fault=TERM during the analysis: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
-engine-faults	fault=TERM during the analysis: the run ends by signal 15	the signals of the whole run
-engine-faults	fault=TERM again during the removal of the copies: the run ends by signal 15	the signals of the whole run
-engine-faults	fault=a project without the right to write: the run exits with status 4	the workspace outside the project
-engine-faults	fault=an interpreter that is no file: standard error ends without one line of the tool	the exit table and its messages
-engine-faults-full	fault=HUP again during the removal of the copies: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
-engine-faults-full	fault=HUP again during the removal of the copies: the run ends by signal 1	the signals of the whole run
-engine-faults-full	fault=HUP during the analysis: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
-engine-faults-full	fault=HUP during the analysis: the run ends by signal 1	the signals of the whole run
-engine-faults-full	fault=HUP during the cache digest: I3 the run leaves .mutation/run-* in the project	the workspace that owns every resource of a run
-engine-faults-full	fault=HUP during the cache digest: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
-engine-faults-full	fault=HUP during the cache digest: the run ends by signal 1	the signals of the whole run
-engine-faults-full	fault=HUP during the copy: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
-engine-faults-full	fault=HUP during the copy: the run ends by signal 1	the signals of the whole run
-engine-faults-full	fault=INT again during the removal of the copies: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
-engine-faults-full	fault=INT again during the removal of the copies: the run ends by signal 2	the signals of the whole run
-engine-faults-full	fault=INT during the analysis: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
-engine-faults-full	fault=INT during the analysis: the run ends by signal 2	the signals of the whole run
-engine-faults-full	fault=TERM during the cache digest: I3 the run leaves .mutation/run-* in the project	the workspace that owns every resource of a run
-engine-faults-full	fault=TERM during the cache digest: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
-engine-faults-full	fault=TERM during the cache digest: the run ends by signal 15	the signals of the whole run
-engine-faults-full	fault=TERM during the copy: I3 the run leaves mutation-* in the temporary directory	the workspace that owns every resource of a run
-engine-faults-full	fault=TERM during the copy: the run ends by signal 15	the signals of the whole run
+engine-faults	fault=a project without the right to write: the run exits with status 5	the workspace outside the project
 engine-known	I5 NoCoverage carries no reason	the status catalog and its reasons
 engine-zoo	I5 NoCoverage carries no reason	the status catalog and its reasons
 engine-zoo	build=blib-differing: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
@@ -215,7 +180,7 @@ engine-zoo	path=path-glob: I6 the verdicts deviate without a warning or a reason
 engine-zoo	path=path-glob: I7 the run gives NoCoverage where the truth gives Killed and Survived	the records without a pattern over the path of a project
 engine-zoo	path=path-quote: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
 engine-zoo	path=path-quote: I7 the run gives Survived where the truth gives NoCoverage	the witness that a target writes for itself
-engine-zoo	path=path-space: the run exits with status 4	the records without a pattern over the path of a project
+engine-zoo	path=path-space: the run exits with status 5	the records without a pattern over the path of a project
 engine-zoo	process: I2 a process outlives the run: the child of t/child-leaves-group.t that left the process group	the workspace that owns every resource of a run
 engine-zoo	process=close-stdout: I1 the tool uses the processor while its tests wait	the pool that waits in one select call
 engine-zoo	process: I2 a process outlives the run: the daemon of t/daemonize.t	the workspace that owns every resource of a run
@@ -243,39 +208,13 @@ contract-counts-reports	the report states no count; statuses CompileError Ignore
 contract-role-reports	the score differs from the formula of the report schema; results all all-but-CompileError all-but-Ignored all-but-Killed all-but-NoCoverage all-but-Pending all-but-RuntimeError all-but-Survived only-Timeout; formats html json	the status catalog
 contract-stdout-reports	the bytes of the output are no UTF-8 form of the report; shapes latin1-1 latin1-2; formats terminal	the encoding of the output
 contract-no-leak-reports	a warning of Perl; shapes utf8-1 utf8-2; formats terminal	the encoding of the output
-contract-message-messages	lib/Test/Mutation/CLI.pm: 2 of 9 messages that no case produces	the typed errors and the message catalog
-contract-message-messages	lib/Test/Mutation/Cache.pm: 3 of 3 messages that no case produces	the typed errors and the message catalog
-contract-message-messages	lib/Test/Mutation/Config.pm: 1 of 5 messages that no case produces	the typed errors and the message catalog
-contract-message-messages	lib/Test/Mutation/Git.pm: 3 of 3 messages that no case produces	the typed errors and the message catalog
-contract-message-messages	lib/Test/Mutation/Pool.pm: 9 of 9 messages that no case produces	the typed errors and the message catalog
-contract-message-messages	lib/Test/Mutation/Record.pm: 2 of 2 messages that no case produces	the typed errors and the message catalog
-contract-message-messages	lib/Test/Mutation/Report/Html.pm: 2 of 2 messages that no case produces	the typed errors and the message catalog
-contract-message-messages	lib/Test/Mutation/Runner.pm: 14 of 15 messages that no case produces	the typed errors and the message catalog
-contract-message-messages	lib/Test/Mutation/Shim.pm: 2 of 2 messages that no case produces	the typed errors and the message catalog
-contract-message-messages	lib/Test/Mutation/Tree.pm: 10 of 10 messages that no case produces	the typed errors and the message catalog
-contract-message-messages	lib/Test/Mutation/Verdict.pm: 1 of 1 messages that no case produces	the typed errors and the message catalog
-contract-literal-source	lib/Test/Mutation.pm: 1 die statements hold their message	the typed errors and the message catalog
-contract-literal-source	lib/Test/Mutation/CLI.pm: 9 die statements hold their message	the typed errors and the message catalog
-contract-literal-source	lib/Test/Mutation/Cache.pm: 4 die statements hold their message	the typed errors and the message catalog
-contract-literal-source	lib/Test/Mutation/Config.pm: 5 die statements hold their message	the typed errors and the message catalog
-contract-literal-source	lib/Test/Mutation/Git.pm: 4 die statements hold their message	the typed errors and the message catalog
-contract-literal-source	lib/Test/Mutation/Merge.pm: 11 die statements hold their message	the typed errors and the message catalog
-contract-literal-source	lib/Test/Mutation/Mutator/Catalog.pm: 1 die statements hold their message	the typed errors and the message catalog
-contract-literal-source	lib/Test/Mutation/Pool.pm: 10 die statements hold their message	the typed errors and the message catalog
-contract-literal-source	lib/Test/Mutation/Record.pm: 2 die statements hold their message	the typed errors and the message catalog
-contract-literal-source	lib/Test/Mutation/Report/Html.pm: 2 die statements hold their message	the typed errors and the message catalog
-contract-literal-source	lib/Test/Mutation/Report/Json.pm: 6 die statements hold their message	the typed errors and the message catalog
-contract-literal-source	lib/Test/Mutation/Runner.pm: 10 die statements hold their message	the typed errors and the message catalog
-contract-literal-source	lib/Test/Mutation/Shim.pm: 2 die statements hold their message	the typed errors and the message catalog
-contract-literal-source	lib/Test/Mutation/Tree.pm: 13 die statements hold their message	the typed errors and the message catalog
-contract-literal-source	lib/Test/Mutation/Verdict.pm: 1 die statements hold their message	the typed errors and the message catalog
 contract-env-source	no table and no manual lists the variable; variables GITHUB_ACTIONS GITHUB_STEP_SUMMARY; files lib/Test/Mutation/CLI.pm	the manual that the tables generate
 contract-env-source	no table and no manual lists the variable; variables TEST_MUTATION_GENERATION; files lib/Test/Mutation/Runner.pm	the manual that the tables generate
 contract-env-source	no table and no manual lists the variable; variables TEST_MUTATION_ROOT; files lib/Test/Mutation.pm	the manual that the tables generate
 contract-env-source	no table and no manual lists the variable; variables a-computed-name; files lib/Test/Mutation/Runner.pm lib/Test/Mutation/Shim.pm	the manual that the tables generate
 contract-examples-manual	code that does not compile; kinds perl; files lib/Test/Mutation/Tree.pm	the manual that the tables generate
 contract-manual-manual	the manual names no row of the table; rows --config --coverage --disable --enable --equivalence --format --jobs --keep-work --min-score --mutant --perl --report-dir --source --test --timeout-factor --timeout-floor; tables flags	the manual that the tables generate
-contract-manual-manual	the manual names no row of the table; rows 0 1 129 130 143 2 3 4; tables exit-statuses	the manual that the tables generate
+contract-manual-manual	the manual names no row of the table; rows 0 1 125 129 130 131 141 143 2 3 4 5 6; tables exit-statuses	the manual that the tables generate
 contract-manual-manual	the manual names no row of the table; rows Pending; tables statuses	the manual that the tables generate
 contract-manual-manual	the manual names no row of the table; rows test.exclude test.perl; tables keys	the manual that the tables generate
 contract-manual-manual	the manual names no row of the table; rows version; tables commands	the manual that the tables generate

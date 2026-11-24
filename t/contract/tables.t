@@ -9,6 +9,7 @@ use World;
 use Test::Mutation::CLI;
 use Test::Mutation::Commands;
 use Test::Mutation::Config;
+use Test::Mutation::Error;
 use Test::Mutation::Exit;
 use Test::Mutation::Interrupted;
 use Test::Mutation::Report::GitHub;
@@ -128,7 +129,14 @@ subtest 'the status table names every status and what each report does with it' 
 };
 
 subtest 'the exit table names every exit status of the command' => sub {
-    my %observed = map { $_ => 1 } (
+    my @signals = Test::Mutation::Exit::signals()->@*;
+    my $failing = sub ( $failure, @line ) {
+        no warnings 'redefine';
+        local *Test::Mutation::Runner::analyze = $failure;
+        return World::observe( \@line, cwd => $root )->{exit};
+    };
+    my $unreadable = sub { Test::Mutation::Error::raise( 'file-unreadable', path => 'lib/Calc.pm', reason => 'gone' ) };
+    my %observed   = map { $_ => 1 } (
         ( map { World::observe( $_, cwd => $root )->{exit} } ['--version'], [ 'list', '--bogus' ] ),
         (
             map { Space::decided( Samples::result( $_->@* ), '--min-score', 50 )->{exit} } [ statuses => ['Killed'] ],
@@ -136,19 +144,28 @@ subtest 'the exit table names every exit status of the command' => sub {
             [ statuses          => ['RuntimeError'] ],
             [ baseline_failures => [ { test => 't/a.t', output => q{}, errors => q{} } ] ]
         ),
-        ( map { Test::Mutation::Interrupted->new( signal => $_ )->exit_status } qw(HUP INT TERM) ),
+        $failing->( $unreadable,              'list' ),
+        $failing->( sub { die "a defect\n" }, 'list' ),
+        $failing->( $unreadable,              'exec', 'zzzz', q{--}, 'true' ),
+        ( map { Space::decided( Samples::result( statuses => ['Pending'], interrupted => $_ ) )->{exit} } @signals ),
     );
-    is [ sort { $a <=> $b } keys %observed ], [ map { $_->code } @exits ], 'the codes, in rising order';
+    is [ sort { $a <=> $b } keys %observed ], [ map { $_->code } @exits ],
+      'the command returns every status of the table, and no other one';
     is [ map { $_->name } @exits ],
-      [qw(success below-gate usage baseline-failed inconclusive hangup interrupt termination)],
+      [
+        qw(success below-gate usage baseline-failed inconclusive environment internal exec-failed),
+        qw(hangup interrupt quit pipe termination)
+      ],
       'the names';
     my %meaning  = map { $_->code => $_->meaning } @exits;
     my %distinct = reverse %meaning;
     is scalar( keys %distinct ), scalar @exits, 'each status has a meaning of its own';
-    for my $signal (qw(HUP INT TERM)) {
+
+    for my $signal (@signals) {
         my $code = Test::Mutation::Interrupted->new( signal => $signal )->exit_status;
         like $meaning{$code}, qr/\b$signal\b/, "the meaning of status $code names the signal $signal";
     }
+    is \@signals, [qw(HUP INT QUIT PIPE TERM)], 'the signals that have a status';
 };
 
 done_testing;

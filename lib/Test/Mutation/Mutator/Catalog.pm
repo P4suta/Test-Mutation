@@ -2,6 +2,7 @@ package Test::Mutation::Mutator::Catalog;
 use v5.36;
 use Types::Standard qw(ArrayRef Enum InstanceOf Str);
 use Type::Params    qw(signature_for);
+use Test::Mutation::Error;
 use Test::Mutation::Mutator;
 
 our $VERSION = '0.001';
@@ -337,7 +338,7 @@ signature_for choose => (
 sub choose ($arg) {
     my %known   = map  { $_->name => 1 } @ALL;
     my @unknown = grep { !$known{$_} } $arg->enable->@*, $arg->disable->@*;
-    die 'unknown mutator: ' . join( ', ', @unknown ) . "\n" if @unknown;
+    Test::Mutation::Error::raise( 'mutator-unknown', names => join q{, }, @unknown ) if @unknown;
 
     my %enabled  = map { $_ => 1 } $arg->enable->@*;
     my %disabled = map { $_ => 1 } $arg->disable->@*;

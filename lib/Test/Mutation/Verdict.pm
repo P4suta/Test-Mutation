@@ -2,6 +2,7 @@ package Test::Mutation::Verdict;
 use v5.36;
 use Types::Standard qw(Bool Dict Enum Int Maybe Str);
 use Type::Params    qw(signature_for);
+use Test::Mutation::Message;
 
 our $VERSION = '0.001';
 
@@ -48,8 +49,8 @@ sub step ( $state, $outcome ) {
 
     $next{served} = 1;
     if ( $outcome->{load_failed} ) {
-        die "a load failure needs a syntax check\n"                       if !defined $outcome->{syntax_ok};
-        return $decide->( 'CompileError', 'the mutant does not compile' ) if !$outcome->{syntax_ok};
+        die Test::Mutation::Message::text_of('verdict-without-syntax-check') . "\n" if !defined $outcome->{syntax_ok};
+        return $decide->( 'CompileError', 'the mutant does not compile' )           if !$outcome->{syntax_ok};
     }
     return $decide->( 'Killed', "$test failed" ) if $outcome->{result} eq 'fail';
     return \%next;

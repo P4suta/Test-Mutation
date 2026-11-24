@@ -4,6 +4,7 @@ use Moo;
 use Encode          ();
 use Types::Standard qw(ArrayRef Enum InstanceOf Int Str Tuple);
 use Type::Params    qw(signature_for);
+use Test::Mutation::Try;
 
 our $VERSION = '0.001';
 
@@ -20,8 +21,9 @@ signature_for from_bytes => (
 
 sub from_bytes ( $class, $arg ) {
     my $bytes = $arg->bytes;
-    my $text  = eval { Encode::decode( 'UTF-8', $bytes, Encode::FB_CROAK | Encode::LEAVE_SRC ) };
-    return $class->new( path => $arg->path, text => $text, encoding => 'UTF-8' ) if defined $text;
+    my $read =
+      Test::Mutation::Try::attempt( sub { Encode::decode( 'UTF-8', $bytes, Encode::FB_CROAK | Encode::LEAVE_SRC ) } );
+    return $class->new( path => $arg->path, text => $read->{value}, encoding => 'UTF-8' ) if exists $read->{value};
     return $class->new( path => $arg->path, text => Encode::decode( 'latin1', $bytes ), encoding => 'latin1' );
 }
 

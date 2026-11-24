@@ -54,9 +54,37 @@ sub _template ($word) {
     return $text =~ /[[:alpha:]]{2}/ ? $text : ();
 }
 
-# The messages that the code raises with `die`, and the ones that it hands to the named subroutines.
+# The subroutines that take the identifier of a message of the catalog as their first argument.
+my %NAMES_A_MESSAGE =
+  map { $_ => 1 } qw(Test::Mutation::Error::raise Test::Mutation::Message::text_of Test::Mutation::Message::row);
+
+# The first argument of every call that names a message: the identifier, or a mark for a value that the code computes.
+sub identifiers ($code) {
+    my $document = _document($code);
+    my @named;
+    for my $word ( grep { $NAMES_A_MESSAGE{ $_->content } } @{ $document->find('PPI::Token::Word') || [] } ) {
+        my $list = $word->snext_sibling;
+        next if !$list || !$list->isa('PPI::Structure::List');
+        my ($first) = map { $_->schildren } $list->schildren;
+        my $literal =
+          $first && ( $first->isa('PPI::Token::Quote::Single') || $first->isa('PPI::Token::Quote::Literal') );
+        push @named, $literal ? $first->string : 'a-computed-identifier';
+    }
+    return \@named;
+}
+
+# The number of places where the code catches an exception itself.
+sub evals ($code) {
+    my $document = _document($code);
+    return scalar grep {
+        my ( $before, $after ) = ( $_->sprevious_sibling, $_->snext_sibling );
+        $_->content eq 'eval' && !( $after && $after->content eq '=>' ) && !( $before && $before->content eq '->' )
+    } @{ $document->find('PPI::Token::Word') || [] };
+}
+
+# The messages that the code raises with `die` and its kin, and the ones that it hands to the named subroutines.
 sub messages ( $code, @reporters ) {
-    my %reporter = map { $_ => 1 } 'die', @reporters;
+    my %reporter = map { $_ => 1 } qw(die croak confess), @reporters;
 
     # The document owns its elements, so it stays in scope while the scan reads them.
     my $document = _document($code);

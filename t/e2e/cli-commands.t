@@ -105,8 +105,10 @@ subtest 'exec runs a command with one mutant active' => sub {
       ran( 0, $root, 'list' )->{stdout} =~ /^([0-9a-f]{12})  lib\/Calc\.pm:12:\d+  comparison  replaced > with >=$/m;
     ran( 0, $root, 'exec', $survivor, '--', $^X, '-Ilib', 't/sign.t' );
 
-    ran( 7,   $root, 'exec', identifier('replaced + with -'), '--', $^X, '-e', 'exit 7' );
-    ran( 127, $root, 'exec', identifier('replaced + with -'), '--', "$root/no-such-command" );
+    ran( 7, $root, 'exec', identifier('replaced + with -'), '--', $^X, '-e', 'exit 7' );
+    my $absent = ran( 125, $root, 'exec', identifier('replaced + with -'), '--', "$root/no-such-command" );
+    like $absent->{stderr}, qr{\Amutation: cannot start \Q$root\E/no-such-command: [^\n]+\n\z},
+      'a command that cannot start is a failure of exec itself, with its line';
     ran( 143, $root, 'exec', identifier('replaced + with -'), '--', $^X, '-e', 'kill TERM => $$; sleep 5' );
     ok !-e "$root/.mutation", 'the work directory is removed';
 };

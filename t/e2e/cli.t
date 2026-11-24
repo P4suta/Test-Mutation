@@ -52,7 +52,7 @@ subtest 'a score that equals --min-score passes' => sub {
     ran( 1, $root, '--jobs', 2, '--format', 'terminal', '--min-score', 50.5 );
 };
 
-subtest 'a run that cannot judge a mutant exits with status 4 and no error line' => sub {
+subtest 'a run that cannot judge a mutant exits with status 4 and one line that says so' => sub {
     my $root = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
     write_file( "$root/lib/Slow.pm",
         "package Slow;\nuse strict;\nuse warnings;\nsub next_one { return \$_[0] + 1 }\n1;\n" );
@@ -60,8 +60,9 @@ subtest 'a run that cannot judge a mutant exits with status 4 and no error line'
             "use Test::More tests => 1;\nBEGIN { select undef, undef, undef, 0.6 }\n"
           . "use Slow;\nis Slow::next_one(2), 3, 'the next one';\n" );
     my $run = ran( 4, $root, '--jobs', 2, '--format', 'terminal', '--timeout-factor', 0.1, '--timeout-floor', 0.1 );
-    like $run->{stdout},   qr/^3 mutants: 3 runtime error$/m, 'every test ran out of time before it loaded a mutant';
-    unlike $run->{stderr}, qr/^mutation:/m,                   'the report is the whole explanation';
+    like $run->{stdout}, qr/^3 mutants: 3 runtime error$/m, 'every test ran out of time before it loaded a mutant';
+    like $run->{stderr}, qr/\nmutation: the run states no score\n\z/,
+      'the last line of standard error names the outcome';
 };
 
 subtest 'a test that fails without any mutant stops the run' => sub {

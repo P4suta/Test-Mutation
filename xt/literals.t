@@ -5,12 +5,56 @@ use Gate;
 use Library;
 use Sources;
 use Space;
+use Test::Mutation::Message;
 use Test::Mutation::Status;
 
 # The messages, the lists of statuses, and the variables of the environment each belong in one table.
-# No such table holds them yet, so the scan states where they stand in the code, and each place is an open finding.
+# The catalog holds the messages, so a die statement with words of its own is a violation.
+# No table holds the statuses and the variables yet, so the scan states where they stand, and each place is an open finding.
 
 my $value = "\x{2026}";
+
+# The places that may copy the line of a message, compute the identifier of one, or catch an exception themselves.
+# Each number is the exact count of the place, so one more of them is a violation too.
+my %ALLOWED = (
+
+    # The shim runs inside every test process, on Perl 5.10 and without the catalog, so it says each line itself.
+    'lib/Test/Mutation/Shim.pm' => { copies => 1 },
+
+    # raise hands the identifier of its caller on to the catalog, once for the text and once for the kind.
+    'lib/Test/Mutation/Error.pm' => { computed => 2 },
+
+    # The one place of the driver that catches an exception.
+    'lib/Test/Mutation/Try.pm' => { eval => 1 },
+);
+
+# What is wrong with the calls that name a message: a name outside the catalog, a computed name, and a message without a call.
+# `named` maps each file to the first arguments of its calls, and `computed` maps a file to the computed names it may hold.
+sub named_problems ( $named, $catalog, $computed ) {
+    my %known = map { $_ => 1 } $catalog->@*;
+    my ( @problems, %used );
+    for my $file ( sort keys $named->%* ) {
+        my @literal = grep { $_ ne 'a-computed-identifier' } $named->{$file}->@*;
+        my $count   = $named->{$file}->@* - @literal;
+        $used{$_} = 1 for @literal;
+        push @problems, "$file: $count calls compute the identifier of their message"
+          if $count != ( $computed->{$file} || 0 );
+        push @problems,
+          map { "$file: a call names $_, which is no message of the catalog" } grep { !$known{$_} } @literal;
+    }
+    return @problems, map { "no call names the message $_" } grep { !$used{$_} } $catalog->@*;
+}
+
+# The line of each message as a die statement that copies it holds it: the name of the command, the words, and a mark for each value.
+sub lines_of (@rows) {
+    return map { ( Test::Mutation::Message::line( $_->text ) =~ s/\n\z//r =~ s/[{]\w+[}]/$value/gr ) => $_->id } @rows;
+}
+
+# The messages of a place that copies lines of the catalog: the identifier of each copy, and the words of every other message.
+sub copied ( $messages, $lines ) {
+    return [ map { $lines->{$_} } grep { defined $lines->{$_} } $messages->@* ],
+      [ grep { !defined $lines->{$_} } $messages->@* ];
+}
 
 subtest 'the scan rejects a message that a die statement holds' => sub {
     is Sources::messages("sub f { die \"cannot read \$path: \$!\\n\" if !\$ok; die \$error; }\n"),
@@ -28,6 +72,75 @@ subtest 'the scan rejects a message that a die statement holds' => sub {
     like 'cannot read ci.toml: No such file', Sources::pattern("cannot read $value: $value"),
       'a message matches its text';
     unlike 'cannot write ci.toml: full', Sources::pattern("cannot read $value: $value"), 'and no other text';
+
+    is Sources::messages("open my \$in, '<', \$path or die \"cannot read \$path: \$!\\n\";\n"),
+      ["cannot read $value: $value"], 'a message behind a failed call';
+    is Sources::messages(
+        "die( ( \@found ? 'more than one mutant has' : 'no mutant has' ) . \" the identifier \$id\\n\" );\n"),
+      ["$value the identifier $value"], 'a message whose first words stand in a choice';
+    is Sources::messages(
+        "croak \"cannot write \$path\";\nCarp::confess('never');\nconfess 'a state that cannot be';\n"),
+      [ "cannot write $value", 'a state that cannot be' ], 'a message that croak or confess raises';
+    is Sources::messages(
+        "my \$ok = eval { chdir \$dir or die \"chdir \$dir: \$!\\n\"; exec \@command or die \"exec \$command[0]: \$!\\n\" };\n"
+      ),
+      [ "chdir $value: $value", "exec $value: $value" ], 'the messages of a block that runs in another process';
+    is Sources::messages( "die Test::Mutation::Message::text_of( 'shim-missing', file => \$file ) . \"\\n\";\n"
+          . "Test::Mutation::Error::raise( 'file-unreadable', path => \$path, reason => \"\$!\" );\n" ),
+      [], 'a text and an error that the catalog gives hold no words of their own';
+};
+
+subtest 'the scan rejects a call that names no message of the catalog' => sub {
+    my $code =
+        "Test::Mutation::Error::raise( 'file-unreadable', path => \$path, reason => \"\$!\" ) if !\$ok;\n"
+      . "my \$text = Test::Mutation::Message::text_of(\$id);\nmy \$row = Test::Mutation::Message::row( q{inconclusive} );\n"
+      . "open my \$in, '<', \$path or Test::Mutation::Error::raise( \"file-\$kind\", path => \$path );\n"
+      . "my %raise = ( 'Test::Mutation::Error::raise' => 1 );\n# Test::Mutation::Error::raise('in-a-comment')\n";
+    is Sources::identifiers($code),
+      [ 'file-unreadable', 'a-computed-identifier', 'inconclusive', 'a-computed-identifier' ],
+      'a literal identifier, a variable, another literal, and a text with a value';
+    is Sources::identifiers("my \$handle = raise( 'x' );\n\$self->text_of('y');\n"), [],
+      'a subroutine of another name names no message';
+    is [
+        named_problems(
+            { 'lib/A.pm' => [ 'file-unreadable', 'file-unreadble', 'a-computed-identifier' ], 'lib/B.pm' => [] },
+            [qw(file-unreadable file-unwritable)], {}
+        )
+      ],
+      [
+        'lib/A.pm: 1 calls compute the identifier of their message',
+        'lib/A.pm: a call names file-unreadble, which is no message of the catalog',
+        'no call names the message file-unwritable',
+      ],
+      'a name outside the catalog, a computed name, and a message that no code uses';
+    is [
+        named_problems(
+            { 'lib/A.pm' => [ 'file-unreadable', 'a-computed-identifier' ] },
+            ['file-unreadable'], { 'lib/A.pm' => 1 }
+        )
+      ],
+      [], 'a place that the table allows to compute an identifier';
+};
+
+subtest 'the scan rejects a copy whose words differ from the line of the catalog' => sub {
+    my %lines = lines_of( map { Test::Mutation::Message::row($_) } qw(spec-unreadable spec-unclosable) );
+    is \%lines,
+      {
+        "mutation: cannot read spec $value: $value"  => 'spec-unreadable',
+        "mutation: cannot close spec $value: $value" => 'spec-unclosable'
+      },
+      'the line of each message, with a mark for each value';
+    my $code = "open my \$h, '<', \$p or die \"mutation: cannot read spec \$p: \$!\\n\";\n"
+      . "close \$h or die \"mutation: cannot close the spec \$p: \$!\\n\";\ndie \"cannot read spec \$p: \$!\\n\";\n";
+    is [ copied( Sources::messages($code), \%lines ) ],
+      [ ['spec-unreadable'], [ "mutation: cannot close the spec $value: $value", "cannot read spec $value: $value" ] ],
+      'a copy of a line, a copy with other words, and a copy without the name of the command';
+};
+
+subtest 'the scan rejects a place that catches an exception itself' => sub {
+    is Sources::evals("my \$ok = eval { risky(); 1 };\nmy \$value = eval \$text;\n"), 2, 'a block and a text';
+    is Sources::evals("my %kind = ( eval => 1 );\n\$object->eval;\nmy \@words = qw(do eval sub);\n# eval { }\n"), 0,
+      'a key, a method, a word of a list, and a comment';
 };
 
 subtest 'the scan rejects a list of statuses outside the table' => sub {
@@ -76,15 +189,30 @@ my %code   = map { $_ => Sources::slurp($_) } @files;
 my $manual = join q{}, map { Sources::documentation( $code{$_} )->{text} } 'bin/mutation', 'lib/Test/Mutation.pm';
 like $manual, qr/^=head1 CONFIGURATION$/m, 'the manual is the documentation of the command and of the main module';
 
-# literal: no die statement holds the text of its message.
-my ( @literal, $messages );
+# literal: no die statement holds the text of its message, and every failure names a message of the catalog.
+my @catalog = map { $_->id } Test::Mutation::Message::rows()->@*;
+my %lines   = lines_of( Test::Mutation::Message::rows()->@* );
+my ( @literal, %named, $calls, $copies );
 for my $file (@files) {
-    my $count = Sources::messages( $code{$file} )->@* or next;
-    $messages += $count;
-    push @literal, "$file: $count die statements hold their message";
+    my $allowed  = $ALLOWED{$file} || {};
+    my $messages = Sources::messages( $code{$file} );
+    my ( $copied, $own ) = $allowed->{copies} ? copied( $messages, \%lines ) : ( [], $messages );
+    my $evals   = Sources::evals( $code{$file} );
+    my $calling = Sources::identifiers( $code{$file} );
+    $named{$file} = [ $calling->@*, $copied->@* ];
+    $calls  += $calling->@*;
+    $copies += $copied->@*;
+    push @literal, sprintf '%s: %d die statements hold their message', $file, scalar $own->@* if $own->@*;
+    push @literal, "$file: $evals eval expressions catch an exception outside the one place of the driver"
+      if $evals != ( $allowed->{eval} || 0 );
 }
+push @literal,
+  named_problems( \%named, \@catalog,
+    { map { $_ => $ALLOWED{$_}{computed} } grep { $ALLOWED{$_}{computed} } keys %ALLOWED } );
 Gate::findings( 'contract-literal-source', \@literal );
-Gate::checked( 'die statements with a message', $messages, at_least => 80 );
+Gate::checked( 'calls that name a message of the catalog',       $calls,          at_least => 100 );
+Gate::checked( 'die statements that copy the line of a message', $copies,         at_least => 2 );
+Gate::checked( 'messages of the catalog',                        scalar @catalog, at_least => 64 );
 
 # status-once: no list of statuses stands outside the table of the statuses.
 my @names = map { $_->name } Test::Mutation::Status::rows()->@*;

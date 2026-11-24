@@ -13,7 +13,7 @@ use Discovery::Project;
 
 my @STATUSES     = qw(Killed Survived NoCoverage Timeout CompileError NoVerdict Ignored Pending);
 my %STATUS       = ( RuntimeError => 'NoVerdict' );
-my @EXITS        = ( 0 .. 6, 125, 129, 130, 143 );
+my @EXITS        = ( 0 .. 6, 125, 129, 130, 131, 141, 143 );
 my $JOBS         = 2;
 my $DEADLINE     = 120;
 my $POLL_SECONDS = 0.01;

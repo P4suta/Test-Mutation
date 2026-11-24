@@ -1,5 +1,7 @@
 use v5.36;
 use Test2::V0;
+use lib 't/lib';
+use Raised;
 use Test::Mutation::Merge;
 use Test::Mutation::Mutant;
 use Test::Mutation::Result;
@@ -109,28 +111,42 @@ subtest 'a part that is unsafe side by side or interrupted marks the whole' => s
 subtest 'a set that is not one complete run is refused' => sub {
     my $one = part( '1/2', \@first );
     my $two = part( '2/2', \@rest );
-    like dies { merged() },             qr/\Amerge needs at least one report/,             'no report';
-    like dies { merged($one) },         qr/\Apart 2 of 2 is missing/,                      'a missing part';
-    like dies { merged( $one, $one ) }, qr/\Areport 1 and report 2 both hold part 1 of 2/, 'a repeated part';
-    like dies { merged( $one, part( '2/3', \@rest ) ) },
+    like Raised::message( sub { merged() } ),     qr/\Amerge needs at least one report/, 'no report';
+    like Raised::message( sub { merged($one) } ), qr/\Apart 2 of 2 is missing/,          'a missing part';
+    like Raised::message( sub { merged( $one, $one ) } ), qr/\Areport 1 and report 2 both hold part 1 of 2/,
+      'a repeated part';
+    like Raised::message( sub { merged( $one, part( '2/3', \@rest ) ) } ),
       qr/\Areport 1 holds part 1 of 2, and report 2 holds part 2 of 3/,
       'parts of different splits';
-    like dies { merged( part( '1/3', \@first ), part( '3/3', \@rest ) ) }, qr/\Apart 2 of 3 is missing/,
+    like Raised::message( sub { merged( part( '1/3', \@first ), part( '3/3', \@rest ) ) } ),
+      qr/\Apart 2 of 3 is missing/,
       'a missing middle part';
-    like dies { merged( part( '1/4', \@first ), part( '2/4', \@rest ) ) }, qr/\Aparts 3 and 4 of 4 are missing/,
+    like Raised::message( sub { merged( part( '1/4', \@first ), part( '2/4', \@rest ) ) } ),
+      qr/\Aparts 3 and 4 of 4 are missing/,
       'two missing parts';
-    like dies { merged( $one, part( '2/2', \@rest, inventory => { mutants => 6, digest => 'cd' x 32 } ) ) },
+    like Raised::message(
+        sub { merged( $one, part( '2/2', \@rest, inventory => { mutants => 6, digest => 'cd' x 32 } ) ) } ),
       qr/\Areport 2 covers other mutants than report 1/, 'a part of another source state';
-    like dies { merged( $one, part( '2/2', \@rest, shard => undef ) ) },
+    like Raised::message( sub { merged( $one, part( '2/2', \@rest, shard => undef ) ) } ),
       qr/\Areport 2 is the report of a whole run, not of a part/, 'a whole run';
-    like dies { merged( $one, part( '2/2', \@rest, inventory => undef ) ) }, qr/\Areport 2 names no inventory/,
+    like Raised::message( sub { merged( $one, part( '2/2', \@rest, inventory => undef ) ) } ),
+      qr/\Areport 2 names no inventory/,
       'a report without an inventory';
-    like dies {
-        merged( $one, part( '2/2', [], baseline_failures => [ { test => 't/a.t', output => q{}, errors => q{} } ] ) )
-    }, qr/\Areport 2 has failing tests in its unmodified run, so its part measured nothing/, 'a part that never ran';
-    like dies { merged( $one, part( '2/2', [ @rest[ 0, 1 ] ] ) ) },
+    is Raised::error(
+        sub {
+            merged( $one,
+                part( '2/2', [], baseline_failures => [ { test => 't/a.t', output => q{}, errors => q{} } ] ) );
+        }
+      ),
+      [
+        'usage',
+        'merge-failed-baseline',
+        'report 2 has failing tests in its unmodified run, so its part measured nothing'
+      ],
+      'a part that never ran';
+    like Raised::message( sub { merged( $one, part( '2/2', [ @rest[ 0, 1 ] ] ) ) } ),
       qr/\Areport 2 holds 2 mutants, and part 2 of 2 has 3/, 'a part that lost a mutant';
-    like dies { merged( $one, part( '2/2', [ @rest[ 0, 1 ], $first[0] ] ) ) },
+    like Raised::message( sub { merged( $one, part( '2/2', [ @rest[ 0, 1 ], $first[0] ] ) ) } ),
       qr/\Amutant 000000000001 appears in more than one part/, 'a mutant in two parts';
 };
 

@@ -1,5 +1,7 @@
 use v5.36;
 use Test2::V0;
+use lib 't/lib';
+use Raised;
 use Test::Mutation::Config;
 
 sub layers (%layers) {
@@ -65,9 +67,12 @@ subtest 'priority rises from defaults to the file to the command line' => sub {
 };
 
 subtest 'invalid settings are refused' => sub {
-    like dies { layers( file => { speed => 1 } ) },  qr/unknown configuration key speed/,         'an unknown key';
-    like dies { layers( file => { tests => {} } ) }, qr/unknown configuration section \[tests\]/, 'an unknown section';
-    like dies { layers( file => { test  => { colour => 1 } } ) }, qr/unknown configuration key colour in \[test\]/,
+    is Raised::error( sub { layers( file => { speed => 1 } ) } ),
+      [ 'usage', 'config-key-unknown', 'unknown configuration key speed' ], 'an unknown key';
+    is Raised::error( sub { layers( file => { tests => {} } ) } ),
+      [ 'usage', 'config-section-unknown', 'unknown configuration section [tests]' ], 'an unknown section';
+    is Raised::error( sub { layers( file => { test => { colour => 1 } } ) } ),
+      [ 'usage', 'config-key-unknown-in-section', 'unknown configuration key colour in [test]' ],
       'an unknown key in a section';
     like dies { layers( cli  => { jobs       => 0 } ) },                qr/jobs/,            'zero jobs';
     like dies { layers( cli  => { coverage   => 'branch' } ) },         qr/coverage/,        'an unknown coverage mode';

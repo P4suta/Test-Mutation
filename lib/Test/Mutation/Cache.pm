@@ -3,10 +3,12 @@ use v5.36;
 use Digest::SHA     ();
 use Encode          ();
 use File::Basename  ();
-use File::Path      ();
 use JSON::PP        ();
 use Types::Standard qw(Dict HashRef Int Maybe Num Slurpy Str ArrayRef);
 use Type::Params    qw(signature_for);
+use Test::Mutation::Error;
+use Test::Mutation::Tree;
+use Test::Mutation::Try;
 
 our $VERSION = '0.001';
 
@@ -39,7 +41,8 @@ sub load ($path) {
     open my $handle, '<:raw', $path or return {};
     my $text = do { local $/ = undef; readline $handle };
     close $handle or return {};
-    my $data = eval { JSON::PP->new->utf8->decode($text) };
+    my $read   = Test::Mutation::Try::attempt( sub { return [ JSON::PP->new->utf8->decode($text) ] } );
+    my ($data) = ( $read->{value} || [] )->@*;
     return {} if ref $data ne 'HASH' || ( $data->{version} || 0 ) != $FORMAT || ref $data->{mutants} ne 'HASH';
     my %records =
       map { $_ => $data->{mutants}{$_} } grep { $RECORD->check( $data->{mutants}{$_} ) } keys $data->{mutants}->%*;
@@ -50,13 +53,14 @@ signature_for save => ( positional => [ Str, HashRef [$RECORD] ], returns => Int
 
 sub save ( $path, $records ) {
     my %kept = map { $_ => $records->{$_} } grep { $KEPT{ $records->{$_}{status} } } keys $records->%*;
-    File::Path::make_path( File::Basename::dirname($path) );
+    Test::Mutation::Tree::make( File::Basename::dirname($path) );
     my $temporary = "$path.$$";
-    open my $handle, '>:raw', $temporary or die "write $temporary: $!\n";
+    open my $handle, '>:raw', $temporary
+      or Test::Mutation::Error::raise( 'file-unwritable', path => $temporary, reason => "$!" );
     print {$handle} JSON::PP->new->utf8->canonical->encode( { version => $FORMAT, mutants => \%kept } )
-      or die "write $temporary: $!\n";
-    close $handle or die "close $temporary: $!\n";
-    rename $temporary, $path or die "rename $temporary: $!\n";
+      or Test::Mutation::Error::raise( 'file-unwritable', path => $temporary, reason => "$!" );
+    close $handle or Test::Mutation::Error::raise( 'file-unclosable', path => $temporary, reason => "$!" );
+    rename $temporary, $path or Test::Mutation::Error::raise( 'file-unrenamable', path => $temporary, reason => "$!" );
     return scalar keys %kept;
 }
 

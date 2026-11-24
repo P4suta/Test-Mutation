@@ -4,6 +4,7 @@ use Encode          ();
 use JSON::PP        ();
 use Types::Standard qw(InstanceOf Num Str);
 use Type::Params    qw(signature_for);
+use Test::Mutation::Error;
 use Test::Mutation::Report::Json;
 
 our $VERSION = '0.001';
@@ -24,10 +25,10 @@ signature_for viewer_script => ( positional => [], returns => Str );
 
 sub viewer_script () {
     my $path = __FILE__ =~ s{Html[.]pm\z}{resources/mutation-test-elements.js}r;
-    open my $handle, '<:raw', $path or die "cannot read $path: $!\n";
+    open my $handle, '<:raw', $path or Test::Mutation::Error::raise( 'file-unreadable', path => $path, reason => "$!" );
     local $/ = undef;
     my $bytes = readline $handle;
-    close $handle or die "cannot close $path: $!\n";
+    close $handle or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
     return Encode::decode( 'UTF-8', $bytes, Encode::FB_CROAK );
 }
 

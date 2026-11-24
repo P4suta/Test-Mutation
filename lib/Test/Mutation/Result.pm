@@ -4,6 +4,7 @@ use Moo;
 use Types::Standard        qw(ArrayRef Bool Dict Enum HashRef InstanceOf Int Maybe Num Str StrMatch);
 use Types::Common::Numeric qw(PositiveInt);
 use Type::Params           qw(signature_for);
+use Test::Mutation::Exit;
 use Test::Mutation::Score;
 
 our $VERSION = '0.001';
@@ -29,7 +30,7 @@ has baseline_failures =>
   ( is => 'ro', isa => ArrayRef [ Dict [ test => Str, output => Str, errors => Str ] ], required => 1 );
 has jobs          => ( is => 'ro', isa => PositiveInt, required => 1 );
 has parallel_safe => ( is => 'ro', isa => Bool,        required => 1 );
-has interrupted   => ( is => 'ro', isa => Maybe [ Enum [qw(HUP INT TERM)] ], default => undef );
+has interrupted   => ( is => 'ro', isa => Maybe [ Enum [ Test::Mutation::Exit::signals()->@* ] ], default => undef );
 has reused        => ( is => 'ro', isa => Int,  default => 0 );
 has in_copies     => ( is => 'ro', isa => Bool, default => 0 );
 has shard         => ( is => 'ro', isa => Maybe [ StrMatch [qr{\A[1-9][0-9]*/[1-9][0-9]*\z}] ], default => undef );

@@ -5,6 +5,7 @@ use Exporter        qw(import);
 use Types::Standard qw(ArrayRef Bool HashRef InstanceOf Slurpy);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Config;
+use Test::Mutation::Error;
 use Test::Mutation::Runner;
 
 our $VERSION = '0.001';
@@ -14,7 +15,7 @@ my %NOT_A_SETTING = map { $_ => 1 } qw(new from_layers read_file);
 
 sub _config (%settings) {
     my @unknown = sort grep { $NOT_A_SETTING{$_} || !Test::Mutation::Config->can($_) } keys %settings;
-    die 'unknown setting: ' . join( ', ', @unknown ) . "\n" if @unknown;
+    Test::Mutation::Error::raise( 'setting-unknown', names => join q{, }, @unknown ) if @unknown;
     my $root = delete $settings{root};
     $root = q{.} if !defined $root;
     my $file = "$root/mutation.toml";

@@ -46,7 +46,7 @@ is failing_in( qr/::Cache::load\z/, sub { Test::Mutation::Cache::load($cache) } 
   'a cache that does not close counts as no cache';
 like dies {
     failing_in( qr/::Cache::save\z/, sub { Test::Mutation::Cache::save( $cache, { abc => $record } ) } )
-}, qr/\Aclose \Q$cache\E[.]\d+: /, 'a cache that does not close after the write stops the run';
+}, qr/\Acannot close \Q$cache\E[.]\d+: /, 'a cache that does not close after the write stops the run';
 
 my $settings = write_file( 'mutation.toml', "jobs = 2\n" );
 is Test::Mutation::Config::read_file($settings), { jobs => 2 }, 'the configuration file is read';

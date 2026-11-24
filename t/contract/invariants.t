@@ -18,6 +18,10 @@ subtest 'exit-domain rejects a status outside the table' => sub {
     is [ Invariants::exit_domain( observation( exit => 2 ), [ 0, 1, 2 ] ) ], [], 'a status of the table';
     is [ Invariants::exit_domain( observation( exit => 255 ), [ 0, 1, 2 ] ) ], ['status 255 stands in no table'],
       'the status of a crash';
+    is [ Invariants::exit_domain( observation( exit => 6 ), [ 0, 2, 6 ] ) ], ['status 6 states a defect of the tool'],
+      'the status of an internal error, which no case of a harness may meet';
+    is [ Invariants::exit_domain( observation( exit => 6 ), [ 0, 2 ] ) ], ['status 6 stands in no table'],
+      'and the same status where the table lacks it';
 };
 
 subtest 'exit-table rejects another status than the outcome calls for' => sub {

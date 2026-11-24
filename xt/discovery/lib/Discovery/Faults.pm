@@ -170,7 +170,7 @@ sub dying_listener ( $engine, $bench, $event ) {
     close $handle                   or die "close $script: $!";
     my $run =
       $engine->with( command => $script )->run( $bench->{project}, environment => { DISCOVERY_DIES_AT => $event } );
-    return _found( "a listener that dies at $event", $run, fails => 1 );
+    return _found( "a listener that dies at $event", $run, fails => 1, internal => 1 );
 }
 
 # A temporary directory that refuses new entries.

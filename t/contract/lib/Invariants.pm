@@ -9,10 +9,13 @@ sub _named ( $text, $name ) {
     return $text =~ /(?<![\w-])\Q$name\E(?![\w-])/ ? 1 : 0;
 }
 
-# exit-domain: the exit status is one that the table of exit statuses names.
+my $INTERNAL = 6;
+
+# exit-domain: the exit status is one that the table of exit statuses names, and never the one of an internal error.
 sub exit_domain ( $observation, $codes ) {
     my $exit = $observation->{exit};
-    return ( grep { $_ == $exit } $codes->@* ) ? () : ("status $exit stands in no table");
+    return ("status $exit stands in no table") if !grep { $_ == $exit } $codes->@*;
+    return $exit == $INTERNAL ? ("status $exit states a defect of the tool") : ();
 }
 
 # exit-table: the exit status is the one that the kind of the error or the outcome calls for.
