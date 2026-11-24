@@ -1,7 +1,8 @@
 package Test::Mutation::Site;
 use v5.36;
 use Moo;
-use Types::Standard qw(Bool Enum HashRef Int Str Tuple);
+use Types::Standard       qw(Bool Enum Int Str Tuple);
+use Test::Mutation::Types qw(Facts);
 
 our $VERSION = '0.001';
 
@@ -15,8 +16,8 @@ has start      => ( is => 'ro', isa => Int, required => 1 );
 has end        => ( is => 'ro', isa => Int, required => 1 );
 has role       => ( is => 'ro', isa => Str, default  => q{} );
 has scope      => ( is => 'ro', isa => Tuple [ Int, Int ], required => 1 );
-has detail     => ( is => 'ro', isa => HashRef, default => sub { {} } );
-has comparable => ( is => 'ro', isa => Bool,    default => 1 );
+has facts      => ( is => 'ro', isa => Facts, default => sub { {} } );
+has comparable => ( is => 'ro', isa => Bool,  default => 1 );
 
 1;
 
@@ -61,10 +62,12 @@ A part of a pattern is C<anchor>, C<quantifier>, or C<flag>.
 The first and last line of the statement that runs the span.
 A test reaches the site when it runs a line in this range.
 
-=head2 detail
+=head2 facts
 
-Kind-specific facts, such as the operand class after a binding operator.
+What the analysis learned about the span beyond its text, in the shape of L<Test::Mutation::Types/Facts>.
 C<right> holds the number that is the whole right operand of an arithmetic operator.
+C<operand> names the kind of the operand after a binding operator.
+A key outside that shape is a fatal error, so a mutator reads no fact that the analysis never writes.
 
 =head2 comparable
 

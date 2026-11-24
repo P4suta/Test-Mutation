@@ -39,9 +39,9 @@ subtest 'a project without a test gets a warning, and its mutants have no covera
 subtest 'the analysis keeps the files in the order of their paths and names each file it cannot use' => sub {
     my $later = $MODULE =~ s/Small/Second/r;
     my $root  = project(
-        'lib/Bad.pm'    => "package Bad;\r\n1;\r\n",
+        'lib/Bad.pm'    => "package Bad;\r1;\n",
         'lib/First.pm'  => $MODULE =~ s/Small/First/r,
-        'lib/Odd.pm'    => "package Odd;\r\n1;\r\n",
+        'lib/Odd.pm'    => "package Odd;\r1;\n",
         'lib/Second.pm' => $later,
     );
     my $analysis = Test::Mutation::Runner::analyze( Test::Mutation::Config->new( root => $root ) );
@@ -142,6 +142,24 @@ subtest 'a test that fails on its own is not blamed on the parallel run' => sub 
     is [ map { $_->{test} } $parallel->baseline_failures->@* ], ['t/small.t'], 'the failure is reported with two jobs';
     is $runs->($later),                                         2,             'after a second attempt on its own';
     is [ $parallel->parallel_safe, $parallel->warnings ],       [ 1, [] ],     'and the parallel run gets no blame';
+};
+
+subtest 'a place that the analysis leaves out is reported with its file' => sub {
+    my $module = "package Small;\r\nuse strict;\r\nuse warnings;\r\nmy \$NOTE = \"two\r\nlines\";\r\n"
+      . "sub next_one { return \$_[0] + 1 }\r\n1;\r\n";
+    my $root = project( 'lib/Small.pm' => $module, 'lib/Whole.pm' => $MODULE =~ s/Small/Whole/r, 't/small.t' => $TEST );
+    my ($result) = run_fixture( $root, jobs => 1 );
+    is $result->warnings, ['lib/Small.pm: the analysis left out 1 place, which has no mutant'],
+      'the file with a string over two lines and carriage returns, and no other file';
+    is $result->problems, [], 'the file itself is analyzed';
+    is [ sort values statuses($result)->%* ], [ ('Killed') x 3, ('NoCoverage') x 3 ],
+      'and the code around the place is measured';
+
+    my $both =
+      project( 'lib/Small.pm' => $module =~ s/1;\r\n\z/my \$MORE = "a\r\nb";\r\n1;\r\n/r, 't/small.t' => $TEST );
+    my ($twice) = run_fixture( $both, jobs => 1 );
+    is $twice->warnings, ['lib/Small.pm: the analysis left out 2 places, which have no mutant'],
+      'two places in one file';
 };
 
 subtest 'the work files of a finished task are removed while the run goes on' => sub {

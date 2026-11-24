@@ -4,7 +4,5 @@ gates	xt/release/self-mutation.t has no rejecting subtest	the release gate for t
 gates	xt/release/self-mutation.t states no count	the release gate for the run of the tool on itself
 type-contracts	lib/Test/Mutation.pm uses 3 bare HashRef	the settings table gives every setting of a call its type
 type-contracts	lib/Test/Mutation/Config.pm uses 4 bare HashRef	the settings table gives every layer of settings its type
-type-contracts	lib/Test/Mutation/Mutant/Generator.pm uses 1 bare HashRef	the typed result of the analysis
 type-contracts	lib/Test/Mutation/Pool.pm uses 1 Any	the pool loop with a typed payload
 type-contracts	lib/Test/Mutation/Report/Json.pm uses 2 bare HashRef	the status catalog and its typed report document
-type-contracts	lib/Test/Mutation/Site.pm uses 1 bare HashRef	the typed facts of a site

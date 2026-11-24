@@ -38,15 +38,15 @@ subtest 'operators carry a role' => sub {
       ],
       'binary, unary, and update operators';
     is summary( 'return - $x;', 'operator' ), [ [ '-', 'unary' ] ], 'minus after return is unary';
-    is [ map { $_->detail->{operand} } sites_of( '$a =~ /x/; $b =~ s/x/y/; $c !~ $re;', 'operator' )->@* ],
+    is [ map { $_->facts->{operand} } sites_of( '$a =~ /x/; $b =~ s/x/y/; $c !~ $re;', 'operator' )->@* ],
       [ 'match', 'substitute', 'match' ], 'binding operators name their operand';
     my $code = '$a + 0; $b - 0.0; $c * 1 + $d; $e + 0 * $f; $g * 1 ** $h; $i / $j; 0 + $k; $l - 1 if $m; f( $n + 0 );';
-    is [ map { $_->text . ( defined $_->detail->{right} ? $_->detail->{right} : q{?} ) }
+    is [ map { $_->text . ( defined $_->facts->{right} ? $_->facts->{right} : q{?} ) }
           sites_of( $code, 'operator' )->@* ],
       [qw(+0 -0 *1 +? +? *? *? **? /? +? -1 +0)],
       'an arithmetic operator names a number that is its whole right operand';
     my $versions = '$] < 5.010; "$]" >= 5.036; 5.008 > $]; $] == 5.010; $n < 5.010; $] < $least; $] >= 5.36.0;';
-    is [ map { $_->text . ( defined $_->detail->{version} ? $_->detail->{version} : q{?} ) }
+    is [ map { $_->text . ( defined $_->facts->{version} ? $_->facts->{version} : q{?} ) }
           sites_of( $versions, 'operator' )->@* ],
       [qw(<5.01 >=5.036 >5.008 ==? <? <? >=?)],
       'an ordering comparison of the version of Perl names its literal';
@@ -197,17 +197,17 @@ sub total {
     return $sum;
 }
 PERL
-    is [ map { [ $_->text, $_->detail->{head} ] } sites_of( $code, 'statement' )->@* ],
+    is [ map { [ $_->text, $_->facts->{head} ] } sites_of( $code, 'statement' )->@* ],
       [ [ q{log_call('total');}, 'log_call' ], [ '$sum += $n;', q{} ] ],
       'expression statements are deletable, declarations and returns are not, and a leading word is named';
-    is [ map { [ $_->text, $_->detail->{literal} ] } sites_of( $code, 'return' )->@* ],
+    is [ map { [ $_->text, $_->facts->{literal} ] } sites_of( $code, 'return' )->@* ],
       [ [ '0', '0' ], [ '$sum', undef ] ],
       'return expressions stop before a modifier';
     my ($body) = sites_of( $code, 'sub_body' )->@*;
-    is $body->detail->{name}, 'total',   'the sub body is named';
-    is $body->scope,          [ 1, 10 ], 'the sub body scope is the whole sub';
+    is $body->facts->{name}, 'total',   'the sub body is named';
+    is $body->scope,         [ 1, 10 ], 'the sub body scope is the whole sub';
     like $body->text, qr/\A\n    my \(\$list\).*return \$sum;\n\z/s, 'the body span is inside the braces';
-    is [ map { [ $_->text, $_->detail->{keyword} ] }
+    is [ map { [ $_->text, $_->facts->{keyword} ] }
           sites_of( 'if ( $a > 1 ) { f() } elsif ($b) { g() } while ($c) { h() }', 'condition' )->@* ],
       [ [ ' $a > 1 ', 'if' ], [ '$b', 'elsif' ], [ '$c', 'while' ] ], 'conditions';
 };
@@ -262,7 +262,7 @@ subtest 'statements that must stay are not deletable' => sub {
 subtest 'class syntax yields method bodies' => sub {
     my $code =
       "use v5.38;\nclass P {\n    field \$x :param = 0;\n    method move (\$dx) {\n        \$x += \$dx;\n        return \$self;\n    }\n    method x { \$x }\n}\n";
-    is [ map { [ $_->detail->{name}, $_->scope ] } sites_of( $code, 'sub_body' )->@* ],
+    is [ map { [ $_->facts->{name}, $_->scope ] } sites_of( $code, 'sub_body' )->@* ],
       [ [ 'move', [ 4, 7 ] ], [ 'x', [ 8, 8 ] ] ], 'method bodies with their line ranges';
 };
 
@@ -299,7 +299,7 @@ class Counter {
     my $anonymous = method { 2 };
 }
 PERL
-    is [ map { [ $_->detail->{name}, $_->scope, $_->text ] } sites_of( $code, 'sub_body' )->@* ],
+    is [ map { [ $_->facts->{name}, $_->scope, $_->text ] } sites_of( $code, 'sub_body' )->@* ],
       [
         [ 'ADJUST', [ 2, 4 ], "\n        setup();\n    " ],
         [ 'bump',   [ 5, 5 ], ' $count ' ],
@@ -362,7 +362,7 @@ PERL
         [ 'k',     'call' ],
       ],
       'the keywords lead their own statements';
-    is [ map { [ $_->text, $_->detail->{keyword}, $_->scope ] } sites_of( $code, 'condition' )->@* ],
+    is [ map { [ $_->text, $_->facts->{keyword}, $_->scope ] } sites_of( $code, 'condition' )->@* ],
       [ [ ' $a > 1 ', 'if', [ 8, 8 ] ], [ '$b', 'elsif', [ 8, 8 ] ], [ '$c', 'while', [ 9, 9 ] ] ],
       'the conditions are condition sites';
     is [ map { $_->text } sites_of( $code, 'statement' )->@* ],
@@ -385,7 +385,7 @@ sub plain { 7 x 7 }
 PERL
     is [ map { $_->text . $_->comparable } grep { $_->role eq 'binary' } sites_of( $code, 'operator' )->@* ],
       [qw(=0 +0 =0 *0 ..0 -0 =1 /1 %1 **1 x1)], 'the operators of a field and of an ADJUST block';
-    is [ map { [ $_->detail->{name}, $_->comparable ] } sites_of( $code, 'sub_body' )->@* ],
+    is [ map { [ $_->facts->{name}, $_->comparable ] } sites_of( $code, 'sub_body' )->@* ],
       [ [ 'ADJUST', 0 ], [ 'bump', 1 ], [ 'plain', 1 ] ], 'the body of an ADJUST block';
     is [ map { [ $_->text, $_->comparable ] } sites_of( $code, 'statement' )->@* ],
       [
@@ -510,12 +510,19 @@ subtest 'suppression comments become line ranges' => sub {
 };
 
 subtest 'files that cannot be analyzed report a problem' => sub {
-    like analyze("my \$x = 1;\r\n")->{problem}, qr/carriage returns/, 'carriage returns';
-    is analyze("my \$x = 1;\r\n")->{sites}, [], 'no sites';
+    is analyze("my \$x = 1;\rmy \$y = 2;\n"),
+      {
+        sites        => [],
+        suppressions => [],
+        dropped      => [],
+        problem      => 'the file has a carriage return without a line feed'
+      },
+      'a carriage return that ends no line';
     is analyze("my \$x = 1;\x0bmy \$y = 2;\n"),
       {
         sites        => [],
         suppressions => [],
+        dropped      => [],
         problem      => q{PPI cannot parse the file: Lexer failed: Encountered unexpected character '11'}
       },
       'a character that PPI rejects, with the reason of PPI';
@@ -525,8 +532,100 @@ subtest 'files that cannot be analyzed report a problem' => sub {
         local *PPI::Document::serialize = sub { return 'other text' };
         analyze("my \$x = 1 + 2;\n");
     };
-    is $unfaithful, { sites => [], suppressions => [], problem => 'PPI does not reproduce the file' },
+    is $unfaithful, { sites => [], suppressions => [], dropped => [], problem => 'PPI does not reproduce the file' },
       'a document that does not serialize to the text it came from';
+};
+
+subtest 'a file with a carriage return before each line feed is analyzed' => sub {
+    my $code     = "my \$a = 1 + 2;\r\nmy \$b = 3 - 4;\r\nf( 1,\r\n  2 );\r\n";
+    my $analysis = analyze($code);
+    is $analysis->{problem}, undef, 'the file is analyzed';
+    is $analysis->{dropped}, [],    'and nothing is left out';
+    is [
+        map  { [ $_->text, $_->start, substr $code, $_->start, $_->end - $_->start ] }
+        grep { $_->role eq 'binary' && $_->text ne q{,} } $analysis->{sites}->@*
+      ],
+      [ [ q{=}, 6, q{=} ], [ q{+}, 10, q{+} ], [ q{=}, 22, q{=} ], [ q{-}, 26, q{-} ] ],
+      'each site addresses its own text in the file with the carriage returns';
+    is [ map { [ $_->text, $_->scope ] } grep { $_->kind eq 'statement' } $analysis->{sites}->@* ],
+      [ [ "f( 1,\r\n  2 );", [ 3, 4 ] ] ], 'a statement over two lines keeps the carriage return inside its text';
+
+    my $string = analyze("my \$s = \"a\r\nb\" . f();\r\nmy \$t = 1 + 2;\r\n");
+    is $string->{dropped}, [ { line => 1, kind => 'span', reason => 'the text at the place differs from the token' } ],
+      'a string over two lines has another text than its token, and the analysis says so';
+    is [ map { $_->text } grep { $_->role eq 'binary' && $_->text ne q{=} } $string->{sites}->@* ], [ q{.}, q{+} ],
+      'the sites around it stay';
+};
+
+subtest 'the analysis lists every place it leaves out' => sub {
+    is analyze("my \$x = 1 + 2;\nmy \$ok = \$x =~ /^ab+c\$/i;\n")->{dropped}, [], 'a file that it reads in full';
+
+    my $unparsed = do {
+        no warnings 'redefine';
+        local *PPIx::Regexp::failures = sub { return 1 };
+        analyze("my \$x = 1;\n\nmy \$ok = \$x =~ /^ab+c\$/ || \$x =~ /d\$/;\nmy \$y = \$x + 2;\n");
+    };
+    is $unparsed->{dropped}, [ ( { line => 3, kind => 'regex', reason => 'the pattern does not parse' } ) x 2 ],
+      'each pattern that PPIx::Regexp fails to parse, with its line';
+    is [ map { $_->text } grep { $_->kind eq 'regex' } $unparsed->{sites}->@* ], [], 'such a pattern has no site';
+    is [ map { $_->text } grep { $_->role eq 'binary' && $_->text eq q{+} } $unparsed->{sites}->@* ], [q{+}],
+      'and the code around it keeps its sites';
+
+    my $mixed = do {
+        no warnings 'redefine';
+        local *PPIx::Regexp::failures = sub { return 1 };
+        analyze("my \$late = \$x =~ /b/;\r\nmy \$ok = \"a\r\nb\" =~ /x/;\r\n");
+    };
+    is $mixed->{dropped},
+      [
+        { line => 1, kind => 'regex', reason => 'the pattern does not parse' },
+        { line => 2, kind => 'span',  reason => 'the text at the place differs from the token' },
+        { line => 3, kind => 'regex', reason => 'the pattern does not parse' },
+      ],
+      'the places stand in the order in which the analysis met them, each token once';
+
+    my $twisted = do {
+        no warnings 'redefine';
+        local *PPIx::Regexp::Token::content = sub { return q{} };
+        analyze("my \$ok = \$x =~ /^ab+c\$/;\n");
+    };
+    is $twisted->{dropped}, [ { line => 1, kind => 'regex', reason => 'the pattern does not parse' } ],
+      'a pattern whose parts do not add up to its text';
+};
+
+subtest 'a signature yields its sites however the file turns signatures on' => sub {
+    my $sites = sub ($code) {
+        return [
+            map  { $_->text }
+            grep { $_->role eq 'binary' && $_->text =~ /\A[-+*]\z/ } analyze($code)->{sites}->@*
+        ];
+    };
+    my $body = "sub f (\$x = 1 + 2, \$y = \$x * 3) { return \$x - \$y }\n";
+    is $sites->("use v5.36;\n$body"), [ q{+}, q{*}, q{-} ], 'a feature bundle that PPI knows';
+    is $sites->("package A;\nuse Mojo::Base -strict, -signatures;\n$body"), [ q{+}, q{*}, q{-} ],
+      'an import that PPI does not know';
+    is $sites->("package A;\nuse My::Preamble;\n$body"), [ q{+}, q{*}, q{-} ], 'a module that turns them on by itself';
+    is $sites->(
+        "sub pair(\$\$) { return \$_[0] + \$_[1] }\nsub top(\\\@) { return \$_[0][0] - 1 }\nsub it(_) { 1 * shift }\n"),
+      [ q{+}, q{-}, q{*} ], 'a prototype holds no site, and the bodies keep theirs';
+    is analyze("package A;\nuse My::Preamble;\n$body")->{dropped}, [], 'nothing is left out';
+};
+
+subtest 'an anonymous subroutine inside a use statement yields its sites' => sub {
+    my $code = "use overload q{+} => sub { \$_[0]{value} + \$_[1] },\n  q{\"\"} => sub { \$_[0]{text} . q{!} };\n";
+    is summary( $code, 'operator' ), [ [ q{+}, 'binary' ], [ q{.}, 'binary' ] ], 'the operators of both bodies';
+    is [ map { $_->scope } sites_of( $code, 'operator' )->@* ], [ [ 1, 1 ], [ 2, 2 ] ],
+      'each with the line of its own statement';
+    is [ map { $_->text } sites_of( $code, 'statement' )->@* ], [ '$_[0]{value} + $_[1]', '$_[0]{text} . q{!}' ],
+      'and the statement of each body';
+    is analyze("use constant LIMIT => 2 * 3;\nuse List::Util 1.45 qw(max);\n")->{sites}, [],
+      'the list of a use statement itself stays as it is';
+    is analyze("use Sizes map { \$_ * 2 } 1 .. 3;\nour \$VERSION = do { 1 + 1 };\n")->{sites}, [],
+      'a block of another kind inside an excluded statement stays out';
+    my $nested = "use constant { PICK => sub { \$_[0] - 1 } };\n";
+    is summary( $nested, 'operator' ), [ [ q{-}, 'binary' ] ], 'a subroutine inside a hash of constants';
+    is summary( "use v5.36;\nuse constant PICK => sub (\$n = 2 * 3) { \$n - 1 };\n", 'operator' ),
+      [ [ q{-}, 'binary' ] ], 'a signature between the word and the body, whose default stays with the statement';
 };
 
 subtest 'a byte order mark before the first line moves no site' => sub {

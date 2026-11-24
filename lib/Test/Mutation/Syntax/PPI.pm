@@ -3,9 +3,10 @@ use v5.36;
 use PPI;
 use PPIx::Regexp;
 use Scalar::Util    qw(refaddr);
-use Types::Standard qw(ArrayRef Dict InstanceOf Int Maybe Str);
+use Types::Standard qw(InstanceOf);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Site;
+use Test::Mutation::Types qw(Analysis);
 
 our $VERSION = '0.001';
 
@@ -50,39 +51,55 @@ my %REGEX_ROLE        = (
 );
 my %ANCHOR = map { $_ => 1 } ( q{^}, q{$}, '\\A', '\\z', '\\Z' );
 
-my $SUPPRESSION = Dict [ first => Int, last => Maybe [Int], names => Maybe [ ArrayRef [Str] ] ];
-
-signature_for analyze => (
-    positional => [ InstanceOf ['Test::Mutation::Source'] ],
-    returns    => Dict [
-        sites        => ArrayRef [ InstanceOf ['Test::Mutation::Site'] ],
-        suppressions => ArrayRef [$SUPPRESSION],
-        problem      => Maybe [Str],
-    ],
-);
+signature_for analyze => ( positional => [ InstanceOf ['Test::Mutation::Source'] ], returns => Analysis );
 
 sub analyze ($source) {
     my $text = $source->text;
-    return _problem('the file has carriage returns') if $text =~ /\r/;
 
     # Perl skips a byte order mark and PPI rejects it, so the parser reads the text after the mark.
-    my $mark     = $text =~ /\A\x{feff}/ ? 1 : 0;
-    my $copy     = substr $text, $mark;
-    my $document = PPI::Document->new( \$copy );
+    my $mark = $text =~ /\A\x{feff}/ ? 1 : 0;
+
+    # PPI ends a line at its line feed, and a line keeps its columns without the carriage return before the feed.
+    my $copy = substr( $text, $mark ) =~ s/\r\n/\n/gr;
+    return _problem('the file has a carriage return without a line feed') if $copy =~ /\r/;
+    my $document = _document($copy);
     if ( !$document ) {
         my $reason = PPI::Document->errstr;
         return _problem( 'PPI cannot parse the file: ' . ( defined $reason ? $reason : 'unknown error' ) );
     }
-    return _problem('PPI does not reproduce the file') if $document->serialize ne substr $text, $mark;
+    return _problem('PPI does not reproduce the file') if $document->serialize ne $copy;
 
-    my $context = { source => $source, text => $text, mark => $mark, scopes => {}, sites => [] };
+    my $context = { source => $source, text => $text, mark => $mark, scopes => {}, sites => [], dropped => [] };
     _visit( $context, $document, 0 );
     my @sites = sort { $a->start <=> $b->start || $a->end <=> $b->end } $context->{sites}->@*;
-    return { sites => \@sites, suppressions => _suppressions($document), problem => undef };
+    return {
+        sites        => \@sites,
+        suppressions => _suppressions($document),
+        dropped      => $context->{dropped},
+        problem      => undef
+    };
 }
 
 sub _problem ($message) {
-    return { sites => [], suppressions => [], problem => $message };
+    return { sites => [], suppressions => [], dropped => [], problem => $message };
+}
+
+# PPI learns from a few pragmas that a file uses signatures, and it reads the signature of another file as a prototype.
+# A prototype holds no letter, so a letter there means a signature, and PPI reads the file again with signatures on.
+sub _document ($copy) {
+    my $document = PPI::Document->new( \$copy ) or return;
+    my $letters  = grep { $_->content =~ /[[:alpha:]]/ } @{ $document->find('PPI::Token::Prototype') || [] };
+    return $letters ? PPI::Document->new( \$copy, feature_mods => { signatures => 1 } ) : $document;
+}
+
+# A place that yields no site is a place without mutants, so each one is kept for the report of the run.
+# The analysis may ask for the place of one token more than once, and the token counts once, where it first came up.
+sub _drop ( $context, $token, $kind, $reason ) {
+    return if $context->{is_dropped}{ refaddr $token };
+    $context->{is_dropped}{ refaddr $token } = 1;
+    my $location = $token->location;
+    push $context->{dropped}->@*, { line => $location ? $location->[0] : 0, kind => $kind, reason => $reason };
+    return;
 }
 
 sub _visit ( $context, $element, $excluded ) {
@@ -95,9 +112,23 @@ sub _visit ( $context, $element, $excluded ) {
     _structure_sites( $context, $element ) if !$skip;
 
     # The name and the version of a package hold no behavior, and its block holds ordinary code.
+    # The body of an anonymous subroutine runs later, whatever statement holds it, such as a use of overload.
     my $package = $element->isa('PPI::Statement::Package');
-    _visit( $context, $_, $skip || ( $package && !$_->isa('PPI::Structure::Block') ) ) for $element->children;
+    for my $child ( $element->children ) {
+        my $apart = $skip || ( $package && !$child->isa('PPI::Structure::Block') );
+        _visit( $context, $child, _is_anonymous_body($child) ? 0 : $apart );
+    }
     return;
+}
+
+sub _is_anonymous_body ($element) {
+    return 0 if !$element->isa('PPI::Structure::Block');
+    my $before = $element->sprevious_sibling;
+    $before = $before->sprevious_sibling while $before && grep { $before->isa($_) } @BEFORE_A_SUB_BODY;
+    return 0 if !_is_word( $before, { sub => 1 } );
+
+    # A named subroutine is a statement of its own, and its name stands between the word and the block.
+    return $element->parent->isa('PPI::Statement::Sub') ? 0 : 1;
 }
 
 sub _visit_segments ( $context, $statement, $excluded ) {
@@ -206,8 +237,9 @@ sub _offset ( $context, $token ) {
     my $offset   = $context->{source}->offset_of( $location->[0], $location->[1] );
     $offset += $context->{mark} if $location->[0] == 1;
     my $content = $token->content;
-    return if substr( $context->{text}, $offset, length $content ) ne $content;
-    return $offset;
+    return $offset if substr( $context->{text}, $offset, length $content ) eq $content;
+    _drop( $context, $token, 'span', 'the text at the place differs from the token' );
+    return;
 }
 
 sub _span ( $context, $first, $last ) {
@@ -228,10 +260,10 @@ sub _regex_sites ( $context, $token ) {
     my ( $start, $end ) = _span( $context, $token, $token ) or return;
     my $scope   = _scope( $context, $token ) or return;
     my $content = $token->content;
-    my $regex   = PPIx::Regexp->new($content) or return;
-    return if $regex->failures;
-    my @parts = $regex->tokens;
-    return if join( q{}, map { $_->content } @parts ) ne $content;
+    my $regex   = PPIx::Regexp->new($content);
+    my @parts   = $regex && !$regex->failures ? $regex->tokens : ();
+    return _drop( $context, $token, 'regex', 'the pattern does not parse' )
+      if join( q{}, map { $_->content } @parts ) ne $content;
 
     my $offset = $start;
     for my $part (@parts) {
@@ -263,19 +295,19 @@ sub _token_site ( $context, $token ) {
 
     my ( $start, $end ) = _span( $context, $token, $token ) or return;
     my $scope = _scope( $context, $token ) or return;
-    my ( $role, $detail ) =
+    my ( $role, $facts ) =
         $kind eq 'operator' ? _operator_role($token)
       : $kind eq 'word'     ? ( _word_role( $context, $token ), {} )
       :                       ( q{}, {} );
     return if $kind eq 'word' && $role eq q{};
     _add(
         $context,
-        kind   => $kind,
-        start  => $start,
-        end    => $end,
-        role   => $role,
-        scope  => $scope,
-        detail => $detail,
+        kind  => $kind,
+        start => $start,
+        end   => $end,
+        role  => $role,
+        scope => $scope,
+        facts => $facts,
     );
     return;
 }
@@ -425,11 +457,11 @@ sub _condition_site ( $context, $condition ) {
     my $keyword = $condition->sprevious_sibling;
     _add(
         $context,
-        kind   => 'condition',
-        start  => $start,
-        end    => $end,
-        scope  => $scope,
-        detail => { keyword => $keyword ? $keyword->content : q{} },
+        kind  => 'condition',
+        start => $start,
+        end   => $end,
+        scope => $scope,
+        facts => { keyword => $keyword ? $keyword->content : q{} },
     );
     return;
 }
@@ -448,11 +480,11 @@ sub _add_body ( $context, $block, $name, $head ) {
     my $last  = $block->finish->location or return;
     _add(
         $context,
-        kind   => 'sub_body',
-        start  => $start,
-        end    => $end,
-        scope  => [ $first->[0], $last->[0] ],
-        detail => { name => $name },
+        kind  => 'sub_body',
+        start => $start,
+        end   => $end,
+        scope => [ $first->[0], $last->[0] ],
+        facts => { name => $name },
     );
     return;
 }
@@ -472,11 +504,11 @@ sub _return_site ( $context, $scope, $keyword, @rest ) {
       @expression == 1 && $expression[0]->isa('PPI::Token::Number') ? $expression[0]->content : undef;
     _add(
         $context,
-        kind   => 'return',
-        start  => $start,
-        end    => $end,
-        scope  => $scope,
-        detail => { defined $literal ? ( literal => $literal ) : () },
+        kind  => 'return',
+        start => $start,
+        end   => $end,
+        scope => $scope,
+        facts => { defined $literal ? ( literal => $literal ) : () },
     );
     return;
 }
@@ -500,11 +532,11 @@ sub _statement_site ( $context, $segment ) {
     my $scope = _segment_scope($segment) or return;
     _add(
         $context,
-        kind   => 'statement',
-        start  => $start,
-        end    => $end,
-        scope  => $scope,
-        detail => { head => $children[0]->isa('PPI::Token::Word') ? $children[0]->content : q{} },
+        kind  => 'statement',
+        start => $start,
+        end   => $end,
+        scope => $scope,
+        facts => { head => $children[0]->isa('PPI::Token::Word') ? $children[0]->content : q{} },
     );
     return;
 }
@@ -574,9 +606,15 @@ Test::Mutation::Syntax::PPI - find mutation sites with PPI
 =head1 DESCRIPTION
 
 The module parses a source with PPI and reports the places a mutator can change.
-It verifies that every reported span holds the text PPI attributes to it, and it drops a span that fails the check.
+It verifies that every reported span holds the text PPI attributes to it.
+A span that fails the check and a pattern that L<PPIx::Regexp> fails to parse yield no site, and the result lists each of them.
 C<use> and C<no> statements, the name and the version of a C<package>, C<$VERSION> assignments, and text after C<__END__> produce no sites.
-The block of a C<package> holds sites like any other code.
+The block of a C<package> holds sites like any other code, and so does the body of an anonymous subroutine inside a C<use> statement.
+
+PPI learns from C<use v5.36> and a few other pragmas that a file uses signatures.
+In another file it reads a signature as a prototype, and the module then reads the file again with signatures on.
+A file with a carriage return before each line feed is analyzed, and its sites address the text with the carriage returns.
+There a token that spans two lines has another text than the file, so it is among the places left out.
 
 PPI joins the code after a method, a C<defer> block, or a C<finally> block to the block.
 The module splits such a statement at the closing brace, so each part has its own scope and its own sites.
@@ -591,9 +629,10 @@ The braces around a file handle hold no statement.
 
 =head2 analyze
 
-Returns a hash reference with three keys.
+Returns a hash reference in the shape of L<Test::Mutation::Types/Analysis>.
 C<sites> holds L<Test::Mutation::Site> objects in source order.
 C<suppressions> holds the line ranges that C<## no mutate> comments cover.
+C<dropped> holds the places that yield no site, each with its line, its kind, and the reason.
 C<problem> names the reason when the file cannot be analyzed.
 
 =cut

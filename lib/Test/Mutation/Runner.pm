@@ -36,6 +36,7 @@ my $ANALYSIS = Dict [
     sources   => HashRef [ InstanceOf ['Test::Mutation::Source'] ],
     mutants   => ArrayRef [ InstanceOf ['Test::Mutation::Mutant'] ],
     problems  => ArrayRef [ Dict [ path => Str, problem => Str ] ],
+    left_out  => HashRef [Int],
     inventory => Dict [ mutants => Int, digest => Str ],
 ];
 
@@ -53,7 +54,7 @@ sub _analysis ( $config, $project, $root ) {
         enable  => $config->enable,
         disable => $config->disable,
     );
-    my ( %sources, @mutants, @problems );
+    my ( %sources, %left_out, @mutants, @problems );
     my %only    = map { $_ => 1 } $config->only->@*;
     my $changed = defined $config->since ? Test::Mutation::Git::changed( $project, $config->since ) : undef;
     my $perl    = _perl_version( $config->perl );
@@ -65,7 +66,8 @@ sub _analysis ( $config, $project, $root ) {
             push @problems, { path => $path, problem => $analysis->{problem} };
             next;
         }
-        $sources{$path} = $source;
+        $sources{$path}  = $source;
+        $left_out{$path} = scalar $analysis->{dropped}->@* if $analysis->{dropped}->@*;
         my $generated = Test::Mutation::Mutant::Generator::generate(
             source   => $source,
             analysis => $analysis,
@@ -81,7 +83,13 @@ sub _analysis ( $config, $project, $root ) {
         my ( $part, $parts ) = split m{/}, $config->shard;
         @mutants = @mutants[ grep { $_ % $parts == $part - 1 } 0 .. $#mutants ];
     }
-    return { sources => \%sources, mutants => \@mutants, problems => \@problems, inventory => $inventory };
+    return {
+        sources   => \%sources,
+        mutants   => \@mutants,
+        problems  => \@problems,
+        left_out  => \%left_out,
+        inventory => $inventory
+    };
 }
 
 # The version of the interpreter that runs the tests, which may be another one than this interpreter.
@@ -204,6 +212,14 @@ sub _measure ( $run, $started ) {
     my @active   = grep { !$_->suppressed } $analysis->{mutants}->@*;
     my %targets  = map  { $_->path => 1 } @active;
     $run->{sources} = $analysis->{sources};
+
+    for my $path ( sort keys $analysis->{left_out}->%* ) {
+        my $count = $analysis->{left_out}{$path};
+        _warn( $run,
+                "$path: the analysis left out $count "
+              . ( $count == 1 ? 'place, which has' : 'places, which have' )
+              . ' no mutant' );
+    }
     $listener->( 'analyzed',
         { mutants => scalar(@active), files => scalar( keys %targets ), tests => scalar(@tests) } );
 
@@ -918,6 +934,7 @@ After every mutant, the runner restores a copy that the tests changed.
 =head2 analyze
 
 Returns the sources, the mutants, and the files that could not be analyzed, without running a test.
+The C<left_out> key maps a file to the number of its places that the analysis left out, and a run warns about each such file.
 The C<inventory> key holds the count and the digest of the mutants before C<shard> takes its part.
 
 =head2 run

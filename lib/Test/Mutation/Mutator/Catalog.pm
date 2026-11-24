@@ -155,11 +155,11 @@ sub _operator_mutator ($family) {
             return if $site->kind ne 'operator' || $site->role ne $role;
             my $text         = $site->text;
             my $replacements = $table->{$text} or return;
-            my $operand      = $site->detail->{right};
+            my $operand      = $site->facts->{right};
             return if defined $operand && defined $idle->{$text} && $operand == $idle->{$text};
 
             # A settled comparison gives the same result on both sides of its boundary.
-            my $settled = $site->detail->{settled} ? $boundary->{$text} : q{};
+            my $settled = $site->facts->{settled} ? $boundary->{$text} : q{};
             return map { { replacement => $_, description => "replaced $text with $_" } }
               grep { $_ ne $settled } $replacements->@*;
         },
@@ -194,7 +194,7 @@ sub _match ($site) {
     return if $site->kind ne 'operator' || $site->role ne 'binary';
     my $text = $site->text;
     return if $text ne '=~' && $text ne '!~';
-    my $operand = $site->detail->{operand};
+    my $operand = $site->facts->{operand};
     return if !defined $operand || $operand ne 'match';
     my $replacement = $text eq '=~' ? '!~' : '=~';
     return { replacement => $replacement, description => "replaced $text with $replacement" };
@@ -202,7 +202,7 @@ sub _match ($site) {
 
 sub _return_value ($site) {
     return if $site->kind ne 'return';
-    my $literal = $site->detail->{literal};
+    my $literal = $site->facts->{literal};
     return { replacement => '0', description => 'replaced return 1 with return 0' }
       if defined $literal && $literal eq '1';
     return { replacement => '1', description => 'replaced return 0 with return 1' }
@@ -214,7 +214,7 @@ sub _return_value ($site) {
 my %CLOSES = map { $_ => 1 } qw(close closedir CORE::close CORE::closedir);
 
 sub _closes ($site) {
-    my $head = $site->detail->{head};
+    my $head = $site->facts->{head};
     return defined $head && $CLOSES{$head} ? 1 : 0;
 }
 
@@ -230,7 +230,7 @@ sub _close_removal ($site) {
 
 sub _sub_body ($site) {
     return if $site->kind ne 'sub_body';
-    my $name = $site->detail->{name};
+    my $name = $site->facts->{name};
     return { replacement => _blank( $site->text ), description => "removed the body of $name" };
 }
 
@@ -255,7 +255,7 @@ sub _string_literal ($site) {
 
 sub _condition_fixed ($site) {
     return if $site->kind ne 'condition';
-    my $keyword = $site->detail->{keyword};
+    my $keyword = $site->facts->{keyword};
     my @values  = $keyword eq 'while' ? ('0') : $keyword eq 'until' ? ('1') : ( '1', '0' );
     return map { { replacement => $_, description => "replaced the $keyword condition with $_" } } @values;
 }

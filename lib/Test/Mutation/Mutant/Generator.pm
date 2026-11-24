@@ -2,17 +2,18 @@ package Test::Mutation::Mutant::Generator;
 use v5.36;
 use Digest::SHA     ();
 use Encode          ();
-use Types::Standard qw(ArrayRef HashRef InstanceOf Maybe Num);
+use Types::Standard qw(ArrayRef InstanceOf Maybe Num);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Mutant;
 use Test::Mutation::Site;
+use Test::Mutation::Types qw(Analysis);
 
 our $VERSION = '0.001';
 
 signature_for generate => (
     named => [
         source   => InstanceOf ['Test::Mutation::Source'],
-        analysis => HashRef,
+        analysis => Analysis,
         mutators => ArrayRef [ InstanceOf ['Test::Mutation::Mutator'] ],
         perl     => Maybe [Num],
         { default => undef },
@@ -56,10 +57,10 @@ sub generate ($arg) {
 # The version of Perl equals a literal on one interpreter alone.
 # On every other interpreter the comparison gives one result on both sides of its boundary.
 sub _settle ( $site, $perl ) {
-    my $literal = $site->detail->{version};
+    my $literal = $site->facts->{version};
     return $site if !defined $literal || !defined $perl || $literal == $perl;
     return Test::Mutation::Site->new( ( map { $_ => $site->$_ } qw(kind text start end role scope comparable) ),
-        detail => { $site->detail->%*, settled => 1 }, );
+        facts => { $site->facts->%*, settled => 1 }, );
 }
 
 sub _id ( $path, $site, $name, $replacement ) {

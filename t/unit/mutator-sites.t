@@ -32,14 +32,14 @@ my @accepted = (
     [ 'regex-anchor',        { kind => 'regex',    role => 'anchor',     text => q{^} },    [q{}] ],
     [ 'regex-quantifier',    { kind => 'regex',    role => 'quantifier', text => q{+} },    [q{*}] ],
     [ 'regex-flag',          { kind => 'regex',    role => 'flag',       text => 'i' },     [q{}] ],
-    [ 'number-literal',    { kind => 'number', text => '41' },                                          ['42'] ],
-    [ 'string-literal',    { kind => 'string', text => q{'abc'} },                                      [q{''}] ],
-    [ 'statement-removal', { kind => 'statement', text => 'f();', detail => { head => 'f' } },          [q{}] ],
-    [ 'close-removal',     { kind => 'statement', text => 'close $h;', detail => { head => 'close' } }, [q{}] ],
-    [ 'return-value',      { kind => 'return', text => '$x' },                                          [q{}] ],
-    [ 'sub-body',          { kind => 'sub_body', text => ' f() ', detail => { name => 'g' } },          [q{}] ],
-    [ 'condition-fixed',   { kind => 'condition', text => '$x', detail => { keyword => 'if' } },        [ '1', '0' ] ],
-    [ 'match', { kind => 'operator', role => 'binary', text => q{=~}, detail => { operand => 'match' } }, [q{!~}] ],
+    [ 'number-literal',      { kind => 'number', text => '41' },                                         ['42'] ],
+    [ 'string-literal',      { kind => 'string', text => q{'abc'} },                                     [q{''}] ],
+    [ 'statement-removal',   { kind => 'statement', text => 'f();', facts => { head => 'f' } },          [q{}] ],
+    [ 'close-removal',       { kind => 'statement', text => 'close $h;', facts => { head => 'close' } }, [q{}] ],
+    [ 'return-value',        { kind => 'return', text => '$x' },                                         [q{}] ],
+    [ 'sub-body',            { kind => 'sub_body', text => ' f() ', facts => { name => 'g' } },          [q{}] ],
+    [ 'condition-fixed',     { kind => 'condition', text => '$x', facts => { keyword => 'if' } },        [ '1', '0' ] ],
+    [ 'match', { kind => 'operator', role => 'binary', text => q{=~}, facts => { operand => 'match' } }, [q{!~}] ],
 );
 
 my %covered;
@@ -57,7 +57,7 @@ for my $case (@accepted) {
 }
 is [ sort keys %covered ], [ sort keys %mutator ], 'every mutator of the catalog has a case';
 
-is replacements( 'match', kind => 'operator', role => 'binary', text => q{=~}, detail => { operand => 'substitute' } ),
+is replacements( 'match', kind => 'operator', role => 'binary', text => q{=~}, facts => { operand => 'substitute' } ),
   [],
   'match leaves a substitution alone';
 is replacements( 'match', kind => 'operator', role => 'binary', text => q{=~} ), [],

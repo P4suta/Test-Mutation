@@ -30,7 +30,7 @@ PERL
 };
 
 subtest 'the gate rejects a type without a shape' => sub {
-    is TypeContractGate::loose_types("has detail => ( is => 'ro', isa => HashRef, default => sub { {} } );\n"),
+    is TypeContractGate::loose_types("has facts => ( is => 'ro', isa => HashRef, default => sub { {} } );\n"),
       ['1 bare HashRef'], 'a hash that names no type for its values';
     is TypeContractGate::loose_types(
         "signature_for f => ( positional => [ ArrayRef, HashRef [Str] ], returns => ArrayRef );\n"),
