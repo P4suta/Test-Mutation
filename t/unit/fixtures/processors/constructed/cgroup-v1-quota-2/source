@@ -1,0 +1,6 @@
+No machine at hand mounted a cgroup version 1 hierarchy, so these texts follow two documents.
+https://docs.kernel.org/scheduler/sched-bwc.html names cpu.cfs_quota_us and cpu.cfs_period_us, both in microseconds.
+It gives 100ms as the default period and -1 as the quota of a group without a limit.
+https://man7.org/linux/man-pages/man7/cgroups.7.html gives the line of the file cgroup as an example of /proc/[pid]/cgroup.
+The decimal form and the final newline of the two numbers are an assumption.
+The numbers stand for a limit of two processors.

@@ -1,0 +1,15 @@
+The directories under recorded/ hold texts that one container wrote each, on 2026-11-24.
+The engine was Docker 29.8.2 on linux/arm64 with cgroup version 2, and its kernel mounted no version 1 hierarchy.
+The image was perl@sha256:4a7dcd778e99d7766a245107a5ebbd2d55ac8355560deea633f1ee52768440ac.
+The file command of a directory names the switches of its container.
+
+cpu.max is /sys/fs/cgroup/cpu.max.
+cpuset.cpus.effective is /sys/fs/cgroup/cpuset.cpus.effective.
+cgroup is /proc/self/cgroup.
+status holds the two lines about the allowed processors from /proc/self/status of the cp command that copied it.
+nproc is the output of nproc, and online is the output of getconf _NPROCESSORS_ONLN.
+cpuinfo holds the processor lines of /proc/cpuinfo, which had the same text in every container.
+The other lines of both files described the machine and no test read them.
+
+The directories under constructed/ hold texts that nobody recorded.
+The file source of such a directory names the documents that its texts follow.

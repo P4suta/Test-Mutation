@@ -2,7 +2,7 @@ package Capability;
 use v5.36;
 use Test2::API qw(context);
 
-my %KNOWN = map { $_ => 1 } qw(git class second-perl processor-count unprivileged);
+my %KNOWN = map { $_ => 1 } qw(git class second-perl processor-count unprivileged toolchain);
 
 sub decision ( $name, $present, $required ) {
     die "no capability is named $name\n" if !$KNOWN{$name};

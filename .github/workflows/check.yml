@@ -29,7 +29,7 @@ jobs:
       # A test that would skip itself for want of one of these fails here, so no test goes missing unnoticed.
       - run: mise run check
         env:
-          TEST_MUTATION_REQUIRE: git,class,second-perl,processor-count,unprivileged
+          TEST_MUTATION_REQUIRE: git,class,second-perl,processor-count,unprivileged,toolchain
 
   driver:
     name: driver on Perl ${{ matrix.perl }}
@@ -41,9 +41,9 @@ jobs:
         include:
           # The class syntax arrived with Perl 5.38.
           - perl: "5.36"
-            require: git,second-perl,processor-count,unprivileged
+            require: git,second-perl,processor-count,unprivileged,toolchain
           - perl: "5.40"
-            require: git,class,second-perl,processor-count,unprivileged
+            require: git,class,second-perl,processor-count,unprivileged,toolchain
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -83,4 +83,7 @@ jobs:
           perl-version: ${{ matrix.perl }}
           # The shim tests use subtests, which the Test::More bundled with Perl 5.10 lacks.
           install-modules: Test::More
+      # The experiment with a moved build needs make and a compiler, and it fails here where they are missing.
       - run: prove -l t/shim
+        env:
+          TEST_MUTATION_REQUIRE: toolchain

@@ -29,6 +29,13 @@ subtest 'a requirement must be a known capability' => sub {
     like dies { Capability::decision( 'gti', 1, q{} ) }, qr/\Ano capability is named gti/, 'a misspelt need is refused';
 };
 
+subtest 'the helper of the shim tests names known capabilities alone' => sub {
+    require './t/shim/lib/ShimHarness.pm';    ## no critic (Modules::RequireBarewordIncludes)
+    my @named = ShimHarness::capabilities();
+    ok scalar @named, 'the helper names a capability';
+    is Capability::decision( $_, 1, $_ ), 'run', "$_ is a capability that a job may require" for @named;
+};
+
 subtest 'one case of a test runs where the capability is present' => sub {
     local $ENV{TEST_MUTATION_REQUIRE} = 'class';
     my $ran = 0;

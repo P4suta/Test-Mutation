@@ -2,6 +2,9 @@ gates	xt/corpus/installed.t has no rejecting subtest	the corpus oracles of the m
 gates	xt/corpus/installed.t states no count	the corpus oracles of the mutant quality harness replace this gate
 gates	xt/release/self-mutation.t has no rejecting subtest	the release gate for the run of the tool on itself
 gates	xt/release/self-mutation.t states no count	the release gate for the run of the tool on itself
+pool	the loop of the pool turns without a wait while a running test is silent	the pool loop that waits on a pipe of its own
+processors	the processor count ignores the affinity of the process	the processor count that reads the affinity and the quota
+processors	the processor count ignores the quota of a container	the processor count that reads the affinity and the quota
 type-contracts	lib/Test/Mutation.pm uses 3 bare HashRef	the settings table gives every setting of a call its type
 type-contracts	lib/Test/Mutation/Config.pm uses 4 bare HashRef	the settings table gives every layer of settings its type
 type-contracts	lib/Test/Mutation/Pool.pm uses 1 Any	the pool loop with a typed payload
