@@ -86,6 +86,23 @@ subtest 'the oracle rejects a failing end as the parser of a process does' => su
     }
 };
 
+# prove reads a process, and after a version line of 13 or 14 it decodes each line from UTF-8 before the grammar reads it.
+my @encoded = Discovery::Streams::encoded();
+subtest 'the oracle of a process rejects a stream that prove fails on a process' => sub {
+    my %passes = map { $_->{label} => Discovery::Reader::process_oracle( $_->{text} ) } @encoded;
+    my @decoded =
+      map { ( "version=$_ bytes=letter-after-ok", "version=$_ bytes=digit-after-ok" ) } qw(thirteen fourteen);
+    my @spaces = map { "version=$_ bytes=space-before-bail" } qw(thirteen fourteen);
+    is [ sort grep { !$passes{$_} } keys %passes ], [ sort @decoded, @spaces, 'bytes=space-after-count' ],
+      'a letter after ok, a digit beyond ASCII, and a space beyond ASCII before a bail out fail after a version line';
+    my @texts = map { ( "version=$_ bytes=space-after-count", "version=$_ bytes=yaml-key" ) } qw(thirteen fourteen);
+    is [
+        sort map { $_->{label} }
+        grep     { $passes{ $_->{label} } != Discovery::Reader::oracle( $_->{text}, 0, 0 ) } @encoded
+      ],
+      [ sort @decoded, @spaces, @texts ], 'the parser of a text reads the bytes of the same streams';
+};
+
 # The pool of the tool feeds the reader, and the adapter repeats what the pool does.
 # One unmodified run over the streams as test files shows that the adapter and the pool agree.
 subtest 'the adapter of the reader stands for the pool of the tool' => sub {
@@ -117,8 +134,11 @@ subtest 'the adapter of the reader stands for the pool of the tool' => sub {
 
 # The fast tier reads every stream with up to two choices, and the full tier adds the streams with three.
 my @triples = Discovery::Tier::full() ? Discovery::Streams::with_choices(3) : ();
-my %found   = ( fast => [ Discovery::Check::findings( \@checks, reader => $reader, cases => [ @single, @pairs ] ) ] );
-push $found{full}->@*, Discovery::Check::findings( \@checks, reader => $reader, cases => [ @single, @pairs, @triples ] )
+my @process = Discovery::Check::findings( ['tap-process'], reader => $reader, cases => \@encoded );
+my %found =
+  ( fast => [ @process, Discovery::Check::findings( \@checks, reader => $reader, cases => [ @single, @pairs ] ) ] );
+push $found{full}->@*, @process,
+  Discovery::Check::findings( \@checks, reader => $reader, cases => [ @single, @pairs, @triples ] )
   if @triples;
 Discovery::Tier::report( 'tap', \%found );
 
@@ -133,5 +153,6 @@ Gate::checked( 'axis values',                   scalar @all,     at_least => 69 
 Gate::checked( 'streams with up to one choice', scalar @single,  at_least => 70 );
 Gate::checked( 'streams with two choices',      scalar @pairs,   at_least => 2083 );
 Gate::checked( 'streams with three choices',    scalar @triples, at_least => Discovery::Tier::full() ? 36_417 : 0 );
+Gate::checked( 'streams through a process',     scalar @encoded, at_least => 30 );
 
 done_testing;

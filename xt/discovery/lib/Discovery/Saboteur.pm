@@ -221,6 +221,11 @@ my %SABOTEUR = (
             return $reader->with( rewrite => sub ($piece) { return $piece =~ s/(?<!\n)\z/\n/r } );
         },
     },
+    'tap-process' => {
+        'a reader that takes each byte above ASCII for a letter' => sub ($reader) {
+            return $reader->with( rewrite => sub ($piece) { return $piece =~ s/[\x80-\xFF]/x/gr } );
+        },
+    },
 
     # The saboteur of a relation loses a kill in the runs on one side of the relation alone.
     'jobs'     => { 'a kill that more jobs lose' => _loses_when( sub ($settings) { $settings->{jobs} > 1 } ) },

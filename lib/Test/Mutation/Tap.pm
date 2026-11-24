@@ -1,12 +1,16 @@
 package Test::Mutation::Tap;
 use v5.36;
-use Types::Standard qw(ArrayRef Bool Dict Enum HashRef Int Maybe Num Str);
+use Encode          ();
+use Types::Standard qw(ArrayRef Bool Dict Enum HashRef Int Maybe Num Str StrMatch);
 use Type::Params    qw(signature_for);
 
 our $VERSION = '0.001';
 
 # The phases of a stream, after the states of TAP::Parser: what the lines so far allow the next line to be.
 my @PHASES = qw(start versioned planned unplanned closed failed);
+
+# A pipe delivers bytes, and the reader decodes them where prove does.
+my $BYTES = StrMatch [qr/\A[\x00-\xFF]*\z/];
 
 my $STATE = Dict [
     grammar     => Enum [ 12, 13 ],
@@ -19,29 +23,38 @@ my $STATE = Dict [
     bailed      => Bool,
     blank       => Bool,
     block       => Maybe [ Dict [ width => Int, lines => ArrayRef [Str] ] ],
-    rest        => Str,
+    rest        => $BYTES,
 ];
 
-# TAP::Parser::Grammar matches bytes, and this file would match Unicode, so each pattern keeps to ASCII.
+# Each pattern stands as a text, and each grammar compiles it under the rules of the characters it reads.
 # A directive stands behind the first hash that no backslash escapes, and TODO alone changes a verdict.
-my $RESULT  = qr/\A(not[ ])?ok\b\s*([0-9]+)?\s*/aa;
-my $TODO    = qr{ [^\\\#]* (?: \\. [^\\\#]* )* [#] \s* (?i: TODO ) \b }xaa;
-my $TEST    = qr/$RESULT($TODO)?/aa;
-my $COMMENT = qr/\A[#]/;
+my $RESULT  = q{\A(not[ ])?ok\b\s*(\d+)?\s*};
+my $TODO    = q{[^\x5C#]*(?:\x5C.[^\x5C#]*)*[#]\s*(?i:TODO)\b};
+my $TEST    = "$RESULT($TODO)?";
+my $COMMENT = q{\A[#]};
 
 # Version 12 takes any text after a plan of no tests, and a list of unfinished tests after another plan.
 # Each of the three forms gives the count and the list, and the first form that matches is the plan.
-my $NO_TESTS     = qr/(0+)(?![0-9])().*/aa;
-my $WITH_A_LIST  = qr/([0-9]+)\s*todo((?:\s+[0-9]+)+).*/aa;
-my $COUNT_ALONE  = qr/([0-9]+)()\s*/aa;
-my $PLAN_12      = qr{ \A 1[.][.] (?| $NO_TESTS | $WITH_A_LIST | $COUNT_ALONE ) \z }xaa;
-my $PLAN_13      = qr{ \A 1[.][.] ([0-9]+) () \s* (?: [#] \s* SKIP \b .* )? \z }xaai;
-my $VERSION_LINE = qr/\ATAP\s+version\s+([0-9]+)\s*\z/aai;
-my $BAIL_OUT     = qr/\A\s*Bail[ ]out!/aa;
-my $BLOCK_START  = qr/\A(\s+)(---.*)\z/aa;
-my $BLOCK_END    = qr/\A[.]{3}\s*\z/aa;
-my $PRAGMA       = qr{ \A pragma \s+ ( [-+]\w+ \s* (?: , \s* [-+]\w+ \s* )* ) \z }xaa;
-my $ANY_LINE     = qr/\A/;
+my $NO_TESTS     = q{(0+)(?!\d)().*};
+my $WITH_A_LIST  = q{(\d+)\s*todo((?:\s+\d+)+).*};
+my $COUNT_ALONE  = q{(\d+)()\s*};
+my $PLAN_12      = q{\A1[.][.](?|} . join( q{|}, $NO_TESTS, $WITH_A_LIST, $COUNT_ALONE ) . q{)\z};
+my $PLAN_13      = q{\A1[.][.](\d+)()\s*(?:[#]\s*(?i:SKIP)\b.*)?\z};
+my $VERSION_LINE = q{\A(?i:TAP\s+version)\s+(\d+)\s*\z};
+my $BAIL_OUT     = q{\A\s*Bail[ ]out!};
+my $BLOCK_START  = q{\A(\s+)(---.*)\z};
+my $PRAGMA       = q{\Apragma\s+([-+]\w+\s*(?:,\s*[-+]\w+\s*)*)\z};
+my $ANY_LINE     = q{\A};
+
+# TAP::Parser::Grammar reads the bytes of version 12, where only ASCII is a space, a digit, or a letter.
+# After a version line of 13 or 14 the iterator of a process in prove decodes each line from UTF-8, and Unicode decides.
+my %READS = (
+    12 => { decode => sub ($line) { return $line }, compile => sub ($source) { return qr/$source/aa } },
+    13 => { decode => \&Encode::decode_utf8,        compile => sub ($source) { return qr/$source/u } },
+);
+
+# A YAML block and a pragma exist under versions 13 and 14 alone, so they read decoded text.
+my $BLOCK_END = qr/\A[.]{3}\s*\z/u;
 
 # The grammars that a version line may name, and the pragmas that change a verdict.
 my %GRAMMAR = ( 13 => 13, 14 => 13 );
@@ -55,7 +68,9 @@ my $PAST_THE_BLOCK = [];
 my $NOTHING = sub (@) { return };
 
 # TAP::Parser fails a test beyond a leading plan, a number other than the count, and a failure that nothing excuses.
+# It takes the value of a number as Perl does, so a digit beyond ASCII counts as nothing.
 sub _test ( $work, $not, $number, $todo ) {
+    no warnings 'numeric';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
     my $count  = ++$work->{seen};
     my $listed = defined $number          && delete $work->{todo}{ 0 + $number };
     my $beyond = defined $work->{planned} && $count > $work->{planned};
@@ -66,6 +81,7 @@ sub _test ( $work, $not, $number, $todo ) {
 }
 
 sub _plan ( $work, $count, $list ) {
+    no warnings 'numeric';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
     my %todo = map { $_ => 1 } split q{ }, $list;
     $work->{planned} = 0 + $count;
     $work->{todo}    = \%todo;
@@ -93,7 +109,7 @@ sub _open_block ( $work, $pad, $marker ) {
 }
 
 sub _pragma ( $work, $list ) {
-    for my $switch ( $list =~ /([-+]\w+)/gaa ) {
+    for my $switch ( $list =~ /([-+]\w+)/gu ) {
         my $name = substr $switch, 1;
         $work->{$name} = $switch =~ /\A[+]/ ? 1 : 0 if $SWITCH{$name};
     }
@@ -127,7 +143,8 @@ for my $kind (@KINDS) {
     my %follows;
     @follows{@PHASES} = $after->@*;
     for my $grammar ( grep { $pattern{$_} } sort keys %pattern ) {
-        push $ROWS{$grammar}->@*, { pattern => $pattern{$grammar}, follows => \%follows, act => $act };
+        my $compiled = $READS{$grammar}{compile}->( $pattern{$grammar} );
+        push $ROWS{$grammar}->@*, { pattern => $compiled, follows => \%follows, act => $act };
     }
 }
 
@@ -144,7 +161,7 @@ sub _is_document (@lines) {
 sub _continue_block ( $work, $line ) {
     my $block = $work->{block};
     $work->{block} = undef;
-    my ($pad) = $line =~ /\A(\s*)/aa;
+    my ($pad) = $line =~ /\A(\s*)/u;
     if ( length $pad < $block->{width} ) {
         $work->{phase} = 'failed';
     }
@@ -157,7 +174,8 @@ sub _continue_block ( $work, $line ) {
     return;
 }
 
-sub _read ( $work, $line ) {
+sub _read ( $work, $bytes ) {
+    my $line = $READS{ $work->{grammar} }{decode}->($bytes);
     return _continue_block( $work, $line ) if $work->{block};
     for my $kind ( $ROWS{ $work->{grammar} }->@* ) {
         my @parts = $line =~ $kind->{pattern} or next;
@@ -208,7 +226,7 @@ sub start () {
     };
 }
 
-signature_for feed => ( positional => [ $STATE, Str ], returns => $STATE );
+signature_for feed => ( positional => [ $STATE, $BYTES ], returns => $STATE );
 
 sub feed ( $state, $piece ) {
     my $text = $state->{rest} . $piece;
@@ -278,7 +296,15 @@ Indented lines belong to subtests and change nothing, apart from a bail out and 
 The reader hands a YAML block of version 13 to C<TAP::Parser::YAMLish::Reader>, which comes with Perl.
 It holds the lines of such a block and the last line without a newline in memory until each one ends.
 
-The reader takes bytes, and it reads a stream as C<TAP::Parser> reads a text.
+The reader takes bytes, and it reads a stream as C<prove> reads the output of a test process.
+Under version 12 a line stays bytes, and only ASCII counts as a space, a digit, or a letter.
+After a version line of 13 or 14 the reader decodes each line from UTF-8, as the iterator of a process in C<prove> does.
+A byte that starts no character becomes a replacement character, and Unicode then decides the spaces, digits, and letters.
+So a letter right after C<ok> ends the word, and the line counts as no test.
+
+C<prove> drops an empty line that ends one read of the pipe.
+Its verdict on such a stream under the pragma C<strict> depends on where the system cuts the output, so no reader of the stream alone can match it.
+The reader keeps the empty line, as C<TAP::Parser> does for a text.
 C<TAP::Parser> joins a line that holds C<not> alone to the next line on VMS, and the reader joins no lines.
 
 =head1 FUNCTIONS
@@ -294,6 +320,7 @@ C<bailed> is true after a bail out.
 =head2 feed
 
 Returns the state after one more piece of the stream.
+The piece holds bytes, as a pipe delivers them.
 A line counts when its newline arrives.
 
 =head2 finish

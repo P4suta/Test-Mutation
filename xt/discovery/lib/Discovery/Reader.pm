@@ -57,4 +57,22 @@ sub oracle ( $text, $exit, $signal ) {
     return $stream->{passes} && ( $stream->{ignores_end} || ( $exit == 0 && !$signal ) ) ? 1 : 0;
 }
 
+my %PROCESS;
+
+# prove reads the output of a process, and after a version line of 13 or 14 it decodes each line from UTF-8.
+# The process prints its stream at once and exits with status 0.
+sub process_oracle ($text) {
+    if ( !exists $PROCESS{$text} ) {
+        local $SIG{__WARN__} = sub { };
+        my $script = sprintf q{binmode STDOUT; print pack 'H*', '%s';}, unpack 'H*', $text;
+        my $parser = TAP::Parser->new( { exec => [ $^X, '-e', $script ] } );
+        my $bailed = 0;
+        while ( my $result = $parser->next ) {
+            $bailed = 1 if $result->is_bailout;
+        }
+        $PROCESS{$text} = !$parser->has_problems && !$bailed ? 1 : 0;
+    }
+    return $PROCESS{$text};
+}
+
 1;

@@ -196,4 +196,36 @@ sub with_choices ($count) {
     return _combinations( $count, [ _choices() ], 0 );
 }
 
+# Bytes above ASCII in the plain stream, each in one place where the rules of characters decide a line.
+# prove decodes the lines after a version line of 13 or 14 from UTF-8, and it reads the bytes of every other stream.
+my %BYTES = (
+    'none'              => sub ($text) { return $text },
+    'letter-after-ok'   => sub ($text) { return $text =~ s/^ok 2/ok\xC3\xA9 2/mr },
+    'symbol-after-ok'   => sub ($text) { return $text =~ s/^ok 2/ok\xE2\x86\x92 2/mr },
+    'invalid-after-ok'  => sub ($text) { return $text =~ s/^ok 2/ok\xE9 2/mr },
+    'digit-after-ok'    => sub ($text) { return $text =~ s/^ok 2/ok \xD9\xA3/mr },
+    'space-after-count' => sub ($text) { return $text =~ s/^1[.][.]3$/1..3\xC2\xA0/mr },
+    'space-before-bail' => sub ($text) { return $text =~ s/\z/\xC2\xA0Bail out! after a space\n/r },
+    'yaml-key' => sub ($text) { return $text =~ s/^(ok 1 - first\n)/$1  ---\n  \xC3\xA9t\xC3\xA9: 1\n  ...\n/mr },
+    'invalid-comment' => sub ($text) { return $text =~ s/^(ok 1 - first\n)/$1# \xFF\xFE\n/mr },
+    'text-in-name'    => sub ($text) { return $text =~ s/^ok 2 - second$/ok 2 - caf\xC3\xA9/mr },
+);
+
+sub encoded () {
+    my @cases;
+    for my $version (qw(none thirteen fourteen)) {
+        for my $bytes ( sort keys %BYTES ) {
+            my @parts =
+              ( ( $version eq 'none' ? () : "version=$version" ), ( $bytes eq 'none' ? () : "bytes=$bytes" ) );
+            push @cases,
+              {
+                parts => \@parts,
+                label => @parts ? join( q{ }, @parts ) : 'the plain stream',
+                text  => $BYTES{$bytes}->( text( version => $version ) ),
+              };
+        }
+    }
+    return @cases;
+}
+
 1;

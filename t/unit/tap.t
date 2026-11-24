@@ -206,6 +206,54 @@ for my $case (@cases) {
 }
 ok $confirmed >= 122, "the parser of prove confirmed $confirmed verdicts";
 
+# prove reads a process, and after a version line of 13 or 14 it decodes each line from UTF-8 before the grammar reads it.
+# A byte that starts no character becomes a replacement character, and the bytes of version 12 stay bytes.
+sub process_passes ($text) {
+    local $SIG{__WARN__} = sub { };
+    my $script = sprintf q{binmode STDOUT; print pack 'H*', '%s';}, unpack 'H*', $text;
+    my $parser = TAP::Parser->new( { exec => [ $^X, '-e', $script ] } );
+    my $bailed = 0;
+    while ( my $result = $parser->next ) {
+        $bailed = 1 if $result->is_bailout;
+    }
+    return !$parser->has_problems && !$bailed ? 1 : 0;
+}
+
+my @decoded = (
+    [ 'a letter after ok, version 12',                    "1..1\nok\xC3\xA9\n",                                 1, 0 ],
+    [ 'a letter after ok, version 13',                    "${V13}1..1\nok\xC3\xA9\n",                           0, 0 ],
+    [ 'a letter after ok, version 14',                    "TAP version 14\n1..1\nok\xC3\xA9\n",                 0, 0 ],
+    [ 'a symbol after ok',                                "${V13}1..1\nok\xE2\x86\x92\n",                       1, 0 ],
+    [ 'a byte of no character after ok',                  "${V13}1..1\nok\xE9\n",                               1, 0 ],
+    [ 'a digit beyond ASCII for the number',              "${V13}1..1\nok \xD9\xA3\n",                          0, 1 ],
+    [ 'a digit beyond ASCII after an ASCII digit',        "${V13}1..1\nok 1\xD9\xA3\n",                         1, 0 ],
+    [ 'a digit beyond ASCII, version 12',                 "1..1\nok \xD9\xA3\n",                                1, 0 ],
+    [ 'a space beyond ASCII after the count',             "${V13}1..1\xC2\xA0\nok 1\n",                         1, 0 ],
+    [ 'a space beyond ASCII after the count, version 12', "1..1\xC2\xA0\nok 1\n",                               0, 0 ],
+    [ 'a count beyond ASCII',                             "${V13}1..\xD9\xA3\n",                                1, 0 ],
+    [ 'a space beyond ASCII before a bail out',           "${V13}1..1\nok 1\n\xC2\xA0Bail out!\n",              0, 1 ],
+    [ 'a YAML key that starts beyond ASCII',        "${V13}1..1\nok 1\n  ---\n  \xC3\xA9t\xC3\xA9: 1\n  ...\n", 1, 0 ],
+    [ 'a YAML line padded beyond ASCII',            "${V13}1..1\nok 1\n  ---\n \xC2\xA0a: 1\n  ...\n",          1, 0 ],
+    [ 'TODO and a letter beyond ASCII',             "${V13}1..1\nnot ok 1 # TODO\xC3\xA9\n",                    0, 1 ],
+    [ 'TODO and a letter beyond ASCII, version 12', "1..1\nnot ok 1 # TODO\xC3\xA9\n",                          1, 0 ],
+    [ 'bytes of no character in a comment',         "${V13}# \xFF\xFE\n1..1\nok 1\n",                           1, 0 ],
+    [ 'a line that ends inside a character',        "${V13}1..1\nok 1 - caf\xC3\n",                             1, 0 ],
+    [ 'a pragma with a letter beyond ASCII',        "${V13}pragma +strict\xC3\xA9\n1..1\nok 1\nno TAP\n",       1, 0 ],
+);
+for my $case (@decoded) {
+    my ( $name, $text, $passed, $early ) = $case->@*;
+    is process_passes($text), $passed, "$name: the parser of prove on a process gives the stated verdict";
+    my %differs;
+    for my $cutting ( cuttings($text) ) {
+        my ( $how, @pieces ) = $cutting->@*;
+        my $state = fed(@pieces);
+        $differs{"$how: passed"}         = 1 if Test::Mutation::Tap::passed( $state, 0 ) != $passed;
+        $differs{"$how: failed already"} = 1
+          if Test::Mutation::Tap::failed_already( Test::Mutation::Tap::finish($state) ) != $early;
+    }
+    is [ sort keys %differs ], [], "$name: passed is $passed and failed already is $early, however the stream is cut";
+}
+
 subtest 'a line counts when its newline arrives' => sub {
     my $open = fed("1..1\nnot ok 1");
     is Test::Mutation::Tap::failed_already($open), 0, 'the unfinished line fails nothing yet';
@@ -293,6 +341,7 @@ subtest 'the reader warns about no stream' => sub {
         "1..1 todo 0\nok\n",
         "1..1\nok 1 \\\n",
         "\xFF\xFE\n1..1\nok 1\n",
+        "${V13}1..\xD9\xA3\nok \xD9\xA3\nok 1\xD9\xA3\n",
     );
     for my $text (@hostile) {
         is warnings { Test::Mutation::Tap::passed( fed($text), 0 ) }, [], 'no warning';
@@ -311,6 +360,8 @@ subtest 'arguments are checked' => sub {
       'feed needs a whole state';
     like dies { Test::Mutation::Tap::feed( $state, undef ) }, qr/did not pass type constraint/,
       'feed needs a piece of text';
+    like dies { Test::Mutation::Tap::feed( $state, "\x{263A}\n" ) }, qr/did not pass type constraint/,
+      'and the piece holds bytes, as a pipe delivers them';
     like dies { Test::Mutation::Tap::finish('state') }, qr/did not pass type constraint/, 'finish needs a state';
     like dies { Test::Mutation::Tap::failed_already('state') }, qr/did not pass type constraint/,
       'failed_already needs a state';

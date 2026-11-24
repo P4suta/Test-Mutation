@@ -13,29 +13,30 @@ my %UNDETECTED = map { $_ => 1 } qw(Survived NoCoverage);
 my %PLAIN      = ( target => 'lib/Known.pm', shift => 0 );
 
 my %CHECK = (
-    'completes'  => \&_completes,
-    'I1'         => \&_bounded,
-    'I1-wait'    => \&_waits,
-    'I2'         => \&_no_process,
-    'I3'         => \&_no_leftover,
-    'I4'         => \&_unchanged,
-    'I5'         => \&_reasons,
-    'I6'         => \&_reported,
-    'I7'         => \&_truth,
-    'I8'         => \&_same_under_styles,
-    'tap'        => \&_tap,
-    'tap-prefix' => \&_tap_prefix,
-    'tap-pieces' => \&_tap_pieces,
-    'jobs'       => \&_jobs,
-    'in-place'   => \&_in_place,
-    'coverage'   => \&_coverage,
-    'shard'      => \&_shard,
-    'since'      => \&_since,
-    'single'     => \&_single,
-    'cache'      => \&_cache,
-    'prove'      => \&_prove,
-    'fault'      => \&_fault,
-    'baseline'   => \&_baseline,
+    'completes'   => \&_completes,
+    'I1'          => \&_bounded,
+    'I1-wait'     => \&_waits,
+    'I2'          => \&_no_process,
+    'I3'          => \&_no_leftover,
+    'I4'          => \&_unchanged,
+    'I5'          => \&_reasons,
+    'I6'          => \&_reported,
+    'I7'          => \&_truth,
+    'I8'          => \&_same_under_styles,
+    'tap'         => \&_tap,
+    'tap-prefix'  => \&_tap_prefix,
+    'tap-pieces'  => \&_tap_pieces,
+    'tap-process' => \&_tap_process,
+    'jobs'        => \&_jobs,
+    'in-place'    => \&_in_place,
+    'coverage'    => \&_coverage,
+    'shard'       => \&_shard,
+    'since'       => \&_since,
+    'single'      => \&_single,
+    'cache'       => \&_cache,
+    'prove'       => \&_prove,
+    'fault'       => \&_fault,
+    'baseline'    => \&_baseline,
 );
 
 my %SIGNAL_NUMBER = ( HUP => 1, INT => 2, TERM => 15 );
@@ -503,6 +504,22 @@ sub _tap_pieces ($arg) {
         my $verdict = $reader->passes( $text, 0, 0 );
         $kind{ $case->{label} } = 'the reader gives another verdict when the stream arrives in pieces'
           if grep { $reader->with( pieces => $_ )->passes( $text, 0, 0 ) != $verdict } @cuts;
+    }
+    return _unique( _smallest( $cases, \%kind ) );
+}
+
+# The tool reads the output of a process, as prove does, so the parser of prove on a real process judges the reader.
+# The streams hold bytes above ASCII, which prove decodes after a version line of 13 or 14.
+sub _tap_process ($arg) {
+    my ( $reader, $cases ) = $arg->@{qw(reader cases)};
+    my %kind;
+    for my $case ( $cases->@* ) {
+        my $passes = $reader->passes( $case->{text}, 0, 0 );
+        next if $passes == Discovery::Reader::process_oracle( $case->{text} );
+        $kind{ $case->{label} } =
+          $passes
+          ? 'the reader passes a stream that prove fails on a process'
+          : 'the reader fails a stream that prove passes on a process';
     }
     return _unique( _smallest( $cases, \%kind ) );
 }
