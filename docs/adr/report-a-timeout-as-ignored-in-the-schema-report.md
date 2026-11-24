@@ -7,7 +7,7 @@ date: 2026-11-24
 ## Context
 
 The terminal report leaves a timeout out of the score.
-The viewer of the report schema counts a `Timeout` as detected, so the HTML report showed a higher score than the terminal.
+The schema's viewer counts a `Timeout` as detected, so the HTML report showed a higher score.
 
 ## Decision
 
@@ -30,3 +30,4 @@ A reader that wants the status of the run reads `testMutation.status`.
 
 `t/contract/reports.t` computes the score of the viewer from the statuses of each written file, compares it with the run, and reads every report back.
 `xt/report-schema.t` validates the reports against the pinned schema.
+Reconsider when the schema gains a status for an inconclusive mutant.

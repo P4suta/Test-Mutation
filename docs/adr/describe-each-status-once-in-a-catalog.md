@@ -7,7 +7,7 @@ date: 2026-11-24
 ## Context
 
 Seven modules listed the statuses of a mutant, and four decided their roles in the score.
-A mutant without a verdict had no status of its own, and a reason was a sentence without a cause to sort by.
+A mutant without a verdict had no status, and a reason was a sentence without a cause.
 
 ## Decision
 
@@ -18,8 +18,8 @@ Every reader of a status reads the catalog.
 
 ## Alternatives
 
-A list in each module needs a test that compares the lists, which missed the score of the viewer.
-A status of our own breaks the pinned report schema.
+A list in each module needs a test that compares the lists, which missed the viewer's score.
+An extra status breaks the pinned schema.
 
 ## Consequences
 
@@ -28,4 +28,5 @@ Reasons of later engine work wait as open findings.
 
 ## Confirmation
 
-`t/unit/status.t` pins the rows, `xt/literals.t` refuses a list of statuses elsewhere, and `t/contract/reasons.t` gives each reason.
+`t/unit/status.t` pins the rows, `xt/literals.t` refuses status lists elsewhere, and `t/contract/reasons.t` gives each reason.
+Reconsider when a report format needs a status that the schema lacks.

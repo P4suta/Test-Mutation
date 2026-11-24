@@ -47,10 +47,21 @@ sub project (%files) {
 }
 
 # A run of a project in this process, which gives the reasons of its mutants.
+# The answer maps each source to the pairs that its mutants give, so a case names the source of each reason.
 sub measured ( $root, %settings ) {
-    my $config = Test::Mutation::Config->new( root => $root, jobs => 2, %settings );
-    gave( Test::Mutation::Runner::run( $config, sub (@) { return } )->entries->@* );
-    return;
+    my $config  = Test::Mutation::Config->new( root => $root, jobs => 2, %settings );
+    my @entries = Test::Mutation::Runner::run( $config, sub (@) { return } )->entries->@*;
+    gave(@entries);
+    my %by_path;
+    for my $entry (@entries) {
+        $by_path{ $entry->{mutant}->path }{$_} = 1 for given_by($entry);
+    }
+    return { map { $_ => [ sort keys $by_path{$_}->%* ] } keys %by_path };
+}
+
+# The pairs of one status among the pairs of a source.
+sub of_status ( $given, $path, $status ) {
+    return [ grep { /\A\Q$status\E / } ( $given->{$path} || [] )->@* ];
 }
 
 sub outcome (%fields) {
@@ -68,8 +79,9 @@ sub outcome (%fields) {
 sub decided (@outcomes) {
     my $state = Test::Mutation::Verdict::start();
     $state = Test::Mutation::Verdict::step( $state, $_ ) for @outcomes;
-    gave( Test::Mutation::Verdict::conclude($state) );
-    return;
+    my $concluded = Test::Mutation::Verdict::conclude($state);
+    gave($concluded);
+    return [ given_by($concluded) ];
 }
 
 subtest 'the gate rejects a reason that no case gives' => sub {
@@ -86,23 +98,35 @@ my $test = "use Test::More tests => 2;\nuse Small;\nis Small::next_one(2), 3, 't
   . "is Small::size(9), 'big', 'a size';\n";
 
 # A suppressed line, a line that no test reaches, and two mutants that compile to the code of the original and of each other.
-measured( project( 'lib/Small.pm' => $module, 't/small.t' => $test ) );
-measured( copy_of('equivalent') );
+is measured( project( 'lib/Small.pm' => $module, 't/small.t' => $test ) ),
+  { 'lib/Small.pm' => [ 'Ignored suppressed', 'NoCoverage unreached' ] }, 'a suppressed line and a line without a test';
+is of_status( measured( copy_of('equivalent') ), 'lib/Fold.pm', 'Ignored' ),
+  [ 'Ignored same-code-as-mutant', 'Ignored same-code-as-original' ], 'the code of the original and of a mutant';
 
 # A test that waits for its time limit when the mutant is wrong, and one that waits before it loads the mutant.
 my $stuck = "use Test::More tests => 1;\nuse Small;\nmy \$next = Small::next_one(2);\n"
   . "sleep 30 if \$next != 3;\nis \$next, 3, 'the next one';\n";
-measured( project( 'lib/Small.pm' => $module, 't/stuck.t' => $stuck ), timeout_factor => 4, timeout_floor => 0.5 );
+is of_status(
+    measured( project( 'lib/Small.pm' => $module, 't/stuck.t' => $stuck ), timeout_factor => 4, timeout_floor => 0.5 ),
+    'lib/Small.pm',
+    'Timeout'
+  ),
+  ['Timeout time-limit'], 'a time limit after the load';
 my $slow = "use Test::More tests => 1;\nBEGIN { select undef, undef, undef, 0.6 }\n"
   . "use Small;\nis Small::next_one(2), 3, 'the next one';\n";
-measured( project( 'lib/Small.pm' => $module, 't/slow.t' => $slow ), timeout_factor => 0.1, timeout_floor => 0.1 );
+is of_status(
+    measured( project( 'lib/Small.pm' => $module, 't/slow.t' => $slow ), timeout_factor => 0.1, timeout_floor => 0.1 ),
+    'lib/Small.pm',
+    'NoVerdict'
+  ),
+  ['NoVerdict unstable-test'], 'a time limit before the load';
 
 # A mutant that dies while it compiles, a source that fails a syntax check of its own, and a test that loads around the hook.
 my $guarded = "package Guarded;\nuse strict;\nuse warnings;\nBEGIN { die \"no room\\n\" if 2 < 1 }\n"
   . "sub size { return \$_[0] > 5 ? 'big' : 'small' }\n1;\n";
 my $bound = "package Bound;\nuse strict;\nuse warnings;\nBEGIN { die \"no application\\n\" if !\$main::APPLICATION }\n"
   . "sub size { return 10 > 5 ? 'big' : 'small' }\n1;\n";
-measured(
+my $compiled = measured(
     project(
         'lib/Guarded.pm' => $guarded,
         'lib/Bound.pm'   => $bound,
@@ -117,6 +141,9 @@ measured(
           . "is \$next, 3, 'the next one';\n",
     )
 );
+is of_status( $compiled, 'lib/Guarded.pm', 'CompileError' ), ['CompileError compile-phase'], 'a mutant that dies';
+is of_status( $compiled, 'lib/Bound.pm',   'CompileError' ), ['CompileError standalone'], 'a source that fails alone';
+is of_status( $compiled, 'lib/Small.pm',   'NoVerdict' ),    ['NoVerdict loaded-around-hook'], 'a load around the hook';
 
 # A mutant that leaves a file in the project, which breaks another test from then on.
 my $plain = $module =~ s/ ## no mutate//r;
@@ -126,11 +153,16 @@ my $writer =
   . "is \$next, 3, 'the next one';\n";
 my $reader = "use Test::More tests => 2;\nuse Small;\nok !-e 'left-behind.txt', 'no file is in the way';\n"
   . "is Small::size(9), 'big', 'a size';\n";
-measured(
-    project( 'lib/Small.pm' => $plain, 't/reader.t' => $reader, 't/writer.t' => $writer ),
-    jobs     => 1,
-    in_place => 1
-);
+is of_status(
+    measured(
+        project( 'lib/Small.pm' => $plain, 't/reader.t' => $reader, 't/writer.t' => $writer ),
+        jobs     => 1,
+        in_place => 1
+    ),
+    'lib/Small.pm',
+    'NoVerdict'
+  ),
+  ['NoVerdict project-changed'], 'a test that a mutant breaks for good';
 
 # A signal that ends the measurement after the unmodified run and before any mutant.
 {
@@ -141,11 +173,12 @@ measured(
         die Test::Mutation::Interrupted->new( signal => 'TERM' ) if ++$calls > 1;
         return $pool->(@arguments);
     };
-    measured( project( 'lib/Small.pm' => $module, 't/small.t' => $test ) );
+    is measured( project( 'lib/Small.pm' => $module, 't/small.t' => $test ) ),
+      { 'lib/Small.pm' => [ 'Ignored suppressed', 'Pending interrupted' ] }, 'a signal before the mutants';
 }
 
 # A test that reached the line in the unmodified run and never loaded the mutant.
-decided( outcome( served => 0 ) );
+is decided( outcome( served => 0 ) ), ['NoCoverage not-loaded'], 'a test that never loads the mutant';
 
 my $pairs   = pairs();
 my @ungiven = ungiven( $pairs, \%given );

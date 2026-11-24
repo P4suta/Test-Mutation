@@ -8,6 +8,7 @@ use Fixture qw(run_fixture statuses write_file);
 use Raised;
 use Test::Mutation::Config;
 use Test::Mutation::Error;
+use Test::Mutation::Pool;
 use Test::Mutation::Runner;
 use Test::Mutation::Tree;
 
@@ -33,8 +34,9 @@ sub listened ( $root, %settings ) {
 subtest 'a project without a test gets a warning, and its mutants have no coverage' => sub {
     my $root = project( 'lib/Small.pm' => $MODULE );
     my ($result) = run_fixture($root);
-    is $result->warnings,                             ['no test files match'], 'the warning';
-    is [ map { $_->{status} } $result->entries->@* ], [ ('NoCoverage') x 3 ], 'every mutant is listed without coverage';
+    is $result->warnings, ['no test files match'], 'the warning';
+    is [ map { [ $_->@{qw(status reason)} ] } $result->entries->@* ], [ ( [ 'NoCoverage', 'unreached' ] ) x 3 ],
+      'every mutant is listed without coverage, since no test reaches it';
     ok !-e "$root/.mutation", 'and no work directory appears';
 };
 
@@ -564,6 +566,38 @@ subtest 'a test that fails decides a mutant that ran another test into its time 
     is [ map { [ $_->@{qw(status by reason detail)} ] } $only->entries->@* ],
       [ ( [ 'Timeout', 't/stuck.t', 'time-limit', 't/stuck.t exceeded its time limit' ] ) x 3 ],
       'without a test that decides, the timeout stays with its test and its reason';
+};
+
+subtest 'a syntax check runs once for each mutant that fails to load, and never for a mutant that loads' => sub {
+    my $late = "package Late;\nuse strict;\nuse warnings;\nmy \$LIMIT = 2 + 1;\ndie \"bad limit\\n\" if \$LIMIT != 3;\n"
+      . "sub limit { return \$LIMIT }\n1;\n";
+    my $tolerant = "use Test::More tests => 1;\nmy \$loaded = eval { require Late; 1 };\nok 1, 'the test goes on';\n";
+    my $root     = project( 'lib/Late.pm' => $late, 't/first.t' => $tolerant, 't/second.t' => $tolerant );
+    my %checked;
+    my $pool = \&Test::Mutation::Pool::run;
+    no warnings 'redefine';
+    my $seen = sub (@returned) {
+        my ($task) = @returned;
+        $checked{ $task->{command}[-1] }++ if ref $task eq 'HASH' && grep { $_ eq '-c' } $task->{command}->@*;
+        return $task;
+    };
+
+    # A task starts when the pool asks for the next one, or when the end of another task calls for it.
+    local *Test::Mutation::Pool::run = sub (%arg) {
+        my ( $next, $done ) = @arg{qw(next done)};
+        return $pool->(
+            %arg,
+            next => sub (@got) { return $seen->( $next->(@got) ) },
+            done => sub (@ended) { return $seen->( $done->(@ended) ) },
+        );
+    };
+    my ($result)    = run_fixture( $root, jobs => 1 );
+    my %description = map      { $_->{mutant}->id => $_->{mutant}->description } $result->entries->@*;
+    my @mutants     = sort map { m{/mutants/(\w+)[.]pm\z} ? $description{$1} : () } keys %checked;
+    is \@mutants, [ 'replaced != with ==', 'replaced + with -', 'replaced if with unless' ],
+      'the mutants that die while the file loads, and not the one that loads';
+    is [ grep { m{/lib/Late[.]pm\z} } keys %checked ], [ match qr{/lib/Late[.]pm\z} ], 'and the original once';
+    is [ values %checked ], [ 1, 1, 1, 1 ], 'each file once, though two tests load each mutant';
 };
 
 subtest 'a source that holds a single zero keeps its text' => sub {
