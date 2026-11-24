@@ -233,15 +233,6 @@ contract-literal-source	lib/Test/Mutation/Runner.pm: 10 die statements hold thei
 contract-literal-source	lib/Test/Mutation/Shim.pm: 2 die statements hold their message	the typed errors and the message catalog
 contract-literal-source	lib/Test/Mutation/Tree.pm: 13 die statements hold their message	the typed errors and the message catalog
 contract-literal-source	lib/Test/Mutation/Verdict.pm: 1 die statements hold their message	the typed errors and the message catalog
-contract-status-once-source	lib/Test/Mutation/Cache.pm: 1 lists of statuses	the status catalog
-contract-status-once-source	lib/Test/Mutation/Report/GitHub.pm: 2 lists of statuses	the status catalog
-contract-status-once-source	lib/Test/Mutation/Report/Json.pm: 1 lists of statuses	the status catalog
-contract-status-once-source	lib/Test/Mutation/Report/Progress.pm: 1 lists of statuses	the status catalog
-contract-status-once-source	lib/Test/Mutation/Report/Terminal.pm: 3 lists of statuses	the status catalog
-contract-status-once-source	lib/Test/Mutation/Result.pm: 2 lists of statuses	the status catalog
-contract-status-once-source	lib/Test/Mutation/Runner.pm: 2 lists of statuses	the status catalog
-contract-status-once-source	lib/Test/Mutation/Score.pm: 2 lists of statuses	the status catalog
-contract-status-once-source	lib/Test/Mutation/Verdict.pm: 4 lists of statuses	the status catalog
 contract-env-source	no table and no manual lists the variable; variables GITHUB_ACTIONS GITHUB_STEP_SUMMARY; files lib/Test/Mutation/CLI.pm	the manual that the tables generate
 contract-env-source	no table and no manual lists the variable; variables TEST_MUTATION_GENERATION; files lib/Test/Mutation/Runner.pm	the manual that the tables generate
 contract-env-source	no table and no manual lists the variable; variables TEST_MUTATION_ROOT; files lib/Test/Mutation.pm	the manual that the tables generate
@@ -252,3 +243,14 @@ contract-manual-manual	the manual names no row of the table; rows 0 1 129 130 14
 contract-manual-manual	the manual names no row of the table; rows Pending; tables statuses	the manual that the tables generate
 contract-manual-manual	the manual names no row of the table; rows test.exclude test.perl; tables keys	the manual that the tables generate
 contract-manual-manual	the manual names no row of the table; rows version; tables commands	the manual that the tables generate
+contract-independent-pairs	the environment changes a setting that no table declares; attributes formats; environments GITHUB_ACTIONS GITHUB_ACTIONS+NO_COLOR GITHUB_ACTIONS+NO_COLOR+terminal GITHUB_ACTIONS+terminal	the settings table
+contract-independent-pairs	the environment changes the output where no table declares it; streams stderr; environments GITHUB_ACTIONS+NO_COLOR+terminal GITHUB_ACTIONS+terminal NO_COLOR+terminal terminal	the progress display
+contract-status-once-source	lib/Test/Mutation/Cache.pm: 1 lists of statuses	the status catalog
+contract-status-once-source	lib/Test/Mutation/Report/GitHub.pm: 2 lists of statuses	the status catalog
+contract-status-once-source	lib/Test/Mutation/Report/Json.pm: 1 lists of statuses	the status catalog
+contract-status-once-source	lib/Test/Mutation/Report/Progress.pm: 1 lists of statuses	the status catalog
+contract-status-once-source	lib/Test/Mutation/Report/Terminal.pm: 2 lists of statuses	the status catalog
+contract-status-once-source	lib/Test/Mutation/Result.pm: 1 lists of statuses	the status catalog
+contract-status-once-source	lib/Test/Mutation/Runner.pm: 1 lists of statuses	the status catalog
+contract-status-once-source	lib/Test/Mutation/Score.pm: 2 lists of statuses	the status catalog
+contract-status-once-source	lib/Test/Mutation/Verdict.pm: 1 lists of statuses	the status catalog

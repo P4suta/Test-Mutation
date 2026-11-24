@@ -676,22 +676,16 @@ sub environments () {
     return \@environments;
 }
 
-# What a part of the environment may change today: the attributes of the plan, and the stream of the output.
-my %DECLARED =
-  ( GITHUB_ACTIONS => { attributes => ['formats'], streams => ['stdout'] }, terminal => { streams => ['stderr'] } );
-
-sub declared ( $named, $kind ) {
-    return { map { $_ => 1 } map { @{ $DECLARED{$_}{$kind} || [] } } $named->@* };
-}
-
 # The settings of a plan as texts.
 sub config_text ($config) {
     return { map { $_->attribute => value_text( $_, $config ) } grep { defined $_->attribute } $SETTINGS->@* };
 }
 
-# The words that set one setting on the command line to its first sample.
+# The words that set one setting on the command line to a value other than its default.
+# A flag that is on by default has its negated form, so a plan that loses the setting shows it.
 sub flag_words ($setting) {
-    return on_surface( $setting, 'flag', samples($setting)->{valid}[0] );
+    my $off = $setting->kind eq 'flag' && $setting->default_text eq 'on';
+    return on_surface( $setting, 'flag', $off ? 0 : samples($setting)->{valid}[0] );
 }
 
 # The findings of one invariant.

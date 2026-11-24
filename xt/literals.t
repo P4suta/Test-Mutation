@@ -44,6 +44,23 @@ subtest 'the scan rejects a list of statuses outside the table' => sub {
       'a formula over two statuses';
     is Sources::lists_of( "return 'Killed' if \$failed;\nreturn 'Survived';\n# Killed, Survived\n", \@names ), 0,
       'one status in each statement, and a comment';
+    is Sources::lists_of(
+        "sub decide (\$failed) {\n    return 'Killed' if \$failed;\n    return 'Survived';\n}\n", \@names
+      ),
+      0,
+      'a subroutine that names one status in each of its statements';
+    is Sources::lists_of( "if (\$failed) { \$status = 'Killed' }\nelse { \$status = 'Survived' }\n", \@names ), 0,
+      'a condition with one status in each branch';
+    is Sources::lists_of( "my \$decide = sub (\$failed) { return 'Killed' if \$failed; return 'Survived' };\n",
+        \@names ), 0,
+      'a subroutine without a name';
+    is Sources::lists_of( "my \$status = \$served ? { status => 'Survived' } : { status => 'NoCoverage' };\n",
+        \@names ), 0,
+      'a choice between two statuses is a decision, and so is a comparison with two';
+    is Sources::lists_of( "if ( \$status eq 'Killed' || \$status eq 'Survived' ) { \$valid++ }\n", \@names ), 0,
+      'a comparison with two statuses';
+    is Sources::lists_of( "my %kept = map { \$_ => 1 } qw(Killed Survived);\n", \@names ), 1, 'a list behind a block';
+    is Sources::lists_of( "my \@row = \$counts->\@{ 'Killed', 'Survived' };\n", \@names ), 1, 'the keys of a slice';
 };
 
 subtest 'the scan rejects a variable of the environment that the code names' => sub {

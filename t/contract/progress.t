@@ -128,13 +128,17 @@ subtest 'the silence of a made run rejects a phase that prints nothing' => sub {
       'the unmodified run';
 };
 
-my @sizes = ( 10, 1000 );
+my @sizes  = ( 10, 1000 );
+my $phases = 0;
 for my $terminal ( 0, 1 ) {
     my ( $small, $large ) = map { silences( $terminal, $_ ) } @sizes;
-    push $violations{liveness}->@*, map { [ 'the silence grows with the run', $_, $stream{$terminal} ] }
-      grep { Invariants::liveness( $small->{$_}, $large->{$_} ) } sort keys $small->%*;
+    for my $phase ( sort keys $small->%* ) {
+        $phases++;
+        push $violations{liveness}->@*,
+          map { [ $_, $phase, $stream{$terminal} ] } Invariants::liveness( $small->{$phase}, $large->{$phase} );
+    }
 }
-Gate::checked( 'phases of a run', 2 * 2, at_least => 4 );
+Gate::checked( 'phases of a run on a stream', $phases, at_least => 4 );
 
 Gate::findings( 'contract-progress-sum-progress',
     Space::folded( $violations{'progress-sum'} || [], 'lengths', 'streams' ) );

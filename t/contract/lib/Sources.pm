@@ -76,17 +76,34 @@ sub pattern ($message) {
     return qr/\A$pattern\z/s;
 }
 
-sub _names_in ( $element, $known ) {
-    my @tokens = @{
-        $element->find(
-            sub {
-                $_[1]->isa('PPI::Token::Word')
-                  || $_[1]->isa('PPI::Token::Quote')
-                  || $_[1]->isa('PPI::Token::QuoteLike::Words');
+# What a statement holds itself: its elements of one class, without the ones inside a block of its own.
+# The statements of a subroutine or of a branch stand in a block, and each of them answers for itself.
+sub _own ( $statement, $wanted ) {
+    return @{
+        $statement->find(
+            sub ( $top, $element ) {
+                return undef if $element->isa('PPI::Structure::Block');    ## no critic (Subroutines::ProhibitExplicitReturnUndef)
+                return $wanted->($element) ? 1 : 0;
             }
           )
           || []
     };
+}
+
+# A name stands in a list where it is a word of a word list, a key before a fat comma, or a key of a subscript.
+# A name that the code returns, compares, or stores is a use of one status, and a decision between two of them is no list.
+sub _listed ($token) {
+    return 1 if $token->isa('PPI::Token::QuoteLike::Words');
+    return 0 if !$token->isa('PPI::Token::Word') && !$token->isa('PPI::Token::Quote');
+    my $next = $token->snext_sibling;
+    return 1 if $next && $next->isa('PPI::Token::Operator') && $next->content eq '=>';
+    my $holder = $token->parent;
+    $holder = $holder->parent if $holder && $holder->isa('PPI::Statement::Expression');
+    return $holder && $holder->isa('PPI::Structure::Subscript') ? 1 : 0;
+}
+
+sub _names_in ( $statement, $known ) {
+    my @tokens = _own( $statement, \&_listed );
     my %found;
     for my $token (@tokens) {
         my @texts =
@@ -105,12 +122,9 @@ sub lists_of ( $code, $names ) {
     my @statements = @{ $document->find('PPI::Statement') || [] };
     my @holding    = grep { _names_in( $_, \%known ) > 1 } @statements;
     my %holding    = map  { $_->refaddr => 1 } @holding;
-    my $count      = 0;
-    for my $statement (@holding) {
-        my $inner = $statement->find( sub { $_[1]->isa('PPI::Statement') && $holding{ $_[1]->refaddr } } );
-        $count++ if !$inner;
-    }
-    return $count;
+    return scalar grep {
+        !_own( $_, sub ($element) { return $element->isa('PPI::Statement') && $holding{ $element->refaddr } } )
+    } @holding;
 }
 
 my $ENVIRONMENT_NAME = qr/[[:upper:]][[:upper:][:digit:]_]*/;

@@ -43,6 +43,12 @@ subtest 'the comparison of a pair rejects a setting that the other one changes' 
     is [ Invariants::independent( $base, $jobs, $cache, planned( {}, '--jobs', 0, '--cache' ) ) ],
       ['the pair is refused'],
       'a plan that is refused';
+    my $hosted = planned( { env => { GITHUB_ACTIONS => 'true' } } );
+    is Space::differences( $base, $hosted ),
+      ['formats: the table says terminal json html, the surface terminal json html github'],
+      'a variable of the environment that changes a setting';
+    is Space::flag_words( ( grep { $_->flag eq '--equivalence' } @flags )[0] ), ['--no-equivalence'],
+      'a flag that is on by default has its negated form in a pair';
 };
 
 for my $environment (@environments) {
@@ -51,10 +57,9 @@ for my $environment (@environments) {
     my %single = map { $_->flag => planned( $fact, Space::flag_words($_)->@* ) } @flags;
     %plain = ( base => $base, %single ) if $label eq 'plain';
 
-    # The environment changes the plan where a table declares it, and nowhere else.
-    my $declared = Space::declared( $environment->{named}, 'attributes' );
+    # No table declares what the environment changes, so every setting that it changes is a violation.
     violation( 'independent', 'attributes', 'the environment changes a setting that no table declares', $_, $label )
-      for grep { !$declared->{$_} && $base->{$_} ne $plain{base}{$_} } sort keys $base->%*;
+      for grep { $base->{$_} ne $plain{base}{$_} } sort keys $base->%*;
     for my $setting ( grep { defined $_->attribute } @flags ) {
         my ( $flag, $attribute ) = ( $setting->flag, $setting->attribute );
         violation( 'independent', 'flags', 'the environment changes the value that a flag sets', $flag, $label )
@@ -107,13 +112,13 @@ subtest 'the output of a run under every state of the environment' => sub {
         $output{ $environment->{label} } = $observation;
         is $observation->{exit}, 0, "the run under $environment->{label} succeeds";
         for my $stream (qw(stdout stderr)) {
-            my $declared = Space::declared( $environment->{named}, 'streams' );
             violation( 'independent', 'streams', 'the environment changes the output where no table declares it',
                 $stream, $environment->{label} )
-              if !$declared->{$stream} && $observation->{$stream} ne $output{plain}{$stream};
+              if $observation->{$stream} ne $output{plain}{$stream};
         }
     }
     isnt $output{terminal}{stderr}, $output{plain}{stderr}, 'a terminal gets another progress than a log';
+    Gate::checked( 'runs under a state of the environment', scalar( keys %output ), at_least => 8 );
 };
 
 my $found = $violations{independent} || {};
