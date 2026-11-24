@@ -11,7 +11,7 @@ A string carried no kind, so four places guessed an exit status from it.
 
 ## Decision
 
-`Test::Mutation::Message` holds each message once: identifier, kind, text with `{name}` slots, and a sentence for the manual.
+`Test::Mutation::Message` holds each message of a failure or a warning once: identifier, kind, text with `{name}` slots, and a sentence for the manual.
 `Test::Mutation::Error::raise` dies with the kind `usage` or `environment`, the identifier, and the filled text.
 `Test::Mutation::Try::attempt` holds the one `eval` of the driver.
 An exception without a type ends the command as an internal error with status 6.

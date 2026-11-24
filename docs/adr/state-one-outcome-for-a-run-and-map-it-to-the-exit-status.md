@@ -6,15 +6,16 @@ date: 2026-11-24
 
 ## Context
 
-Four places held exit numbers, and status 4 meant both a run without a score and a failed command.
+Four places held exit numbers, and status 4 meant two things.
 Statuses 1, 3, and 4 printed no line, and a signal outside the pool left the work behind.
 
 ## Decision
 
 `Test::Mutation::Exit` is the one table of exit statuses, and code names an outcome to get its number.
-It holds 0 to 6, 125 for a failure of `exec` itself, and 128 plus the number of HUP, INT, QUIT, PIPE, and TERM.
+It holds 0 to 6, the 125, 126, and 127 of `env` for `exec`, and 128 plus the number of HUP, INT, QUIT, PIPE, and TERM.
 Each outcome apart from success ends standard error with one line of the catalog.
 `Test::Mutation::Signals` watches these signals for the whole command, and the owning process releases the work once.
+A signal outranks every other outcome, a refused plan included.
 
 ## Alternatives
 
