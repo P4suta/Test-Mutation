@@ -19,23 +19,47 @@ my $SECONDS = 120;
 my @VALUES = ( -2, 0, 1, 3, q{}, 'a' );
 
 # The shapes of the reference, built anew for each call, as an operator may assign through the reference.
-# The key holds a true, a negative, a zero, and an empty value, and the list holds from one item to three.
+# The key holds a true, a negative, a zero, an empty, and an undefined value, and the list holds from one item to nine.
+# The last five shapes give the key, the second item, and the last index the value of a literal operand, its successor, or its text.
 # Perl shifts the last index -1 of an empty list as the unsigned number 2**64 - 1, and a list that long takes all memory.
 my @SHAPES = (
-    sub { { k =>  5,  list => [ 1, 2 ] } },
-    sub { { k => -1,  list => [ 0, 'a', 3 ] } },
-    sub { { k =>  0,  list => [4] } },
-    sub { { k => q{}, list => [ 3, 'a' ] } },
+    sub { { k =>  5,    list => [ 1, 2 ] } },
+    sub { { k => -1,    list => [ 0, 'a', 3 ] } },
+    sub { { k =>  0,    list => [4] } },
+    sub { { k => q{},   list => [ 3, 'a' ] } },
+    sub { { k => 2,     list => [ 0, 2, 0 ] } },
+    sub { { k => 7,     list => [ 0, 7, 0, 0, 0, 0, 0, 0 ] } },
+    sub { { k => "7\n", list => [ 0, "7\n" ] } },
+    sub { { k => undef, list => [ 0, 3, 0, 3 ] } },
+    sub { { k => 3,     list => [ 1, 8, 0, 0, 0, 0, 0, 0, 0 ] } },
 );
 
-# Every pair of the values for the two scalar variables, each pair with every shape of the reference.
-sub rows (@values) {
-    @values = @VALUES if !@values;
-    my @rows;
+# The values that the literal operands and the here-document operand of a snippet take, and the values next to them.
+# A comparison with such an operand differs from its boundary only where a variable holds the same value.
+# The number-literal mutator adds one to a literal, and `//` reads its right operand only beside an undefined value.
+sub _operand_values () {
+    my %operand  = map { $_->{name} => $_ } Snippets::operands();
+    my @literals = $operand{literal}->@{qw(left right)};
+    my @values =
+      ( @literals, ( map { $_ + 1 } @literals ), $operand{'here-document'}{body} =~ s/\n[^\n]*\n\z/\n/r, undef );
+    return @values;
+}
+
+sub _pairs (@values) {
+    my @pairs;
     for my $x (@values) {
-        for my $y (@values) {
-            push @rows, map { [ $x, $y, $_ ] } 0 .. $#SHAPES;
-        }
+        push @pairs, map { [ $x, $_ ] } @values;
+    }
+    return @pairs;
+}
+
+# Every pair of the given values for the two scalar variables, each pair with every shape of the reference.
+# Without values, the pairs of the default values and the pairs of the values of the operands make the rows.
+sub rows (@values) {
+    my @pairs = @values ? _pairs(@values) : ( _pairs(@VALUES), _pairs( _operand_values() ) );
+    my @rows;
+    for my $pair (@pairs) {
+        push @rows, map { [ $pair->@*, $_ ] } 0 .. $#SHAPES;
     }
     return @rows;
 }
@@ -153,6 +177,20 @@ sub judged_records ( $source, $mutants, $rows, $label ) {
     );
 }
 
+my %COLUMN = ( x => 0, y => 1, r => 2 );
+
+# The rows that differ in the variables that an expression names, one row for each such difference.
+# A mutant inside the expression changes an operator or a literal, so it names no variable that the original lacks.
+sub rows_for ( $text, $rows ) {
+    my @named = grep { $text =~ /\$\Q$_\E\b/ } sort keys %COLUMN;
+    my ( %seen, @kept );
+    for my $row ( $rows->@* ) {
+        my $key = join "\0", map { _shown( $row->[ $COLUMN{$_} ] ) } @named;
+        push @kept, $row if !$seen{$key}++;
+    }
+    return \@kept;
+}
+
 # The records of an expression as the value of a subroutine, for every mutant inside the expression.
 sub expression_records ( $context, $expression, $rows ) {
     my $file   = Snippets::file( $context, $expression );
@@ -161,7 +199,7 @@ sub expression_records ( $context, $expression, $rows ) {
     return [ 'problem', 'analysis', $made->{problem}, $made->{detail} ] if defined $made->{problem};
     my ( $from, $to ) = $file->{spans}[0]->@*;
     my @inside = grep { $_->start >= $from && $_->end <= $to } $made->{mutants}->@*;
-    return judged_records( $source, \@inside, $rows, $expression->{text} );
+    return judged_records( $source, \@inside, rows_for( $expression->{text}, $rows ), $expression->{text} );
 }
 
 # The expressions of a list of tuples: the operator and the operand on each side.

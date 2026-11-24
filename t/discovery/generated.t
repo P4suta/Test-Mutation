@@ -124,6 +124,27 @@ subtest 'the matrix rejects a mutant that no input tells from the original' => s
     is Matrix::observed( [ $file->{text} =~ s/return/retrun/r ], [ Matrix::rows() ] ), [undef],
       'a text that perl refuses has nothing to observe';
 
+    # Each change differs from its original only where a variable holds the value of a literal operand, or its text.
+    my @boundaries = (
+        [ { text => '$r->{k} < 2',          body => q{} },        '< 2',   '<= 2' ],
+        [ { text => q{$x ge <<'EOT'},       body => "7\nEOT\n" }, 'ge <<', 'gt <<' ],
+        [ { text => '7 .. $y',              body => q{} },        '.. $y', '.. -1 + $y' ],
+        [ { text => '7 <= $r->{list}->$#*', body => q{} },        '<= $r', '< $r' ],
+        [ { text => '$r->{k} <= 2',         body => q{} },        '<= 2',  '<= 3' ],
+        [ { text => '$x // 2',              body => q{} },        '// 2',  '// 3' ],
+    );
+    for my $case (@boundaries) {
+        my ( $expression, $original, $replacement ) = $case->@*;
+        my $unit   = Oracle::text_source( 'lib/Snippet.pm', Snippets::file( $return, $expression )->{text} );
+        my $rows   = Matrix::rows_for( $expression->{text}, [ Matrix::rows() ] );
+        my $result = Matrix::inseparable( $unit, [ Oracle::by_hand( $unit, $original, $replacement ) ], $rows );
+        is [ scalar $result->{executed}->@*, scalar $result->{equal}->@* ], [ 1, 0 ],
+          "a row tells $expression->{text} from the change of $original to $replacement";
+    }
+    my @all = Matrix::rows();
+    is [ map { scalar Matrix::rows_for( $_, \@all )->@* } '7 + 2', '$x + 2', '$r->{k} - ( $y )' ], [ 1, 11, 99 ],
+      'an expression runs once for each difference in the variables that it names';
+
     my @records = Matrix::judged_records( $source, \@mutants, [ Matrix::rows() ], 'by hand' );
     is [ grep { $_->[0] eq 'expression' } @records ], [ [ 'expression', 'run' ] ], 'perl runs the original';
     my $summary = Oracle::summary( [ map { [ 'lib/Snippet.pm', $_->@* ] } grep { $_->[0] ne 'expression' } @records ] );
