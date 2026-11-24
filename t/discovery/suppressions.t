@@ -23,10 +23,10 @@ subtest 'a layout puts each comment on its own line or behind the code of its sl
 use strict; my ( $m, $n ) = ( 1, 2 );
 ## no mutate
 sub s1 { return $_[0] + $_[1] }
-my $v2 = $m + $n;    ## no mutate
+my $v2 = $m + $n * 2;    ## no mutate
 ## use mutate
 sub s3 { return $_[0] + $_[1] }
-my $last = $m - $n;
+my $last = $m - $n * 2;
 1;
 CODE
     is layout( 'block', 'line', 'end' )->{comments},
@@ -85,19 +85,29 @@ subtest 'the interpreter suppresses the lines that the grammar names' => sub {
 subtest 'the comparison rejects a parser that differs from the interpreter' => sub {
     is Layouts::differences( layout('line') ), [], 'the parser reads a comment behind code as the grammar does';
     is Layouts::differences( layout( 'block', 'end' ) ), [], 'and a block with its end';
-    is Layouts::differences( layout('unknown name') ), ['the parser accepts an unknown mutator name'],
-      'the parser takes a misspelt mutator';
-    is Layouts::differences( layout('sub') ), ['the parser reads no mutate sub as the start of a block'],
-      'the parser reads the comment that names a subroutine as a block';
-    is Layouts::differences( layout('no space') ),
+
+    # The test marks the mutants by hand, so each broken reading stands here whatever the parser of the tool does.
+    my $marked = sub ( $suppresses, @names ) {
+        my $layout = layout(@names);
+        return Layouts::differences_of( $layout, Layouts::marked( $layout, $suppresses ) );
+    };
+    is $marked->( sub ($mutant) { $mutant->{line} == 2 }, 'line' ), [], 'the marks of the grammar leave no difference';
+    is $marked->( sub ($mutant) { 0 }, 'line' ), ['the parser suppresses other mutants than the grammar'],
+      'a comment behind code that suppresses nothing';
+    is $marked->( sub ($mutant) { 0 }, 'unknown name' ), ['the parser accepts an unknown mutator name'],
+      'a misspelt mutator that the reader of the marks accepted';
+    is $marked->( sub ($mutant) { $mutant->{line} >= 3 }, 'sub' ),
+      ['the parser reads no mutate sub as the start of a block'],
+      'a comment that names a subroutine and suppresses the lines after it too';
+    is $marked->( sub ($mutant) { $mutant->{line} == 2 }, 'no space' ),
       [ 'the parser accepts a candidate that is not canonical', 'the parser obeys a candidate that is not canonical' ],
-      'the parser obeys a comment without the space of the canonical form';
-    is Layouts::differences( layout( 'block', 'block', 'end' ) ),
+      'a comment without the space of the canonical form that suppresses its line';
+    is $marked->( sub ($mutant) { $mutant->{line} >= 3 }, 'block', 'block', 'end' ),
       [
         'the parser accepts a second no mutate inside an open block',
         'the parser starts a second block inside an open block and never ends the first one',
       ],
-      'the parser leaves the first of two blocks open';
+      'a first block that stays open after the end of the second one';
 };
 
 my @forms     = Layouts::forms();

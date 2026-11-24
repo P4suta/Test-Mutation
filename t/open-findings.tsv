@@ -10,13 +10,7 @@ realworld	URI: the run warns that B::Deparse gives no stable output	the kinds of
 realworld	URI: the run warns that a test loads a source around the hook	the placement of each mutant in the copy of its job
 realworld	Variable-Magic with blib: the run reports a mutant that fails to compile	the kinds of compile error, which tell a module that fails to load from invalid code
 realworld	Variable-Magic: the unmodified run fails where the tests of the distribution pass	the build of a distribution in the copy
-mutants-b-corpus	call-swap yields code that perl refuses	the import resolution of the validity boundary
-mutants-b-corpus	condition-fixed leaves a variable without its declaration	the validity boundary of the generator
-mutants-b-corpus	return-value removes a here-document introducer	the validity boundary of the generator
-mutants-b-generated	condition-fixed removes a here-document introducer	the validity boundary of the generator
 mutants-b-generated	condition-fixed yields code that perl refuses	the validity boundary of the generator
-mutants-b-generated	return-value removes a here-document introducer	the validity boundary of the generator
-mutants-b-generated	sub-body removes a here-document introducer	the validity boundary of the generator
 mutants-b-installed	arithmetic leaves a variable without its declaration	the validity boundary of the generator
 mutants-b-installed	call-swap yields code that perl refuses	the import resolution of the validity boundary
 mutants-b-installed	comparison yields code that perl refuses	the validity boundary of the generator
@@ -29,11 +23,8 @@ mutants-b-product	condition-fixed yields code that perl refuses	the validity bou
 mutants-b-product	return-value removes a here-document introducer	the validity boundary of the generator
 mutants-b-product	statement-removal yields code that perl refuses	the validity boundary of the generator
 mutants-b-product	sub-body removes a here-document introducer	the validity boundary of the generator
-mutants-b2-corpus	call-swap introduces an unresolved call	the import resolution of the validity boundary
 mutants-b2-installed	call-swap introduces an unresolved call	the import resolution of the validity boundary
-mutants-b3-corpus	number-literal leaves the file without a true value	the validity boundary of the generator
 mutants-b3-generated	comparison leaves the file without a true value	the validity boundary of the generator
-mutants-b3-generated	match leaves the file without a true value	the validity boundary of the generator
 mutants-b3-generated	number-literal leaves the file without a true value	the validity boundary of the generator
 mutants-b3-generated	string-comparison leaves the file without a true value	the validity boundary of the generator
 mutants-b3-product	arithmetic leaves the file without a true value	the validity boundary of the generator
@@ -42,9 +33,9 @@ mutants-b3-product	comparison leaves the file without a true value	the validity 
 mutants-b3-product	match leaves the file without a true value	the validity boundary of the generator
 mutants-b3-product	number-literal leaves the file without a true value	the validity boundary of the generator
 mutants-b3-product	string-comparison leaves the file without a true value	the validity boundary of the generator
-mutants-c-corpus	comparison compiles to the code of the original	the validity boundary of the generator
-mutants-c-corpus	number-literal compiles to the code of the original	the validity boundary of the generator
-mutants-c-corpus	string-literal compiles to the code of the original	the validity boundary of the generator
+mutants-c-own	comparison compiles to the code of the original	the validity boundary of the generator
+mutants-c-own	number-literal compiles to the code of the original	the validity boundary of the generator
+mutants-c-own	string-literal compiles to the code of the original	the validity boundary of the generator
 mutants-census-corpus	no mutant covers ArrayIndex, and no reason declines it	the new mutators and the declined table of the census
 mutants-census-corpus	no mutant covers HereDoc, and no reason declines it	the new mutators and the declined table of the census
 mutants-census-corpus	no mutant covers Number::Float, and no reason declines it	the new mutators and the declined table of the census
@@ -208,7 +199,6 @@ mutants-census-installed	no mutant covers word wait, and no reason declines it	t
 mutants-census-installed	no mutant covers word wantarray, and no reason declines it	the new mutators and the declined table of the census
 mutants-census-installed	no mutant covers word warn, and no reason declines it	the new mutators and the declined table of the census
 mutants-context-generated	the context changes the mutants of an expression: modifier	the typed analysis with its count of dropped sites
-mutants-context-generated	the context changes the mutants of an expression: signature default, unknown to PPI	the typed analysis with its count of dropped sites
 mutants-context-generated	the context changes the mutants of an expression: use statement	the typed analysis with its count of dropped sites
 mutants-context-product	the context changes the mutants of an expression: modifier	the typed analysis with its count of dropped sites
 mutants-context-product	the context changes the mutants of an expression: signature default, unknown to PPI	the typed analysis with its count of dropped sites

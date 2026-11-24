@@ -83,7 +83,9 @@ subtest 'the census rejects a key that no token-level mutant covers' => sub {
     is $census->{claimed}{'Symbol'},               undef, 'a return value that is one variable changes no variable';
     is $census->{claimed}{'Structure'}, undef,
       'and the removal of a statement or of a body changes no token of its own';
-    is $census->{claimed}{'Number'}, 6, 'a number is claimed, in a subscript and as the final value of the file too';
+    is $census->{claimed}{'Number'}, 5, 'a number is claimed, in a subscript too';
+    is $census->{refused}{'Number'}, 1,
+      'and the final value of the file is declined by the rule that refuses its change';
 };
 
 subtest 'the gate rejects an undecided key, a declined key with a mutant, and a declined key that never shows' => sub {
@@ -101,19 +103,31 @@ subtest 'the gate rejects an undecided key, a declined key with a mutant, and a 
       'one finding for each kind of gap';
     is Census::undecided( { observed => { 'operator +' => 1 }, claimed => { 'operator +' => 1 } }, {} ), [],
       'a census without a gap';
+    my %refused = ( observed => { 'operator **' => 2 }, claimed => {}, refused => { 'operator **' => 1 } );
+    is Census::undecided( \%refused, {} ), [], 'a key whose changes the generator refuses with a rule has its reason';
 };
 
 subtest 'a statement that no mutant touches counts for its class' => sub {
     my $census = census_of("use constant LIMIT => 1 + 2;\nmy \$n = 3;\nmy \@list;\nsub f { return LIMIT + 1 }\n1;\n");
     is $census->{statements},
       {
-        'Statement'           => { all => 1, bare => 0 },
-        'Statement::Break'    => { all => 1, bare => 0 },
-        'Statement::Include'  => { all => 1, bare => 1 },
-        'Statement::Variable' => { all => 2, bare => 1 },
+        'Statement'           => { all => 1, bare => 0, refused => 1 },
+        'Statement::Break'    => { all => 1, bare => 0, refused => 0 },
+        'Statement::Include'  => { all => 1, bare => 1, refused => 0 },
+        'Statement::Variable' => { all => 2, bare => 1, refused => 0 },
       },
-      'the statements by class, and the ones that hold no mutant';
-    is Census::bare_classes($census), ['Statement::Include'], 'a class whose statements all go without a mutant';
+      'the statements by class: with a mutant, with every change refused under a rule, or with no change at all';
+    is Census::bare_classes($census), ['Statement::Include'], 'a class whose statements all go without a change';
+    is $census->{refused}{'Number'},  1, 'the final value of the file is a number that the generator declines';
+};
+
+subtest 'the census rejects a pattern that the analysis leaves out without a count' => sub {
+    my $sound = census_of("sub f { return \$_[0] =~ /^a+\$/ }\n1;\n");
+    is [ $sound->@{qw(dropped unparsed)} ], [ 0, 0 ], 'a pattern that PPIx::Regexp reads is no pattern left out';
+    is Census::uncounted( { dropped => 2, unparsed => 2 } ), [], 'the analysis counts each pattern that it leaves out';
+    is Census::uncounted( { dropped => 1, unparsed => 3 } ),
+      ['the analysis leaves out a pattern that PPIx::Regexp cannot read, without a count'],
+      'a pattern without a count is a finding';
 };
 
 my $SEED = <<'CODE';
@@ -135,12 +149,15 @@ my $census = Census::summary($records);
 note sprintf '%-28s %8s %8s', 'key', 'observed', 'claimed';
 note sprintf '%-28s %8d %8d', $_, $census->{observed}{$_}, $census->{claimed}{$_} || 0
   for sort keys $census->{observed}->%*;
-note sprintf '%-28s %6d statements, %6d without a mutant', $_, $census->{statements}{$_}->@{qw(all bare)}
+note sprintf '%-28s %6d statements, %6d without a change, %6d with every change refused', $_,
+  $census->{statements}{$_}->@{qw(all bare refused)}
   for sort keys $census->{statements}->%*;
-note sprintf '%s: %d of %d statements without a mutant', $_->@* for Census::barest_files( $census, 10 );
+note sprintf '%s: %d of %d statements without a change', $_->@* for Census::barest_files( $census, 10 );
+note "the analysis counts $census->{dropped} patterns as left out, and PPIx::Regexp fails on $census->{unparsed}";
 
 is $census->{unplaced}, 0, 'PPI places every token of the corpus on its own text';
-Gate::findings( 'mutants-census-corpus', Census::undecided( $census, Census::declined() ) );
+Gate::findings( 'mutants-dropped-corpus', Census::uncounted($census) );
+Gate::findings( 'mutants-census-corpus',  Census::undecided( $census, Census::declined() ) );
 Gate::findings( 'mutants-statements-corpus',
     [ map { "no mutant touches a statement of the class $_" } Census::bare_classes($census)->@* ] );
 Gate::checked( 'files',      scalar @files,                                              at_least => 50 );

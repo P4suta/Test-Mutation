@@ -55,7 +55,9 @@ sub rendered (@forms) {
     for my $slot ( 1 .. @forms ) {
         my $form   = $forms[ $slot - 1 ];
         my $is_sub = $slot % 2;
-        my $code   = $is_sub ? "sub s$slot { return \$_[0] + \$_[1] }" : "my \$v$slot = \$m + \$n;";
+
+        # Each line holds mutants of more than one mutator, so a comment that names one mutator differs from one that names none.
+        my $code = $is_sub ? "sub s$slot { return \$_[0] + \$_[1] }" : "my \$v$slot = \$m + \$n * 2;";
         push @lines, $form->{text} if $form->{own};
         push @comments,
           {
@@ -66,7 +68,7 @@ sub rendered (@forms) {
           };
         push @lines, $form->{own} ? $code : "$code    $form->{text}";
     }
-    push @lines, 'my $last = $m - $n;', '1;';
+    push @lines, 'my $last = $m - $n * 2;', '1;';
     return { text => join( q{}, map { "$_\n" } @lines ), comments => \@comments };
 }
 
@@ -162,7 +164,21 @@ sub _misreading ( $layout, $errors ) {
 # The differences between the parser of the tool and the interpreter for one layout, each as the text of a finding.
 # The parser refuses no layout, so every error of the grammar is a layout that the parser accepts.
 sub differences ($layout) {
-    my $mutants  = mutants($layout);
+    return differences_of( $layout, mutants($layout) );
+}
+
+# The mutants of a layout with the marks of a reader that a test plays.
+# The code tells for each mutant whether that reader suppresses it.
+sub marked ( $layout, $suppresses ) {
+    my @marked;
+    for my $mutant ( mutants($layout)->@* ) {
+        push @marked, { $mutant->%*, suppressed => $suppresses->($mutant) ? 1 : 0 };
+    }
+    return \@marked;
+}
+
+# The differences for mutants that the caller holds: the ones of the tool, or ones that a test marked by hand.
+sub differences_of ( $layout, $mutants ) {
     my $expected = expected( $layout, $mutants );
     my %found    = map  { ( "the parser accepts $_" => 1 ) } $expected->{errors}->@*;
     my @differ   = grep { $mutants->[$_]{suppressed} != $expected->{suppressed}[$_] } 0 .. $mutants->$#*;

@@ -90,7 +90,7 @@ subtest 'the judge rejects a unit that perl refuses' => sub {
     is judged( $judge, "BEGIN { exit 0 }\n}\n" )->{compiled}, 0, 'an exit during compilation hides no error';
     is judged( $judge, "use strict;\nsub f { return \$missing }\n1;\n", 'calls' )->{compiled}, 0,
       'an undeclared variable, with the walker at work';
-    is judged( $brief, "BEGIN { 1 while 1 }\n1;\n" ), hash { field compiled => 0; field timed_out => 1; etc },
+    is judged( $brief, "BEGIN { sleep 60 while 1 }\n1;\n" ), hash { field compiled => 0; field timed_out => 1; etc },
       'a unit that never ends';
     is Judge::stop($brief), 1, 'the server outlives the unit it stopped and ends cleanly';
     is judged( $judge, "print STDERR qq{noise\\n};\n1;\n" )->{compiled}, 1, 'a unit that prints while perl compiles it';
@@ -132,7 +132,7 @@ subtest 'the server rejects no request after a module that reads, prints, or han
     my $directory = File::Temp->newdir;
     my %module    = (
         Noisy => "package Noisy;\nmy \$line = <STDIN>;\nprint qq{done\\n};\n1;\n",
-        Hangs => "package Hangs;\n1 while 1;\n1;\n",
+        Hangs => "package Hangs;\nsleep 60 while 1;\n1;\n",
     );
     for my $name ( sort keys %module ) {
         open my $handle, '>', "$directory/$name.pm" or die "write $name: $!";
@@ -163,7 +163,7 @@ subtest 'the judge rejects a unit that fails to load' => sub {
     my $death = $loaded->("package Loads;\ndie qq{no start\\n};\n1;\n");
     is $death->{loaded}, 0, 'a unit that dies while it loads fails';
     like $death->{diagnostics}, qr/\Ano start\n/, 'and the diagnostics start with its message';
-    is Judge::loaded( $brief, "package Loads;\n1 while 1;\n1;\n" ),
+    is Judge::loaded( $brief, "package Loads;\nsleep 60 while 1;\n1;\n" ),
       hash { field loaded => 0; field timed_out => 1; etc },
       'a unit that never ends its loading is stopped';
     Judge::stop($brief);

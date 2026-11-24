@@ -32,17 +32,20 @@ sub compared ( $share, $shares ) {
 subtest 'the comparison rejects a block that a second comment leaves open' => sub {
     my %form   = map { $_->{name} => $_ } @forms;
     my $layout = Layouts::rendered( @form{ 'block', 'block', 'end' } );
-    my @after  = grep { $_->{line} == 8 } Layouts::mutants($layout)->@*;
     is $layout->{text} =~ tr/\n//, 9, 'the layout ends its block on the sixth of nine lines';
-    is [ map { $_->{suppressed} } @after ], [ (1) x @after ],
-      'the parser suppresses the statement after the end of the block';
-    ok scalar(@after), 'and that statement has mutants';
-    is Layouts::differences($layout),
+
+    # The test marks every mutant after the first comment as suppressed, as a parser would that never ends the first block.
+    my $marked = Layouts::marked( $layout, sub ($mutant) { return $mutant->{line} >= 3 } );
+    ok scalar( grep { $_->{line} == 8 } $marked->@* ), 'the statement after the end of the block has mutants';
+    is Layouts::differences_of( $layout, $marked ),
       [
         'the parser accepts a second no mutate inside an open block',
         'the parser starts a second block inside an open block and never ends the first one',
       ],
-      'the comparison names both the layout that the parser accepts and what the parser makes of it';
+      'the comparison names both the layout that the reader accepted and what it made of the layout';
+    my $sound = Layouts::marked( $layout, sub ($mutant) { return $mutant->{line} >= 3 && $mutant->{line} <= 5 } );
+    is Layouts::differences_of( $layout, $sound ), ['the parser accepts a second no mutate inside an open block'],
+      'marks that end the block where the grammar ends it leave the accepted layout alone';
 };
 
 my $shares  = 4 * $workers;

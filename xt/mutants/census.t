@@ -34,10 +34,12 @@ my $far   = census_of(@files);
 
 note sprintf '%-28s %8d observed, %8d claimed', $_, $far->{observed}{$_}, $far->{claimed}{$_} || 0
   for sort keys $far->{observed}->%*;
-note sprintf '%-28s %7d statements, %7d without a mutant', $_, $far->{statements}{$_}->@{qw(all bare)}
+note sprintf '%-28s %7d statements, %7d without a change, %7d with every change refused', $_,
+  $far->{statements}{$_}->@{qw(all bare refused)}
   for sort keys $far->{statements}->%*;
-note sprintf '%s: %d of %d statements without a mutant', $_->@* for Census::barest_files( $far, 20 );
-note "$far->{unplaced} tokens stand where PPI does not place them, and the analysis drops each without a count";
+note sprintf '%s: %d of %d statements without a change', $_->@* for Census::barest_files( $far, 20 );
+note "$far->{unplaced} tokens stand where PPI does not place them";
+note "the analysis counts $far->{dropped} patterns as left out, and PPIx::Regexp fails on $far->{unparsed}";
 
 # A key that the fast gate decides has its finding there, so this gate holds the keys of the installed modules alone.
 # The fast gate shows every declined construct in a seed text, and here a reason counts for the keys that this corpus adds.
@@ -47,10 +49,16 @@ my %reason   = map { $_ => $declined->{$_} } grep { $added->{observed}{$_} } key
 Gate::findings( 'mutants-census-installed', Census::undecided( $added, \%reason ) );
 Gate::findings( 'mutants-statements-installed',
     [ map { "no mutant touches a statement of the class $_" } Census::bare_classes($far)->@* ] );
-Gate::findings( 'mutants-dropped-installed',
-    [ $far->{unplaced} ? 'the analysis drops a token that PPI places on another text, without a count' : () ] );
-Gate::checked( 'files',      scalar @files,                                           at_least => 1200 );
-Gate::checked( 'keys',       scalar keys $far->{observed}->%*,                        at_least => 200 );
+Gate::findings(
+    'mutants-dropped-installed',
+    [
+        ( $far->{unplaced} ? 'PPI places a token on another text, and the census leaves it out' : () ),
+        Census::uncounted($far)->@*,
+    ]
+);
+Gate::checked( 'patterns that the analysis counts as left out', $far->{dropped},                  at_least => 1 );
+Gate::checked( 'files',                                         scalar @files,                    at_least => 1200 );
+Gate::checked( 'keys',                                          scalar keys $far->{observed}->%*, at_least => 200 );
 Gate::checked( 'tokens',     sum0( values $far->{observed}->%* ),                     at_least => 2_000_000 );
 Gate::checked( 'statements', sum0( map { $_->{all} } values $far->{statements}->%* ), at_least => 250_000 );
 

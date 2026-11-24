@@ -201,23 +201,28 @@ sub size {
 }
 1;
 CODE
-    my $unit    = Oracle::text_source( 'lib/Banner.pm', $text );
-    my $removal = mutator(
-        'blank',
-        sub ($site) {
-            return { replacement => q{}, description => 'removed the value' }   if $site->kind eq 'return';
-            return { replacement => '1', description => 'fixed the condition' } if $site->kind eq 'condition';
-            return;
-        }
+    my $unit = Oracle::text_source( 'lib/Banner.pm', $text );
+
+    # The test builds each broken mutant itself, as the tool refuses to make them.
+    my @broken = (
+        Oracle::by_hand( $unit, q{<<'EOT'},      q{} ),
+        Oracle::by_hand( $unit, 'my $n = shift', '1' ),
+        Oracle::by_hand( $unit, 'return $n',     'return' ),
+        Oracle::by_hand( $unit, 'return 0',      'return 1' ),
     );
-    my $mutants   = Oracle::generated( $unit, [$removal] )->{mutants};
-    my $judgement = Oracle::judgement( $unit, $mutants, wants => ['calls'] );
+    my $judgement = Oracle::judgement( $unit, \@broken, wants => ['calls'] );
     is classes( Oracle::refused( $unit, $judgement ) ),
-      [ 'blank removes a here-document introducer', 'blank leaves a variable without its declaration' ],
+      [ 'by-hand removes a here-document introducer', 'by-hand leaves a variable without its declaration' ],
       'each refused mutant names its cause, and the sound ones name nothing';
-    is scalar( $mutants->@* ),                        4,  'the unit holds three return values and one condition';
     is classes( Oracle::apart( $unit, $judgement ) ), [], 'and no mutant of the unit counts apart';
-    $checked += $mutants->@*;
+
+    my $made = Oracle::generated($unit);
+    my $real = Oracle::judgement( $unit, $made->{mutants}, wants => ['calls'] );
+    is classes( Oracle::refused( $unit, $real ) ), [], 'perl compiles every mutant that the tool makes of the unit';
+    my %rule = map { $_->{rule} => 1 } $made->{rejected}->@*;
+    is [ grep { !$rule{$_} } qw(declaration final-value here-document) ], [],
+      'and the tool refuses the changes of the same places itself, each under its rule';
+    $checked += @broken + $made->{mutants}->@*;
 };
 
 subtest 'the oracles reject no mutant that behaves as one: code of the compilation, and a branch that perl left out' =>
@@ -261,28 +266,59 @@ CODE
 subtest 'the load oracle rejects a mutant that leaves the file without a true value' => sub {
     my $code    = "package Loads;\nmy \$five = 5;\nmy \$limit = 10 / \$five;\nsub f { return 1 }\n1;\n";
     my $unit    = Oracle::text_source( 'lib/Loads.pm', $code );
-    my $changes = mutator(
-        'change',
-        sub ($site) {
-            return { replacement => '0', description => 'changed the number' } if $site->text =~ /\A[15]\z/;
-            return;
-        }
+    my @changed = (
+        Oracle::by_hand( $unit, '= 5',      '= 0' ),
+        Oracle::by_hand( $unit, 'return 1', 'return 0' ),
+        Oracle::by_hand( $unit, "}\n1;",    "}\n0;" ),
     );
-    my $mutants   = Oracle::generated( $unit, [$changes] )->{mutants};
-    my $judgement = Oracle::judgement( $unit, $mutants, wants => [ 'calls', 'load' ] );
-    is [ map { $_->from->[0] } $mutants->@* ], [ 2, 4, 5 ],
-      'a divisor, a return value, and the final value of the file';
+    my $judgement = Oracle::judgement( $unit, \@changed, wants => [ 'calls', 'load' ] );
+    is [ map { $_->from->[0] } @changed ], [ 2, 4, 4 ], 'a divisor, a return value, and the final value of the file';
     is [ map { $_->{loaded} } $judgement->{verdicts}->@* ], [ 0, 1, 0 ], 'two of the three mutants fail to load';
-    is classes( Oracle::unloaded( $unit, $judgement ) ), ['change leaves the file without a true value'],
+    is classes( Oracle::unloaded( $unit, $judgement ) ), ['by-hand leaves the file without a true value'],
       'the final value is a finding';
-    is classes( Oracle::apart( $unit, $judgement ) ), ['change dies while the file loads'],
+    is classes( Oracle::apart( $unit, $judgement ) ), ['by-hand dies while the file loads'],
       'and the division by zero is a mutant that behaves as one';
     is classes( Oracle::refused( $unit, $judgement ) ), [], 'perl compiles all three';
-    $checked += $mutants->@*;
+
+    my $made = Oracle::generated($unit);
+    my $real = Oracle::judgement( $unit, $made->{mutants}, wants => [ 'calls', 'load' ] );
+    is classes( Oracle::unloaded( $unit, $real ) ), [],
+      'every mutant that the tool makes of the unit keeps a true value';
+    ok scalar( grep { $_->{rule} eq 'final-value' } $made->{rejected}->@* ), 'the tool refuses a change of that value';
+    $checked += @changed + $made->{mutants}->@*;
 
     my $false = Oracle::text_source( 'lib/False.pm', "package False;\nsub f { return 1 }\n0;\n" );
     is Oracle::judgement( $false, Oracle::generated($false)->{mutants}, wants => ['load'] )->{problem},
       'the original fails to load', 'a file that fails to load as it stands has no verdict of this oracle';
+};
+
+subtest 'the refusal oracle rejects a change that the generator refuses without a cause' => sub {
+    my $text =
+      "use strict;\nsub sum { return \$_[0] + \$_[1] }\nsub text {\n    return <<'EOT';\nhello (\nEOT\n}\n1;\n";
+    my $unit = Oracle::text_source( 'lib/Refuses.pm', $text );
+    my $made = Oracle::generated($unit);
+    my @real = Oracle::candidates( $unit, $made )->@*;
+    is scalar(@real), $made->{mutants}->@* + $made->{rejected}->@*, 'the replay gives every mutant and every refusal';
+    is classes( Oracle::unjustified( $unit, \@real ) ), [], 'a check of the text finds the cause of each refusal';
+    my @asked = Oracle::refusals_for_perl( $unit, \@real );
+    ok scalar(@asked), 'perl has refusals of the tool to judge (' . @asked . ')';
+    my $judged = Oracle::judgement( $unit, \@asked, wants => ['calls'] );
+    is classes( Oracle::accepted_refusals($judged) ), [], 'and perl refuses each change that the tool refuses for perl';
+
+    # A refusal without a cause: the test names a rule for a change of the plus sign that no rule refuses.
+    my ($plus) = grep { $_->text eq q{+} } $made->{sites}->@*;
+    my @false = map { { site => $plus, mutator => 'by-hand', proposal => { replacement => q{-} }, rule => $_ } }
+      qw(same-text line-count same-result final-value here-document declaration unresolved-call);
+    is classes( Oracle::unjustified( $unit, \@false ) ),
+      [ map { "by-hand has a change refused under $_ without a cause" }
+          qw(same-text line-count same-result final-value) ],
+      'a rule that the text decides is refused where the text shows no cause';
+    my $accepted = Oracle::judgement( $unit, [ Oracle::refusals_for_perl( $unit, \@false ) ], wants => ['calls'] );
+    is classes( Oracle::accepted_refusals($accepted) ),
+      [ map { "by-hand has a change refused under $_ that perl accepts" }
+          qw(here-document declaration unresolved-call) ],
+      'and a rule that perl decides is refused where perl accepts the change';
+    $checked += @real + @false;
 };
 
 subtest 'the cross-check rejects a verdict of the server that perl -c does not give' => sub {
@@ -320,14 +356,19 @@ subtest 'the cross-check rejects a verdict of the server that perl -c does not g
 
 subtest 'the literal oracle rejects a number that changes its base' => sub {
     my $unit    = Oracle::text_source( 'lib/Modes.pm', "chmod 0644, \$file;\nmy \$n = 41;\nmy \$z = 0;\n1;\n" );
-    my @numbers = grep { $_->mutator eq 'number-literal' } Oracle::generated($unit)->{mutants}->@*;
-    is [ map { $_->original . q{ } . $_->replacement } @numbers ], [ '0644 645', '41 42', '0 1', '1 0' ],
-      'the tool adds one to the digits of every whole number';
-    is classes( Oracle::rebased( $unit, \@numbers ) ), ['number-literal reads an octal literal as a decimal number'],
-      'the octal literal that turns decimal is refused, and a decimal number or a zero is accepted';
-    my @records = Oracle::text_records( $unit, { sites => [], mutants => \@numbers } );
+    my @numbers = (
+        Oracle::by_hand( $unit, '0644', '645' ),
+        Oracle::by_hand( $unit, '0644', '0645' ),
+        Oracle::by_hand( $unit, '41',   '42' ),
+        Oracle::by_hand( $unit, '= 0',  '= 1' ),
+    );
+    is [ map { $_->replacement } map { $_->[0] } Oracle::rebased( $unit, \@numbers ) ], ['645'],
+      'the octal literal that turns decimal is refused, and an octal result, a decimal number, or a zero is accepted';
+    is classes( Oracle::rebased( $unit, \@numbers ) ), ['by-hand reads an octal literal as a decimal number'],
+      'under the name of its class';
+    my @records = Oracle::text_records( $unit, Oracle::made_of(@numbers) );
     is [ map { $_->[2] } grep { $_->[0] eq 'finding' && $_->[1] eq 'literal' } @records ],
-      ['number-literal reads an octal literal as a decimal number'], 'the records of a file hold the finding';
+      ['by-hand reads an octal literal as a decimal number'], 'the records of a file hold the finding';
     $checked += @numbers;
 };
 
@@ -408,32 +449,44 @@ EOT
 
 1;
 CODE
-    my @records = Oracle::survey($swap);
+
+    # The broken mutants are built by hand: the tool refuses to make any of the three.
+    my $swapped = Oracle::file_source($swap);
+    my @broken  = (
+        Oracle::by_hand( $swapped, 'max(@_)',     'min(@_)' ),
+        Oracle::by_hand( $swapped, 'max( 1, 2 )', 'min( 1, 2 )' ),
+        Oracle::by_hand( $swapped, q{<<'EOT'},    q{} ),
+        Oracle::by_hand( $swapped, 'max(@_) +',   'max(@_) -' ),
+    );
+    my @records = Oracle::survey_made( $swapped, Oracle::made_of(@broken), accepted => 1 );
     is of_kind( 'problem', @records ), [], 'the file has no problem';
     is [ map { [ $_->@[ 0, 1 ] ] } of_kind( 'finding', @records )->@* ],
-      [
-        [ 'b',  'return-value removes a here-document introducer' ],
-        [ 'b2', 'call-swap introduces an unresolved call' ],
-      ],
+      [ [ 'b', 'by-hand removes a here-document introducer' ], [ 'b2', 'by-hand introduces an unresolved call' ], ],
       'the two defects of the file, the second one once for its two mutants';
     like of_kind( 'finding', @records )->[0][2], qr/Swap[.]pm line 11: <<'EOT' -> \| /, 'a finding shows an example';
     my %count;
     $count{ $_->[1] }{ $_->[0] } += $_->[2] for of_kind( 'count', @records )->@*;
-    is $count{unresolved}, { 'call-swap'    => 2 }, 'the count holds every mutant of the class';
-    is $count{refused},    { 'return-value' => 1 }, 'in the column of its oracle';
-    is $count{judged}, $count{mutants}, 'perl judges every mutant unless the caller sets a limit';
+    is $count{unresolved}, { 'by-hand' => 2 }, 'the count holds every mutant of the class';
+    is $count{refused},    { 'by-hand' => 1 }, 'in the column of its oracle';
+    is $count{judged},  $count{mutants}, 'perl judges every mutant unless the caller sets a limit';
+    is $count{patched}, $count{mutants}, 'and every mutant has its patch applied';
     is of_kind( 'crossed', @records ), [ [4] ],
       'a cold perl confirms the refused mutant, both mutants with a call, and one sound mutant';
-    is $count{patched}, $count{mutants}, 'and every mutant has its patch applied';
-    $checked += $count{mutants}{$_} for keys $count{mutants}->%*;
+    $checked += @broken;
 
-    my %limited;
+    my @real = Oracle::survey($swap);
+    is of_kind( 'problem', @real ), [], 'the file as the tool reads it has no problem';
+    is of_kind( 'finding', @real ), [], 'and perl accepts every mutant that the tool makes of it';
+    my ( %made, %limited );
+    $made{ $_->[1] }{ $_->[0] }    += $_->[2] for of_kind( 'count', @real )->@*;
     $limited{ $_->[1] }{ $_->[0] } += $_->[2] for of_kind( 'count', Oracle::survey( $swap, judged => 1 ) )->@*;
-    is $limited{judged}, { map { $_ => 1 } keys $count{mutants}->%* },
-      'a limit keeps that many mutants of each mutator';
+    is $made{judged}, $made{mutants}, 'perl judges every mutant of the tool';
+    is $limited{judged}, { map { $_ => 1 } keys $made{mutants}->%* }, 'a limit keeps that many mutants of each mutator';
+    $checked += $made{mutants}{$_} for keys $made{mutants}->%*;
 
-    my $returns = written( $directory, 'Returns.pm', "package Returns;\r\nsub one { return 1 }\r\n1;\r\n" );
-    is [ Oracle::survey($returns) ], [ [ 'problem', 'analysis', 'the file has carriage returns' ] ],
+    my $returns = written( $directory, 'Returns.pm', "package Returns;\nsub one { return 1 }\r1;\n" );
+    is [ Oracle::survey($returns) ],
+      [ [ 'problem', 'analysis', 'the file has a carriage return without a line feed' ] ],
       'a file that the tool leaves alone names the reason';
     my $refused  = written( $directory, 'Refused.pm', "use strict;\nsub f { return \$missing + 1 }\n1;\n" );
     my @unjudged = Oracle::survey($refused);

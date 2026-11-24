@@ -180,29 +180,52 @@ sub file ( $context, @expressions ) {
     return { text => $text, spans => \@spans, codes => \@codes };
 }
 
-# The mutants that change a part of an expression, each by its place in the expression.
-# A mutant of the whole expression belongs to the context: a return value, a condition, or a statement.
-sub inside ( $mutants, $span ) {
+# The changes that a mutator proposes for a part of an expression, each by its place in the expression.
+# A change of the whole expression belongs to the context: a return value, a condition, or a statement.
+# A change that the generator refuses with a rule counts like a mutant: the generator accounts for both.
+sub inside ( $candidates, $span ) {
     my ( $from, $to ) = $span->@*;
-    my @parts = grep     { $_->start >= $from && $_->end <= $to && $_->end - $_->start != $to - $from } $mutants->@*;
-    my @named = sort map { join q{ }, $_->start - $from, $_->original, '->', $_->replacement, $_->mutator } @parts;
+    my @parts = grep {
+        my $site = $_->{site};
+        $site->start >= $from && $site->end <= $to && $site->end - $site->start != $to - $from
+    } $candidates->@*;
+    my @named = sort map { _named( $_, $from ) } @parts;
     return @named;
 }
 
-sub _expression_mutants ( $context, $expression ) {
-    my $file = file( $context, $expression );
-    my $made = Oracle::generated( Oracle::text_source( 'snippet', $file->{text} ) );
-    return [ inside( $made->{mutants}, $file->{spans}[0] ) ];
+sub _named ( $candidate, $from ) {
+    my ( $site, $proposal ) = $candidate->@{qw(site proposal)};
+    my $written = defined $proposal->{calls} ? "a call of $proposal->{calls}" : $proposal->{replacement};
+    return join q{ }, $site->start - $from, $site->text, '->', $written, $candidate->{mutator};
 }
 
-# What a context does to the mutants of an expression, beside the context that assigns the expression to a variable.
-# A line with a minus names a mutant that the context loses, and a line with a plus names one that it adds.
-sub lost ( $context, $expression ) {
-    my %here  = map { $_ => 1 } _expression_mutants( $context,                               $expression )->@*;
-    my %there = map { $_ => 1 } _expression_mutants( { header => $KNOWN, $CONTEXTS[0]->%* }, $expression )->@*;
+sub _expression_changes ( $context, $expression ) {
+    my $file   = file( $context, $expression );
+    my $source = Oracle::text_source( 'snippet', $file->{text} );
+    return [ inside( Oracle::candidates( $source, Oracle::generated($source) ), $file->{spans}[0] ) ];
+}
+
+# What one list of changes lacks beside another, and what it adds.
+# A line with a minus names a change that the first list loses, and a line with a plus names one that it adds.
+sub difference ( $here, $there ) {
+    my %here  = map { $_ => 1 } $here->@*;
+    my %there = map { $_ => 1 } $there->@*;
     my @lines =
       ( ( map { "- $_" } grep { !$here{$_} } keys %there ), ( map { "+ $_" } grep { !$there{$_} } keys %here ) );
     return [ sort @lines ];
+}
+
+my %reference;
+
+# The changes of an expression in the context that assigns it to a variable, which every other context is held to.
+sub _reference_changes ($expression) {
+    return $reference{ $expression->{text} } ||=
+      _expression_changes( { header => $KNOWN, $CONTEXTS[0]->%* }, $expression );
+}
+
+# What a context does to the changes of an expression, beside the context that assigns the expression to a variable.
+sub lost ( $context, $expression ) {
+    return difference( _expression_changes( $context, $expression ), _reference_changes($expression) );
 }
 
 # The snippets of a list of tuples: the operator, both operands, and the context of each tuple.
@@ -223,6 +246,8 @@ sub chosen (@tuples) {
     return @snippets;
 }
 
+my $SAMPLED = 8;
+
 sub _snippet_records ( $judge, $snippet ) {
     my ( $context, $expression ) = $snippet->@{qw(context expression)};
     my $file     = file( $context, $expression );
@@ -235,18 +260,32 @@ sub _snippet_records ( $judge, $snippet ) {
     return [ 'snippet', 'compiled' ], [ 'problem', 'analysis', $made->{problem}, $made->{detail} ]
       if defined $made->{problem};
 
-    # The lines before the code of the context are the same in every snippet, and so are their mutants.
-    $made->{mutants} = [ grep { $_->start >= $file->{codes}[0] } $made->{mutants}->@* ];
-    my $judgement = Oracle::judged_by( $judge, $source, $made->{mutants}, $original, @wants );
-    my @changes   = lost( $context, $expression )->@*;
-    my $changed   = "the context changes the mutants of an expression: $context->{name}";
+    my ( $from, $to ) = $file->{spans}[0]->@*;
+    my $candidates = Oracle::candidates( $source, $made );
+    my @here       = inside( $candidates, $file->{spans}[0] );
+    my @changes    = difference( \@here, _reference_changes($expression) )->@*;
+
+    # The lines before the code of the context are the same in every snippet, and so are their mutants and refusals.
+    # A mutant apart from the expression is the same in every snippet of its context, so perl judges it in a sample.
+    my $code = $file->{codes}[0];
+    my $line = $source->position_of($code)->[0];
+    $made->{mutants}  = [ grep { $_->start >= $code } $made->{mutants}->@* ];
+    $made->{rejected} = [ grep { $_->{line} >= $line } $made->{rejected}->@* ];
+    my @own    = grep { $_->{site}->start >= $code } $candidates->@*;
+    my @judged = grep { $snippet->{sampled} || ( $_->start < $to && $_->end > $from ) } $made->{mutants}->@*;
+    my @asked  = $snippet->{sampled} ? Oracle::refusals_for_perl( $source, \@own ) : ();
+    my ( $judgement, @refusals ) = Oracle::asked_apart( $source,
+        Oracle::judged_by( $judge, $source, [ @judged, @asked ], $original, @wants ), @asked );
+    my $changed = "the context changes the mutants of an expression: $context->{name}";
     return (
         [ 'snippet', 'compiled' ],
         Oracle::text_records( $source, $made ),
+        Oracle::refusal_records( $source, $made, \@own ),
+        @refusals,
         Oracle::judged_records( $source, $judgement, @wants ),
 
-        # A snippet loads no module, so a cold perl confirms the mutants that perl stops and no sample of the others.
-        Oracle::crossed_records( $source, $judgement, accepted => 0 ),
+        # A snippet loads no module, so a cold perl confirms the mutants that perl stops and a sample of the others.
+        Oracle::crossed_records( $source, $judgement, accepted => $snippet->{sampled} ? 1 : 0 ),
         @changes ? [ 'finding', 'context', $changed, "$expression->{text} ($snippet->{shape}): @changes" ] : (),
     );
 }
@@ -254,8 +293,11 @@ sub _snippet_records ( $judge, $snippet ) {
 # The records of one share of the snippets, from one server that compiles every snippet and every mutant of the share.
 sub _share_records ( $snippets, $share, $shares ) {
     my $judge = Judge::start();
+
+    # A cold perl confirms an accepted mutant of every eighth snippet, so the sample is the same in every run.
     my @records =
-      map { _snippet_records( $judge, $snippets->[$_] ) } grep { $_ % $shares == $share } 0 .. $snippets->$#*;
+      map { _snippet_records( $judge, { $snippets->[$_]->%*, sampled => $_ % $SAMPLED == 0 } ) }
+      grep { $_ % $shares == $share } 0 .. $snippets->$#*;
     Judge::stop($judge) or die "the judge of a share of snippets ended badly\n";
     return @records;
 }

@@ -7,6 +7,7 @@ use Scalar::Util qw(refaddr);
 use PPI;
 use Bounded;
 use Judge;
+use Test::Mutation::Mutant;
 use Test::Mutation::Mutant::Generator;
 use Test::Mutation::Mutator::Catalog;
 use Test::Mutation::Report::Patch;
@@ -42,7 +43,154 @@ sub generated ( $source, $mutators = Test::Mutation::Mutator::Catalog::mutators(
         Test::Mutation::Mutant::Generator::generate( source => $source, analysis => $analysis, mutators => $mutators );
     };
     return _ungenerated( 'the generation died', $@ ) if !$made;
-    return { problem => undef, $analysis->%{qw(sites suppressions)}, $made->%{qw(mutants rejected)} };
+    return {
+        problem => undef,
+        $analysis->%{qw(sites suppressions dropped heredocs names)},
+        $made->%{qw(mutants rejected)}, mutators => $mutators,
+    };
+}
+
+# Every change that a mutator proposes for a source, in the order of the generator, with what the generator made of it.
+# The generator names a refused change by its mutator, its line, and its rule, so the replay gives the change its span.
+# A candidate holds the site, the name of the mutator, the proposal, and either the mutant or the rule that refused it.
+sub candidates ( $source, $made ) {
+    my @mutants = $made->{mutants}->@*;
+    my @refused = $made->{rejected}->@*;
+    my @candidates;
+    for my $site ( $made->{sites}->@* ) {
+        my $line = $source->position_of( $site->start )->[0];
+        for my $mutator ( $made->{mutators}->@* ) {
+            for my $proposal ( $mutator->mutations($site)->@* ) {
+                my %candidate = ( site => $site, mutator => $mutator->name, proposal => $proposal );
+                if ( _is_made( $mutants[0], $site, $mutator->name, $proposal ) ) {
+                    push @candidates, { %candidate, mutant => shift @mutants };
+                    next;
+                }
+                my $refusal = shift @refused;
+                die 'the replay of ' . $source->path . " meets no refusal for a change of line $line\n"
+                  if !$refusal || $refusal->{mutator} ne $mutator->name || $refusal->{line} != $line;
+                push @candidates, { %candidate, rule => $refusal->{rule} };
+            }
+        }
+    }
+    die 'the replay of ' . $source->path . " leaves mutants or refusals over\n" if @mutants || @refused;
+    return \@candidates;
+}
+
+sub _is_made ( $mutant, $site, $name, $proposal ) {
+    return 0 if !$mutant || $mutant->mutator ne $name || $mutant->start != $site->start || $mutant->end != $site->end;
+    return defined $proposal->{calls} || $mutant->replacement eq $proposal->{replacement} ? 1 : 0;
+}
+
+my $made_by_hand = 0;
+
+# A mutant that replaces the first occurrence of a text in a source, built as no mutator of the tool builds it.
+# A gate feeds its oracle with such a mutant, so the broken input depends on no defect of the tool.
+sub by_hand ( $source, $original, $replacement, %override ) {
+    my $start = index $source->text, $original;
+    die 'the source ' . $source->path . " holds no $original\n" if $start < 0;
+    my %span = ( start => $start, end => $start + length $original, %override );
+    return Test::Mutation::Mutant->new(
+        id          => sprintf( '%012x', ++$made_by_hand ),
+        path        => $source->path,
+        mutator     => 'by-hand',
+        original    => $original,
+        replacement => $replacement,
+        description => "replaced $original with $replacement",
+        from        => $source->position_of( $span{start} ),
+        to          => $source->position_of( $span{end} ),
+        scope       => [ 1, 1 ],
+        %span,
+    );
+}
+
+# The refused change of a candidate as a mutant, so perl and the reports read it like one.
+# The description holds the rule, and a call that the boundary found no name for is written by its bare name.
+sub _refused_mutant ( $source, $candidate ) {
+    my ( $site, $proposal ) = $candidate->@{qw(site proposal)};
+    return Test::Mutation::Mutant->new(
+        id          => sprintf( '%012x', ++$made_by_hand ),
+        path        => $source->path,
+        mutator     => $candidate->{mutator},
+        start       => $site->start,
+        end         => $site->end,
+        original    => $site->text,
+        replacement => defined $proposal->{calls} ? $proposal->{calls} : $proposal->{replacement},
+        description => $candidate->{rule},
+        from        => $source->position_of( $site->start ),
+        to          => $source->position_of( $site->end ),
+        scope       => [ 1, 1 ],
+    );
+}
+
+# The spans of the statements of a file that are a value alone: literals and operators, as the last `1;` of a module.
+sub _value_statements ($source) {
+    my $read  = tokens($source);
+    my %place = map { refaddr( $_->{token} ) => $_ } $read->{tokens}->@*;
+    my @spans;
+    for my $statement ( $read->{document} ? $read->{document}->schildren : () ) {
+        next if ref $statement ne 'PPI::Statement';
+        my @tokens = grep { $_->significant } $statement->tokens;
+        next if grep {
+                 !$_->isa('PPI::Token::Number')
+              && !$_->isa('PPI::Token::Quote')
+              && !$_->isa('PPI::Token::Operator')
+              && !$_->isa('PPI::Token::Structure')
+        } @tokens;
+        my ( $first, $last ) = @place{ refaddr( $tokens[0] ), refaddr( $tokens[-1] ) };
+        push @spans, [ $first->{start}, $last->{end} ] if $first && $last;
+    }
+    return @spans;
+}
+
+my %BY_PERL = map { $_ => 1 } qw(here-document declaration unresolved-call);
+
+# Whether the text shows the cause of a refusal whose rule speaks of the text alone.
+sub _has_cause ( $source, $candidate, $earlier, $values ) {
+    my ( $site, $rule ) = $candidate->@{qw(site rule)};
+    my $written = $candidate->{proposal}{replacement};
+    return 1                                                     if !defined $written;
+    return $written eq $site->text                               if $rule eq 'same-text';
+    return ( $written =~ tr/\n// ) != ( $site->text =~ tr/\n// ) if $rule eq 'line-count';
+    return _within( $site, $values->@* )                         if $rule eq 'final-value';
+    return $earlier->{ change_key( $source->text, $site->start, $site->end, $written ) } ? 1 : 0;
+}
+
+# The oracle of the refusals, for the rules that the text decides.
+# A change refused as the same text leaves the file as it was, and one refused for its lines changes their number.
+# A change refused as the same result leaves the text of an earlier mutant, by a key that this module computes itself.
+# A change refused as a final value stands in a statement of the file that is a value alone, as PPI reads it here.
+sub unjustified ( $source, $candidates ) {
+    my ( %earlier, @found );
+    my @values = _value_statements($source);
+    for my $candidate ( $candidates->@* ) {
+        my $mutant = $candidate->{mutant};
+        if ($mutant) {
+            $earlier{ change_key( $source->text, $mutant->start, $mutant->end, $mutant->replacement ) } = 1;
+            next;
+        }
+        next if $BY_PERL{ $candidate->{rule} } || _has_cause( $source, $candidate, \%earlier, \@values );
+        push @found,
+          [ _refused_mutant( $source, $candidate ), "has a change refused under $candidate->{rule} without a cause" ];
+    }
+    return @found;
+}
+
+# The refused changes that perl decides, each as a mutant for the judge.
+# A change refused for a here-document, for a declaration, or for a call without a name has to fail before perl.
+sub refusals_for_perl ( $source, $candidates ) {
+    return map { _refused_mutant( $source, $_ ) } grep { defined $_->{rule} && $BY_PERL{ $_->{rule} } } $candidates->@*;
+}
+
+# The oracle of the refusals, for the rules that perl decides: perl compiles the change and finds every call.
+sub accepted_refusals ($judgement) {
+    return map { [ $_->{mutant}, 'has a change refused under ' . $_->{mutant}->description . ' that perl accepts' ] }
+      grep { $_->{compiled} && !$_->{introduced}->@* } $judgement->{verdicts}->@*;
+}
+
+# What the generator would return for a source that holds the given mutants and nothing else.
+sub made_of (@mutants) {
+    return { problem => undef, sites => [], mutants => \@mutants, rejected => [], mutators => [] };
 }
 
 sub _in_range ( $source, $mutant ) {
@@ -457,12 +605,40 @@ sub _judgement_records ( $source, $chosen, %arg ) {
     # Plain `perl -c` reads the original once for a file, with the share that samples the accepted mutants.
     my $plain =
       !$arg{accepted} || Judge::reference( $source->to_bytes( $source->text ), include => $arg{include} || [] );
-    my $judgement = eval { judgement( $source, $plain ? $chosen : [], include => $arg{include}, wants => \@wants ) };
+    my @asked     = ( $arg{refused} || [] )->@*;
+    my @units     = $plain ? ( $chosen->@*, @asked ) : ();
+    my $judgement = eval { judgement( $source, \@units, include => $arg{include}, wants => \@wants ) };
     return [ 'problem', 'judge', 'plain perl -c refuses the original' ]
       if $judgement && !$plain && !defined $judgement->{problem};
     return [ 'problem', 'judge', 'the judge broke', $@ =~ s/\s+/ /gr ] if !$judgement;
     return [ 'problem', 'judge', $judgement->{problem} ] if defined $judgement->{problem};
-    return judged_records( $source, $judgement, @wants ), crossed_records( $source, $judgement, %arg );
+
+    my ( $mutants, @refusals ) = asked_apart( $source, $judgement, @asked );
+    return ( judged_records( $source, $mutants, @wants ), crossed_records( $source, $mutants, %arg ), @refusals );
+}
+
+# One server judges the mutants of the tool and the changes that the tool refused, and each has its own oracle.
+# The answer is the judgement of the mutants alone, and after it the records of the refused changes.
+sub asked_apart ( $source, $judgement, @asked ) {
+    my %asked    = map  { $_->id => 1 } @asked;
+    my @refusals = grep { $asked{ $_->{mutant}->id } } $judgement->{verdicts}->@*;
+    my $mutants  = { $judgement->%*, verdicts => [ grep { !$asked{ $_->{mutant}->id } } $judgement->{verdicts}->@* ] };
+    return (
+        $mutants,
+        _counts( 'asked', map { $_->{mutant} } @refusals ),
+        _violations( $source, 'refusal', 'accepted', accepted_refusals( { verdicts => \@refusals } ) ),
+    );
+}
+
+# The refusals of a source as records: each rule with its mutator, and the refusals whose text shows no cause.
+sub refusal_records ( $source, $made, $candidates ) {
+    my %count;
+    $count{ $_->{rule} }{ $_->{mutator} }++ for $made->{rejected}->@*;
+    my @rules;
+    for my $rule ( sort keys %count ) {
+        push @rules, map { [ 'refusal', $rule, $_, $count{$rule}{$_} ] } sort keys $count{$rule}->%*;
+    }
+    return ( @rules, _violations( $source, 'refusal', 'causeless', unjustified( $source, $candidates ) ) );
 }
 
 # The cross-check of a judgement as records: the count of the compared verdicts, and a problem for a difference.
@@ -520,12 +696,29 @@ sub survey ( $path, %arg ) {
     my ( $ended, $made ) = Bounded::ended( $ANALYSIS_SECONDS, sub { return generated($source) } );
     return [ 'problem', 'analysis', 'the analysis does not end' ] if !$ended;
     return [ 'problem', 'analysis', $made->{problem} ]            if defined $made->{problem};
+    return survey_made( $source, $made, %arg );
+}
+
+# The records of a source for mutants that the caller holds, as the generator made them or as a test built them.
+sub survey_made ( $source, $made, %arg ) {
     my ( $part, $parts ) = ( $arg{part} || [ 0, 1 ] )->@*;
     my @chosen = _of_each_mutator( $made->{mutants}, $arg{judged} )->@*;
+
+    # `lines` names lines whose mutants perl judges in every run, whatever the sample holds.
+    my %always = map { $_     => 1 } ( $arg{lines} || [] )->@*;
+    my %picked = map { $_->id => 1 } @chosen;
+    push @chosen, grep { $always{ $_->from->[0] } && !$picked{ $_->id } } $made->{mutants}->@*;
     @chosen = @chosen[ grep { $_ % $parts == $part } 0 .. $#chosen ];
+    my $first = $part == 0;
+
+    # The first share replays the proposals of the mutators, so each refusal has its span and meets its own oracle.
+    my $candidates = $first && ( $made->{mutators} || [] )->@* ? candidates( $source, $made ) : [];
+    my @refused    = _of_each_mutator( [ refusals_for_perl( $source, $candidates ) ], $arg{judged} )->@*;
     return (
-        $part == 0 ? text_records( $source, $made, %arg )                                          : (),
-        @chosen    ? _judgement_records( $source, \@chosen, %arg, accepted => $part == 0 ? 1 : 0 ) : (),
+        $first ? ( text_records( $source, $made, %arg ), refusal_records( $source, $made, $candidates ) ) : (),
+        @chosen || @refused
+        ? _judgement_records( $source, \@chosen, %arg, refused => \@refused, accepted => $first ? 1 : 0 )
+        : (),
     );
 }
 
@@ -600,12 +793,20 @@ sub each_file ( $tasks, $workers, $code ) {
 
 # The records of a walk as one tally, the findings of each oracle, and the files of each problem.
 sub summary ($records) {
-    my %summary =
-      ( tally => tally(), findings => {}, problems => {}, detail => {}, sites => 0, files => 0, crossed => 0 );
+    my %summary = (
+        tally    => tally(),
+        findings => {},
+        problems => {},
+        detail   => {},
+        refusals => {},
+        sites    => 0,
+        files    => 0,
+        crossed  => 0,
+    );
     for my $record ( $records->@* ) {
         my ( $path, $kind, @fields ) = $record->@*;
-        if ( $kind eq 'count' ) {
-            count( $summary{tally}, @fields );
+        if ( $kind eq 'count' || $kind eq 'refusal' ) {
+            count( $kind eq 'count' ? $summary{tally} : $summary{refusals}, @fields );
         }
         elsif ( $kind eq 'crossed' || $kind eq 'sites' ) {
             $summary{$kind} += $fields[0];
@@ -623,6 +824,19 @@ sub summary ($records) {
         }
     }
     return \%summary;
+}
+
+# One line for each rule of the generator: how often it refused a change, and for which mutators.
+# A rule that fires more often than its defect is common shows here.
+sub rules ($summary) {
+    my $refusals = $summary->{refusals};
+    my @lines;
+    for my $rule ( sort keys $refusals->%* ) {
+        my $by    = $refusals->{$rule};
+        my $total = sum0 values $by->%*;
+        push @lines, "refused under $rule: $total (" . join( ', ', map { "$_ $by->{$_}" } sort keys $by->%* ) . ')';
+    }
+    return @lines;
 }
 
 # The findings of one oracle, as the open findings list them.
@@ -659,6 +873,7 @@ sub columns () {
     return qw(
       mutants unchanged:mutants misplaced:mutants repeated:mutants rebased:mutants patched unpatchable:patched
       judged refused:judged unresolved:judged apart:judged loaded unloaded:loaded compared equivalent:compared
+      causeless asked accepted:asked
     );
 }
 
