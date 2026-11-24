@@ -265,8 +265,10 @@ subtest 'processors runs sysctl only where the list of processors is missing' =>
     my $missing = platform();
     my $command = "$missing/sysctl";
     open my $handle, '>', $command or die "write: $!";
-    print {$handle} "#!/bin/sh\necho \"\$@\" >> $missing/asked\necho 8\n" or die "write: $!";
-    close $handle                                                         or die "close: $!";
+
+    # The echo of dash takes -n for its own option, so the command writes its arguments with printf.
+    print {$handle} "#!/bin/sh\nprintf '%s\\n' \"\$*\" >> $missing/asked\necho 8\n" or die "write: $!";
+    close $handle                                                                   or die "close: $!";
     chmod 0755, $command or die "chmod: $!";
 
     is Test::Mutation::Host::processors( root => $listed, sysctl => $command ), limited( 2, 'online' ),
