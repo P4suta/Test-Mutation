@@ -108,6 +108,9 @@ subtest 'the observation of a run is read from what the tools print' => sub {
 
     my @lines = (
         '6 processors in the quota of the control group',
+        '18 processors online',
+        '4 processors in the affinity of the process',
+        '1 processor by default',
         '80 mutants in 1 file, 11 tests',
         'The unmodified run passed: 11 tests, 6 jobs',
         '[ 8/80] 8 killed',

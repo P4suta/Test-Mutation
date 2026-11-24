@@ -113,9 +113,10 @@ sub warning_kind ($text) {
     return 'other';
 }
 
+# A machine that names no count of its processors gives one processor by default.
 my @PROGRESS = (
     qr/\A\z/,
-    qr/\A\d+ processors? (?:online|in the affinity of the process|in the quota of the control group)\z/,
+    qr/\A\d+ processors? (?:online|in the affinity of the process|in the quota of the control group|by default)\z/,
     $ANNOUNCED,
     qr/\AThe unmodified run passed: \d+ tests?, \d+ jobs?\z/,
     qr{\A\[\s*\d+/\d+\](?: \d+ [a-z ]+(?:, \d+ [a-z ]+)*)?\z},
