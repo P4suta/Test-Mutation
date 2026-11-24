@@ -14,6 +14,7 @@ use Test::Mutation::Config;
 use Test::Mutation::Exit;
 use Test::Mutation::Settings;
 use Test::Mutation::Status;
+use Test::Mutation::Types ();
 
 # S9, the documentation: every verbatim block and every code reference of the command and the library.
 # An example runs or matches a table, a reference names something that exists, and the manual names every row of the tables.
@@ -23,6 +24,7 @@ my $project  = copy_of('calc');
 my @commands = Test::Mutation::Commands::rows()->@*;
 my @settings = Test::Mutation::Settings::rows()->@*;
 my @statuses = map { $_->name } Test::Mutation::Status::rows()->@*;
+my @types    = Test::Mutation::Types->type_names;
 my %usage    = map { $_->usage =~ s/ \[options\]//r => 1 } @commands;
 my %word     = map { $_ => 1 } map { $_->words->@* } @commands;
 my %flag     = (
@@ -84,8 +86,8 @@ sub unresolved ($reference) {
     }
     return $flag{$first} ? () : 'a flag that no table names' if $first =~ /\A--[[:lower:]][[:lower:]-]*[[:lower:]]\z/;
 
-    # A word of capitals and small letters has the form of a status.
-    return ( grep { $_ eq $reference } @statuses ) ? () : 'a status that no table names'
+    # A word of capitals and small letters has the form of a status, and a type of the shared library has that form too.
+    return ( grep { $_ eq $reference } @statuses, @types ) ? () : 'a status that no table names'
       if $reference =~ /\A(?:[[:upper:]][[:lower:]]+)+\z/;
     return 'no check';
 }
@@ -108,7 +110,7 @@ subtest 'the reader of the documentation rejects an example that the command ref
     is [ uncompiled( 'my $x = f(1);', 'my $x = f( 1;', 'say 1;' ) ], [1], 'the block with a syntax error';
     is [
         map { unresolved($_) } '--jobs', '--jobz', 'mutation run --since x', 'mutation lst',
-        'Killed', 'NoVerdict', 'local'
+        'Killed',                        'Facts',  'NoVerdict',              'local'
       ],
       [ 'a flag that no table names', 'a command that no table names', 'a status that no table names', 'no check' ],
       'a reference that names nothing, and one whose form names no table';

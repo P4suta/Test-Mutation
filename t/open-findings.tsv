@@ -214,7 +214,7 @@ contract-message-messages	lib/Test/Mutation/Git.pm: 3 of 3 messages that no case
 contract-message-messages	lib/Test/Mutation/Pool.pm: 9 of 9 messages that no case produces	the typed errors and the message catalog
 contract-message-messages	lib/Test/Mutation/Record.pm: 2 of 2 messages that no case produces	the typed errors and the message catalog
 contract-message-messages	lib/Test/Mutation/Report/Html.pm: 2 of 2 messages that no case produces	the typed errors and the message catalog
-contract-message-messages	lib/Test/Mutation/Runner.pm: 13 of 14 messages that no case produces	the typed errors and the message catalog
+contract-message-messages	lib/Test/Mutation/Runner.pm: 14 of 15 messages that no case produces	the typed errors and the message catalog
 contract-message-messages	lib/Test/Mutation/Shim.pm: 2 of 2 messages that no case produces	the typed errors and the message catalog
 contract-message-messages	lib/Test/Mutation/Tree.pm: 10 of 10 messages that no case produces	the typed errors and the message catalog
 contract-message-messages	lib/Test/Mutation/Verdict.pm: 1 of 1 messages that no case produces	the typed errors and the message catalog

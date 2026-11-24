@@ -59,9 +59,12 @@ Test::Mutation::Types - the types that the analysis and its readers share
 
 =head1 SYNOPSIS
 
-    use Test::Mutation::Types qw(Analysis Facts);
+    use Type::Params          qw(signature_for);
+    use Test::Mutation::Types qw(Analysis);
 
-    signature_for analyze => ( positional => [ InstanceOf ['Test::Mutation::Source'] ], returns => Analysis );
+    signature_for count => ( positional => [Analysis] );
+
+    sub count ($analysis) { return scalar $analysis->{sites}->@* }
 
 =head1 DESCRIPTION
 
