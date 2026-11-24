@@ -109,6 +109,12 @@ sub unsaid ( $ids, $said ) {
     return grep { !$said->{$_} } $ids->@*;
 }
 
+# A warning of a run ends no command, so the catalog of failures leaves it out, and the space reads it from the code.
+sub warnings_of ($code) {
+    my %failure = map { $_ => 1 } Sources::messages($code)->@*;
+    return [ grep { !$failure{$_} } Sources::messages( $code, '_warn' )->@* ];
+}
+
 sub part ( $shard, %arg ) {
     return {
         name   => "part-$shard",
@@ -197,6 +203,9 @@ subtest 'the space rejects a message that no case produces' => sub {
     heard( 'test-directory-closed', "3 mutants\nmutation: cannot run the test in /copy: Permission denied\n" );
     is [ sort keys %said ], ['test-directory-closed'], 'a text counts for the message whose words it holds';
     %said = %before;
+
+    is warnings_of("die \"cannot read \$path\\n\" if !\$ok;\n_warn( \$run, \"\$path: no test files match\" );\n"),
+      ["$VALUE: no test files match"], 'a warning of a run, and no failure';
 };
 
 # The command line: the refusals of the plan, and the refusals while the command runs.
@@ -366,9 +375,23 @@ for my $case (
 heard( 'spec-unreadable', shim_says( "$scratch/absent.spec", q{} ) );
 heard( 'spec-unclosable', shim_says( "$tree/ci.toml",        'BEGIN { *CORE::GLOBAL::close = sub { return !1 } }' ) );
 
-my @unsaid = unsaid( \@catalog, \%said );
-Gate::findings( 'contract-message-messages', [ map { "no case produces the message $_" } @unsaid ] );
+# A run without a test warns, and the report prints the warning.
+my @warned = printed( [ 'run', '--format', 'terminal', '--jobs', 1, '--test', 't/nothing*.t' ] );
+
+my @unsaid   = unsaid( \@catalog, \%said );
+my @unheard  = map { "no case produces the message $_" } @unsaid;
+my $warnings = 0;
+for my $file ( Library::modules()->@* ) {
+    my $found  = warnings_of( Sources::slurp($file) );
+    my @silent = Invariants::message( $found, \@warned );
+    $warnings += $found->@*;
+    note "$file: no case produces the warning: $_" for @silent;
+    push @unheard, sprintf '%s: %d of %d warnings that no case produces', $file, scalar @silent, scalar $found->@*
+      if @silent;
+}
+Gate::findings( 'contract-message-messages', \@unheard );
 Gate::checked( 'messages of the catalog',       scalar @catalog,    at_least => 64 );
 Gate::checked( 'messages that a case produces', @catalog - @unsaid, at_least => 64 );
+Gate::checked( 'warnings of the library',       $warnings,          at_least => 9 );
 
 done_testing;

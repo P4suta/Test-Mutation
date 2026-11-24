@@ -208,6 +208,7 @@ contract-counts-reports	the report states no count; statuses CompileError Ignore
 contract-role-reports	the score differs from the formula of the report schema; results all all-but-CompileError all-but-Ignored all-but-Killed all-but-NoCoverage all-but-Pending all-but-RuntimeError all-but-Survived only-Timeout; formats html json	the status catalog
 contract-stdout-reports	the bytes of the output are no UTF-8 form of the report; shapes latin1-1 latin1-2; formats terminal	the encoding of the output
 contract-no-leak-reports	a warning of Perl; shapes utf8-1 utf8-2; formats terminal	the encoding of the output
+contract-message-messages	lib/Test/Mutation/Runner.pm: 8 of 9 warnings that no case produces	the manual that the tables generate
 contract-env-source	no table and no manual lists the variable; variables GITHUB_ACTIONS GITHUB_STEP_SUMMARY; files lib/Test/Mutation/CLI.pm	the manual that the tables generate
 contract-env-source	no table and no manual lists the variable; variables TEST_MUTATION_GENERATION; files lib/Test/Mutation/Runner.pm	the manual that the tables generate
 contract-env-source	no table and no manual lists the variable; variables TEST_MUTATION_ROOT; files lib/Test/Mutation.pm	the manual that the tables generate

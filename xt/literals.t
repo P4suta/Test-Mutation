@@ -15,7 +15,8 @@ use Test::Mutation::Status;
 my $value = "\x{2026}";
 
 # The places that may copy the line of a message, compute the identifier of one, or catch an exception themselves.
-# Each number is the exact count of the place, so one more of them is a violation too.
+# A count of computed names or of eval expressions is exact, so one more of them is a violation too.
+# A place that copies lines holds the words of no message outside the catalog.
 my %ALLOWED = (
 
     # The shim runs inside every test process, on Perl 5.10 and without the catalog, so it says each line itself.
