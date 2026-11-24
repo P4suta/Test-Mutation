@@ -22,12 +22,14 @@ my $STATE   = Dict [
 my $TIMEOUTS_TRIED = 2;
 
 # The pool ends a test at its time limit and at its output limit, and both say that the test did not end on its own.
-my %LIMIT = ( timeout => 'time', overflow => 'output' );
+# Each limit is a reason of a timeout in the catalog.
+my %LIMIT  = ( timeout => 'time-limit', overflow => 'output-limit' );
+my $RESULT = Enum [ qw(pass fail), keys %LIMIT ];
 
 # A syntax check passes, or it fails with the kind of compile error that it found.
 my $OUTCOME = Dict [
     test        => Str,
-    result      => Enum [ qw(pass fail), keys %LIMIT ],
+    result      => $RESULT,
     served      => Bool,
     load_failed => Bool,
     bypassed    => Bool,
@@ -65,7 +67,7 @@ sub step ( $state, $outcome ) {
 
     return $decide->( 'NoVerdict', 'loaded-around-hook', "$test loaded the target without the hook" )
       if $outcome->{bypassed};
-    my $limit = $LIMIT{ $outcome->{result} };
+    my $limit = limit( $outcome->{result} );
     return _timed_out( \%next, $test, $outcome->{served}, $limit ) if defined $limit;
     return \%next                                                  if !$outcome->{served};
 
@@ -83,14 +85,15 @@ sub step ( $state, $outcome ) {
 # A timeout after the load says more than one before it, and the second timeout ends the work on the mutant.
 # A timeout before the load changed the result of a test that never met the mutant, so the test is unstable.
 sub _timed_out ( $next, $test, $served, $limit ) {
+    my $words = $limit =~ tr/-/ /r;
     my $result =
       $served
-      ? { status => 'Timeout', reason => 'time-limit', by => $test, detail => "$test exceeded its $limit limit" }
+      ? { status => 'Timeout', reason => $limit, by => $test, detail => "$test exceeded its $words" }
       : {
         status => 'NoVerdict',
         reason => 'unstable-test',
         by     => $test,
-        detail => "$test exceeded its $limit limit before it loaded the mutant"
+        detail => "$test exceeded its $words before it loaded the mutant"
       };
     my $waiting = $next->{waiting};
     $waiting = $result if !$waiting || ( $served && $waiting->{status} ne 'Timeout' );
@@ -111,6 +114,12 @@ signature_for final => ( positional => [$STATE], returns => StatusName );
 
 sub final ($state) {
     return conclude($state)->{status};
+}
+
+signature_for limit => ( positional => [$RESULT], returns => Maybe [Reason] );
+
+sub limit ($result) {
+    return $LIMIT{$result};
 }
 
 1;
@@ -139,7 +148,7 @@ A mutant that fails to load is C<CompileError> when its syntax check fails, with
 A test that exceeds its time limit leaves the decision to the next test, and a test that fails still yields C<Killed>.
 Without such a test the mutant is C<Timeout>, and the second timeout ends the work on the mutant.
 A test that exceeds its time limit before it loads the mutant leaves C<NoVerdict> with the reason C<unstable-test>.
-A test that the pool ended at its output limit counts as a timeout, and the detail names the output limit.
+A test that the pool ended at its output limit counts as a timeout, and the reason C<output-limit> names that limit.
 
 =head1 FUNCTIONS
 
@@ -161,5 +170,12 @@ The state holds the status, its reason, the deciding test, and a sentence about 
 =head2 final
 
 Returns the status of the concluded state.
+
+=head2 limit
+
+    my $reason = Test::Mutation::Verdict::limit('overflow');
+
+Returns the reason of the limit that ended a test, C<time-limit> or C<output-limit>, for the result of an outcome.
+A test that ended on its own has no such reason.
 
 =cut

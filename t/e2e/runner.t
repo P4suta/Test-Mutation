@@ -205,10 +205,33 @@ subtest 'a mutant that makes a test print without end is a timeout that names th
       . "if ( \$next != 3 ) { print STDERR 'x' x 65_536 while 1 }\nprint \"1..1\\nok 1\\n\";\n";
     my ($result)  = run_fixture( project( 'lib/Small.pm' => $MODULE, 't/endless.t' => $endless ), equivalence => 0 );
     my ($flooded) = grep { $_->{status} ne 'Killed' } $result->entries->@*;
-    is [ $flooded->@{qw(status reason detail)} ], [ 'Timeout', 'time-limit', 't/endless.t exceeded its output limit' ],
+    is [ $flooded->@{qw(status reason detail)} ],
+      [ 'Timeout', 'output-limit', 't/endless.t exceeded its output limit' ],
       'the mutant that turns the test into a flood';
     is [ grep { $_->{status} eq 'Killed' } $result->entries->@* ], bag { item D(); item D(); end },
       'and the other two mutants are detected';
+};
+
+subtest 'a test of the unmodified run that a limit ended names the limit' => sub {
+    my $reasons = sub ($result) {
+        return { map { $_->{test} => $_->{reason} } $result->baseline_failures->@* };
+    };
+    my $fails = "use Test::More tests => 1;\nok 0, 'never';\n";
+    my ($flooded) = run_fixture(
+        project(
+            'lib/Small.pm' => $MODULE,
+            't/flood.t'    => "print STDERR 'x' x 65_536 while 1;\n",
+            't/fails.t'    => $fails
+        ),
+        jobs => 1
+    );
+    is $reasons->($flooded), { 't/fails.t' => undef, 't/flood.t' => 'output-limit' }, 'the output limit';
+    my ($slow) = run_fixture(
+        project( 'lib/Small.pm' => $MODULE, 't/slow.t' => "sleep 30;\n" ),
+        jobs             => 1,
+        baseline_timeout => 0.5
+    );
+    is $reasons->($slow), { 't/slow.t' => 'time-limit' }, 'and the time limit';
 };
 
 subtest 'the time limit grows with the duration of the unmodified test' => sub {

@@ -11,7 +11,7 @@ my @EXPECTED = (
         'NoCoverage', 'NoCoverage', 'no coverage', 'No coverage', 'undetected', 1, 'warning', 0,
         [qw(unreached not-loaded)]
     ],
-    [ 'Timeout', 'Ignored', 'timeout', 'Timeout', 'outside', 1, 'notice', 0, ['time-limit'] ],
+    [ 'Timeout', 'Ignored', 'timeout', 'Timeout', 'outside', 1, 'notice', 0, [qw(time-limit output-limit)] ],
     [
         'CompileError', 'CompileError', 'compile error',
         undef, 'outside', 1, undef, 1, [qw(parse compile-phase standalone)]
@@ -70,13 +70,14 @@ subtest 'a status other than Killed and Survived needs a reason of its own list'
         push @fitting, map { [ $row->name, $_ ] } $row->reasons->@* ? $row->reasons->@* : (undef);
     }
     is [ grep { !Test::Mutation::Status::fits( $_->@* ) } @fitting ], [], 'every reason of the catalog fits its status';
-    is scalar @fitting,                                               21, 'the pairs of a status and a reason';
+    is scalar @fitting,                                               22, 'the pairs of a status and a reason';
     my @wrong = (
         [ 'Killed',     'time-limit' ],
         [ 'Survived',   'unreached' ],
         [ 'NoCoverage', undef ],
         [ 'Timeout',    'unreached' ],
         [ 'NoVerdict',  'time-limit' ],
+        [ 'NoVerdict',  'output-limit' ],
         [ 'Pending',    undef ],
     );
     is [ grep { Test::Mutation::Status::fits( $_->@* ) } @wrong ], [],

@@ -35,8 +35,9 @@ my @ROWS = (
         'no test loaded the mutant'
     ],
     [
-        'Timeout', 'Ignored', 'timeout', 'Timeout', 'outside', 1, 'notice', 0, ['time-limit'],
-        'a test that loaded the mutant exceeded its time limit, and no test failed'
+        'Timeout', 'Ignored', 'timeout', 'Timeout', 'outside', 1, 'notice', 0,
+        [qw(time-limit output-limit)],
+        'a test that loaded the mutant exceeded its time limit or printed past its output limit, and no test failed'
     ],
     [
         'CompileError', 'CompileError', 'compile error',

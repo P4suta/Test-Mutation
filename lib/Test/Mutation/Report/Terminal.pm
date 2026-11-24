@@ -103,7 +103,7 @@ sub _change ( $text, $mutant ) {
 sub _baseline ($result) {
     my @lines = ('The unmodified run fails, so no mutant ran.');
     for my $failure ( $result->baseline_failures->@* ) {
-        push @lines, "  $failure->{test}";
+        push @lines, "  $failure->{test}" . ( defined $failure->{reason} ? " ($failure->{reason})" : q{} );
 
         # A passing assertion and the plan of a subtest explain no failure, and a test suite has hundreds of them.
         push @lines, map { "    $_" } grep { length && !/\A\s*ok\b/ && !/\A\s+\d+[.][.]\d+/ } split /\n/,
@@ -136,6 +136,7 @@ The summary counts every status with the word of L<Test::Mutation::Status>, stat
 A section follows for each status with a heading in the catalog: the mutants that survived, had no coverage, timed out, or have no verdict.
 Each mutant shows its place, its change, the tests that reached it, and the sentence about its case.
 When the unmodified run fails, the report shows the failing tests with their output in place of the summary.
+A test that a limit ended names the reason of the limit beside its name.
 The output leaves out the passing assertions.
 C<color> wraps the score in an escape sequence chosen by the C<high> and C<low> percentages, 80 and 60 by default.
 

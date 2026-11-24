@@ -33,7 +33,7 @@ sub decided (@outcomes) {
 
 subtest 'single outcomes over the whole input domain' => sub {
     my @rows;
-    my %limit = ( timeout => 1, overflow => 1 );
+    my %limit = ( timeout => 'time-limit', overflow => 'output-limit' );
     for my $result (qw(pass fail timeout overflow)) {
         for my $served ( 0, 1 ) {
             for my $load_failed ( 0, 1 ) {
@@ -41,7 +41,7 @@ subtest 'single outcomes over the whole input domain' => sub {
                     for my $syntax (qw(ok compile-phase standalone)) {
                         my $expected =
                             $bypassed                       ? 'NoVerdict loaded-around-hook'
-                          : $limit{$result} && $served      ? 'Timeout time-limit'
+                          : $limit{$result} && $served      ? "Timeout $limit{$result}"
                           : $limit{$result}                 ? 'NoVerdict unstable-test'
                           : !$served                        ? 'NoCoverage not-loaded'
                           : $load_failed && $syntax ne 'ok' ? "CompileError $syntax"
@@ -124,8 +124,13 @@ subtest 'a timeout waits for a later test to decide' => sub {
 
     my %overflow = ( result => 'overflow' );
     is $twice->( \%overflow, \%timeout ),
-      [ 'Timeout', 'time-limit', 't/first.t', 't/first.t exceeded its output limit' ],
-      'a test that the output limit ended counts as one that ran out of time, with its own detail';
+      [ 'Timeout', 'output-limit', 't/first.t', 't/first.t exceeded its output limit' ],
+      'a test that the output limit ended counts as a timeout, with the reason of its own limit';
+    is $twice->( { %timeout, served => 0 }, \%overflow ),
+      [ 'Timeout', 'output-limit', 't/second.t', 't/second.t exceeded its output limit' ],
+      'and takes the place of a time limit before the load';
+    is [ map { Test::Mutation::Verdict::limit($_) } qw(timeout overflow pass fail) ],
+      [ 'time-limit', 'output-limit', undef, undef ], 'the reason of each limit, and none for a test that ended';
     is $twice->( { %overflow, served => 0 }, { %overflow, served => 0 } ),
       [ 'NoVerdict', 'unstable-test', 't/first.t', 't/first.t exceeded its output limit before it loaded the mutant' ],
       'also before the load';

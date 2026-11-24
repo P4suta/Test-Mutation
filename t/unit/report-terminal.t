@@ -172,6 +172,16 @@ subtest 'a failing unmodified run shows the lines that explain the failure' => s
       . "The tests ran in a copy of the project, which holds no .git directory.\n"
       . "--in-place runs them in the project itself.\n",
       'a run in copies names the other place for the tests';
+
+    my $limited = Test::Mutation::Report::Terminal::render(
+        result(
+            [],
+            baseline_failures => [ { test => 't/slow.t', output => "1..1\n", errors => q{}, reason => 'time-limit' } ]
+        ),
+        color => 0
+    );
+    is $limited, "The unmodified run fails, so no mutant ran.\n  t/slow.t (time-limit)\n    1..1\n",
+      'a test that a limit ended names the reason of the limit';
 };
 
 subtest 'color wraps the score when asked' => sub {

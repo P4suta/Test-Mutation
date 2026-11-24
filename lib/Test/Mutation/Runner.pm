@@ -617,7 +617,7 @@ sub _baseline ( $run, $tests, $targets ) {
         tests         => \%tests,
         breakable     => \%breakable,
         parallel_safe => $parallel_safe,
-        failures      => [ map { { test => $_, $outcome->{$_}{result}->%{qw(output errors)} } } @failed ],
+        failures      => [ map { _failure( $_, $outcome->{$_}{result} ) } @failed ],
     };
 }
 
@@ -944,6 +944,12 @@ sub _compile_task ( $run, $job, $kind, $file, $switch ) {
         stop_on_failure => 0,
         payload         => { kind => $kind, job => $job },
     };
+}
+
+# A failing test of the unmodified run, with the reason of the limit that ended it.
+sub _failure ( $test, $result ) {
+    my $reason = Test::Mutation::Verdict::limit( _ending($result) );
+    return { test => $test, $result->%{qw(output errors)}, defined $reason ? ( reason => $reason ) : () };
 }
 
 # The outcome of a test: the limit of the pool that ended it, or its own verdict.

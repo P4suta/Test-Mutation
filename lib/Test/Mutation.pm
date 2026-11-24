@@ -115,7 +115,7 @@ A mutant ends in one of these states.
 C<Killed> means a test failed.
 C<Survived> means every test that reached the mutant passed.
 C<NoCoverage> means no test loaded the mutated code.
-C<Timeout> means a test exceeded its time limit and no other test failed, which the score leaves out.
+C<Timeout> means a test exceeded its time limit or printed past its output limit of 256 MiB, and no other test failed, which the score leaves out.
 After a timeout the run tries the next test, and the second timeout ends the work on the mutant.
 C<CompileError> means the mutant does not compile.
 C<NoVerdict> means the run could not decide, for example because a test loaded the original file around the hook.

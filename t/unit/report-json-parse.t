@@ -242,7 +242,7 @@ subtest 'every status, every reason, and every signal of a result is read back' 
     );
     is [ map { [ $_->@{qw(status reason detail)} ] } $read->entries->@* ],
       [ map { [ $pairs[$_]->@*, "detail $_" ] } 0 .. $#pairs ], 'the statuses, the reasons, and the details';
-    is scalar @pairs, 21, 'every status with each of its reasons';
+    is scalar @pairs, 22, 'every status with each of its reasons';
     is [ map { read_back( interrupted => $_ )->interrupted } qw(HUP INT TERM) ], [qw(HUP INT TERM)], 'the signals';
 };
 

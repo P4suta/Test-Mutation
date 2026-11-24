@@ -1,11 +1,12 @@
 package Test::Mutation::Result;
 use v5.36;
 use Moo;
-use Types::Standard        qw(ArrayRef Bool Dict Enum HashRef Int Maybe Num Str StrMatch);
+use Types::Standard        qw(ArrayRef Bool Dict Enum HashRef Int Maybe Num Optional Str StrMatch);
 use Types::Common::Numeric qw(PositiveInt PositiveOrZeroInt);
 use Type::Params           qw(signature_for);
 use Test::Mutation::Exit;
 use Test::Mutation::Score;
+use Test::Mutation::Status;
 use Test::Mutation::Types qw(Entry);
 
 our $VERSION = '0.001';
@@ -16,8 +17,18 @@ has tests    => ( is => 'ro', isa => ArrayRef [ Dict [ name => Str, duration => 
 has entries  => ( is => 'ro', isa => ArrayRef [Entry], required => 1 );
 has problems => ( is => 'ro', isa => ArrayRef [ Dict [ path => Str, problem => Str ] ], required => 1 );
 has warnings => ( is => 'ro', isa => ArrayRef [Str], required => 1 );
-has baseline_failures =>
-  ( is => 'ro', isa => ArrayRef [ Dict [ test => Str, output => Str, errors => Str ] ], required => 1 );
+has baseline_failures => (
+    is  => 'ro',
+    isa => ArrayRef [
+        Dict [
+            test   => Str,
+            output => Str,
+            errors => Str,
+            reason => Optional [ Enum [ Test::Mutation::Status::of('Timeout')->reasons->@* ] ]
+        ]
+    ],
+    required => 1
+);
 has jobs          => ( is => 'ro', isa => PositiveInt, required => 1 );
 has parallel_safe => ( is => 'ro', isa => Bool,        required => 1 );
 has interrupted   => ( is => 'ro', isa => Maybe [ Enum [ Test::Mutation::Exit::signals()->@* ] ], default => undef );
@@ -95,6 +106,7 @@ Conditions that weaken the measurement without stopping it, each once and in the
 =head2 baseline_failures
 
 The tests that fail in the unmodified run, with their output.
+A test that a limit of the pool ended carries the reason of a timeout for that limit, C<time-limit> or C<output-limit>.
 A run with baseline failures has no entries.
 
 =head2 jobs

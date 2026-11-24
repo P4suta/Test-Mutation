@@ -112,6 +112,12 @@ is of_status(
     'Timeout'
   ),
   ['Timeout time-limit'], 'a time limit after the load';
+
+# A test that prints without end when the mutant is wrong, which the pool ends at the output limit of the run.
+my $flood = "use Small;\nmy \$next = Small::next_one(2);\ndefined \$next or die \"no value\\n\";\n"
+  . "if ( \$next != 3 ) { print STDERR 'x' x 65_536 while 1 }\nprint \"1..1\\nok 1\\n\";\n";
+is of_status( measured( project( 'lib/Small.pm' => $module, 't/flood.t' => $flood ) ), 'lib/Small.pm', 'Timeout' ),
+  ['Timeout output-limit'], 'an output limit after the load';
 my $slow = "use Test::More tests => 1;\nBEGIN { select undef, undef, undef, 0.6 }\n"
   . "use Small;\nis Small::next_one(2), 3, 'the next one';\n";
 is of_status(
@@ -183,7 +189,7 @@ is decided( outcome( served => 0 ) ), ['NoCoverage not-loaded'], 'a test that ne
 my $pairs   = pairs();
 my @ungiven = ungiven( $pairs, \%given );
 Gate::findings( 'contract-reason-reasons', [ map { "no case gives the reason $_" } @ungiven ] );
-Gate::checked( 'reasons of the catalog',    scalar $pairs->@*,     at_least => 19 );
-Gate::checked( 'reasons that a case gives', $pairs->@* - @ungiven, at_least => 12 );
+Gate::checked( 'reasons of the catalog',    scalar $pairs->@*,     at_least => 20 );
+Gate::checked( 'reasons that a case gives', $pairs->@* - @ungiven, at_least => 13 );
 
 done_testing;
