@@ -4,6 +4,20 @@ use Cwd            ();
 use File::Basename ();
 use File::Path     ();
 use File::Temp     ();
+use POSIX          ();
+
+# A system that refuses a new process is rare, so the override fails the fork of the library while a case asks for it.
+our $fork_fails;    ## no critic (Variables::ProhibitPackageVars)
+
+BEGIN {
+    no warnings 'once';
+    *CORE::GLOBAL::fork = sub {
+        return CORE::fork() if !$fork_fails;
+        $! = POSIX::EAGAIN();    ## no critic (Variables::RequireLocalizedPunctuationVars)
+        return;
+    };
+}
+
 use lib 't/lib';
 use Capability;
 use Raised;
@@ -68,6 +82,13 @@ my $plain = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
     like Raised::message( sub { Test::Mutation::Git::changed( $root, 'HEAD' ) } ),
       qr/\Agit diff failed: cannot start git: [^\n]+\z/,
       'a machine without git gets a message that names the command';
+}
+
+{
+    local $fork_fails = 1;
+    like Raised::error( sub { Test::Mutation::Git::changed( $root, 'HEAD' ) } ),
+      [ 'environment', 'git-unstartable', qr/\Acannot start git: \S[^\n]*\z/ ],
+      'a system that refuses a process gives its reason at once';
 }
 
 done_testing;

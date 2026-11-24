@@ -26,30 +26,35 @@ sub changed ( $root, $revision ) {
     return $changed;
 }
 
+# Git writes its answer and its errors to files, and the call reads one of them when Git has ended.
+# A fork of its own fails with a reason, where the fork of a piped open dies or waits until a process is free.
 sub _git ( $root, @arguments ) {
-    my $errors = File::Temp->new;
-    my $pid    = open my $output, q{-|};    ## no critic (InputOutput::RequireBriefOpen)
+    my ( $output, $errors ) = ( File::Temp->new, File::Temp->new );
+    my $pid = fork;
     Test::Mutation::Error::raise( 'git-unstartable', reason => "$!" ) if !defined $pid;
     if ( !$pid ) {
 
         # The child must end here: an exception would run the rest of the caller in a second process.
-        if ( open my $log, '>', $errors->filename ) {    ## no critic (InputOutput::RequireBriefOpen)
-            POSIX::dup2( fileno $log, 2 );
-            no warnings 'exec';                          ## no critic (TestingAndDebugging::ProhibitNoWarnings)
-            exec {'git'} 'git', '-C', $root, @arguments
-              or syswrite $log, Test::Mutation::Message::text_of( 'git-unstartable', reason => "$!" ) . "\n";
-        }
+        POSIX::dup2( fileno $output, 1 );
+        POSIX::dup2( fileno $errors, 2 );
+        no warnings 'exec';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
+        exec {'git'} 'git', '-C', $root, @arguments
+          or syswrite $errors, Test::Mutation::Message::text_of( 'git-unstartable', reason => "$!" ) . "\n";
         POSIX::_exit(127);
     }
-    my $text = do { local $/ = undef; readline $output };
-    return defined $text ? $text : q{} if close $output;
+    waitpid $pid, 0;
+    my $failed = $?;
 
-    my $command = $arguments[0];
-    open my $handle, '<', $errors->filename or Test::Mutation::Error::raise( 'git-silent', command => $command );
-    my $reason = readline $handle;
-    close $handle or Test::Mutation::Error::raise( 'git-silent', command => $command );
+    # The child wrote through the same open files, so the call reads one of them from its start.
+    my $answer = $failed ? $errors : $output;
+    seek $answer, 0, 0
+      or Test::Mutation::Error::raise( 'file-unreadable', path => $answer->filename, reason => "$!" );
+    my $text = do { local $/ = undef; readline $answer };
+    return defined $text ? $text : q{} if !$failed;
+
+    my $command  = $arguments[0];
+    my ($reason) = split /\n/, defined $text ? $text : q{};
     Test::Mutation::Error::raise( 'git-silent', command => $command ) if !defined $reason;
-    chomp $reason;
     return Test::Mutation::Error::raise( 'git-failed', command => $command, reason => $reason );
 }
 

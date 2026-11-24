@@ -5,7 +5,9 @@ use File::Temp ();
 use lib 't/e2e/lib', 't/lib';
 use Capability;
 use Fixture qw(run_fixture statuses write_file);
+use Raised;
 use Test::Mutation::Config;
+use Test::Mutation::Error;
 use Test::Mutation::Runner;
 use Test::Mutation::Tree;
 
@@ -568,6 +570,28 @@ subtest 'a source that holds a single zero keeps its text' => sub {
     my $root     = project( 'lib/Zero.pm' => '0', 'lib/Small.pm' => $MODULE );
     my $analysis = Test::Mutation::Runner::analyze( Test::Mutation::Config->new( root => $root ) );
     is $analysis->{sources}{'lib/Zero.pm'}->text, '0', 'the text';
+};
+
+subtest 'a copy that the system refuses names a way out, and a defect of the copy passes on as it is' => sub {
+    my $root    = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $TEST );
+    my $config  = Test::Mutation::Config->new( root => $root, jobs => 1 );
+    my $copying = sub ($failure) {
+        no warnings 'redefine';
+        local *Test::Mutation::Tree::copy = $failure;
+        return Raised::error(
+            sub {
+                Test::Mutation::Runner::run( $config, sub (@) { return } );
+            }
+        );
+    };
+    is $copying->(
+        sub (@) { Test::Mutation::Error::raise( 'file-unreadable', path => 'lib/Small.pm', reason => 'gone' ) } ),
+      [
+        'environment', 'project-uncopyable',
+        'cannot copy the project: cannot read lib/Small.pm: gone; --in-place runs the tests in the project itself'
+      ],
+      'an error of the system';
+    is $copying->( sub (@) { die "the copy broke\n" } ), "the copy broke\n", 'an error without a type';
 };
 
 done_testing;

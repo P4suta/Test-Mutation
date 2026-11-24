@@ -254,23 +254,27 @@ sub _measure ( $run, $started ) {
             _prepare_work($run);
             $run->{targets} = [ sort keys $analysis->{sources}->%* ];
             my $baseline = _baseline( $run, \@tests, $run->{targets} );
-            $result{parallel_safe}     = $baseline->{parallel_safe};
-            $result{baseline_failures} = $baseline->{failures};
-            $result{tests} =
-              [ map { { name => $_, duration => $baseline->{tests}{$_}{duration} } } sort keys $baseline->{tests}->%* ];
+            my %measured = (
+                parallel_safe     => $baseline->{parallel_safe},
+                baseline_failures => $baseline->{failures},
+                tests             => [
+                    map { { name => $_, duration => $baseline->{tests}{$_}{duration} } }
+                    sort keys $baseline->{tests}->%*
+                ],
+            );
             if ( !$baseline->{failures}->@* ) {
                 $listener->( 'baseline', { tests => scalar(@tests), jobs => $run->{jobs} } );
                 $run->{tree} = _tree($run) if !defined $run->{copies};
-                $result{entries} = _mutants( $run, $analysis->{mutants}, $baseline );
+                $measured{entries} = _mutants( $run, $analysis->{mutants}, $baseline );
             }
-            return 1;
+            return \%measured;
         };
         my $leave = sub {
             _warn( $run, "the work directory $run->{work} stays, because a file in it resists removal" )
               if !$config->keep_work && _leave_work($run);
             return;
         };
-        Test::Mutation::Try::with_cleanup( $measure, $leave );
+        %result = ( %result, Test::Mutation::Try::with_cleanup( $measure, $leave )->%* );
     }
     else {
         _warn( $run, 'no test files match' ) if @active && !@tests;
@@ -468,11 +472,10 @@ sub run_command ( $config, $source, $mutant, $command ) {
         no warnings 'exec';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
         my $status = system { $command->[0] } $command->@*;
         my $reason = "$!";
-
-        # A signal for the tool alone waits while the command runs, and it ends the work when the command has ended.
-        Test::Mutation::Signals::check();
         return [ $status, $reason ];
     };
+
+    # A signal for the tool alone waits while the command runs, and it ends the work once the work directory is gone.
     my $ran = Test::Mutation::Signals::watch(
         sub {
             Test::Mutation::Try::with_cleanup( $work, sub { _leave_work($run) } );
@@ -637,7 +640,7 @@ sub _mutants ( $run, $mutants, $baseline ) {
         return;
     };
     my $measure = sub {
-        Test::Mutation::Pool::run(
+        return Test::Mutation::Pool::run(
             jobs => $run->{jobs},
             next => sub {
                 while ( my $job = shift @waiting ) {
@@ -651,7 +654,6 @@ sub _mutants ( $run, $mutants, $baseline ) {
                 return _after_task( $run, $baseline, $task, $result ) || $finish->( $task->{payload}{job} );
             },
         );
-        return 1;
     };
 
     # A signal ends the measurement, and the mutants that it measured keep their results.

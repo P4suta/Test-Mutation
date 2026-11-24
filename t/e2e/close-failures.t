@@ -19,12 +19,9 @@ BEGIN {
 }
 
 use lib 't/e2e/lib', 't/lib';
-use Capability;
-use Raised;
 use Fixture qw(copy_of leftovers run_fixture);
 use Test::Mutation::CLI;
 use Test::Mutation::Config;
-use Test::Mutation::Git;
 use Test::Mutation::Runner;
 
 sub failing_in ( $pattern, $code ) {
@@ -99,15 +96,6 @@ is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 5, 'mutation: cannot close whol
       failing_in( qr/::CLI::_write\z/, sub { command( 'merge', @reports, '--format', 'github' ) } );
     is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 5, "mutation: cannot close $root/summary.md" ],
       'a job summary that does not close fails the command';
-}
-
-if ( Capability::has( 'git', length qx{git --version 2>/dev/null}, 'the case needs the git command' ) ) {
-    is Raised::error(
-        sub {
-            failing_in( qr/::Git::_git\z/, sub { Test::Mutation::Git::changed( $root, 'HEAD' ) } );
-        }
-      ),
-      [ 'environment', 'git-silent', 'git diff failed' ], 'a git answer that does not close fails without a reason';
 }
 
 done_testing;

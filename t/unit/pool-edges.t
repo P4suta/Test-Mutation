@@ -63,6 +63,24 @@ sub gone ($pid) {
     return 0;
 }
 
+# A child that came back from the start of its command would run the rest of the driver a second time.
+subtest 'the child of a command that cannot start ends there with status 127' => sub {
+    my $missing = "$dir/no-such-program";
+    pipe my $read, my $write or die "pipe: $!";
+    my $pid = fork;
+    die "fork: $!" if !defined $pid;
+    if ( !$pid ) {
+        my $task = task( $missing, command => [$missing], stderr => "$dir/returned.err" );
+        Test::Mutation::Pool::_exec_child( $task, $write );    ## no critic (Subroutines::ProtectPrivateSubs)
+        POSIX::_exit(0);
+    }
+    close $write or die "close: $!";
+    waitpid $pid, 0;
+    is $? >> 8, 127, 'the child never returns to its caller';
+    like text_of("$dir/returned.err"), qr/\Amutation: cannot start \Q$missing\E: [^\n]+\n\z/,
+      'and it leaves the line with its reason';
+};
+
 subtest 'the pool asks for a task once more after the last one and then never again' => sub {
     my @queue = map { task( script( "plain-$_.t", qq{print "1..1\\nok 1\\n";\n} ) ) } 1 .. 3;
     push @queue, task( script( 'last.t', qq{sleep 1;\nprint "1..1\\nok 1\\n";\n} ) );

@@ -210,7 +210,7 @@ push @literal,
   named_problems( \%named, \@catalog,
     { map { $_ => $ALLOWED{$_}{computed} } grep { $ALLOWED{$_}{computed} } keys %ALLOWED } );
 Gate::findings( 'contract-literal-source', \@literal );
-Gate::checked( 'calls that name a message of the catalog',       $calls,          at_least => 100 );
+Gate::checked( 'calls that name a message of the catalog',       $calls,          at_least => 99 );
 Gate::checked( 'die statements that copy the line of a message', $copies,         at_least => 2 );
 Gate::checked( 'messages of the catalog',                        scalar @catalog, at_least => 64 );
 

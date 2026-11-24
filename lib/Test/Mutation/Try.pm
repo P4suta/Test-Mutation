@@ -29,8 +29,9 @@ sub with_cleanup ( $code, $cleanup ) {
     my $attempt = attempt( $code, 'interruption' );
 
     # A process that the code started holds no part of what the cleanup releases.
-    Test::Mutation::Signals::deferred( sub { $cleanup->(); return 1 } ) if $$ == $owner;
-    die $attempt->{error}                                               if exists $attempt->{error};    ## no critic (ErrorHandling::RequireCarping)
+    # A deferral passes a value on, so the list of what the cleanup returns stands in for its value.
+    Test::Mutation::Signals::deferred( sub { return [ $cleanup->() ] } ) if $$ == $owner;
+    die $attempt->{error}                                                if exists $attempt->{error};    ## no critic (ErrorHandling::RequireCarping)
     return $attempt->{value};
 }
 
