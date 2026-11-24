@@ -122,8 +122,22 @@ subtest 'a statement that no mutant touches counts for its class' => sub {
 };
 
 subtest 'the census rejects a pattern that the analysis leaves out without a count' => sub {
-    my $sound = census_of("sub f { return \$_[0] =~ /^a+\$/ }\n1;\n");
-    is [ $sound->@{qw(dropped unparsed)} ], [ 0, 0 ], 'a pattern that PPIx::Regexp reads is no pattern left out';
+    my $code  = "use constant PATTERN => qr/b/;\nsub f { return \$_[0] =~ /^a+\$/ }\n1;\n";
+    my $sound = census_of($code);
+    is [ $sound->@{qw(dropped unparsed patterns)} ], [ 0, 0, 1 ],
+      'a pattern that PPIx::Regexp reads is no pattern left out, and the census leaves the use statement out';
+    my $failing = do {
+        no warnings 'redefine';
+        local *PPIx::Regexp::failures = sub { return 1 };
+        census_of($code);
+    };
+    is [ $failing->@{qw(dropped unparsed patterns)} ], [ 1, 1, 1 ],
+      'the analysis counts the pattern that PPIx::Regexp fails on, as the census does';
+    is Census::uncounted($failing), [], 'so the two counts agree';
+    my $split = Census::summary( [ [ 'lib/A.pm', 'dropped', 1, 0, 1 ], [ 'lib/B.pm', 'dropped', 0, 1, 1 ] ] );
+    is Census::uncounted($split),
+      ['the analysis leaves out a pattern that PPIx::Regexp cannot read, without a count'],
+      'a file with a pattern left out in silence fails, though another file counts one pattern more';
     is Census::uncounted( { dropped => 2, unparsed => 2 } ), [], 'the analysis counts each pattern that it leaves out';
     is Census::uncounted( { dropped => 1, unparsed => 3 } ),
       ['the analysis leaves out a pattern that PPIx::Regexp cannot read, without a count'],
@@ -153,7 +167,8 @@ note sprintf '%-28s %6d statements, %6d without a change, %6d with every change 
   $census->{statements}{$_}->@{qw(all bare refused)}
   for sort keys $census->{statements}->%*;
 note sprintf '%s: %d of %d statements without a change', $_->@* for Census::barest_files( $census, 10 );
-note "the analysis counts $census->{dropped} patterns as left out, and PPIx::Regexp fails on $census->{unparsed}";
+note
+  "PPIx::Regexp read $census->{patterns} patterns and fails on $census->{unparsed}, and the analysis counts $census->{dropped} as left out";
 
 is $census->{unplaced}, 0, 'PPI places every token of the corpus on its own text';
 Gate::findings( 'mutants-dropped-corpus', Census::uncounted($census) );
@@ -164,5 +179,6 @@ Gate::checked( 'files',      scalar @files,                                     
 Gate::checked( 'keys',       scalar keys $census->{observed}->%*,                        at_least => 80 );
 Gate::checked( 'tokens',     sum0( values $census->{observed}->%* ),                     at_least => 30_000 );
 Gate::checked( 'statements', sum0( map { $_->{all} } values $census->{statements}->%* ), at_least => 4000 );
+Gate::checked( 'patterns that PPIx::Regexp read', $census->{patterns},                   at_least => 90 );
 
 done_testing;

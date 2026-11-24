@@ -119,16 +119,24 @@ sub _key_records ( $tokens, $made, $refused ) {
     return map { [ 'key', $_, $observed{$_}, $claimed{$_} || 0, $refused{$_} || 0 ] } sort keys %observed;
 }
 
-# The patterns of a source that PPIx::Regexp reads with a failure or reads as another text.
+sub _in_use_statement ($token) {
+    my $node = $token->parent;
+    $node = $node->parent while $node && !$node->isa('PPI::Statement::Include');
+    return $node ? 1 : 0;
+}
+
+# The patterns of a source outside the use statements, and the ones that PPIx::Regexp fails on or reads as another text.
+# The analysis reads no use statement, so a pattern there has no count of the analysis to compare.
 sub _unparsed ($tokens) {
-    my $count = 0;
-    for my $token ( grep { $PATTERN{ $_->{class} } } $tokens->@* ) {
+    my ( $read, $unparsed ) = ( 0, 0 );
+    for my $token ( grep { $PATTERN{ $_->{class} } && !_in_use_statement( $_->{token} ) } $tokens->@* ) {
         my $pattern = PPIx::Regexp->new( $token->{content} );
         my $sound =
           $pattern && !$pattern->failures && join( q{}, map { $_->content } $pattern->tokens ) eq $token->{content};
-        $count++ if !$sound;
+        $read++;
+        $unparsed++ if !$sound;
     }
-    return $count;
+    return ( $unparsed, $read );
 }
 
 # A statement that runs: a declaration of a package or of a subroutine and an empty statement hold no code of their own.
@@ -201,6 +209,7 @@ sub records ($source) {
 # The records of a walk as the counts of each key, the statements of each class, and the statements of each file.
 # `refused` holds the places where the generator refused every change with a rule, which declines them with a reason.
 # `dropped` holds the patterns that the analysis counts as left out, and `unparsed` the ones that PPIx::Regexp fails on.
+# `patterns` holds the patterns that PPIx::Regexp read, and `short` the files whose analysis counts fewer than it fails on.
 sub summary ($records) {
     my %census = (
         observed   => {},
@@ -208,9 +217,11 @@ sub summary ($records) {
         refused    => {},
         statements => {},
         files      => {},
+        short      => [],
         unplaced   => 0,
         dropped    => 0,
         unparsed   => 0,
+        patterns   => 0,
     );
     for my $record ( $records->@* ) {
         my ( $path, $kind, @fields ) = $record->@*;
@@ -218,8 +229,11 @@ sub summary ($records) {
             $census{unplaced} += $fields[0];
         }
         elsif ( $kind eq 'dropped' ) {
-            $census{dropped}  += $fields[0];
-            $census{unparsed} += $fields[1];
+            my ( $dropped, $unparsed, $patterns ) = @fields;
+            $census{dropped}  += $dropped;
+            $census{unparsed} += $unparsed;
+            $census{patterns} += $patterns || 0;
+            push $census{short}->@*, $path if $dropped < $unparsed;
         }
         else {
             _add_record( \%census, $path, $kind, @fields );
@@ -263,14 +277,12 @@ sub undecided ( $census, $declined ) {
 }
 
 # The analysis reads a pattern with PPIx::Regexp and counts the ones that it leaves out.
-# The census reads the same patterns on its own, in the code of a use statement too, which the analysis never reads.
-# A count of the analysis below the count of the census outside those statements is a pattern left out in silence.
+# The census reads the same patterns on its own, apart from the use statements, which the analysis never reads.
+# A count of the analysis below the count of the census in one file is a pattern left out in silence.
+# A file with a surplus hides no other file, as the comparison stands for each file apart.
 sub uncounted ($census) {
-    return [
-        $census->{dropped} >= $census->{unparsed}
-        ? ()
-        : 'the analysis leaves out a pattern that PPIx::Regexp cannot read, without a count'
-    ];
+    my $short = ( $census->{short} || [] )->@* || $census->{dropped} < $census->{unparsed};
+    return [ $short ? 'the analysis leaves out a pattern that PPIx::Regexp cannot read, without a count' : () ];
 }
 
 # The keys of a census that another census never shows, as a census of its own.

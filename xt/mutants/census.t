@@ -22,7 +22,14 @@ subtest 'the census rejects a construct of real code that the fast gate never re
     my %near = ( observed => { 'operator +' => 9, 'word elsif' => 2 }, claimed => { 'operator +' => 9 } );
     my %far  = ( observed => { 'operator +' => 5, 'word elsif' => 4, 'word wantarray' => 1 }, claimed => {} );
     is Census::beyond( \%far, \%near ),
-      { observed => { 'word wantarray' => 1 }, claimed => {}, statements => {}, files => {}, unplaced => 0 },
+      {
+        observed   => { 'word wantarray' => 1 },
+        claimed    => {},
+        refused    => {},
+        statements => {},
+        files      => {},
+        unplaced   => 0
+      },
       'a key of the far corpus alone stays, and a key that both show belongs to the near one';
     is Census::undecided( Census::beyond( \%far, \%near ), {} ),
       ['no mutant covers word wantarray, and no reason declines it'], 'and it is a finding of its own';
@@ -39,7 +46,8 @@ note sprintf '%-28s %7d statements, %7d without a change, %7d with every change 
   for sort keys $far->{statements}->%*;
 note sprintf '%s: %d of %d statements without a change', $_->@* for Census::barest_files( $far, 20 );
 note "$far->{unplaced} tokens stand where PPI does not place them";
-note "the analysis counts $far->{dropped} patterns as left out, and PPIx::Regexp fails on $far->{unparsed}";
+note
+  "PPIx::Regexp read $far->{patterns} patterns and fails on $far->{unparsed}, and the analysis counts $far->{dropped} as left out";
 
 # A key that the fast gate decides has its finding there, so this gate holds the keys of the installed modules alone.
 # The fast gate shows every declined construct in a seed text, and here a reason counts for the keys that this corpus adds.
@@ -56,10 +64,10 @@ Gate::findings(
         Census::uncounted($far)->@*,
     ]
 );
-Gate::checked( 'patterns that the analysis counts as left out', $far->{dropped},                  at_least => 1 );
-Gate::checked( 'files',                                         scalar @files,                    at_least => 1200 );
-Gate::checked( 'keys',                                          scalar keys $far->{observed}->%*, at_least => 200 );
-Gate::checked( 'tokens',     sum0( values $far->{observed}->%* ),                     at_least => 2_000_000 );
-Gate::checked( 'statements', sum0( map { $_->{all} } values $far->{statements}->%* ), at_least => 250_000 );
+Gate::checked( 'patterns that PPIx::Regexp read', $far->{patterns},                    at_least => 20_000 );
+Gate::checked( 'files',                           scalar @files,                       at_least => 1200 );
+Gate::checked( 'keys',                            scalar keys $far->{observed}->%*,    at_least => 200 );
+Gate::checked( 'tokens',                          sum0( values $far->{observed}->%* ), at_least => 2_000_000 );
+Gate::checked( 'statements', sum0( map { $_->{all} } values $far->{statements}->%* ),  at_least => 250_000 );
 
 done_testing;

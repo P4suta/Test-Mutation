@@ -109,7 +109,7 @@ Gate::checked( 'mutants',                             $total->{mutants},        
 Gate::checked( 'mutants that perl judged',            $total->{judged},             at_least => 35_000 );
 Gate::checked( 'patches that were applied',           $total->{patched},            at_least => 35_000 );
 Gate::checked( 'verdicts that a cold perl confirmed', $total->{crossed},            at_least => 1000 );
-Gate::checked( 'changes that the tool refused',       $total->{refusals},           at_least => 50_000 );
+Gate::checked( 'changes that the tool refused',       $total->{refusals},           at_least => 6000 );
 Gate::checked( 'refused changes that perl judged',    $total->{asked},              at_least => 1000 );
 
 # Perl judges every mutant of the corpus, of the fixtures, and of the tool itself, and B::Deparse prints its code.

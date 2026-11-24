@@ -23,4 +23,9 @@ sub ended ( $seconds, $code ) {
     return 0;
 }
 
+# Whether an error is the stop of the bound, which code that catches its own errors passes on to the bound.
+sub stopped ($error) {
+    return $error eq $STOPPED ? 1 : 0;
+}
+
 1;

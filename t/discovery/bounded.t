@@ -27,6 +27,14 @@ subtest 'the bound rejects code that never ends' => sub {
     my $spent = Time::HiRes::time() - $started;
     ok $spent >= 0.2 && $spent < 5, 'after the limit, and soon';
     is bounded( 5, sub { return 'next' } ), [ 1, 'next' ], 'the next run starts with a fresh limit';
+
+    my $catches = sub {
+        my $done = eval { 1 while 1; 1 };
+        die $@ if !$done && Bounded::stopped($@);
+        return 'caught';
+    };
+    is bounded( 0.2, $catches ), [0], 'code that catches its own errors passes the stop on';
+    ok !Bounded::stopped("broken input\n"), 'and no other error reads as the stop';
 };
 
 subtest 'a death passes through the bound' => sub {

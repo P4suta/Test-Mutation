@@ -303,7 +303,21 @@ subtest 'the refusal oracle rejects a change that the generator refuses without 
     my @asked = Oracle::refusals_for_perl( $unit, \@real );
     ok scalar(@asked), 'perl has refusals of the tool to judge (' . @asked . ')';
     my $judged = Oracle::judgement( $unit, \@asked, wants => ['calls'] );
-    is classes( Oracle::accepted_refusals($judged) ), [], 'and perl refuses each change that the tool refuses for perl';
+    is classes( Oracle::accepted_refusals( $unit, $judged ) ), [],
+      'and perl refuses each change that the tool refuses for perl';
+
+    # Without `use strict` perl compiles a removed declaration and the text of a here-document that parses as code.
+    my $loose = Oracle::text_source( 'lib/Loose.pm',
+        "sub size {\n    if ( my \$n = shift ) { return \$n }\n    return 0;\n}\nsub one {\n    return <<'EOT';\n1;\nEOT\n}\n1;\n"
+    );
+    my $loosely = Oracle::generated($loose);
+    my @shown   = Oracle::refusals_for_perl( $loose, Oracle::candidates( $loose, $loosely ) );
+    my $lenient = Oracle::judgement( $loose, \@shown, wants => ['calls'] );
+    is [ sort map { $_->{mutant}->description } grep { $_->{compiled} } $lenient->{verdicts}->@* ],
+      [ 'declaration', 'declaration', 'here-document' ],
+      'perl compiles both refused conditions of a declaration and the refused removal of a here-document';
+    is classes( Oracle::accepted_refusals( $loose, $lenient ) ), [],
+      'and the text shows the cause of both: a later name of the variable, and a text of the here-document left behind';
 
     # A refusal without a cause: the test names a rule for a change of the plus sign that no rule refuses.
     my ($plus) = grep { $_->text eq q{+} } $made->{sites}->@*;
@@ -314,11 +328,35 @@ subtest 'the refusal oracle rejects a change that the generator refuses without 
           qw(same-text line-count same-result final-value) ],
       'a rule that the text decides is refused where the text shows no cause';
     my $accepted = Oracle::judgement( $unit, [ Oracle::refusals_for_perl( $unit, \@false ) ], wants => ['calls'] );
-    is classes( Oracle::accepted_refusals($accepted) ),
+    is classes( Oracle::accepted_refusals( $unit, $accepted ) ),
       [ map { "by-hand has a change refused under $_ that perl accepts" }
           qw(here-document declaration unresolved-call) ],
       'and a rule that perl decides is refused where perl accepts the change';
     $checked += @real + @false;
+};
+
+subtest 'the refusal oracle rejects a declaration that never reaches the code after the change' => sub {
+    my $text = "sub run {\n    my \$n = 1;\n    each_item( sub { my \$n = shift; return \$n } );\n    return \$n;\n}\n"
+      . "sub each_item { return \$_[0]->(2) }\n__PACKAGE__;\n";
+    my $unit    = Oracle::text_source( 'lib/Scope.pm', $text );
+    my @refused = (
+        Oracle::by_hand( $unit, 'each_item( sub { my $n = shift; return $n } );', q{}, description => 'declaration' ),
+        Oracle::by_hand( $unit, 'my $n = 1;',                                     q{}, description => 'declaration' ),
+    );
+    my $judged = Oracle::judgement( $unit, \@refused, wants => ['calls'] );
+    is [ map { $_->{compiled} } $judged->{verdicts}->@* ], [ 1, 1 ],
+      'perl compiles both changes in a file without strict';
+    is [ map { $_->[0]->original } Oracle::accepted_refusals( $unit, $judged ) ],
+      ['each_item( sub { my $n = shift; return $n } );'],
+      'a declaration inside a block of the change shows no cause, and one that later code names shows its cause';
+
+    my @final =
+      grep { ( $_->{rule} || q{} ) eq 'final-value' } Oracle::candidates( $unit, Oracle::generated($unit) )->@*;
+    is [ map { $_->{site}->text } @final ], ['__PACKAGE__;'],
+      'the tool refuses to remove the name of the package that ends the file';
+    is classes( Oracle::unjustified( $unit, \@final ) ), [],
+      'and the text shows the cause: a constant word ends the code';
+    $checked += @refused + @final;
 };
 
 subtest 'the cross-check rejects a verdict of the server that perl -c does not give' => sub {

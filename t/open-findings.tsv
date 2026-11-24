@@ -12,18 +12,10 @@ realworld	Variable-Magic with blib: the run reports a mutant that fails to compi
 realworld	Variable-Magic: the unmodified run fails where the tests of the distribution pass	the build of a distribution in the copy
 mutants-b-generated	condition-fixed yields code that perl refuses	the validity boundary of the generator
 mutants-b-installed	arithmetic leaves a variable without its declaration	the validity boundary of the generator
-mutants-b-installed	call-swap yields code that perl refuses	the import resolution of the validity boundary
 mutants-b-installed	comparison yields code that perl refuses	the validity boundary of the generator
-mutants-b-installed	condition-fixed leaves a variable without its declaration	the validity boundary of the generator
 mutants-b-installed	regex-anchor yields code that perl refuses	the validity boundary of the generator
-mutants-b-installed	return-value removes a here-document introducer	the validity boundary of the generator
 mutants-b-installed	string-literal yields code that perl refuses	the validity boundary of the generator
-mutants-b-product	condition-fixed removes a here-document introducer	the validity boundary of the generator
 mutants-b-product	condition-fixed yields code that perl refuses	the validity boundary of the generator
-mutants-b-product	return-value removes a here-document introducer	the validity boundary of the generator
-mutants-b-product	statement-removal yields code that perl refuses	the validity boundary of the generator
-mutants-b-product	sub-body removes a here-document introducer	the validity boundary of the generator
-mutants-b2-installed	call-swap introduces an unresolved call	the import resolution of the validity boundary
 mutants-b3-generated	comparison leaves the file without a true value	the validity boundary of the generator
 mutants-b3-generated	number-literal leaves the file without a true value	the validity boundary of the generator
 mutants-b3-generated	string-comparison leaves the file without a true value	the validity boundary of the generator
@@ -36,6 +28,11 @@ mutants-b3-product	string-comparison leaves the file without a true value	the va
 mutants-c-own	comparison compiles to the code of the original	the validity boundary of the generator
 mutants-c-own	number-literal compiles to the code of the original	the validity boundary of the generator
 mutants-c-own	string-literal compiles to the code of the original	the validity boundary of the generator
+mutants-c-sample	call-swap compiles to the code of the original	the validity boundary of the generator
+mutants-c-sample	comparison compiles to the code of the original	the validity boundary of the generator
+mutants-c-sample	condition-fixed compiles to the code of the original	the validity boundary of the generator
+mutants-c-sample	negation compiles to the code of the original	the validity boundary of the generator
+mutants-c-sample	string-literal compiles to the code of the original	the validity boundary of the generator
 mutants-census-corpus	no mutant covers ArrayIndex, and no reason declines it	the new mutators and the declined table of the census
 mutants-census-corpus	no mutant covers HereDoc, and no reason declines it	the new mutators and the declined table of the census
 mutants-census-corpus	no mutant covers Number::Float, and no reason declines it	the new mutators and the declined table of the census
@@ -201,13 +198,12 @@ mutants-census-installed	no mutant covers word warn, and no reason declines it	t
 mutants-context-generated	the context changes the mutants of an expression: modifier	the typed analysis with its count of dropped sites
 mutants-context-generated	the context changes the mutants of an expression: use statement	the typed analysis with its count of dropped sites
 mutants-context-product	the context changes the mutants of an expression: modifier	the typed analysis with its count of dropped sites
-mutants-context-product	the context changes the mutants of an expression: signature default, unknown to PPI	the typed analysis with its count of dropped sites
 mutants-context-product	the context changes the mutants of an expression: use statement	the typed analysis with its count of dropped sites
-mutants-e-installed	negation gives the same text as a mutant of negation	the validity boundary of the generator
-mutants-files-installed	the tool makes no mutant of a file: the file has carriage returns	the typed analysis of a file with carriage returns
 mutants-literal-installed	number-literal reads an octal literal as a decimal number	the number-literal mutator that keeps the base of a literal
+mutants-refusal-installed	boolean-literal has a change refused under unresolved-call that perl accepts	the import resolution of the validity boundary
+mutants-refusal-installed	statement-removal has a change refused under declaration that perl accepts	the validity boundary of the generator
+mutants-refusal-own	statement-removal has a change refused under declaration that perl accepts	the validity boundary of the generator
 mutants-statements-corpus	no mutant touches a statement of the class Statement::Include	the typed analysis of the code in a use statement
-mutants-statements-installed	no mutant touches a statement of the class Statement::Include	the typed analysis of the code in a use statement
 mutants-suppress-layouts	the parser accepts a block without its use mutate	the suppression grammar
 mutants-suppress-layouts	the parser accepts a candidate that is not canonical	the suppression grammar
 mutants-suppress-layouts	the parser accepts a directive that suppresses no mutant	the suppression grammar

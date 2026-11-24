@@ -35,13 +35,17 @@ sub _ungenerated ( $problem, $detail ) {
 
 # The sites and the mutants of a source with the given mutators, or the reason for their absence.
 sub generated ( $source, $mutators = Test::Mutation::Mutator::Catalog::mutators() ) {
+
+    # A bound around the call stops the analysis with an error, and the bound reads that error itself.
     my $analysis = eval { Test::Mutation::Syntax::PPI::analyze($source) };
+    die $@                                         if !$analysis && Bounded::stopped($@);
     return _ungenerated( 'the analysis died', $@ ) if !$analysis;
     my $problem = $analysis->{problem};
     return _ungenerated( $problem =~ s/:.*//sr, $problem ) if defined $problem;
     my $made = eval {
         Test::Mutation::Mutant::Generator::generate( source => $source, analysis => $analysis, mutators => $mutators );
     };
+    die $@                                           if !$made && Bounded::stopped($@);
     return _ungenerated( 'the generation died', $@ ) if !$made;
     return {
         problem => undef,
@@ -104,8 +108,14 @@ sub by_hand ( $source, $original, $replacement, %override ) {
     );
 }
 
+# The text of a call that the boundary found no name for: the package of the original call before the new name.
+sub _call_text ( $site, $name ) {
+    my ($package) = $site->text =~ /\A(.+)::\w+\z/;
+    return defined $package && $name !~ /::/ ? "${package}::$name" : $name;
+}
+
 # The refused change of a candidate as a mutant, so perl and the reports read it like one.
-# The description holds the rule, and a call that the boundary found no name for is written by its bare name.
+# The description holds the rule, and a call that the boundary found no name for keeps the package of the original.
 sub _refused_mutant ( $source, $candidate ) {
     my ( $site, $proposal ) = $candidate->@{qw(site proposal)};
     return Test::Mutation::Mutant->new(
@@ -115,12 +125,20 @@ sub _refused_mutant ( $source, $candidate ) {
         start       => $site->start,
         end         => $site->end,
         original    => $site->text,
-        replacement => defined $proposal->{calls} ? $proposal->{calls} : $proposal->{replacement},
+        replacement => defined $proposal->{calls} ? _call_text( $site, $proposal->{calls} ) : $proposal->{replacement},
         description => $candidate->{rule},
         from        => $source->position_of( $site->start ),
         to          => $source->position_of( $site->end ),
         scope       => [ 1, 1 ],
     );
+}
+
+# The words that perl reads as a constant while it compiles a file.
+my %CONSTANT_WORD = map { $_ => 1 } qw(__PACKAGE__ __FILE__ __LINE__ __CLASS__);
+
+sub _is_value_token ($token) {
+    return 1 if grep { $token->isa("PPI::Token::$_") } qw(Number Quote Operator Structure);
+    return $token->isa('PPI::Token::Word') && $CONSTANT_WORD{ $token->content } ? 1 : 0;
 }
 
 # The spans of the statements of a file that are a value alone: literals and operators, as the last `1;` of a module.
@@ -131,12 +149,7 @@ sub _value_statements ($source) {
     for my $statement ( $read->{document} ? $read->{document}->schildren : () ) {
         next if ref $statement ne 'PPI::Statement';
         my @tokens = grep { $_->significant } $statement->tokens;
-        next if grep {
-                 !$_->isa('PPI::Token::Number')
-              && !$_->isa('PPI::Token::Quote')
-              && !$_->isa('PPI::Token::Operator')
-              && !$_->isa('PPI::Token::Structure')
-        } @tokens;
+        next if grep { !_is_value_token($_) } @tokens;
         my ( $first, $last ) = @place{ refaddr( $tokens[0] ), refaddr( $tokens[-1] ) };
         push @spans, [ $first->{start}, $last->{end} ] if $first && $last;
     }
@@ -145,14 +158,93 @@ sub _value_statements ($source) {
 
 my %BY_PERL = map { $_ => 1 } qw(here-document declaration unresolved-call);
 
+my %DECLARES = map { $_ => 1 } qw(my our state);
+
+# The word before a symbol, or before the list that holds it, as in `my $x` and `my ( $x, $y )`.
+sub _declaring_word ($symbol) {
+    my $before = $symbol->sprevious_sibling;
+    return $before if $before;
+    my $list = $symbol->parent;
+    $list = $list->parent if $list && $list->isa('PPI::Statement::Expression');
+    return $list && $list->isa('PPI::Structure::List') ? $list->sprevious_sibling : undef;
+}
+
+# The innermost block around a token, or nothing at the level of the file.
+sub _block_of ($token) {
+    my $node = $token->parent;
+    $node = $node->parent while $node && !$node->isa('PPI::Structure::Block');
+    return $node;
+}
+
+# The end of the code that a declaration at the level of a span reaches: the end of the block around the span.
+sub _reach_of ( $source, $read, $first ) {
+    my $end     = length $source->text;
+    my $block   = _block_of($first) or return $end;
+    my $close   = $block->finish    or return $end;
+    my ($place) = grep { refaddr( $_->{token} ) == refaddr($close) } $read->{tokens}->@*;
+    return $place ? $place->{start} : $end;
+}
+
+sub _same_node ( $one, $other ) {
+    return !$one && !$other || $one && $other && refaddr($one) == refaddr($other) ? 1 : 0;
+}
+
+# Whether a span declares a variable that a symbol after the span names, as PPI reads the text here.
+# A declaration inside a block of the span ends with that block, and a later name counts inside the block around the span.
+# Perl refuses such a change under `use strict` alone, so the text decides the rule in every file.
+sub _declares_a_later_name ( $source, $read, $site ) {
+    my @symbols = grep { $_->{class} eq 'PPI::Token::Symbol' } $read->{tokens}->@*;
+    my ($first) = grep { $_->{start} >= $site->start && $_->{end} <= $site->end } $read->{tokens}->@*;
+    return 0 if !$first;
+    my $outer = _block_of( $first->{token} );
+    my %declared;
+    for my $item ( grep { $_->{start} >= $site->start && $_->{end} <= $site->end } @symbols ) {
+        my $token = $item->{token};
+        my $word  = _declaring_word($token);
+        next                            if !$word || !$word->isa('PPI::Token::Word') || !$DECLARES{ $word->content };
+        $declared{ $token->symbol } = 1 if _same_node( _block_of($token), $outer );
+    }
+    my $reach = _reach_of( $source, $read, $first->{token} );
+    return
+      scalar grep { $_->{start} >= $site->end && $_->{end} <= $reach && $declared{ $_->{token}->symbol } } @symbols;
+}
+
+# Whether a change drops the introducer of a here-document and leaves its text, which starts on the next line.
+# The text of a here-document that parses as code compiles all the same, so the text decides the rule in every file.
+sub _splits_a_heredoc ( $source, $read, $site, $written ) {
+    return scalar grep {
+             $_->{class} eq 'PPI::Token::HereDoc'
+          && $_->{start} >= $site->start
+          && $_->{end} <= $site->end
+          && index( $written, $_->{content} ) < 0
+          && substr( $source->text, $_->{end}, $site->end - $_->{end} ) !~ /\n/
+    } $read->{tokens}->@*;
+}
+
+# Whether the text shows the cause of a refused change that perl compiles, written as a mutant with its rule.
+sub _shows_cause ( $source, $read, $refused ) {
+    my $rule = $refused->description;
+    return _declares_a_later_name( $source, $read, $refused )                   if $rule eq 'declaration';
+    return _splits_a_heredoc( $source, $read, $refused, $refused->replacement ) if $rule eq 'here-document';
+    return 0;
+}
+
+# Whether a span ends the code of the file: a semicolon, comments, documentation, and the data section may follow it.
+# PPI reads some files in another way than perl does, and the end of the code holds the value of the file all the same.
+sub _ends_the_code ( $source, $site ) {
+    my $rest = substr $source->text, $site->end;
+    $rest =~ s/\A(?:\s+|;|[#][^\n]*|^=[[:alpha:]].*?(?:^=cut\b[^\n]*|\z))+//ms;
+    return !length $rest || $rest =~ /\A__(?:END|DATA)__\b/ ? 1 : 0;
+}
+
 # Whether the text shows the cause of a refusal whose rule speaks of the text alone.
 sub _has_cause ( $source, $candidate, $earlier, $values ) {
     my ( $site, $rule ) = $candidate->@{qw(site rule)};
     my $written = $candidate->{proposal}{replacement};
-    return 1                                                     if !defined $written;
-    return $written eq $site->text                               if $rule eq 'same-text';
-    return ( $written =~ tr/\n// ) != ( $site->text =~ tr/\n// ) if $rule eq 'line-count';
-    return _within( $site, $values->@* )                         if $rule eq 'final-value';
+    return 1                                                                 if !defined $written;
+    return $written eq $site->text                                           if $rule eq 'same-text';
+    return ( $written =~ tr/\n// ) != ( $site->text =~ tr/\n// )             if $rule eq 'line-count';
+    return _within( $site, $values->@* ) || _ends_the_code( $source, $site ) if $rule eq 'final-value';
     return $earlier->{ change_key( $source->text, $site->start, $site->end, $written ) } ? 1 : 0;
 }
 
@@ -183,9 +275,14 @@ sub refusals_for_perl ( $source, $candidates ) {
 }
 
 # The oracle of the refusals, for the rules that perl decides: perl compiles the change and finds every call.
-sub accepted_refusals ($judgement) {
-    return map { [ $_->{mutant}, 'has a change refused under ' . $_->{mutant}->description . ' that perl accepts' ] }
-      grep { $_->{compiled} && !$_->{introduced}->@* } $judgement->{verdicts}->@*;
+# Perl compiles a declaration that later code names, and a text of a here-document that parses, in a file without `use strict`.
+# The text shows the cause of such a refusal, so perl has to accept the change and the text has to show no cause.
+sub accepted_refusals ( $source, $judgement ) {
+    my @accepted = grep { $_->{compiled} && !$_->{introduced}->@* } $judgement->{verdicts}->@*;
+    return if !@accepted;
+    my $read = tokens($source);
+    return map { [ $_, 'has a change refused under ' . $_->description . ' that perl accepts' ] }
+      grep { !_shows_cause( $source, $read, $_ ) } map { $_->{mutant} } @accepted;
 }
 
 # What the generator would return for a source that holds the given mutants and nothing else.
@@ -626,7 +723,7 @@ sub asked_apart ( $source, $judgement, @asked ) {
     return (
         $mutants,
         _counts( 'asked', map { $_->{mutant} } @refusals ),
-        _violations( $source, 'refusal', 'accepted', accepted_refusals( { verdicts => \@refusals } ) ),
+        _violations( $source, 'refusal', 'accepted', accepted_refusals( $source, { verdicts => \@refusals } ) ),
     );
 }
 
