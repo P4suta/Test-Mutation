@@ -5,12 +5,12 @@ use Gate;
 use Matrix;
 use Oracle;
 use Snippets;
-use Test::Mutation::Project;
+use Test::Mutation::Host;
 
 # The whole product of the generator: every operator between every pair of operand shapes in every context.
 # The fast gate reads the tuples that cover every pair of values, and this run reads every tuple.
 
-my $workers = Test::Mutation::Project::cpu_count();
+my $workers = Test::Mutation::Host::processors()->{count};
 
 subtest 'the walk rejects a snippet whose context loses the mutants of its expression' => sub {
     my %context  = map { $_->{name} => $_ } Snippets::contexts();

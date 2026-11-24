@@ -6,13 +6,13 @@ use Capability;
 use Gate;
 use Library;
 use Oracle;
-use Test::Mutation::Project;
+use Test::Mutation::Host;
 
 # Every mutant of the corpus, of the fixtures, and of the tool itself stands before the oracles, with perl as the judge.
 # A violation is a defect of the tool, and it stays in the open findings until the work that removes it.
 
 my $OLDEST  = 36;
-my $workers = min( 8, Test::Mutation::Project::cpu_count() );
+my $workers = min( 8, Test::Mutation::Host::processors()->{count} );
 
 # The minor version of perl 5 that a file asks for in its first `use v5` line.
 sub wanted_perl ($path) {

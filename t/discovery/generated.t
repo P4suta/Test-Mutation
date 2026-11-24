@@ -6,7 +6,7 @@ use Gate;
 use Matrix;
 use Oracle;
 use Snippets;
-use Test::Mutation::Project;
+use Test::Mutation::Host;
 
 # Generated snippets put every operator of PPI between operands of every shape, in every context that runs code.
 # The list has no random part, and perl decides which snippets are code at all.
@@ -156,7 +156,7 @@ subtest 'the matrix rejects a mutant that no input tells from the original' => s
 
 # Perl compiles each snippet alone first, so a combination that is no code leaves the list.
 my @snippets = Snippets::chosen( Snippets::pairwise( Snippets::sizes() ) );
-my $workers  = min( 8, Test::Mutation::Project::cpu_count() );
+my $workers  = min( 8, Test::Mutation::Host::processors()->{count} );
 my $summary  = Snippets::surveyed( \@snippets, $workers );
 
 note $_ for Oracle::table( $summary->{tally}, Oracle::columns() ), Oracle::lines($summary), Oracle::rules($summary);

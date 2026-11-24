@@ -4,7 +4,7 @@ use lib 't/lib';
 use Gate;
 use Layouts;
 use Oracle;
-use Test::Mutation::Project;
+use Test::Mutation::Host;
 
 # Every sequence of up to four suppression comments goes through the reference interpreter and through the parser of the tool.
 # The fast gate reads the sequences of up to two comments, and this run adds the ones that need three or four.
@@ -12,7 +12,7 @@ use Test::Mutation::Project;
 my $LENGTH    = 4;
 my @forms     = Layouts::forms();
 my @sequences = Layouts::sequences( scalar @forms, $LENGTH );
-my $workers   = Test::Mutation::Project::cpu_count();
+my $workers   = Test::Mutation::Host::processors()->{count};
 
 sub named ($sequence) {
     return join ' / ', map { $_->{name} } @forms[ $sequence->@* ];

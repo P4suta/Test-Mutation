@@ -7,7 +7,7 @@ use Gate;
 use Kills;
 use Oracle;
 use Test::Mutation::Config;
-use Test::Mutation::Project;
+use Test::Mutation::Host;
 use Test::Mutation::Runner;
 
 # A test that fails with a mutant in place counts as a kill, whatever made it fail.
@@ -104,7 +104,7 @@ Gate::checked( 'kills of the fixtures that ran again', scalar @fixture_kills, at
 # The shim serves every mutant, so a mutant of the shim stays out.
 my $SAMPLE  = 3;
 my $TESTS   = 3;
-my $workers = Test::Mutation::Project::cpu_count();
+my $workers = Test::Mutation::Host::processors()->{count};
 my $base    = File::Temp->newdir;
 my $own     = Kills::copied( "$base/main", qw(lib t bin) );
 my $config  = Test::Mutation::Config->new( root => $own, profile => 'extended' );

@@ -6,7 +6,7 @@ use Census;
 use Gate;
 use Library;
 use Oracle;
-use Test::Mutation::Project;
+use Test::Mutation::Host;
 
 # Every construct that the corpus shows is either mutated or left alone for a stated reason.
 # The census reads the files with PPI on its own, so a construct that the analysis of the tool never reports still counts.
@@ -154,7 +154,7 @@ __END__
 CODE
 
 my @files   = map { Library::modules($_)->@* } 't/corpus', 't/fixtures', 'lib';
-my $workers = min( 8, Test::Mutation::Project::cpu_count() );
+my $workers = min( 8, Test::Mutation::Host::processors()->{count} );
 my $records =
   Oracle::each_file( \@files, $workers, sub ($path) { return Census::records( Oracle::file_source($path) ) } );
 push $records->@*, map { [ 'seed', $_->@* ] } Census::records( Oracle::text_source( 'seed', $SEED ) );

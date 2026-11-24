@@ -6,12 +6,12 @@ use Census;
 use Gate;
 use Library;
 use Oracle;
-use Test::Mutation::Project;
+use Test::Mutation::Host;
 
 # The census of every installed module.
 # The fast gate holds the keys that the corpus, the fixtures, and the tool itself show, and this run adds the keys of real code.
 
-my $workers = Test::Mutation::Project::cpu_count();
+my $workers = Test::Mutation::Host::processors()->{count};
 
 sub census_of (@paths) {
     return Census::summary(

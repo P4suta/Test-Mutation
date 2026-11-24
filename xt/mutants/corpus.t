@@ -6,7 +6,7 @@ use lib 't/lib';
 use Gate;
 use Library;
 use Oracle;
-use Test::Mutation::Project;
+use Test::Mutation::Host;
 
 # The installed dependencies are a corpus of real code that nobody wrote with this tool in mind.
 # Every mutant of every module has its text, its span, and its identity checked, and every refusal has its rule counted.
@@ -16,7 +16,7 @@ use Test::Mutation::Project;
 my $JUDGED  = 4;
 my $PATCHED = 4;
 my $PART    = 12_000;
-my $workers = Test::Mutation::Project::cpu_count();
+my $workers = Test::Mutation::Host::processors()->{count};
 
 # A problem of the analysis is a defect of the tool, and a file that perl refuses as it stands is a fact of the corpus.
 my %UNJUDGED = map { $_ => 1 } 'judge: perl refuses the original', 'judge: plain perl -c refuses the original',
