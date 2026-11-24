@@ -40,7 +40,7 @@ is refusal( sub { Test::Mutation::Mutant::Validity->new( %validity, _wide => \q{
   "the class Test::Mutation::Mutant::Validity takes no argument _wide\n", 'which no argument sets';
 
 my @classes = map { "Test::Mutation::$_" }
-  qw(Clock Command Config Coverage Error Exit Interrupted Message Mutant Mutant::Validity Mutator Result Setting Site Source);
+  qw(Clock Command Config Coverage Error Exit Interrupted Message Mutant Mutant::Validity Mutator Result Setting Site Source Status);
 for my $class (@classes) {
     my $file = ( $class =~ s{::}{/}gr ) . '.pm';
     require $file;

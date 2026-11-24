@@ -217,7 +217,6 @@ mutants-suppress-pairs	the parser accepts an unknown mutator name	the suppressio
 mutants-suppress-pairs	the parser obeys a candidate that is not canonical	the suppression grammar
 mutants-suppress-pairs	the parser reads no mutate sub as the start of a block	the suppression grammar
 mutants-suppress-pairs	the parser starts a second block inside an open block and never ends the first one	the suppression grammar
-type-contracts	lib/Test/Mutation/Status.pm composes no Value role	the status catalog
 contract-plan-settings	the default of cache differs from the contract	the cache key over every input of a result
 contract-plan-settings	the default of format differs from the contract	the terminal report and the summary of GitHub
 contract-plan-settings	the default of source differs from the contract	the Perl scripts of a project as sources of a run

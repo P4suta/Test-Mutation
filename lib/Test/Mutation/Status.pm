@@ -6,6 +6,8 @@ use Type::Params    qw(signature_for);
 
 our $VERSION = '0.001';
 
+with 'Test::Mutation::Value';
+
 # The statuses that version 2 of the report schema defines, which a report file may hold.
 my @SCHEMA = qw(Killed Survived NoCoverage CompileError RuntimeError Timeout Ignored Pending);
 
