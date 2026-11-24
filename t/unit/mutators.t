@@ -1,11 +1,12 @@
 use v5.36;
 use Test2::V0;
+use File::Temp ();
 use Test::Mutation::Mutant::Generator;
 use Test::Mutation::Mutator::Catalog;
 use Test::Mutation::Source;
 use Test::Mutation::Syntax::PPI;
 
-sub mutants ( $code, %select ) {
+sub generated ( $code, %select ) {
     my $source = Test::Mutation::Source->new( path => 'lib/X.pm', text => $code, encoding => 'UTF-8' );
     my @perl   = exists $select{perl} ? ( perl => delete $select{perl} ) : ();
     my $mutators =
@@ -18,9 +19,100 @@ sub mutants ( $code, %select ) {
     );
 }
 
+sub mutants ( $code, %select ) {
+    return generated( $code, %select )->{mutants};
+}
+
 sub changes ( $code, $name, %select ) {
     return [ map { [ $_->original, $_->replacement ] } grep { $_->mutator eq $name } mutants( $code, %select )->@* ];
 }
+
+sub refused ( $code, %select ) {
+    return [ map { [ $_->@{qw(mutator line rule)} ] } generated( $code, %select )->{rejected}->@* ];
+}
+
+subtest 'the generator refuses a change that breaks the file' => sub {
+    is refused("sub f {\n    return 1 + 2;\n}\n"), [], 'a file whose changes all stand';
+
+    my $returned = "sub f {\n    return <<\"T\";\ntext\nT\n}\n";
+    is refused($returned), [ [ 'return-value', 2, 'here-document' ] ],
+      'a removed return value would leave the text of its here-document behind';
+    is changes( $returned, 'sub-body' ), [ [ "\n    return <<\"T\";\ntext\nT\n", "\n\n\n\n" ] ],
+      'and the removed body takes the here-document as a whole';
+    is refused("f(<<A);\nx\nA\ng();\n"), [ [ 'statement-removal', 1, 'here-document' ] ],
+      'a removed statement likewise';
+
+    my $declaring = "sub f {\n    chomp( my \$line = g() );\n    return \$line;\n}\n";
+    is refused($declaring), [ [ 'statement-removal', 2, 'declaration' ] ],
+      'a removed statement would take a declaration that later code names';
+    is refused( "if ( open my \$log, '<', \$p ) { print {\$log} 1 }\n", enable => ['condition-fixed'] ),
+      [ [ 'condition-fixed', 1, 'declaration' ], [ 'condition-fixed', 1, 'declaration' ] ],
+      'and so would either fixed condition';
+
+    my $module = "package A;\nsub f { 2 }\n1;\n";
+    is refused( $module, enable => ['number-literal'] ), [ [ 'number-literal', 3, 'final-value' ] ],
+      'the true value that ends a module stays';
+    is changes( $module, 'number-literal', enable => ['number-literal'] ), [ [ '2', '3' ] ],
+      'and another number changes';
+
+    is refused( "my \$s = \"a\nb\";\n", enable => ['string-literal'] ), [ [ 'string-literal', 1, 'line-count' ] ],
+      'an emptied string of two lines would move every later line';
+    is refused('f() if !!$x;'), [ [ 'negation', 1, 'same-result' ] ],
+      'the second of two changes with one resulting text';
+    is changes( 'f() if !!$x;', 'negation' ), [ [ q{!}, q{} ] ], 'and the first one stands';
+};
+
+subtest 'a change that calls a function names one that the file resolves' => sub {
+    my $swap = sub ( $code, %select ) { return changes( $code, 'call-swap', %select ) };
+    is $swap->("use List::Util qw(any);\nmy \$ok = any { \$_ } \@c;\n"), [ [ 'any', 'List::Util::all' ] ],
+      'the module of the original provides the other name';
+    is $swap->("use List::Util qw(any all);\nmy \$ok = any { \$_ } \@c;\n"), [ [ 'any', 'all' ] ],
+      'the file imports the other name';
+    is $swap->("my \$m = List::Util::max(\@b);\n"), [ [ 'List::Util::max', 'List::Util::min' ] ],
+      'a qualified call keeps its package';
+    is $swap->("push \@a, 1;\nmy \$s = lc \$t;\n"), [ [ 'push', 'unshift' ], [ 'lc', 'uc' ] ], 'core functions';
+    is $swap->("my \$m = max(\@b);\n"),             [], 'a name of unknown origin has no swap';
+    is refused("my \$m = max(\@b);\n"), [ [ 'call-swap', 1, 'unresolved-call' ] ], 'and the refusal names the rule';
+    is $swap->("sub max { 1 }\nmy \$m = max(\@b);\n"), [],                      'a subroutine of the file has no swap';
+    is $swap->("use POSIX;\nmy \$n = ceil(\$x);\n"),   [ [ 'ceil', 'floor' ] ], 'a default export';
+    is $swap->("use List::Util qw(any);\nuse List::Util qw(all);\nmy \$ok = any { \$_ } \@c;\n"),
+      [ [ 'any', 'List::Util::all' ] ], 'two statements may import into two scopes, so the module is named';
+    is $swap->("CORE::push \@a, 1;\n"), [ [ 'CORE::push', 'CORE::unshift' ] ],
+      'a core function under its qualified name';
+    is $swap->("sub unshift { 1 }\npush \@a, 1;\n"), [ [ 'push', 'CORE::unshift' ] ],
+      'a subroutine of the file with the other name, which the bare word would make ambiguous';
+    is changes( "sub pop { 1 }\nmy \$s = shift \@a;\nmy \$t = CORE::pop \@a;\n", 'shift-pop', enable => ['shift-pop'] ),
+      [ [ 'shift', 'CORE::pop' ], [ 'CORE::pop', 'CORE::shift' ] ], 'the other family of core functions likewise';
+
+    my $boolean = sub ($code) { return changes( $code, 'boolean-literal' ) };
+    is $boolean->("use v5.40;\nmy \$f = true;\n"), [ [ 'true', 'false' ] ], 'a boolean of the bundle';
+    is $boolean->("use builtin qw(true);\nmy \$f = true;\n"), [ [ 'true', 'builtin::false' ] ],
+      'a boolean that the file imports alone';
+    is $boolean->("my \$f = true;\n"), [], 'a word that only looks like a boolean';
+
+    my ($described) =
+      grep { $_->mutator eq 'call-swap' } mutants("use List::Util qw(any);\nmy \$ok = any { \$_ } \@c;\n")->@*;
+    is $described->description, 'replaced any with List::Util::all', 'the description names what the mutant holds';
+};
+
+subtest 'a swapped call compiles' => sub {
+    my $code =
+        "use strict;\nuse warnings;\nuse List::Util qw(any max);\nmy \@c = ( 1, 2 );\n"
+      . "sub unshift { return 1 }\n"
+      . "print 'some' if any { \$_ > 1 } \@c;\nprint max(\@c), List::Util::max(\@c);\npush \@c, 3;\n";
+    my $source = Test::Mutation::Source->new( path => 'lib/X.pm', text => $code, encoding => 'UTF-8' );
+    my @swaps  = grep { $_->mutator eq 'call-swap' } mutants($code)->@*;
+    is [ map { $_->replacement } @swaps ], [ 'List::Util::all', 'List::Util::min', 'List::Util::min', 'CORE::unshift' ],
+      'four swaps';
+    for my $mutant (@swaps) {
+        my $file = File::Temp->new( SUFFIX => '.pl' );
+        print {$file} $source->replace_span( $mutant->start, $mutant->end, $mutant->replacement ) or die "write: $!";
+        close $file                                                                               or die "close: $!";
+        my $path   = $file->filename;
+        my $answer = qx{'$^X' -c '$path' 2>&1};
+        is [ $?, $answer ], [ 0, "$path syntax OK\n" ], 'perl compiles the file with ' . $mutant->replacement;
+    }
+};
 
 subtest 'operator families' => sub {
     is changes( '$a + $b - $c * $d / $e % $f ** $g;', 'arithmetic' ),
@@ -46,10 +138,11 @@ subtest 'word families' => sub {
       [ [ 'if', 'unless' ], [ 'unless', 'if' ], [ 'while', 'until' ], [ 'until', 'while' ] ], 'conditional keywords';
     is changes( 'for (@a) { next if $_; last; }', 'loop-control' ), [ [ 'next', 'last' ], [ 'last', 'next' ] ],
       'loop control';
-    is changes( 'push @a, max(@b); my %h = ( min => 1 ); $o->uc; any { $_ } @c;', 'call-swap' ),
+    my $imports = "use v5.40;\nuse List::Util qw(max min any all);\n";
+    is changes( $imports . 'push @a, max(@b); my %h = ( min => 1 ); $o->uc; any { $_ } @c;', 'call-swap' ),
       [ [ 'push', 'unshift' ], [ 'max', 'min' ], [ 'any', 'all' ] ], 'call swaps skip hash keys and methods';
-    is changes( 'return true; my $f = false;', 'boolean-literal' ), [ [ 'true', 'false' ], [ 'false', 'true' ] ],
-      'booleans';
+    is changes( $imports . 'return true; my $f = false;', 'boolean-literal' ),
+      [ [ 'true', 'false' ], [ 'false', 'true' ] ], 'booleans';
     is changes( 'my $s = shift;', 'shift-pop' ), [], 'shift-pop is off by default';
     is changes( 'my $s = shift;', 'shift-pop', enable => ['shift-pop'] ), [ [ 'shift', 'pop' ] ],
       'shift-pop when enabled';
@@ -153,8 +246,9 @@ subtest 'two mutators with the same replacement yield one mutant' => sub {
     is [ map { [ $_->mutator, $_->original, $_->replacement ] } grep { $_->original eq '1' } @mutants ],
       [ [ 'return-value', '1', '0' ] ], 'the first mutator is credited';
 
-    my $source    = Test::Mutation::Source->new( path => 'lib/X.pm', text => '$a + $b;', encoding => 'UTF-8' );
-    my @proposed  = ( [ first => [q{-}] ], [ second => [ q{-}, q{*} ] ], [ third => [ q{*}, q{/} ] ] );
+    my $source = Test::Mutation::Source->new( path => 'lib/X.pm', text => '$a + $b;', encoding => 'UTF-8' );
+    my @proposed =
+      ( [ first => [q{-}] ], [ second => [ q{-}, q{*} ] ], [ third => [ q{*}, q{/} ] ], [ fourth => [ q{+}, q{%} ] ] );
     my $proposing = sub ( $name, $replacements ) {
         return Test::Mutation::Mutator->new(
             name        => $name,
@@ -171,9 +265,12 @@ subtest 'two mutators with the same replacement yield one mutant' => sub {
         analysis => Test::Mutation::Syntax::PPI::analyze($source),
         mutators => [ map { $proposing->( $_->@* ) } @proposed ],
     );
-    is [ map { [ $_->mutator, $_->replacement ] } $generated->@* ],
-      [ [ 'first', q{-} ], [ 'second', q{*} ], [ 'third', q{/} ] ],
+    is [ map { [ $_->mutator, $_->replacement ] } $generated->{mutants}->@* ],
+      [ [ 'first', q{-} ], [ 'second', q{*} ], [ 'third', q{/} ], [ 'fourth', q{%} ] ],
       'a mutator keeps its later replacements after one that an earlier mutator proposed';
+    is [ map { [ $_->@{qw(mutator line rule)} ] } $generated->{rejected}->@* ],
+      [ [ 'second', 1, 'same-result' ], [ 'third', 1, 'same-result' ], [ 'fourth', 1, 'same-text' ] ],
+      'the generator lists what it refused in the order of the proposals, and no mutator drops a proposal itself';
 };
 
 subtest 'selection' => sub {
@@ -209,7 +306,7 @@ subtest 'every mutant of the corpus changes its span alone' => sub {
             analysis => Test::Mutation::Syntax::PPI::analyze($source),
             mutators => Test::Mutation::Mutator::Catalog::mutators(),
         );
-        for my $mutant ( $mutants->@* ) {
+        for my $mutant ( $mutants->{mutants}->@* ) {
             $count++;
             my $mutated  = $source->replace_span( $mutant->start, $mutant->end, $mutant->replacement );
             my $expected = substr( $text, 0, $mutant->start ) . $mutant->replacement . substr( $text, $mutant->end );

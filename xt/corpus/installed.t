@@ -39,13 +39,13 @@ sub findings ($path) {
         1;
     };
     return "generation died: $@" if !$generated;
-    for my $mutant ( $mutants->@* ) {
+    for my $mutant ( $mutants->{mutants}->@* ) {
         my $mutated = $source->replace_span( $mutant->start, $mutant->end, $mutant->replacement );
         push @found, 'mutant ' . $mutant->id . ' leaves the text as it was' if $mutated eq $text;
         push @found, 'mutant ' . $mutant->id . ' does not replace its own text'
           if substr( $text, $mutant->start, $mutant->end - $mutant->start ) ne $mutant->original;
     }
-    return ( @found, sprintf 'counted %d %d', scalar $analysis->{sites}->@*, scalar $mutants->@* );
+    return ( @found, sprintf 'counted %d %d', scalar $analysis->{sites}->@*, scalar $mutants->{mutants}->@* );
 }
 
 my $workers = Test::Mutation::Project::cpu_count();

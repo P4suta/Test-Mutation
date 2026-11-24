@@ -51,6 +51,22 @@ subtest 'the analysis keeps the files in the order of their paths and names each
     is [ sort keys $analysis->{sources}->%* ], [ 'lib/First.pm', 'lib/Second.pm' ], 'and their sources';
 };
 
+subtest 'the analysis names every change that the generator refused, in the order of the files' => sub {
+    my $root = project(
+        'lib/First.pm'  => "package First;\nsub text {\n    return <<\"T\";\nx\nT\n}\n1;\n",
+        'lib/Second.pm' => "package Second;\nsub pick {\n    chomp( my \$line = \$_[0] );\n    return \$line;\n}\n1;\n",
+    );
+    my $analysis = Test::Mutation::Runner::analyze( Test::Mutation::Config->new( root => $root ) );
+    is $analysis->{rejected},
+      [
+        { path => 'lib/First.pm',  mutator => 'return-value',      line => 3, rule => 'here-document' },
+        { path => 'lib/Second.pm', mutator => 'statement-removal', line => 3, rule => 'declaration' },
+      ],
+      'each with its file, its mutator, its line, and the rule';
+    is [ map { $_->description } grep { $_->path eq 'lib/First.pm' } $analysis->{mutants}->@* ],
+      ['removed the body of text'], 'and the changes that stand are the mutants';
+};
+
 subtest 'a project without a test and without a mutant to run gets no warning' => sub {
     my $root = project( 'lib/Small.pm' => $MODULE =~ s/[+] 1 [}]/+ 1 }    ## no mutate/r );
     my ($result) = run_fixture($root);

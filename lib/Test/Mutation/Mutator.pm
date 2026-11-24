@@ -1,7 +1,7 @@
 package Test::Mutation::Mutator;
 use v5.36;
 use Moo;
-use Types::Standard qw(ArrayRef CodeRef Dict Enum InstanceOf Str StrMatch);
+use Types::Standard qw(ArrayRef CodeRef Dict Enum InstanceOf Optional Str StrMatch);
 use Type::Params    qw(signature_for);
 
 our $VERSION = '0.001';
@@ -14,11 +14,11 @@ has _generate   => ( is => 'ro', isa => CodeRef, init_arg => 'generate', require
 signature_for mutations => (
     method     => 1,
     positional => [ InstanceOf ['Test::Mutation::Site'] ],
-    returns    => ArrayRef [ Dict [ replacement => Str, description => Str ] ],
+    returns    => ArrayRef [ Dict [ replacement => Str, description => Str, calls => Optional [Str] ] ],
 );
 
 sub mutations ( $self, $site ) {
-    return [ grep { $_->{replacement} ne $site->text } $self->_generate->($site) ];
+    return [ $self->_generate->($site) ];
 }
 
 1;
@@ -65,6 +65,9 @@ One sentence for reports and listings.
 
 =head2 mutations
 
-Returns the replacements for a site, leaving out any that equal the original text.
+Returns every replacement that the callback proposes for a site.
+The generator decides which of them stand, so the method drops none.
+A replacement that calls another function carries the name of that function under C<calls>, and its description holds C<%s> in the place of the name.
+The generator then writes the name that the file resolves.
 
 =cut

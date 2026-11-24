@@ -5,6 +5,8 @@ use PPIx::Regexp;
 use Scalar::Util    qw(refaddr);
 use Types::Standard qw(InstanceOf);
 use Type::Params    qw(signature_for);
+use version         ();
+use Test::Mutation::Mutator::Providers;
 use Test::Mutation::Site;
 use Test::Mutation::Types qw(Analysis);
 
@@ -51,6 +53,11 @@ my %REGEX_ROLE        = (
 );
 my %ANCHOR = map { $_ => 1 } ( q{^}, q{$}, '\\A', '\\z', '\\Z' );
 
+# The bundle of Perl 5.40, in development from 5.39, imports the booleans and the rounding functions of the core.
+my $BUNDLE_WITH_BUILTINS = version->parse('v5.39.0');
+my %LITERAL_WORD         = map { $_ => 1 } qw(__PACKAGE__ __FILE__ __LINE__ __CLASS__ true false);
+my @LITERAL              = qw(PPI::Token::Number PPI::Token::Quote PPI::Token::Operator);
+
 signature_for analyze => ( positional => [ InstanceOf ['Test::Mutation::Source'] ], returns => Analysis );
 
 sub analyze ($source) {
@@ -69,19 +76,118 @@ sub analyze ($source) {
     }
     return _problem('PPI does not reproduce the file') if $document->serialize ne $copy;
 
-    my $context = { source => $source, text => $text, mark => $mark, scopes => {}, sites => [], dropped => [] };
+    my $context = {
+        source  => $source,
+        text    => $text,
+        mark    => $mark,
+        lines   => 1 + ( $text =~ tr/\n// ),
+        scopes  => {},
+        sites   => [],
+        dropped => []
+    };
+    $context->{values} = _value_spans( $context, $document );
     _visit( $context, $document, 0 );
-    my @sites = sort { $a->start <=> $b->start || $a->end <=> $b->end } $context->{sites}->@*;
+    my @sites    = sort { $a->start <=> $b->start || $a->end <=> $b->end } $context->{sites}->@*;
+    my $heredocs = _heredocs( $context, $document );
     return {
         sites        => \@sites,
         suppressions => _suppressions($document),
         dropped      => $context->{dropped},
+        heredocs     => $heredocs,
+        names        => _names($document),
         problem      => undef
     };
 }
 
 sub _problem ($message) {
-    return { sites => [], suppressions => [], dropped => [], problem => $message };
+    return {
+        sites        => [],
+        suppressions => [],
+        dropped      => [],
+        heredocs     => [],
+        names        => { imports => [], declared => [] },
+        problem      => $message
+    };
+}
+
+# A statement of the file that holds literals and operators alone is a value without behavior of its own.
+# The last one is the true value that ends a module, and a change of it keeps the file from loading.
+sub _value_spans ( $context, $document ) {
+    my @values = grep { ref $_ eq 'PPI::Statement' && _is_value($_) } $document->schildren;
+
+    # A statement whose place holds another text has no span, and it is among the places left out.
+    return [ grep { $_->@* } map { [ _whole_span( $context, $_->schildren ) ] } @values ];
+}
+
+sub _whole_span ( $context, @children ) {
+    return _span( $context, _edge_tokens( @children[ 0, -1 ] ) );
+}
+
+sub _is_value ($statement) {
+    return !grep { !_is_semicolon($_) && !_is_literal($_) } $statement->schildren;
+}
+
+sub _is_literal ($element) {
+    return 1 if grep { $element->isa($_) } @LITERAL;
+    return $element->isa('PPI::Token::Word') && $LITERAL_WORD{ $element->content } ? 1 : 0;
+}
+
+sub _line_offset ( $context, $line ) {
+    return $line > $context->{lines} ? length $context->{text} : $context->{source}->offset_of( $line, 1 );
+}
+
+# The text of a here-document starts on the line after its introducer, behind the text of an earlier one of that line.
+# The lines of the file give its extent, because PPI strips the indentation of an indented here-document.
+sub _heredocs ( $context, $document ) {
+    my ( %taken, @heredocs );
+    for my $token ( @{ $document->find('PPI::Token::HereDoc') || [] } ) {
+        my $from = _offset( $context, $token );
+        next if !defined $from;
+        my $line  = $token->location->[0];
+        my $first = $line + 1 + ( $taken{$line} || 0 );
+        my @text  = $token->heredoc;
+        my $after = $first + @text;
+        my $start = _line_offset( $context, $after );
+        my $last  = substr $context->{text}, $start, _line_offset( $context, $after + 1 ) - $start;
+        $last =~ s/\A\s+|\s+\z//g;
+        $after++ if $last eq $token->terminator;
+        $taken{$line} += $after - $first;
+        push @heredocs,
+          [ $from, $from + length $token->content, _line_offset( $context, $first ), _line_offset( $context, $after ) ];
+    }
+    return \@heredocs;
+}
+
+sub _listed_items ($token) {
+    return $token->literal if $token->isa('PPI::Token::QuoteLike::Words');
+    return $token->string  if $token->isa('PPI::Token::Quote');
+    return;
+}
+
+# The module of a use statement and the names it imports, as far as the text of the statement tells.
+sub _imported ($include) {
+    my $version = $include->version;
+    if ( length $version ) {
+        return if !version::is_lax($version) || version->parse($version) < $BUNDLE_WITH_BUILTINS;
+        return ( 'builtin', Test::Mutation::Mutator::Providers::listed( 'builtin', ':5.40' )->@* );
+    }
+    my $module    = $include->module or return;
+    my @arguments = $include->arguments;
+    return ( $module, Test::Mutation::Mutator::Providers::default_exports($module)->@* ) if !@arguments;
+    return ( $module, map { Test::Mutation::Mutator::Providers::listed( $module, $_ )->@* }
+          map { _listed_items($_) } @arguments );
+}
+
+# The names of subroutines that the file resolves: what each of its use statements imports, and what it declares.
+sub _names ($document) {
+    my @imports;
+    for my $include ( grep { $_->type eq 'use' } @{ $document->find('PPI::Statement::Include') || [] } ) {
+        my ( $module, @names ) = _imported($include);
+        push @imports, { module => $module, names => \@names } if @names;
+    }
+    my @subs     = grep { !$_->isa('PPI::Statement::Scheduled') } @{ $document->find('PPI::Statement::Sub') || [] };
+    my %declared = map  { ( $_ => 1 ) } grep { defined } map { $_->name } @subs;
+    return { imports => \@imports, declared => [ sort keys %declared ] };
 }
 
 # PPI learns from a few pragmas that a file uses signatures, and it reads the signature of another file as a prototype.
@@ -252,6 +358,8 @@ sub _span ( $context, $first, $last ) {
 sub _add ( $context, %site ) {
     $site{text}       = substr $context->{text}, $site{start}, $site{end} - $site{start};
     $site{comparable} = $context->{hidden} ? 0 : 1;
+    $site{facts}      = { ( $site{facts} || {} )->%*, final_value => 1 }
+      if grep { $site{start} >= $_->[0] && $site{end} <= $_->[1] } $context->{values}->@*;
     push $context->{sites}->@*, Test::Mutation::Site->new(%site);
     return;
 }
@@ -453,15 +561,16 @@ sub _inner_span ( $context, $structure ) {
 
 sub _condition_site ( $context, $condition ) {
     my ( $start, $end ) = _inner_span( $context, $condition ) or return;
-    my $scope   = _scope( $context, $condition ) or return;
-    my $keyword = $condition->sprevious_sibling;
+    my $scope    = _scope( $context, $condition ) or return;
+    my $keyword  = $condition->sprevious_sibling;
+    my $declares = _declares_for_later( $context, $condition->parent, [ $condition->tokens ], $end );
     _add(
         $context,
         kind  => 'condition',
         start => $start,
         end   => $end,
         scope => $scope,
-        facts => { keyword => $keyword ? $keyword->content : q{} },
+        facts => { keyword => $keyword ? $keyword->content : q{}, $declares ? ( declares => 1 ) : () },
     );
     return;
 }
@@ -522,21 +631,22 @@ sub _statement_site ( $context, $segment ) {
     return if !@content;
     return if @content == 1 && ( $content[0]->isa('PPI::Token::Number') || $content[0]->isa('PPI::Token::Quote') );
 
-    # The text of a here-document follows its line, so the removal of the statement leaves that text as code.
-    my @tokens = map { $_->isa('PPI::Token') ? $_ : $_->tokens } @children;
-    return if grep { $_->isa('PPI::Token::HereDoc') } @tokens;
     return if _is_whole_list_block( $children[0]->parent );
 
     my ( $start, $end ) = _span( $context, _edge_tokens( @children[ 0, -1 ] ) ) or return;
-    return if _declares_for_later( $context, $children[0]->parent, \@tokens, $end );
-    my $scope = _segment_scope($segment) or return;
+    my $scope    = _segment_scope($segment) or return;
+    my @tokens   = map { $_->isa('PPI::Token') ? $_ : $_->tokens } @children;
+    my $declares = _declares_for_later( $context, $children[0]->parent, \@tokens, $end );
     _add(
         $context,
         kind  => 'statement',
         start => $start,
         end   => $end,
         scope => $scope,
-        facts => { head => $children[0]->isa('PPI::Token::Word') ? $children[0]->content : q{} },
+        facts => {
+            head => $children[0]->isa('PPI::Token::Word') ? $children[0]->content : q{},
+            $declares ? ( declares => 1 ) : ()
+        },
     );
     return;
 }
@@ -556,6 +666,7 @@ sub _declares_for_later ( $context, $statement, $tokens, $end ) {
           && ( _is_word( scalar $_->sprevious_sibling, \%DECLARATION )
             || ( $list->isa('PPI::Structure::List') && _is_word( scalar $list->sprevious_sibling, \%DECLARATION ) ) )
     } $tokens->@*;
+    return 0 if !@names;
 
     # The block of the statement bounds the variable, and a file has no closing brace.
     my $block  = $statement->parent;
@@ -621,9 +732,14 @@ The module splits such a statement at the closing brace, so each part has its ow
 The name, the version, and the attributes of a class, a field, or a method produce no sites.
 A site in a field or in an C<ADJUST> block is marked as not comparable.
 
-A statement is no statement site when the file does not compile without it.
-That holds for the one statement of a C<map> or C<grep> block, for a statement with a here-document, and for a statement that declares a variable which later code of the block names.
-The braces around a file handle hold no statement.
+The one statement of a C<map> or C<grep> block is no statement site, and the braces around a file handle hold no statement.
+
+The module reports what a change must keep and leaves the decision to the generator.
+A site that declares a variable which later code names carries the fact C<declares>.
+A statement of the file that holds literals and operators alone, as the true value that ends a module does, gives its sites the fact C<final_value>.
+The result lists each here-document with the place of its introducer and of its text.
+It lists each C<use> statement with the names it imports, as far as the text of the statement tells, and the subroutines that the file declares.
+C<use v5.40> and a later version import the booleans and the rounding functions of the core.
 
 =head1 FUNCTIONS
 
@@ -633,6 +749,8 @@ Returns a hash reference in the shape of L<Test::Mutation::Types/Analysis>.
 C<sites> holds L<Test::Mutation::Site> objects in source order.
 C<suppressions> holds the line ranges that C<## no mutate> comments cover.
 C<dropped> holds the places that yield no site, each with its line, its kind, and the reason.
+C<heredocs> holds the offsets of each here-document.
+C<names> holds the imports of each C<use> statement and the subroutines of the file.
 C<problem> names the reason when the file cannot be analyzed.
 
 =cut

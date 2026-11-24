@@ -238,18 +238,16 @@ sub g {
 }
 sub h { my $late = 2; return $late }
 PERL
-    is [ map { $_->text } sites_of( $code, 'statement' )->@* ],
+    is [ map { [ $_->text, $_->facts->{declares} ? 'declares' : () ] } sites_of( $code, 'statement' )->@* ],
       [
-        'print( {$fh} map { lc } @data );',
-        'note($key);',
-        '( $key => 1 )',
-        'close $in;',
-        'note($right);',
-        q{bless \( my $unused = 1 ), 'Flag';},
-        'note($inner)',
-        q{bless \( my $late = 1 ), 'Flag';},
+        ['print( {$fh} map { lc } @data );'], ['note($key);'],
+        ['( $key => 1 )'], [ q{open( my $in, '<', $data[0] ) or die;},      'declares' ],
+        ['close $in;'],    [ 'split_pair( my ( $left, $right ) = @data );', 'declares' ],
+        ['note($right);'], [ '( my $name = $data[1] ) =~ s/x/y/;',          'declares' ],
+        [q{bless \( my $unused = 1 ), 'Flag';}], ['note($inner)'],
+        [q{eval <<'CODE' or die;}],              [q{bless \( my $late = 1 ), 'Flag';}],
       ],
-      'no file handle block, no only statement of map or grep, no declaration that later code uses, no here-document';
+      'no file handle block and no only statement of map or grep, and a declaration that later code uses is marked';
 };
 
 subtest 'statements that must stay are not deletable' => sub {
@@ -510,21 +508,18 @@ subtest 'suppression comments become line ranges' => sub {
 };
 
 subtest 'files that cannot be analyzed report a problem' => sub {
-    is analyze("my \$x = 1;\rmy \$y = 2;\n"),
-      {
+    my %nothing = (
         sites        => [],
         suppressions => [],
         dropped      => [],
-        problem      => 'the file has a carriage return without a line feed'
-      },
+        heredocs     => [],
+        names        => { imports => [], declared => [] },
+    );
+    is analyze("my \$x = 1;\rmy \$y = 2;\n"),
+      { %nothing, problem => 'the file has a carriage return without a line feed' },
       'a carriage return that ends no line';
     is analyze("my \$x = 1;\x0bmy \$y = 2;\n"),
-      {
-        sites        => [],
-        suppressions => [],
-        dropped      => [],
-        problem      => q{PPI cannot parse the file: Lexer failed: Encountered unexpected character '11'}
-      },
+      { %nothing, problem => q{PPI cannot parse the file: Lexer failed: Encountered unexpected character '11'} },
       'a character that PPI rejects, with the reason of PPI';
 
     my $unfaithful = do {
@@ -532,7 +527,7 @@ subtest 'files that cannot be analyzed report a problem' => sub {
         local *PPI::Document::serialize = sub { return 'other text' };
         analyze("my \$x = 1 + 2;\n");
     };
-    is $unfaithful, { sites => [], suppressions => [], dropped => [], problem => 'PPI does not reproduce the file' },
+    is $unfaithful, { %nothing, problem => 'PPI does not reproduce the file' },
       'a document that does not serialize to the text it came from';
 };
 
@@ -626,6 +621,121 @@ subtest 'an anonymous subroutine inside a use statement yields its sites' => sub
     is summary( $nested, 'operator' ), [ [ q{-}, 'binary' ] ], 'a subroutine inside a hash of constants';
     is summary( "use v5.36;\nuse constant PICK => sub (\$n = 2 * 3) { \$n - 1 };\n", 'operator' ),
       [ [ q{-}, 'binary' ] ], 'a signature between the word and the body, whose default stays with the statement';
+};
+
+subtest 'the analysis records where each here-document stands' => sub {
+    is analyze("my \$x = 1;\n")->{heredocs}, [], 'a file without one';
+    is analyze("my \$t = <<\"EOT\" . f();\nline\nEOT\nmy \$u = 1;\n")->{heredocs}, [ [ 8, 15, 23, 32 ] ],
+      'the introducer, and the text with the line that ends it';
+    is analyze("f( <<A, <<~B );\na\nA\n  b\n  B\ng();\n")->{heredocs}, [ [ 3, 6, 16, 20 ], [ 8, 12, 20, 28 ] ],
+      'two here-documents of one line, the second one indented';
+    is analyze("my \$t = <<A;\r\nx\r\nA\r\n")->{heredocs}, [ [ 8, 11, 14, 20 ] ],
+      'a file with carriage returns keeps them inside the text';
+    is analyze("my \$t = <<A;\nx\n")->{heredocs}, [ [ 8, 11, 13, 15 ] ], 'a text without its end line runs to the end';
+    is analyze("my \$t = <<A;\nx")->{heredocs}, [ [ 8, 11, 13, 14 ] ],
+      'and so does one whose last line has no line feed';
+
+    my $reported  = \&PPI::Element::location;
+    my $misplaced = do {
+        no warnings 'redefine';
+        local *PPI::Element::location = sub ($self) {
+            return $self->content eq '<<A' ? [ 1, 1, 1, 1, undef ] : $reported->($self);
+        };
+        analyze("f(<<A);\nx\nA\ng(<<B);\ny\nB\n");
+    };
+    is $misplaced->{heredocs}, [ [ 14, 17, 20, 24 ] ],
+      'a here-document without a place is left out, and a later one stays';
+    is $misplaced->{dropped},
+      [ { line => 1, kind => 'span', reason => 'the text at the place differs from the token' } ],
+      'and the analysis counts it';
+};
+
+subtest 'the analysis records the names that the file resolves' => sub {
+    my $code = join "\n", 'use v5.36;', 'use List::Util qw(any max);', 'use POSIX;',
+      q{use Scalar::Util 'blessed', "reftype";},
+      'use Carp ();',       'use List::MoreUtils 0.4 qw(none any);', 'no warnings qw(once);', 'sub helper { 1 }',
+      'sub _private { 2 }', 'my $c = sub { 3 };',                    'BEGIN { }',             q{};
+    is analyze($code)->{names},
+      {
+        imports => [
+            { module => 'List::Util',      names => [qw(any max)] },
+            { module => 'POSIX',           names => [qw(ceil floor)] },
+            { module => 'Scalar::Util',    names => [qw(blessed reftype)] },
+            { module => 'List::MoreUtils', names => [qw(none any)] },
+        ],
+        declared => [qw(_private helper)],
+      },
+      'each statement with the names it lists, the default exports of a known module, and the subroutines of the file';
+
+    my $imports = sub ($text) {
+        return [ map { [ $_->{module}, $_->{names}->@* ] } analyze($text)->{names}{imports}->@* ];
+    };
+    my @bundle = ( [qw(builtin ceil false floor true)] );
+    is $imports->("use v5.40;\n"), \@bundle, 'the bundle of Perl 5.40 imports the booleans and the rounding functions';
+    is $imports->("use $_;\n"), \@bundle, "use $_ names that bundle or a later one"
+      for qw(v5.39 5.039 5.040 5.40.0 v5.42);
+    is $imports->("use $_;\n"), [], "use $_ names an older bundle" for qw(v5.38 5.038009 5.010 5.6.1);
+    is $imports->("use POSIX ();\nuse Carp;\nrequire List::Util;\nno List::Util qw(any);\nuse builtin qw(true);\n"),
+      [ [qw(builtin true)] ],
+      'an empty list, a module of unknown exports, and a statement of another kind import nothing';
+    is $imports->("use List::MoreUtils qw(:all);\nuse POSIX qw(:math_h);\nuse builtin ':5.40';\n"),
+      [ [qw(List::MoreUtils all any none notall)], [qw(POSIX ceil floor)], @bundle ],
+      'a tag of a known module stands for its names';
+    is $imports->("use List::Util qw(:nothing max -strict 9lives);\nuse My::Tools qw(:all);\n"),
+      [ [qw(List::Util max)] ], 'an unknown tag and a text that is no name are left out';
+    is $imports->('use'),     [], 'a statement without a module';
+    is $imports->("use ;\n"), [], 'and one that holds a semicolon alone';
+
+    my $unreadable = do {
+        no warnings 'redefine';
+        local *PPI::Statement::Include::version = sub { return 'five' };
+        $imports->("use v5.40;\n");
+    };
+    is $unreadable, [], 'a version that the version module rejects imports nothing';
+};
+
+subtest 'the analysis marks what a change must keep' => sub {
+    my $module = "package A;\nsub f { 1 }\n1;\n";
+    is [ map { [ $_->text, $_->facts ] } sites_of( $module, 'number' )->@* ],
+      [ [ '1', {} ], [ '1', { final_value => 1 } ] ],
+      'the true value that ends a module, and no other number';
+    is [ map { $_->facts } sites_of( "package A;\n'a true value';\n", 'string' )->@* ], [ { final_value => 1 } ],
+      'a string in that place';
+    is [ map { [ $_->text, $_->facts ] } sites_of( "package A;\nsub f { 1 }\n__PACKAGE__;\n", 'statement' )->@* ],
+      [ [ '__PACKAGE__;', { head => '__PACKAGE__', final_value => 1 } ] ], 'a word in that place';
+    is [ map { $_->facts } sites_of( "package A;\nf() + 1;\n1;\n__END__\n\n=head1 NAME\n", 'number' )->@* ],
+      [ {}, { final_value => 1 } ], 'the documentation after the end mark moves nothing';
+    is [ map { $_->facts->{final_value} } analyze("package A;\nA->setup( 1 + 2 );\n")->{sites}->@* ], [ (undef) x 5 ],
+      'a last statement that does work is no mere value';
+    is [ map { [ $_->text, $_->facts->{final_value} ] } analyze("package A;\n!!1;\n")->{sites}->@* ],
+      [ [ q{!}, 1 ], [ '!!1;', 1 ], [ q{!}, 1 ], [ '1', 1 ] ], 'a value under operators in that place';
+    is [ map { $_->facts->{final_value} } sites_of( "use v5.40;\npackage A;\ntrue;\n", 'word' )->@* ], [1],
+      'a boolean in that place';
+    is [ map { [ $_->text, $_->facts ] } sites_of( "package A;\nsub run { 2 }\nrun;\n", 'statement' )->@* ],
+      [ [ 'run;', { head => 'run' } ] ], 'a word that may call a subroutine is no value';
+    is [ map { $_->facts->{final_value} } sites_of( "package A;\n\$A::loaded;\n", 'statement' )->@* ], [undef],
+      'and neither is a variable';
+
+    for my $after ( 'sub late { 3 }', 'END { }', 'package B;', 'use strict;', q{;}, "__DATA__\n2",
+        "__END__\n\n=head1 NAME" )
+    {
+        my ( $value, @others ) = sites_of( "package A;\n1;\n$after\n", 'number' )->@*;
+        is $value->facts, { final_value => 1 }, 'the value of the file stands before ' . $after =~ s/\n.*//sr;
+        is [ map { $_->facts } @others ], [ ( {} ) x @others ], 'and a later number is none';
+    }
+    is [ map { $_->facts } sites_of( "package A;\n1;\nrequire A::More;\n", 'number' )->@* ], [ { final_value => 1 } ],
+      'a value alone has no behavior wherever it stands in the file';
+    is [ map { $_->facts } sites_of( "\"a\r\nb\";\r\n1;\r\n", 'number' )->@* ], [ { final_value => 1 } ],
+      'a value without a place hides no later one';
+
+    my $declaring = "if ( open my \$log, '<', \$path ) { print {\$log} 1 }\nif ( my \$n = f() ) { g() }\n";
+    is [ map { $_->facts } sites_of( $declaring, 'condition' )->@* ],
+      [ { keyword => 'if', declares => 1 }, { keyword => 'if' } ],
+      'a condition whose declaration the block names, and one whose declaration nothing names';
+    is [ map { [ $_->text, $_->facts ] }
+          sites_of( "sub f {\n    chomp( my \$line = g() );\n    return \$line;\n}\n", 'statement' )->@* ],
+      [ [ 'chomp( my $line = g() );', { head => 'chomp', declares => 1 } ] ],
+      'a statement whose declaration later code names is a site with that fact';
 };
 
 subtest 'a byte order mark before the first line moves no site' => sub {

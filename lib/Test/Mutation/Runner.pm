@@ -37,6 +37,7 @@ my $ANALYSIS = Dict [
     mutants   => ArrayRef [ InstanceOf ['Test::Mutation::Mutant'] ],
     problems  => ArrayRef [ Dict [ path => Str, problem => Str ] ],
     left_out  => HashRef [Int],
+    rejected  => ArrayRef [ Dict [ path => Str, mutator => Str, line => Int, rule => Str ] ],
     inventory => Dict [ mutants => Int, digest => Str ],
 ];
 
@@ -54,7 +55,7 @@ sub _analysis ( $config, $project, $root ) {
         enable  => $config->enable,
         disable => $config->disable,
     );
-    my ( %sources, %left_out, @mutants, @problems );
+    my ( %sources, %left_out, @mutants, @problems, @rejected );
     my %only    = map { $_ => 1 } $config->only->@*;
     my $changed = defined $config->since ? Test::Mutation::Git::changed( $project, $config->since ) : undef;
     my $perl    = _perl_version( $config->perl );
@@ -75,7 +76,8 @@ sub _analysis ( $config, $project, $root ) {
             perl     => $perl
         );
         push @mutants, grep { !$changed || _in_changed_lines( $changed->{$path}, $_ ) }
-          grep { !%only || $only{ $_->id } } $generated->@*;
+          grep { !%only || $only{ $_->id } } $generated->{mutants}->@*;
+        push @rejected, map { { path => $path, $_->%* } } $generated->{rejected}->@*;
     }
     my $inventory =
       { mutants => scalar @mutants, digest => Digest::SHA::sha256_hex( join "\n", map { $_->id } @mutants ) };
@@ -88,6 +90,7 @@ sub _analysis ( $config, $project, $root ) {
         mutants   => \@mutants,
         problems  => \@problems,
         left_out  => \%left_out,
+        rejected  => \@rejected,
         inventory => $inventory
     };
 }
@@ -935,6 +938,7 @@ After every mutant, the runner restores a copy that the tests changed.
 
 Returns the sources, the mutants, and the files that could not be analyzed, without running a test.
 The C<left_out> key maps a file to the number of its places that the analysis left out, and a run warns about each such file.
+The C<rejected> key holds every change that the generator refused, with the file, the mutator, the line, and the rule.
 The C<inventory> key holds the count and the digest of the mutants before C<shard> takes its part.
 
 =head2 run

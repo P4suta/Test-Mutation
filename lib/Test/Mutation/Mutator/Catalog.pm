@@ -92,6 +92,7 @@ my @WORD_FAMILIES = (
         profile     => 'default',
         description => 'Replaces a function with its counterpart',
         roles       => ['call'],
+        calls       => 1,
         table       => {
             min     => 'max',
             max     => 'min',
@@ -118,6 +119,7 @@ my @WORD_FAMILIES = (
         profile     => 'default',
         description => 'Swaps true and false',
         roles       => ['call'],
+        calls       => 1,
         table       => { true => 'false', false => 'true' },
     },
     {
@@ -125,6 +127,7 @@ my @WORD_FAMILIES = (
         profile     => 'extended',
         description => 'Swaps shift and pop',
         roles       => ['call'],
+        calls       => 1,
         table       => { shift => 'pop', pop => 'shift' },
     },
     {
@@ -175,9 +178,15 @@ sub _word_mutator ($family) {
         description => $family->{description},
         generate    => sub ($site) {
             return if $site->kind ne 'word' || !$role{ $site->role };
-            my $text        = $site->text;
-            my $replacement = $table->{$text};
+            my $text = $site->text;
+
+            # A function may stand under its qualified name, and the table knows it by its own name.
+            # The generator writes the name of the counterpart as the file resolves it.
+            my $word        = $family->{calls} ? $text =~ s/\A.*:://r : $text;
+            my $replacement = $table->{$word};
             return if !defined $replacement;
+            return { replacement => $replacement, description => "replaced $text with %s", calls => $replacement }
+              if $family->{calls};
             return { replacement => $replacement, description => "replaced $text with $replacement" };
         },
     );
