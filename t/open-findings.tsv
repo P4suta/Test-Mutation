@@ -9,3 +9,113 @@ type-contracts	lib/Test/Mutation.pm uses 3 bare HashRef	the settings table gives
 type-contracts	lib/Test/Mutation/Config.pm uses 4 bare HashRef	the settings table gives every layer of settings its type
 type-contracts	lib/Test/Mutation/Pool.pm uses 1 Any	the pool loop with a typed payload
 type-contracts	lib/Test/Mutation/Report/Json.pm uses 2 bare HashRef	the status catalog and its typed report document
+contract-exit-table-arguments	missing: accepted; flags --disable --enable --mutant --perl --report-dir --since --source --test; commands exec	the settings table
+contract-one-line-arguments	equals: no line with the prefix; flags --cache --equivalence --in-place --keep-work; commands default exec list merge run show	the settings table
+contract-one-line-arguments	missing: no line with the prefix; flags --config --coverage --disable --enable --format --mutant --perl --profile --report-dir --root --shard --since --source --test; commands default list merge run show	the settings table
+contract-one-line-arguments	missing: no line with the prefix; flags --jobs --min-score --timeout-factor --timeout-floor; commands default exec list merge run show	the settings table
+contract-one-line-arguments	negated: no line with the prefix; flags --config --coverage --disable --enable --format --jobs --keep-work --min-score --mutant --perl --profile --report-dir --root --shard --since --source --test --timeout-factor --timeout-floor; commands default exec list merge run show	the settings table
+contract-one-line-arguments	prefix: no line with the prefix; flags --cache --config --coverage --enable --equivalence --min-score --mutant --perl --profile --root --shard --since --source --test --timeout-factor --timeout-floor; commands default exec list merge run show	the settings table
+contract-one-line-arguments	typo: no line with the prefix; flags --cache --config --coverage --disable --enable --equivalence --format --in-place --jobs --keep-work --min-score --mutant --perl --profile --report-dir --root --shard --since --source --test --timeout-factor --timeout-floor; commands default exec list merge run show	the settings table
+contract-no-leak-arguments	equals: wording of the option parser; flags --cache --equivalence --in-place --keep-work; commands default exec list merge run show	the settings table
+contract-no-leak-arguments	invalid: a variable of the code; flags --coverage --format --jobs --min-score --profile --shard --timeout-factor --timeout-floor; commands default exec list merge run show	the settings table
+contract-no-leak-arguments	invalid: wording of the type library; flags --coverage --format --jobs --min-score --profile --shard --timeout-factor --timeout-floor; commands default exec list merge run show	the settings table
+contract-no-leak-arguments	missing: a variable of the code; flags --coverage --format --profile --shard; commands exec	the settings table
+contract-no-leak-arguments	missing: wording of the option parser; flags --config --coverage --disable --enable --format --mutant --perl --profile --report-dir --root --shard --since --source --test; commands default list merge run show	the settings table
+contract-no-leak-arguments	missing: wording of the option parser; flags --jobs --min-score --timeout-factor --timeout-floor; commands default exec list merge run show	the settings table
+contract-no-leak-arguments	missing: wording of the type library; flags --coverage --format --profile --shard; commands exec	the settings table
+contract-no-leak-arguments	negated: wording of the option parser; flags --config --coverage --disable --enable --format --jobs --keep-work --min-score --mutant --perl --profile --report-dir --root --shard --since --source --test --timeout-factor --timeout-floor; commands default exec list merge run show	the settings table
+contract-no-leak-arguments	prefix: wording of the option parser; flags --cache --config --coverage --enable --equivalence --min-score --mutant --perl --profile --root --shard --since --source --test --timeout-factor --timeout-floor; commands default exec list merge run show	the settings table
+contract-no-leak-arguments	typo: wording of the option parser; flags --cache --config --coverage --disable --enable --equivalence --format --in-place --jobs --keep-work --min-score --mutant --perl --profile --report-dir --root --shard --since --source --test --timeout-factor --timeout-floor; commands default exec list merge run show	the settings table
+contract-typed-name-arguments	after-dashes: the message lacks the spelling that the user typed; flags --cache --config --coverage --disable --enable --equivalence --format --in-place --jobs --keep-work --min-score --mutant --perl --profile --report-dir --root --shard --since --source --test --timeout-factor --timeout-floor; commands mutators	the commands table
+contract-typed-name-arguments	equals: the message lacks the spelling that the user typed; flags --cache --equivalence --in-place --keep-work; commands default exec list merge run show	the settings table
+contract-typed-name-arguments	invalid: the message lacks the spelling that the user typed; flags --coverage --format --jobs --min-score --profile --shard --timeout-factor --timeout-floor; commands default exec list merge run show	the settings table
+contract-typed-name-arguments	invalid: the message names the attribute; flags --format --min-score --timeout-factor --timeout-floor; commands default exec list merge run show	the settings table
+contract-typed-name-arguments	missing: the message lacks the spelling that the user typed; flags --config --coverage --format --jobs --min-score --profile --root --shard --timeout-factor --timeout-floor; commands default exec list merge run show	the settings table
+contract-typed-name-arguments	missing: the message lacks the spelling that the user typed; flags --disable --enable --mutant --perl --report-dir --since --source --test; commands default list merge run show	the settings table
+contract-typed-name-arguments	missing: the message names the attribute; flags --format; commands exec	the settings table
+contract-typed-name-arguments	negated: the message lacks the spelling that the user typed; flags --config --coverage --disable --enable --format --jobs --keep-work --min-score --mutant --perl --profile --report-dir --root --shard --since --source --test --timeout-factor --timeout-floor; commands default exec list merge run show	the settings table
+contract-typed-name-arguments	prefix: the message lacks the spelling that the user typed; flags --cache --config --coverage --enable --equivalence --min-score --mutant --perl --profile --root --shard --since --source --test --timeout-factor --timeout-floor; commands default exec list merge run show	the settings table
+contract-typed-name-arguments	typo: the message lacks the spelling that the user typed; flags --cache --config --coverage --disable --enable --equivalence --format --in-place --jobs --keep-work --min-score --mutant --perl --profile --report-dir --root --shard --since --source --test --timeout-factor --timeout-floor; commands default exec list merge run show	the settings table
+contract-no-abbrev-arguments	prefix: accepted; flags --cache --config --coverage --disable --enable --equivalence --format --in-place --jobs --keep-work --min-score --mutant --perl --profile --report-dir --root --shard --since --source --test --timeout-factor --timeout-floor; commands default exec list merge run show	the settings table
+contract-stray-arguments	after-dashes: accepted; flags --cache --config --coverage --disable --enable --equivalence --format --in-place --jobs --keep-work --min-score --mutant --perl --profile --report-dir --root --shard --since --source --test --timeout-factor --timeout-floor; commands list show	the commands table
+contract-stray-arguments	operands: accepted; counts 1; commands list	the commands table
+contract-stray-arguments	operands: accepted; counts 2; commands show	the commands table
+contract-help-arguments	--help: status 2; positions later; commands exec list merge mutators run show	the commands table
+contract-help-arguments	--version: status 2; positions later; commands exec list merge mutators run show	the commands table
+contract-help-arguments	-h: status 2; positions later; commands exec list merge mutators run show	the commands table
+contract-help-arguments	the help text lacks an option that the commands accept; options --equivalence --no-cache --no-in-place -h; commands help	the help text that the tables generate
+contract-unknown-arguments	first word: the refusal names no nearest name; words List exce help lits lst merg mutator runn shwo version; commands default	the commands table
+contract-unknown-arguments	typo: the refusal names no nearest name; flags --cache --config --coverage --disable --enable --equivalence --format --in-place --jobs --keep-work --min-score --mutant --perl --profile --report-dir --shard --since --source --test --timeout-factor --timeout-floor; commands default exec list merge run show	the settings table
+contract-unknown-arguments	typo: the refusal names no nearest name; flags --root; commands default exec list merge mutators run show	the settings table
+contract-same-config-settings	the default: another value than the table states; settings jobs; surfaces file flag	the settings table
+contract-no-leak-settings	a value in the file: a variable of the code; settings cache coverage equivalence formats in_place jobs profile threshold_break threshold_high threshold_low timeout_factor timeout_floor; surfaces file	the settings table
+contract-no-leak-settings	a value in the file: wording of the type library; settings cache coverage equivalence formats in_place jobs profile threshold_break threshold_high threshold_low timeout_factor timeout_floor; surfaces file	the settings table
+contract-typed-name-settings	a value in the file: the message lacks the spelling that the user typed; settings in_place threshold_break threshold_high threshold_low timeout_factor timeout_floor; surfaces file	the settings table
+contract-typed-name-settings	a value in the file: the message names the attribute; settings in_place threshold_break threshold_high threshold_low timeout_factor timeout_floor; surfaces file	the settings table
+contract-unknown-settings	a call: a name of the configuration class that is no setting passes; settings names; surfaces library	the settings table
+contract-one-name-settings	names: --format, [report] formats, formats; settings formats; surfaces all	the settings table
+contract-one-name-settings	names: --min-score, [thresholds] break, threshold_break; settings threshold_break; surfaces all	the settings table
+contract-one-name-settings	names: --mutant, only; settings only; surfaces all	the settings table
+contract-one-name-settings	names: --report-dir, [report] directory, report_directory; settings report_directory; surfaces all	the settings table
+contract-one-name-settings	names: --source, [source] include, source_include; settings source_include; surfaces all	the settings table
+contract-one-name-settings	names: --test, [test] include, test_include; settings test_include; surfaces all	the settings table
+contract-one-name-settings	names: [source] exclude, source_exclude; settings source_exclude; surfaces all	the settings table
+contract-one-name-settings	names: [test] exclude, test_exclude; settings test_exclude; surfaces all	the settings table
+contract-one-name-settings	names: [thresholds] high, threshold_high; settings threshold_high; surfaces all	the settings table
+contract-one-name-settings	names: [thresholds] low, threshold_low; settings threshold_low; surfaces all	the settings table
+contract-all-surfaces-settings	the surface lacks it; settings baseline_timeout work_directory; surfaces file flag	the settings table
+contract-all-surfaces-settings	the surface lacks it; settings config; surfaces file library	the settings table
+contract-all-surfaces-settings	the surface lacks it; settings keep_work only root shard since; surfaces file	the settings table
+contract-all-surfaces-settings	the surface lacks it; settings link source_exclude switches test_exclude threshold_high threshold_low; surfaces flag	the settings table
+contract-selector-selectors	malformed: status 0, where the selector calls for 2; selectors exclude; origins file	the selection resolved before the first write
+contract-selector-selectors	malformed: status 0, where the selector calls for 2; selectors mutant; origins line	the selection resolved before the first write
+contract-selector-selectors	malformed: status 0, where the selector calls for 2; selectors source test; origins file line	the selection resolved before the first write
+contract-selector-selectors	malformed: status 0, where the selector calls for 2; selectors suppression; origins source	the selection resolved before the first write
+contract-selector-selectors	malformed: status 3, where the selector calls for 2; selectors perl; origins file line	the selection resolved before the first write
+contract-selector-selectors	malformed: status 4, where the selector calls for 2; selectors mutator; origins file line	the selection resolved before the first write
+contract-selector-selectors	malformed: status 4, where the selector calls for 2; selectors since; origins line	the selection resolved before the first write
+contract-selector-selectors	nothing: status 0, where the selector calls for 2; selectors exclude; origins file	the selection resolved before the first write
+contract-selector-selectors	nothing: status 0, where the selector calls for 2; selectors mutant; origins line	the selection resolved before the first write
+contract-selector-selectors	nothing: status 0, where the selector calls for 2; selectors source test; origins file line	the selection resolved before the first write
+contract-selector-selectors	nothing: status 0, where the selector calls for 2; selectors suppression; origins source	the selection resolved before the first write
+contract-selector-selectors	nothing: status 3, where the selector calls for 2; selectors perl; origins file line	the selection resolved before the first write
+contract-selector-selectors	nothing: status 4, where the selector calls for 2; selectors mutator; origins file line	the selection resolved before the first write
+contract-one-line-selectors	malformed: no line with the prefix; selectors perl; origins file line	the selection resolved before the first write
+contract-one-line-selectors	nothing: no line with the prefix; selectors perl; origins file line	the selection resolved before the first write
+contract-no-leak-selectors	malformed: a warning of Perl; selectors perl; origins file line	the selection resolved before the first write
+contract-no-effect-selectors	malformed: a test started before the refusal; selectors perl; origins file line	the selection resolved before the first write
+contract-no-effect-selectors	malformed: the project was copied before the refusal; selectors mutator perl test; origins file line	the selection resolved before the first write
+contract-no-effect-selectors	nothing: a test started before the refusal; selectors perl; origins file line	the selection resolved before the first write
+contract-no-effect-selectors	nothing: the project was copied before the refusal; selectors mutator perl test; origins file line	the selection resolved before the first write
+contract-exit-table-outcomes	an error of the command: status 4, the status of an inconclusive run; gates none; parts whole	the typed errors and the message catalog
+contract-exit-table-outcomes	inconclusive: status 0, where the table calls for 4; gates 0 100 50 none; parts one whole	the single outcome of a run
+contract-exit-table-outcomes	inconclusive: status 1, where the table calls for 4; gates 100 50; parts one whole	the single outcome of a run
+contract-exit-table-outcomes	measured: status 1, where the table calls for 0; gates 100 50; parts one	the single outcome of a run
+contract-exit-table-outcomes	nothing: status 0, where the table calls for 4; gates 0 100 50; parts whole	the single outcome of a run
+contract-exit-table-outcomes	nothing: status 4, where the table calls for 0; gates 0 100 50; parts one	the single outcome of a run
+contract-exit-table-outcomes	nothing: status 4, where the table calls for 0; gates none; parts one whole	the single outcome of a run
+contract-one-line-outcomes	status 1: no line with the prefix; gates 100 50; parts one whole	the typed errors and the message catalog
+contract-one-line-outcomes	status 3: no line with the prefix; gates 0 100 50 none; parts one whole	the typed errors and the message catalog
+contract-one-line-outcomes	status 4: no line with the prefix; gates 0 100 50 none; parts one whole	the typed errors and the message catalog
+contract-gate-outcomes	success without a score; gates any; parts whole	the single outcome of a run
+contract-three-deciders-outcomes	pass: merge, run; fail: assertion; gates 50; parts whole	the single outcome of a run
+contract-three-deciders-outcomes	pass: run; fail: assertion; gates 0 100; parts whole	the single outcome of a run
+contract-three-deciders-outcomes	the gate of the file: pass: run; fail: assertion; gates 50; parts whole	the single outcome of a run
+contract-exit-table-process	status 0, where the table calls for 2; cases abbreviation options-after-dashes; part settings	the settings table
+contract-exit-table-process	status 0, where the table calls for 2; cases operand-of-list operand-of-show; part commands	the commands table
+contract-exit-table-process	status 0, where the table calls for 2; cases unmatched-mutant unmatched-source unmatched-test; part selection	the selection resolved before the first write
+contract-exit-table-process	status 0, where the table calls for 4; cases no-source-and-a-gate; part outcome	the single outcome of a run
+contract-exit-table-process	status 2, where the table calls for 0; cases boolean-in-the-file; part settings	the settings table
+contract-exit-table-process	status 2, where the table calls for 0; cases help-after-list help-after-mutators help-after-run version-after-list; part commands	the commands table
+contract-exit-table-process	status 3, where the table calls for 2; cases missing-interpreter; part selection	the selection resolved before the first write
+contract-exit-table-process	status 4, where the table calls for 2; cases unknown-mutator unknown-revision; part selection	the selection resolved before the first write
+contract-one-line-process	no line with the prefix; cases below-the-gate failing-baseline; part outcome	the single outcome of a run
+contract-one-line-process	no line with the prefix; cases help-after-list help-after-run version-after-list; part commands	the commands table
+contract-one-line-process	no line with the prefix; cases missing-interpreter; part selection	the selection resolved before the first write
+contract-one-line-process	no line with the prefix; cases missing-value negated-value unknown-option value-for-a-flag word-for-a-number; part settings	the settings table
+contract-no-leak-process	a package name; cases boolean-in-the-file; part settings	the settings table
+contract-no-leak-process	a place in the source; cases letters-in-a-patch; part report	the encoding of the output
+contract-no-leak-process	a variable of the code; cases boolean-in-the-file gate-out-of-range number-out-of-range value-in-the-file; part settings	the settings table
+contract-no-leak-process	wording of the option parser; cases help-after-list help-after-run version-after-list; part commands	the commands table
+contract-no-leak-process	wording of the option parser; cases missing-value negated-value unknown-option value-for-a-flag word-for-a-number; part settings	the settings table
+contract-no-leak-process	wording of the type library; cases boolean-in-the-file gate-out-of-range number-out-of-range value-in-the-file; part settings	the settings table
