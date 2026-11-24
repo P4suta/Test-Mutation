@@ -28,5 +28,6 @@ A newer viewer needs a manual update of the file and its digest.
 
 ## Confirmation
 
-`t/unit/report-json.t` fixes the mapping, and `t/unit/report-html.t` checks the digest and the escaping of the embedded data.
-Validation with the published schema file and a rendering check in a browser are still missing, so the decision stays proposed.
+`t/unit/report-json.t` fixes the mapping, which `report-a-timeout-as-ignored-in-the-schema-report` gives each status.
+`xt/report-schema.t` validates reports against the pinned schema file, and `t/unit/report-html.t` checks the digest and the escaping of the embedded data.
+A rendering check in a browser is still missing, so the decision stays proposed.
