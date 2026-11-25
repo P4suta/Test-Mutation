@@ -8,6 +8,7 @@ use Type::Params    qw(signature_for);
 use version         ();
 use Test::Mutation::Mutator::Providers;
 use Test::Mutation::Site;
+use Test::Mutation::Suppression;
 use Test::Mutation::Syntax::Precedence;
 use Test::Mutation::Types qw(Analysis);
 
@@ -35,6 +36,7 @@ my %CONTINUATION       = map { $_ => 1 } qw(elsif else continue catch finally);
 my %BODY_HEAD          = map { $_ => 1 } qw(method sub ADJUST);
 my %EXCLUDED_HEAD      = map { $_ => 1 } qw(use no package);
 my %HIDDEN_HEAD        = map { $_ => 1 } qw(field ADJUST);
+my %ROUTINE_HEAD       = map { $_ => 1 } qw(sub method);
 my %NEVER_A_CALL =
   map { $_ => 1 }
   qw(my our local state sub package class role field method use no return do eval else elsif for foreach
@@ -113,7 +115,7 @@ sub analyze ($source) {
     my $heredocs = _heredocs( $context, $document );
     return {
         sites        => \@sites,
-        suppressions => _suppressions($document),
+        suppressions => _suppressions( $context, $document ),
         dropped      => $context->{dropped},
         heredocs     => $heredocs,
         names        => _names($document),
@@ -124,7 +126,7 @@ sub analyze ($source) {
 sub _problem ($message) {
     return {
         sites        => [],
-        suppressions => [],
+        suppressions => { directives => [], refusals => [] },
         dropped      => [],
         heredocs     => [],
         names        => { imports => [], declared => [] },
@@ -849,28 +851,41 @@ sub _declares_for_later ( $context, $statement, $tokens, $end ) {
     return scalar grep { $later =~ /[\$\@%]\#?\{?\Q$_\E\b/ } @names;
 }
 
-sub _suppressions ($document) {
-    my $comments = $document->find('PPI::Token::Comment') || [];
-    my @ranges;
-    my $open;
-    for my $comment ( $comments->@* ) {
-        my ( $verb, $list ) = $comment->content =~ /\A\s*[#][#]\s*(no|use)\s+mutate\b\s*(?:[(]([^)]*)[)])?/x;
-        next if !defined $verb;
-        my $line  = $comment->location->[0];
-        my $names = defined $list ? [ grep { length } split /[\s,]+/, $list ] : undef;
-        if ( $verb eq 'use' ) {
-            $open->{last} = $line if $open;
-            $open = undef;
-        }
-        elsif ( $comment->line ) {
-            $open = { first => $line, last => undef, names => $names };
-            push @ranges, $open;
-        }
-        else {
-            push @ranges, { first => $line, last => $line, names => $names };
-        }
+# The grammar of the comments reads facts alone: the place and the text of each comment, and the routine after it.
+# A walk from the end of the file meets the token after each comment before the comment.
+sub _suppressions ( $context, $document ) {
+    my ( @comments, $next );
+    for my $token ( reverse $document->tokens ) {
+        unshift @comments, { token => $token, next => $next } if $token->isa('PPI::Token::Comment');
+        $next = $token                                        if $token->significant;
     }
-    return \@ranges;
+
+    # PPI puts the indent of a comment on a line of its own into the comment, and it tells such a comment by its line feed.
+    # The last line of a file may lack the line feed, so the first column tells the place.
+    return Test::Mutation::Suppression::parse(
+        path     => $context->{source}->path,
+        comments => [
+            map {
+                {
+                    line    => $_->{token}->location->[0],
+                    own     => $_->{token}->location->[1] == 1 ? 1 : 0,
+                    text    => $_->{token}->content =~ s/\A\s+//r =~ s/\s+\z//r,
+                    routine => scalar _routine( $context, $_->{next} ),
+                }
+            } @comments
+        ],
+    );
+}
+
+# The first and the last line of the named subroutine or method that a word starts.
+# PPI joins the code after a method to the method, so a plain statement holds the routine as one of its segments.
+sub _routine ( $context, $word ) {
+    return if !_is_word( $word, \%ROUTINE_HEAD );
+    my $statement = $word->parent;
+    return [ $word->location->[0], $statement->last_token->location->[0] ] if $statement->isa('PPI::Statement::Sub');
+    my $segment = $context->{segment_of}{ refaddr $word };
+    return if !$segment->{closes};
+    return [ $word->location->[0], $segment->{children}[-1]->last_token->location->[0] ];
 }
 
 1;
@@ -930,7 +945,8 @@ C<use v5.40> and a later version import the booleans and the rounding functions 
 
 Returns a hash reference in the shape of L<Test::Mutation::Types/Analysis>.
 C<sites> holds L<Test::Mutation::Site> objects in source order.
-C<suppressions> holds the line ranges that C<## no mutate> comments cover.
+C<suppressions> holds what L<Test::Mutation::Suppression> reads from the comments: the directives and the refusals of the grammar.
+The analysis gives each comment the lines of the named subroutine or method that starts at its next token.
 C<dropped> holds the places that yield no site, each with its line, its kind, and the reason.
 C<heredocs> holds the offsets of each here-document.
 C<names> holds the imports of each C<use> statement and the subroutines of the file.

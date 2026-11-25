@@ -45,7 +45,7 @@ sub configured ( $file, %given ) {
 
 subtest 'one row for each setting, with one name on every surface' => sub {
     my @names = map { $_->name } Test::Mutation::Settings::rows()->@*;
-    is scalar(@names),                                           30, 'the settings';
+    is scalar(@names),                                           32, 'the settings';
     is [ grep { $names[$_] eq $names[ $_ - 1 ] } 1 .. $#names ], [], 'no name twice in a row';
     my $score = $row{'min-score'};
     is [ $score->flag, $score->key, $score->attribute ], [ '--min-score', 'min-score', 'min_score' ], 'the three names';
@@ -81,8 +81,7 @@ subtest 'each default has the type of its setting' => sub {
 subtest 'the default of every setting and its text' => sub {
     is {
         map { $_->name => ( $_->default ? $_->default->($facts) : undef ) } values %row
-    },
-      {
+    }, {
         root               => q{.},
         config             => undef,
         jobs               => 3,
@@ -113,6 +112,9 @@ subtest 'the default of every setting and its text' => sub {
         shard              => undef,
         cache              => 0,
         'cache-dir'        => '.mutation',
+
+        'suppress-require-names'  => 0,
+        'suppress-require-reason' => 0,
       },
       'the defaults';
 
@@ -131,7 +133,7 @@ subtest 'the default of every setting and its text' => sub {
         is $setting->default_text, $text, 'the text of the default of ' . $setting->name;
         $count++;
     }
-    is $count, 24, 'every default but the two that depend on the facts';
+    is $count, 26, 'every default but the two that depend on the facts';
 };
 
 subtest 'the interactions that the table declares' => sub {

@@ -576,35 +576,79 @@ PERL
     is $scope{'%'},   [ 15, 17 ], 'an anonymous hash belongs to the return statement';
 };
 
-subtest 'suppression comments become line ranges' => sub {
+subtest 'the grammar of the suppression comments reads the place of each comment and the routine after it' => sub {
+    my $read = sub ($code) {
+        my $suppressions = analyze($code)->{suppressions};
+        return {
+            directives => [ map { [ $_->@{qw(line first last)} ] } $suppressions->{directives}->@* ],
+            refusals   => [ map { [ $_->@{qw(line id)} ] } $suppressions->{refusals}->@* ],
+        };
+    };
     my $code = join "\n",
       'my $a = 1 + 2;    ## no mutate',
       '## no mutate (arithmetic, comparison)',
       'my $b = 3 + 4;',
       '## use mutate',
-      'my $c = 5 + 6;',
-      '## no mutate',
-      'my $d = 7 + 8;',
+      '# a plain comment',
+      'sub f {',
+      "    ## no mutate (logical): kept   \t",
+      '    return $_[0] || 1;',
+      '    ## use mutate',
+      '}',
       q{};
-    is analyze($code)->{suppressions},
+    is $read->($code), { directives => [ [ 1, 1, 1 ], [ 2, 2, 4 ], [ 7, 7, 9 ] ], refusals => [] },
+      'a comment behind code, a block, and an indented block';
+    is [ map { [ $_->@{qw(text names reason)} ] } analyze($code)->{suppressions}{directives}->@* ],
       [
-        { first => 1, last => 1,     names => undef },
-        { first => 2, last => 4,     names => [ 'arithmetic', 'comparison' ] },
-        { first => 6, last => undef, names => undef },
+        [ '## no mutate',                          undef,                          undef ],
+        [ '## no mutate (arithmetic, comparison)', [ 'arithmetic', 'comparison' ], undef ],
+        [ '## no mutate (logical): kept',          ['logical'],                    'kept' ],
       ],
-      'trailing, bounded, and open-ended ranges';
+      'the text of each comment without its indent and its trailing blanks';
 
-    my $mixed = join "\n", '# a plain comment', '## no mutate', 'my $a = 1;', '## use mutate',
-      'my $b = 2;    ## no mutate', '## use mutate', q{};
-    is analyze($mixed)->{suppressions},
-      [ { first => 2, last => 4, names => undef }, { first => 5, last => 5, names => undef } ],
-      'a plain comment before, a range in source order after, and a second end that moves nothing';
+    my $routines = join "\n",
+      'use v5.38;',
+      q{use experimental 'class';},
+      '## no mutate sub',
+      'class Counter {',
+      '    field $step = 1;',
+      '    ## no mutate sub',
+      '    method bump ($by = 1 + 1) {',
+      '        return $step + $by;',
+      '    }',
+      '    ## no mutate sub: the second method',
+      '    method reset { $step = 0 }',
+      '}',
+      '## no mutate sub',
+      'sub total ( $x,',
+      '    $y = 2 * 3 ) {',
+      '    return $x + $y;',
+      '}',
+      '## no mutate sub',
+      q{},
+      '# a note between',
+      'sub forward;',
+      'my @list = (',
+      '    ## no mutate sub',
+      '    sub { 1 + 1 },',
+      ');',
+      '## no mutate sub',
+      'sub { 2 + 2 };',
+      '## no mutate sub';
+    is $read->($routines),
+      {
+        directives => [ [ 6, 7, 9 ],                                 [ 10, 11, 11 ], [ 13, 14, 17 ], [ 18, 21, 21 ] ],
+        refusals   => [ map { [ $_, 'suppression-sub-missing' ] } 3, 23,             26,             28 ],
+      },
+      'methods one after the other, a signature over two lines, a declaration, and no routine after the comment';
+    is analyze($routines)->{suppressions}{refusals}[0]{text},
+      'lib/X.pm:3: ## no mutate sub stands before no named subroutine or method', 'a refusal names the file';
 };
 
 subtest 'files that cannot be analyzed report a problem' => sub {
     my %nothing = (
         sites        => [],
-        suppressions => [],
+        suppressions => { directives => [], refusals => [] },
         dropped      => [],
         heredocs     => [],
         names        => { imports => [], declared => [] },

@@ -179,6 +179,58 @@ my @ROWS = (
         'A mutant of a report file ends before it starts.'
     ],
     [
+        'suppressions-invalid', 'usage',
+        'invalid suppression comments: {list}',
+        'Comments of the analyzed files break the grammar of the suppression comments or suppress no mutant.'
+    ],
+    [
+        'suppression-malformed', 'usage',
+        '{path}:{line}: "{comment}" differs from the grammar',
+        'A comment resembles a suppression comment and has another form than the grammar.'
+    ],
+    [
+        'suppression-mutator-unknown',            'usage',
+        '{path}:{line}: unknown mutator {names}', 'A suppression comment names a mutator that the tool lacks.'
+    ],
+    [
+        'suppression-end-unopened', 'usage',
+        '{path}:{line}: ## use mutate ends no open block',
+        'A comment ends a block of suppressed lines that no comment opened.'
+    ],
+    [
+        'suppression-block-nested', 'usage',
+        '{path}:{line}: ## no mutate opens a block inside the block of line {open}',
+        'A comment opens a block of suppressed lines while an earlier block is still open.'
+    ],
+    [
+        'suppression-block-unclosed',
+        'usage',
+        '{path}:{line}: ## no mutate opens a block that no ## use mutate ends',
+        'A block of suppressed lines is still open at the end of its file.'
+    ],
+    [
+        'suppression-sub-missing', 'usage',
+        '{path}:{line}: ## no mutate sub stands before no named subroutine or method',
+        'The statement after a comment that suppresses a subroutine is no named subroutine or method.'
+    ],
+    [
+        'suppression-unused', 'usage',
+        '{path}:{line}: "{comment}" suppresses no mutant',
+        'A suppression comment covers no mutant that a mutator of the tool makes.'
+    ],
+    [
+        'suppression-names-missing',
+        'usage',
+        '{path}:{line}: "{comment}" names no mutator, and suppress-require-names asks for one',
+        'A suppression comment names no mutator, and the setting suppress-require-names asks for a name.'
+    ],
+    [
+        'suppression-reason-missing',
+        'usage',
+        '{path}:{line}: "{comment}" gives no reason, and suppress-require-reason asks for one',
+        'A suppression comment gives no reason, and the setting suppress-require-reason asks for one.'
+    ],
+    [
         'file-unreadable',              'environment',
         'cannot read {path}: {reason}', 'A file or a directory of the project or of the run cannot be read.'
     ],

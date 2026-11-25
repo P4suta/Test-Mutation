@@ -59,6 +59,7 @@ use Test::Mutation::Pool;
 use Test::Mutation::Record;
 use Test::Mutation::Report::Json;
 use Test::Mutation::Runner;
+use Test::Mutation::Suppression;
 use Test::Mutation::Tree;
 use Test::Mutation::Verdict;
 
@@ -235,6 +236,28 @@ for my $text ( "[test]\njobs = 1\n", "root = \"x\"\n", "jobs = = 1\n" ) {
 }
 raised(
     sub { Test::Mutation::Mutator::Catalog::choose( profile => 'default', enable => ['nonesuch'], disable => [] ) } );
+
+# The comments that suppress mutants: every refusal of the grammar in one file, and the two settings that ask for more.
+my $noted = join "\n", 'package Noted;', '## use mutate', 'sub one { return $_[0] + 1 }    ## no mutate (nonesuch)',
+  'sub two { return $_[0] - 1 }    ##no mutate', '## no mutate sub', 'my $three = 3 * 3;',
+  '## no mutate (regex-anchor)',
+  '## no mutate', 'my $four = 4 * 4;', '1;', q{};
+raised(
+    sub {
+        Test::Mutation::Runner::analyze(
+            Test::Mutation::Settings::of_call( { root => directory( 'lib/Noted.pm' => $noted ) } ) );
+    }
+);
+Test::Mutation::Suppression::refusals(
+    path        => 'lib/Noted.pm',
+    suppression => Test::Mutation::Suppression::parse(
+        path     => 'lib/Noted.pm',
+        comments => [ { line => 1, own => 0, text => '## no mutate', routine => undef } ]
+    ),
+    mutants        => [],
+    require_names  => 1,
+    require_reason => 1,
+);
 
 # The merge of the parts of a run, and the report file that it reads.
 merged();
@@ -449,7 +472,7 @@ measured( { 'lib/Small.pm' => $module, 't/reader.t' => $reader, 't/writer.t' => 
 
 my @unsaid = unsaid( \@catalog, \%said );
 Gate::findings( 'contract-message-messages', [ map { "no case produces the message $_" } @unsaid ] );
-Gate::checked( 'messages of the catalog',       scalar @catalog,    at_least => 76 );
-Gate::checked( 'messages that a case produces', @catalog - @unsaid, at_least => 76 );
+Gate::checked( 'messages of the catalog',       scalar @catalog,    at_least => 86 );
+Gate::checked( 'messages that a case produces', @catalog - @unsaid, at_least => 86 );
 
 done_testing;

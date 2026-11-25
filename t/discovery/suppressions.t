@@ -15,7 +15,7 @@ sub layout (@names) {
 
 sub errors (@names) {
     my $layout = layout(@names);
-    return Layouts::expected( $layout, Layouts::mutants($layout) )->{errors};
+    return [ map { $_->{error} } Layouts::expected( $layout, Layouts::mutants($layout) )->{errors}->@* ];
 }
 
 subtest 'a layout puts each comment on its own line or behind the code of its slot' => sub {
@@ -55,10 +55,18 @@ subtest 'the interpreter rejects every layout that the grammar refuses' => sub {
     is errors( 'block', 'block', 'end' ), ['a second no mutate inside an open block'], 'a block inside a block';
     is errors('block'),                   ['a block without its use mutate'],          'a block without an end';
     is errors( 'line', 'sub' ), ['a no mutate sub without a subroutine after it'],     'a statement after the comment';
-    is errors('idle name'),     ['a directive that suppresses no mutant'], 'a mutator without a mutant on the line';
+    is errors('idle name'), ['a directive that suppresses no mutant'],   'a mutator without a mutant on the line';
+    is errors('named sub'), [],                                          'a subroutine for one mutator, with a reason';
+    is errors('sub behind code'), ['a candidate that is not canonical'], 'a subroutine comment behind code';
+    is errors( 'block', 'named end' ), [ 'a candidate that is not canonical', 'a block without its use mutate' ],
+      'an end with a name, which ends nothing';
     is errors( 'unknown name', 'end', 'block' ),
       [ 'an unknown mutator name', 'a use mutate without an open block', 'a block without its use mutate' ],
       'every error of a layout, in the order of the comments';
+    my $layout = layout( 'idle name', 'block', 'end', 'block' );
+    is [ map { [ $_->@{qw(line error)} ] } Layouts::expected( $layout, Layouts::mutants($layout) )->{errors}->@* ],
+      [ [ 7, 'a block without its use mutate' ], [ 2, 'a directive that suppresses no mutant' ] ],
+      'each error with the line of its comment';
 };
 
 subtest 'the interpreter suppresses the lines that the grammar names' => sub {
@@ -86,23 +94,37 @@ subtest 'the comparison rejects a parser that differs from the interpreter' => s
     is Layouts::differences( layout('line') ), [], 'the parser reads a comment behind code as the grammar does';
     is Layouts::differences( layout( 'block', 'end' ) ), [], 'and a block with its end';
 
-    # The test marks the mutants by hand, so each broken reading stands here whatever the parser of the tool does.
-    my $marked = sub ( $suppresses, @names ) {
+    # The test marks the mutants and the errors by hand, so each broken reading stands here whatever the parser of the tool does.
+    my $marked = sub ( $suppresses, $errors, @names ) {
         my $layout = layout(@names);
-        return Layouts::differences_of( $layout, Layouts::marked( $layout, $suppresses ) );
+        return Layouts::differences_of( $layout, Layouts::marked( $layout, $suppresses, $errors->@* ) );
     };
-    is $marked->( sub ($mutant) { $mutant->{line} == 2 }, 'line' ), [], 'the marks of the grammar leave no difference';
-    is $marked->( sub ($mutant) { 0 }, 'line' ), ['the parser suppresses other mutants than the grammar'],
+    my $unknown   = { line => 2, error => 'an unknown mutator name' };
+    my $elsewhere = { line => 3, error => 'an unknown mutator name' };
+    is $marked->( sub ($mutant) { $mutant->{line} == 2 }, [], 'line' ), [],
+      'the marks of the grammar leave no difference';
+    is $marked->( sub ($mutant) { 0 }, [], 'line' ), ['the parser suppresses other mutants than the grammar'],
       'a comment behind code that suppresses nothing';
-    is $marked->( sub ($mutant) { 0 }, 'unknown name' ), ['the parser accepts an unknown mutator name'],
+    is $marked->( sub ($mutant) { 0 }, [], 'unknown name' ), ['the parser accepts an unknown mutator name'],
       'a misspelt mutator that the reader of the marks accepted';
-    is $marked->( sub ($mutant) { $mutant->{line} >= 3 }, 'sub' ),
+    is $marked->( sub ($mutant) { 0 }, [$unknown], 'unknown name' ), [],
+      'and a reader that refuses it on the line of the comment';
+    is $marked->( sub ($mutant) { 0 }, [$elsewhere], 'unknown name' ),
+      [
+        'the parser accepts an unknown mutator name',
+        'the parser reports an unknown mutator name where the grammar has none'
+      ],
+      'a reader that refuses it on another line';
+    is $marked->( sub ($mutant) { $mutant->{line} == 2 }, [ $unknown, $unknown ], 'line' ),
+      ['the parser reports an unknown mutator name where the grammar has none'],
+      'a reader that refuses a comment of the grammar, twice';
+    is $marked->( sub ($mutant) { $mutant->{line} >= 3 }, [], 'sub' ),
       ['the parser reads no mutate sub as the start of a block'],
       'a comment that names a subroutine and suppresses the lines after it too';
-    is $marked->( sub ($mutant) { $mutant->{line} == 2 }, 'no space' ),
+    is $marked->( sub ($mutant) { $mutant->{line} == 2 }, [], 'no space' ),
       [ 'the parser accepts a candidate that is not canonical', 'the parser obeys a candidate that is not canonical' ],
       'a comment without the space of the canonical form that suppresses its line';
-    is $marked->( sub ($mutant) { $mutant->{line} >= 3 }, 'block', 'block', 'end' ),
+    is $marked->( sub ($mutant) { $mutant->{line} >= 3 }, [], 'block', 'block', 'end' ),
       [
         'the parser accepts a second no mutate inside an open block',
         'the parser starts a second block inside an open block and never ends the first one',
@@ -115,13 +137,15 @@ my @sequences = Layouts::sequences( scalar @forms, 2 );
 my ( %found, $compared );
 for my $sequence (@sequences) {
     my $layout = Layouts::rendered( @forms[ $sequence->@* ] );
-    $compared += Layouts::mutants($layout)->@*;
-    $found{$_} ||= join ' / ', map { $_->{name} } @forms[ $sequence->@* ] for Layouts::differences($layout)->@*;
+    my $made   = Layouts::made($layout);
+    $compared += $made->{mutants}->@*;
+    $found{$_} ||= join ' / ', map { $_->{name} } @forms[ $sequence->@* ]
+      for Layouts::differences_of( $layout, $made )->@*;
 }
 note "$_, as in: $found{$_}" for sort keys %found;
 Gate::findings( 'mutants-suppress-pairs', [ sort keys %found ] );
-Gate::checked( 'forms of a comment',  scalar @forms,     at_least => 13 );
-Gate::checked( 'layouts',             scalar @sequences, at_least => 183 );
-Gate::checked( 'mutants of a layout', $compared,         at_least => 1500 );
+Gate::checked( 'forms of a comment',  scalar @forms,     at_least => 16 );
+Gate::checked( 'layouts',             scalar @sequences, at_least => 273 );
+Gate::checked( 'mutants of a layout', $compared,         at_least => 3000 );
 
 done_testing;

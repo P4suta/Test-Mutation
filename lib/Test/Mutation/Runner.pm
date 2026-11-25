@@ -25,6 +25,7 @@ use Test::Mutation::Result;
 use Test::Mutation::Signals;
 use Test::Mutation::Source;
 use Test::Mutation::Status;
+use Test::Mutation::Suppression;
 use Test::Mutation::Syntax::PPI;
 use Test::Mutation::Tree;
 use Test::Mutation::Try;
@@ -65,7 +66,11 @@ sub _analysis ( $config, $project, $root ) {
         enable  => $config->enable,
         disable => $config->disable,
     );
-    my ( %sources, %left_out, @mutants, @problems, @rejected );
+
+    # A comment may name a mutator that the run leaves out, so the mutants of every mutator decide whether it suppresses one.
+    my %chosen = map { $_->name => 1 } $mutators->@*;
+    my $others = [ grep { !$chosen{ $_->name } } Test::Mutation::Mutator::Catalog::mutators()->@* ];
+    my ( %sources, %left_out, @mutants, @problems, @rejected, @refusals );
     my %only    = map { $_ => 1 } $config->mutant->@*;
     my $changed = defined $config->since ? Test::Mutation::Git::changed( $project, $config->since ) : undef;
     my $perl    = _perl_version( $config->perl );
@@ -88,10 +93,28 @@ sub _analysis ( $config, $project, $root ) {
             mutators => $mutators,
             perl     => $perl
         );
+        my $judged = Test::Mutation::Mutant::Generator::generate(
+            source   => $source,
+            analysis => $analysis,
+            mutators => $others,
+            perl     => $perl
+        );
+        push @refusals,
+          Test::Mutation::Suppression::refusals(
+            path           => $path,
+            suppression    => $analysis->{suppressions},
+            mutants        => [ map { $_->{mutants}->@* } $generated, $judged ],
+            require_names  => $config->suppress_require_names,
+            require_reason => $config->suppress_require_reason,
+          )->@*;
         push @mutants, grep { !$changed || _in_changed_lines( $changed->{$path}, $_ ) }
           grep { !%only || $only{ $_->id } } $generated->{mutants}->@*;
         push @rejected, map { { path => $path, $_->%* } } $generated->{rejected}->@*;
     }
+
+    # A run with a broken comment would measure other mutants than the comments ask for, so it measures none.
+    Test::Mutation::Error::raise( 'suppressions-invalid', list => join q{; }, map { $_->{text} } @refusals )
+      if @refusals;
     my $inventory =
       { mutants => scalar @mutants, digest => Digest::SHA::sha256_hex( join "\n", map { $_->id } @mutants ) };
     if ( defined $config->shard ) {
@@ -336,7 +359,9 @@ sub _entry ( $mutant, $status, $reason, $detail, $by, $covered_by, $tests_run, $
 }
 
 sub _suppressed ($mutant) {
-    return _entry( $mutant, 'Ignored', 'suppressed', 'suppressed by a comment', undef, [], 0, 0 );
+    my $reason = $mutant->suppression_reason;
+    my $detail = 'suppressed by a comment' . ( defined $reason ? ": $reason" : q{} );
+    return _entry( $mutant, 'Ignored', 'suppressed', $detail, undef, [], 0, 0 );
 }
 
 # Tasks end in an order that changes from run to run, so the warnings form a set that the result sorts.
@@ -1002,6 +1027,8 @@ Returns the sources, the mutants, and the files that could not be analyzed, with
 The C<left_out> key maps a file to the number of its places that the analysis left out, and a run warns about each such file.
 The C<rejected> key holds every change that the generator refused, with the file, the mutator, the line, and the rule.
 The C<inventory> key holds the count and the digest of the mutants before C<shard> takes its part.
+A suppression comment that L<Test::Mutation::Suppression> refuses, in any analyzed file, ends the analysis with one usage error that lists every refusal.
+The mutants of every mutator decide whether a comment suppresses one, so the choice of mutators changes no refusal.
 
 =head2 run
 

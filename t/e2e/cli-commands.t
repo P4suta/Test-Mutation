@@ -47,6 +47,64 @@ subtest 'list marks suppressed mutants and honors the mutator options' => sub {
     like $run->{stdout}, qr/^[0-9a-f]{12}  lib\/Quiet\.pm:2:\d+  arithmetic  replaced \+ with -  \(suppressed\)$/m,
       'a suppressed mutant';
     unlike $run->{stdout}, qr/sub-body/, 'a disabled mutator is absent';
+
+    write_file( "$copy/lib/Quiet.pm",
+        "package Quiet;\nsub sum { return \$_[0] + \$_[1] }    ## no mutate (arithmetic): the sum is a constant\n1;\n"
+    );
+    like ran( 0, $copy, 'list', '--source', 'lib/Quiet.pm' )->{stdout},
+      qr/^[0-9a-f]{12}  lib\/Quiet\.pm:2:\d+  arithmetic  replaced \+ with -  \(suppressed: the sum is a constant\)$/m,
+      'a suppressed mutant with the reason of its comment';
+    like ran( 0, $copy, 'list', '--source', 'lib/Quiet.pm', '--disable', 'arithmetic' )->{stdout}, qr/\A[^\n]*sub-body/,
+      'and a comment that names a mutator that the run leaves out';
+};
+
+subtest 'list and run refuse every broken suppression comment of every file before a test starts' => sub {
+    my $copy    = copy_of('calc');
+    my $outside = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    write_file( "$copy/lib/Broken.pm",
+        "package Broken;\n## use mutate\nsub one { return \$_[0] + 1 }    ## no mutate (nonesuch)\n1;\n" );
+    write_file( "$copy/lib/Idle.pm",
+        "package Idle;\nsub two { return \$_[0] - 1 }    ## no mutate (regex-anchor)\n1;\n" );
+    write_file( "$copy/t/marker.t",
+        "open my \$out, '>', '$outside/ran' or die;\nclose \$out;\nuse Test::More tests => 1;\nok 1;\n" );
+    my $refusal =
+        'mutation: invalid suppression comments: lib/Broken.pm:2: ## use mutate ends no open block; '
+      . 'lib/Broken.pm:3: unknown mutator nonesuch; lib/Idle.pm:2: "## no mutate (regex-anchor)" suppresses no mutant';
+    my $before = tree_digest($copy);
+    my $listed = ran( 2, $copy, 'list' );
+    is [ $listed->@{qw(stdout stderr)} ], [ q{}, "$refusal\n" ], 'list prints one line with every refusal';
+    my $run = ran( 2, $copy, 'run', '--jobs', 1 );
+    is [ $run->{stdout}, ( split /\n/, $run->{stderr} )[-1] ], [ q{}, $refusal ], 'run ends with the same line';
+    ok !-e "$outside/ran", 'and no test started';
+    is tree_digest($copy), $before, 'the project stays as it was';
+};
+
+subtest 'suppression requirements apply independently on the command line and in the configuration file' => sub {
+    my $copy = copy_of('calc');
+    write_file( "$copy/lib/Quiet.pm", <<'MODULE' );
+package Quiet;
+sub sum { return $_[0] + 1 }    ## no mutate: the value is fixed
+sub difference { return $_[0] - 1 }    ## no mutate (arithmetic)
+1;
+MODULE
+    my @list = ( 'list', '--source', 'lib/Quiet.pm' );
+    my $names =
+      'lib/Quiet.pm:2: "## no mutate: the value is fixed" names no mutator, and suppress-require-names asks for one';
+    my $reason =
+      'lib/Quiet.pm:3: "## no mutate (arithmetic)" gives no reason, and suppress-require-reason asks for one';
+    my $prefix = 'mutation: invalid suppression comments: ';
+    like ran( 0, $copy, @list )->{stdout}, qr/suppressed: the value is fixed/, 'both requirements default to off';
+    is ran( 2, $copy, @list, '--suppress-require-names' )->{stderr}, "$prefix$names\n", 'the flag requires names alone';
+    write_file( "$copy/mutation.toml", "suppress-require-reason = true\n" );
+    is ran( 2, $copy, @list )->{stderr}, "$prefix$reason\n", 'the file requires a reason alone';
+    is ran( 2, $copy, @list, '--suppress-require-names' )->{stderr}, "$prefix$names; $reason\n",
+      'both requirements report the affected lines in order';
+    is ran( 2, $copy, @list, '--suppress-require-names', '--no-suppress-require-reason' )->{stderr}, "$prefix$names\n",
+      'the command line overrides the requirement from the file';
+    write_file( "$copy/lib/Quiet.pm",
+        "package Quiet;\nsub sum { return \$_[0] + 1 }    ## no mutate (arithmetic): the value is fixed\n1;\n" );
+    like ran( 0, $copy, @list, '--suppress-require-names' )->{stdout}, qr/arithmetic .*suppressed: the value is fixed/,
+      'a used directive with a name and a reason passes both requirements';
 };
 
 sub identifier ($description) {

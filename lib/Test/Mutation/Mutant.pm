@@ -1,25 +1,26 @@
 package Test::Mutation::Mutant;
 use v5.36;
 use Moo;
-use Types::Standard qw(Bool Int Str StrMatch Tuple);
+use Types::Standard qw(Bool Int Maybe Str StrMatch Tuple);
 
 our $VERSION = '0.001';
 
 with 'Test::Mutation::Value';
 
-has id          => ( is => 'ro', isa => StrMatch [qr/\A[0-9a-f]{12}\z/], required => 1 );
-has path        => ( is => 'ro', isa => Str, required => 1 );
-has mutator     => ( is => 'ro', isa => Str, required => 1 );
-has start       => ( is => 'ro', isa => Int, required => 1 );
-has end         => ( is => 'ro', isa => Int, required => 1 );
-has original    => ( is => 'ro', isa => Str, required => 1 );
-has replacement => ( is => 'ro', isa => Str, required => 1 );
-has description => ( is => 'ro', isa => Str, required => 1 );
-has from        => ( is => 'ro', isa => Tuple [ Int, Int ], required => 1 );
-has to          => ( is => 'ro', isa => Tuple [ Int, Int ], required => 1 );
-has scope       => ( is => 'ro', isa => Tuple [ Int, Int ], required => 1 );
-has suppressed  => ( is => 'ro', isa => Bool, default => 0 );
-has comparable  => ( is => 'ro', isa => Bool, default => 1 );
+has id                 => ( is => 'ro', isa => StrMatch [qr/\A[0-9a-f]{12}\z/], required => 1 );
+has path               => ( is => 'ro', isa => Str, required => 1 );
+has mutator            => ( is => 'ro', isa => Str, required => 1 );
+has start              => ( is => 'ro', isa => Int, required => 1 );
+has end                => ( is => 'ro', isa => Int, required => 1 );
+has original           => ( is => 'ro', isa => Str, required => 1 );
+has replacement        => ( is => 'ro', isa => Str, required => 1 );
+has description        => ( is => 'ro', isa => Str, required => 1 );
+has from               => ( is => 'ro', isa => Tuple [ Int, Int ], required => 1 );
+has to                 => ( is => 'ro', isa => Tuple [ Int, Int ], required => 1 );
+has scope              => ( is => 'ro', isa => Tuple [ Int, Int ], required => 1 );
+has suppressed         => ( is => 'ro', isa => Bool, default => 0 );
+has suppression_reason => ( is => 'ro', isa => Maybe [Str], default => undef );
+has comparable         => ( is => 'ro', isa => Bool, default => 1 );
 
 1;
 
@@ -78,6 +79,10 @@ The first and last line of the statement that runs the mutated code.
 =head2 suppressed
 
 True when a C<## no mutate> comment covers the mutant.
+
+=head2 suppression_reason
+
+The reason that the comment gives after its colon, or nothing.
 
 =head2 comparable
 

@@ -156,6 +156,8 @@ The command line beats the file, and the file beats the default, each with the w
     enable = ["regex-anchor"]
     disable = ["sub-body"]
     equivalence = true
+    suppress-require-names = false
+    suppress-require-reason = false
 
     report-dir = "mutation-report"
     format = ["terminal", "json", "html"]
@@ -167,12 +169,28 @@ The C<extended> profile adds mutators for literals, fixed conditions, sort order
 C<mutation list --profile extended> shows what a profile produces.
 C<mutation mutators> prints the name, the profile, and the description of every mutator, for C<enable> and C<disable>.
 
-A comment suppresses the mutants on its line, and a comment on a line of its own suppresses them until C<## use mutate>.
+A comment suppresses mutants in one of three forms, and the first line of a mutant decides whether a comment covers it.
 
     my $port = $base + 1;    ## no mutate
-    ## no mutate (arithmetic, comparison)
-    ...
+    ## no mutate (arithmetic, comparison): the limit is fixed
+    my $limit = $port * 2 > 1024;
     ## use mutate
+    ## no mutate sub: the banner is cosmetic
+    sub banner ($name) { return "Hello, $name" }
+
+C<## no mutate> behind code covers the mutants that start on its line.
+C<## no mutate> on a line of its own opens a block that C<## use mutate> on a line of its own closes.
+C<## no mutate sub> on a line of its own covers the named subroutine or method that follows, with its signature and its body.
+Mutator names in parentheses after a space narrow each form to the mutants of those mutators, with a comma and a space between two names.
+A reason may follow after a colon and a space, and the report shows it with every mutant that the comment suppresses.
+C<--suppress-require-names> requires each suppression to name at least one mutator.
+C<--suppress-require-reason> requires each suppression to give a reason.
+Both requirements default to off.
+
+A comment that resembles these forms, such as C<# no mutate> or C<##no mutate>, must have one of them exactly.
+The run refuses such a comment in another form, an unknown mutator name, a C<## use mutate> without an open block, a second block inside an open one, a block that its file leaves open, and a C<## no mutate sub> before another statement.
+It also refuses a comment that suppresses no mutant of any mutator, whatever mutators the run chooses.
+The run collects the refusals of every file and ends as a usage error before it starts a test.
 
 =head1 FUNCTIONS
 

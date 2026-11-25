@@ -23,8 +23,9 @@ sub compared ( $share, $shares ) {
     my ( %found, $mutants );
     for my $sequence ( @sequences[ grep { $_ % $shares == $share } 0 .. $#sequences ] ) {
         my $layout = Layouts::rendered( @forms[ $sequence->@* ] );
-        $mutants += Layouts::mutants($layout)->@*;
-        $found{$_} ||= named($sequence) for Layouts::differences($layout)->@*;
+        my $made   = Layouts::made($layout);
+        $mutants += $made->{mutants}->@*;
+        $found{$_} ||= named($sequence) for Layouts::differences_of( $layout, $made )->@*;
     }
     return [ 'mutants', $mutants ], map { [ 'finding', $_, $found{$_} ] } sort keys %found;
 }
@@ -36,7 +37,8 @@ subtest 'the comparison rejects a block that a second comment leaves open' => su
 
     # The test marks every mutant after the first comment as suppressed, as a parser would that never ends the first block.
     my $marked = Layouts::marked( $layout, sub ($mutant) { return $mutant->{line} >= 3 } );
-    ok scalar( grep { $_->{line} == 8 } $marked->@* ), 'the statement after the end of the block has mutants';
+    ok scalar( grep { $_->{line} == 8 } $marked->{mutants}->@* ),
+      'the statement after the end of the block has mutants';
     is Layouts::differences_of( $layout, $marked ),
       [
         'the parser accepts a second no mutate inside an open block',
@@ -46,6 +48,12 @@ subtest 'the comparison rejects a block that a second comment leaves open' => su
     my $sound = Layouts::marked( $layout, sub ($mutant) { return $mutant->{line} >= 3 && $mutant->{line} <= 5 } );
     is Layouts::differences_of( $layout, $sound ), ['the parser accepts a second no mutate inside an open block'],
       'marks that end the block where the grammar ends it leave the accepted layout alone';
+    my $refused = Layouts::marked(
+        $layout,
+        sub ($mutant) { return $mutant->{line} >= 3 && $mutant->{line} <= 5 },
+        { line => 4, error => 'a second no mutate inside an open block' }
+    );
+    is Layouts::differences_of( $layout, $refused ), [], 'and the refusal of the second comment on its line';
 };
 
 my $shares  = 4 * $workers;
@@ -59,8 +67,8 @@ for my $record ( $records->@* ) {
 }
 note "$_, as in: $found{$_}" for sort keys %found;
 Gate::findings( 'mutants-suppress-layouts', [ sort keys %found ] );
-Gate::checked( 'forms of a comment',  scalar @forms,     at_least => 13 );
-Gate::checked( 'layouts',             scalar @sequences, at_least => 30_941 );
-Gate::checked( 'mutants of a layout', $mutants,          at_least => 450_000 );
+Gate::checked( 'forms of a comment',  scalar @forms,     at_least => 16 );
+Gate::checked( 'layouts',             scalar @sequences, at_least => 69_905 );
+Gate::checked( 'mutants of a layout', $mutants,          at_least => 1_400_000 );
 
 done_testing;

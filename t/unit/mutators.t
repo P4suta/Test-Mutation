@@ -281,6 +281,18 @@ subtest 'mutants carry positions, identities, and suppression' => sub {
     my %ids = map { $_->id => 1 } @mutants;
     is scalar( keys %ids ),                   4,                           'identifiers are distinct';
     is [ map { $_->id } mutants($code)->@* ], [ map { $_->id } @mutants ], 'identifiers are stable across runs';
+
+    my $reasons = join "\n", 'my $e = 1 - 2 > 0;    ## no mutate (comparison): the bound is fixed',
+      '## no mutate: a block', 'my $f = 3 + 4;    ## no mutate (arithmetic)', 'my $g = 5 * 6;', '## use mutate', q{};
+    is [ map { [ $_->from->[0], $_->mutator, $_->suppressed, $_->suppression_reason ] } mutants($reasons)->@* ],
+      [
+        [ 1, 'arithmetic', 0, undef ],
+        [ 1, 'comparison', 1, 'the bound is fixed' ],
+        [ 1, 'comparison', 1, 'the bound is fixed' ],
+        [ 3, 'arithmetic', 1, undef ],
+        [ 4, 'arithmetic', 1, 'a block' ],
+      ],
+      'a mutant keeps the reason of the last comment that covers it';
 };
 
 subtest 'a mutant knows whether the compiled code shows it' => sub {

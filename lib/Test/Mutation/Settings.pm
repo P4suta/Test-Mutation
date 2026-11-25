@@ -170,6 +170,18 @@ my @ROWS = (
         'on', 'mutators', 'Leave out the mutants that compile to the code of the original'
     ],
     [
+        'suppress-require-names', undef, 'flag', $BOOLEAN, undef,
+        'true or false',
+        sub { 0 },
+        'off', 'mutators', 'Require each suppression comment to name its mutators'
+    ],
+    [
+        'suppress-require-reason', undef, 'flag', $BOOLEAN, undef,
+        'true or false',
+        sub { 0 },
+        'off', 'mutators', 'Require each suppression comment to give a reason'
+    ],
+    [
         'coverage', undef,   'value', $COVERAGE, 'MODE', 'line or file', sub { 'line' },
         'line',     'tests', 'Select tests by line or by file'
     ],

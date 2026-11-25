@@ -1,9 +1,12 @@
 gates	xt/release/self-mutation.t has no rejecting subtest	the release gate for the run of the tool on itself
 gates	xt/release/self-mutation.t states no count	the release gate for the run of the tool on itself
 realworld	CPAN-Audit: the unmodified run fails where the tests of the distribution pass	the expectations of the real distributions, where a run of every test file as prove does fails with the name of the test
-realworld	Moo: the run reports a mutant that fails to compile	the kinds of compile error, which tell a mutant whose code dies at compile time from invalid code
+realworld	Moo: the number of mutants lies outside its band	the expectations of the real distributions after the mutator catalog changes
+realworld	Params-Util with blib: the number of mutants lies outside its band	the expectations of the real distributions after the mutator catalog changes
+realworld	Params-Util: the number of mutants lies outside its band	the expectations of the real distributions after the mutator catalog changes
 realworld	Params-Util: the unmodified run fails where the tests of the distribution pass	the build of a distribution in the copy
 realworld	TOML-Tiny: the run warns that B::Deparse gives no stable output	the comparison of compiled code without the addresses that B::Deparse prints
+realworld	URI: the number of mutants lies outside its band	the expectations of the real distributions after the mutator catalog changes
 realworld	URI: the run warns that B::Deparse gives no stable output	the kinds of compile error, which name a source that fails to compile alone
 realworld	URI: the run warns that a test loads a source around the hook	the placement of each mutant in the copy of its job
 realworld	Variable-Magic with blib: the run reports a mutant that fails to compile	the kinds of compile error, which tell a module that fails to load from invalid code
@@ -37,26 +40,6 @@ mutants-refusal-installed	boolean-literal has a change refused under unresolved-
 mutants-refusal-installed	statement-removal has a change refused under declaration that perl accepts	the validity boundary of the generator
 mutants-refusal-own	boolean-literal has a change refused under unresolved-call that perl accepts	the import resolution of the validity boundary
 mutants-refusal-own	statement-removal has a change refused under declaration that perl accepts	the validity boundary of the generator
-mutants-suppress-layouts	the parser accepts a block without its use mutate	the suppression grammar
-mutants-suppress-layouts	the parser accepts a candidate that is not canonical	the suppression grammar
-mutants-suppress-layouts	the parser accepts a directive that suppresses no mutant	the suppression grammar
-mutants-suppress-layouts	the parser accepts a no mutate sub without a subroutine after it	the suppression grammar
-mutants-suppress-layouts	the parser accepts a second no mutate inside an open block	the suppression grammar
-mutants-suppress-layouts	the parser accepts a use mutate without an open block	the suppression grammar
-mutants-suppress-layouts	the parser accepts an unknown mutator name	the suppression grammar
-mutants-suppress-layouts	the parser obeys a candidate that is not canonical	the suppression grammar
-mutants-suppress-layouts	the parser reads no mutate sub as the start of a block	the suppression grammar
-mutants-suppress-layouts	the parser starts a second block inside an open block and never ends the first one	the suppression grammar
-mutants-suppress-pairs	the parser accepts a block without its use mutate	the suppression grammar
-mutants-suppress-pairs	the parser accepts a candidate that is not canonical	the suppression grammar
-mutants-suppress-pairs	the parser accepts a directive that suppresses no mutant	the suppression grammar
-mutants-suppress-pairs	the parser accepts a no mutate sub without a subroutine after it	the suppression grammar
-mutants-suppress-pairs	the parser accepts a second no mutate inside an open block	the suppression grammar
-mutants-suppress-pairs	the parser accepts a use mutate without an open block	the suppression grammar
-mutants-suppress-pairs	the parser accepts an unknown mutator name	the suppression grammar
-mutants-suppress-pairs	the parser obeys a candidate that is not canonical	the suppression grammar
-mutants-suppress-pairs	the parser reads no mutate sub as the start of a block	the suppression grammar
-mutants-suppress-pairs	the parser starts a second block inside an open block and never ends the first one	the suppression grammar
 contract-plan-settings	the default of cache differs from the contract	the cache key over every input of a result
 contract-plan-settings	the default of format differs from the contract	the terminal report and the summary of GitHub
 contract-plan-settings	the default of source differs from the contract	the Perl scripts of a project as sources of a run
@@ -64,18 +47,14 @@ contract-plan-settings	the default of switch differs from the contract	the launc
 contract-plan-settings	the table lacks the setting color of the contract	the progress display
 contract-plan-settings	the table lacks the setting github of the contract	the terminal report and the summary of GitHub
 contract-plan-settings	the table lacks the setting lib of the contract	the launch of a test command
-contract-plan-settings	the table lacks the setting suppress-require-names of the contract	the suppression grammar
-contract-plan-settings	the table lacks the setting suppress-require-reason of the contract	the suppression grammar
-contract-stray-arguments	after-dashes: accepted; flags --baseline-timeout --cache --cache-dir --config --coverage --disable --enable --equivalence --format --in-place --jobs --keep-work --link --min-score --mutant --perl --profile --report-dir --root --shard --since --source --source-exclude --switch --test --test-exclude --threshold-high --threshold-low --timeout-factor --timeout-floor; commands list show	the commands table
+contract-stray-arguments	after-dashes: accepted; flags --baseline-timeout --cache --cache-dir --config --coverage --disable --enable --equivalence --format --in-place --jobs --keep-work --link --min-score --mutant --perl --profile --report-dir --root --shard --since --source --source-exclude --suppress-require-names --suppress-require-reason --switch --test --test-exclude --threshold-high --threshold-low --timeout-factor --timeout-floor; commands list show	the commands table
 contract-stray-arguments	operands: accepted; counts 1; commands list	the commands table
 contract-stray-arguments	operands: accepted; counts 2; commands show	the commands table
 contract-unknown-arguments	first word: the refusal names no nearest name; words List exce help lits lst merg mutator runn shwo version; commands default	the commands table
 contract-selector-selectors	malformed: status 0, where the selector calls for 2; selectors exclude mutant source test; origins file line	the selection resolved before the first write
-contract-selector-selectors	malformed: status 0, where the selector calls for 2; selectors suppression; origins source	the selection resolved before the first write
 contract-selector-selectors	malformed: status 3, where the selector calls for 2; selectors perl; origins file line	the selection resolved before the first write
 contract-selector-selectors	malformed: status 5, where the selector calls for 2; selectors since; origins file line	the selection resolved before the first write
 contract-selector-selectors	nothing: status 0, where the selector calls for 2; selectors exclude mutant source test; origins file line	the selection resolved before the first write
-contract-selector-selectors	nothing: status 0, where the selector calls for 2; selectors suppression; origins source	the selection resolved before the first write
 contract-selector-selectors	nothing: status 3, where the selector calls for 2; selectors perl; origins file line	the selection resolved before the first write
 contract-one-line-selectors	malformed: other lines before the refusal; selectors mutator; origins file line	the selection resolved before the first write
 contract-one-line-selectors	nothing: other lines before the refusal; selectors mutator; origins file line	the selection resolved before the first write

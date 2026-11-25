@@ -9,6 +9,7 @@ use Raised;
 use Test::Mutation::Settings;
 use Test::Mutation::Error;
 use Test::Mutation::Pool;
+use Test::Mutation::Report::Json;
 use Test::Mutation::Runner;
 use Test::Mutation::Tree;
 
@@ -85,6 +86,18 @@ subtest 'a project whose mutants are all suppressed runs no test and gets no war
       [ ( [ 'Ignored', 'suppressed', 'suppressed by a comment' ] ) x 3 ],
       'every mutant is ignored for the reason that the run with tests gives';
     is $result->tests, [], 'no test ran';
+};
+
+subtest 'the reason of a comment reaches the detail of every mutant it covers' => sub {
+    my $root = project(
+        'lib/Small.pm' => $MODULE =~ s/[+] 1 [}]/+ 1 }    ## no mutate: the step is fixed/r,
+        't/small.t'    => $TEST
+    );
+    my ($result) = run_fixture($root);
+    is [ map { $_->{detail} } $result->entries->@* ], [ ('suppressed by a comment: the step is fixed') x 3 ],
+      'the detail of each ignored mutant';
+    like Test::Mutation::Report::Json::render( $result, high => 80, low => 60 ),
+      qr/"statusReason" : "suppressed by a comment: the step is fixed"/, 'and the reason of the status in the report';
 };
 
 subtest 'a suppressed mutant among others is ignored, and the others run in the order of the analysis' => sub {

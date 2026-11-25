@@ -1,9 +1,9 @@
 package Test::Mutation::Types;
 use v5.36;
 use Type::Library -base,
-  -declare => qw(Analysis Dropped Entry Facts Heredoc Names Reason Rejected StatusName Suppression);
+  -declare => qw(Analysis Directive Dropped Entry Facts Heredoc Names Reason Refusal Rejected StatusName Suppression);
 use Type::Utils     qw(as declare where);
-use Types::Standard qw(ArrayRef Bool Dict Enum InstanceOf Int Maybe Num Optional Str Tuple);
+use Types::Standard qw(ArrayRef Bool Dict Enum InstanceOf Int Maybe Num Optional Str StrMatch Tuple);
 use Test::Mutation::Status;
 
 our $VERSION = '0.001';
@@ -44,7 +44,19 @@ declare Facts,
 
 declare Dropped, as Dict [ line => Int, kind => Enum [qw(span regex conditional)], reason => Str ];
 
-declare Suppression, as Dict [ first => Int, last => Maybe [Int], names => Maybe [ ArrayRef [Str] ] ];
+declare Directive,
+  as Dict [
+    line   => Int,
+    text   => Str,
+    first  => Int,
+    last   => Maybe [Int],
+    names  => Maybe [ ArrayRef [Str] ],
+    reason => Maybe [Str],
+  ];
+
+declare Refusal, as Dict [ line => Int, id => StrMatch [qr/\Asuppression-[a-z-]+\z/], text => Str ];
+
+declare Suppression, as Dict [ directives => ArrayRef [Directive], refusals => ArrayRef [Refusal] ];
 
 declare Heredoc, as Tuple [ Int, Int, Int, Int ];
 
@@ -64,7 +76,7 @@ declare Rejected,
 declare Analysis,
   as Dict [
     sites        => ArrayRef [ InstanceOf ['Test::Mutation::Site'] ],
-    suppressions => ArrayRef [Suppression],
+    suppressions => Suppression,
     dropped      => ArrayRef [Dropped],
     heredocs     => ArrayRef [Heredoc],
     names        => Names,
@@ -106,7 +118,10 @@ C<anchors> holds the places of the tokens that name the construct of a span wide
 C<Dropped> names a place that the analysis left out, with its line, its kind, and the reason.
 A conditional operator without its colon or its second branch is such a place.
 
-C<Suppression> is a range of lines that a C<## no mutate> comment covers, with the mutators it names.
+C<Directive> is a C<## no mutate> comment that the grammar accepts: its line and its text, the range of lines that it covers, the mutators it names, and its reason.
+A block that the file leaves open has no last line.
+C<Refusal> is a comment that the run refuses, with its line, the identifier of its message, and the text.
+C<Suppression> holds what L<Test::Mutation::Suppression> reads from the comments of a file: the directives and the refusals of the grammar.
 
 C<Heredoc> holds four offsets of a here-document: the start and the end of its introducer, and the start and the end of its text with the line that ends it.
 

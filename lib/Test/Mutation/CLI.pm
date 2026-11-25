@@ -387,9 +387,17 @@ sub _heading ($mutant) {
 
 sub _list ( $invocation, $world ) {
     my @mutants = Test::Mutation::Runner::analyze( $invocation->{config} )->{mutants}->@*;
-    say { $world->{out} } _heading($_), $_->suppressed ? '  (suppressed)' : q{} for @mutants;
+    say { $world->{out} } _heading($_), _suppression($_) for @mutants;
     say { $world->{out} } _plural( scalar @mutants, 'mutant' );
     return 0;
+}
+
+sub _suppression ($mutant) {
+    my $reason = $mutant->suppression_reason;
+    return
+        !$mutant->suppressed ? q{}
+      : defined $reason      ? "  (suppressed: $reason)"
+      :                        '  (suppressed)';
 }
 
 sub _find ( $analysis, $identifier ) {

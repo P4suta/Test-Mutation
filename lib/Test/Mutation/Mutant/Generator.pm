@@ -7,6 +7,7 @@ use Type::Params    qw(signature_for);
 use Test::Mutation::Mutant;
 use Test::Mutation::Mutant::Validity;
 use Test::Mutation::Site;
+use Test::Mutation::Suppression;
 use Test::Mutation::Types qw(Analysis Rejected);
 
 our $VERSION = '0.001';
@@ -47,21 +48,24 @@ sub generate ($arg) {
                 # A mutator that proposes a call learns the name of the call from the boundary.
                 my $description = $mutation->{description};
                 $description = sprintf $description, $replacement if defined $mutation->{calls};
+                my $directive = Test::Mutation::Suppression::covering( $analysis->{suppressions}{directives},
+                    $from->[0], $mutator->name );
                 push @mutants,
                   Test::Mutation::Mutant->new(
-                    id          => _id( $source->path, $site, $mutator->name, $replacement ),
-                    path        => $source->path,
-                    mutator     => $mutator->name,
-                    start       => $site->start,
-                    end         => $site->end,
-                    original    => $site->text,
-                    replacement => $replacement,
-                    description => $description,
-                    from        => $from,
-                    to          => $source->position_of( $site->end ),
-                    scope       => $site->scope,
-                    comparable  => $site->comparable,
-                    suppressed  => _suppressed( $analysis->{suppressions}, $from->[0], $mutator->name ),
+                    id                 => _id( $source->path, $site, $mutator->name, $replacement ),
+                    path               => $source->path,
+                    mutator            => $mutator->name,
+                    start              => $site->start,
+                    end                => $site->end,
+                    original           => $site->text,
+                    replacement        => $replacement,
+                    description        => $description,
+                    from               => $from,
+                    to                 => $source->position_of( $site->end ),
+                    scope              => $site->scope,
+                    comparable         => $site->comparable,
+                    suppressed         => $directive ? 1                    : 0,
+                    suppression_reason => $directive ? $directive->{reason} : undef,
                   );
             }
         }
@@ -102,17 +106,6 @@ sub _id ( $path, $site, $name, $replacement ) {
     return substr Digest::SHA::sha256_hex( Encode::encode( 'UTF-8', $key ) ), 0, 12;
 }
 
-sub _suppressed ( $ranges, $line, $name ) {
-    my @covering = grep { $line >= $_->{first} && ( !defined $_->{last} || $line <= $_->{last} ) } $ranges->@*;
-    return (
-        grep {
-            !$_->{names}
-              || grep { $_ eq $name }
-              $_->{names}->@*
-        } @covering
-    ) ? 1 : 0;
-}
-
 1;
 
 __END__
@@ -144,7 +137,7 @@ C<mutants> holds one L<Test::Mutation::Mutant> for every change that stands, in 
 C<rejected> holds every change that a rule refused, with the mutator, the line, and the rule.
 Two changes with one resulting text yield one mutant, credited to the first proposal.
 A mutator that proposes a call of another function gets the name that the file resolves, with its package where the bare name may be out of reach.
-A mutant on a line that a C<## no mutate> comment covers is marked as suppressed.
+A mutant whose first line a C<## no mutate> comment covers is marked as suppressed, with the reason of the comment.
 C<perl> is the version of the interpreter that runs the tests, as C<$]> gives it.
 A comparison of C<$]> with another number has one result there, so the change of its boundary yields no mutant.
 

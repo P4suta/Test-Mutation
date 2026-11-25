@@ -41,6 +41,9 @@ has shard            => ( is => 'ro', isa => $TYPE{shard},            required =
 has cache            => ( is => 'ro', isa => $TYPE{cache},            required => 1 );
 has cache_dir        => ( is => 'ro', isa => $TYPE{cache_dir},        required => 1 );
 
+has suppress_require_names  => ( is => 'ro', isa => $TYPE{suppress_require_names},  required => 1 );
+has suppress_require_reason => ( is => 'ro', isa => $TYPE{suppress_require_reason}, required => 1 );
+
 1;
 
 __END__
@@ -115,6 +118,12 @@ The mutator profile and the names added to or removed from it.
 
 Whether the run compares the compiled code of an undetected mutant with the original.
 A mutant that compiles to the same code is ignored, and so is a mutant with the code of an earlier undetected mutant.
+
+=head2 suppress_require_names, suppress_require_reason
+
+C<suppress_require_names> requires each suppression comment to name at least one mutator.
+C<suppress_require_reason> requires each suppression comment to give a reason.
+Both settings default to off.
 
 =head2 coverage
 

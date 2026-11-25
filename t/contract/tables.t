@@ -47,7 +47,7 @@ subtest 'the settings table names every attribute of the configuration' => sub {
     my %surface = map { $_            => Space::attribute_facts( $specs->{$_} ) } keys $specs->%*;
     my %table   = map { $_->attribute => Space::attribute_text($_) } @settings;
     is Space::differences( \%table, \%surface ), [], 'the kind, the type, and whether a value may stay unset';
-    Gate::checked( 'attributes', scalar( keys %surface ), at_least => 30 );
+    Gate::checked( 'attributes', scalar( keys %surface ), at_least => 32 );
 };
 
 # The parser and the decoder of the file read the table, so the spaces S1 and S3 try every name on its surface.
@@ -65,7 +65,7 @@ subtest 'the resolution of the settings builds every configuration' => sub {
 };
 
 subtest 'the settings table names a flag and a key for every setting' => sub {
-    is scalar( Space::flags()->@* ),                                30,                'the settings with a flag';
+    is scalar( Space::flags()->@* ),                                32,                'the settings with a flag';
     is [ map { $_->name } grep { !$_->offers('file') } @settings ], [qw(root config)], 'the settings outside the file';
 };
 
