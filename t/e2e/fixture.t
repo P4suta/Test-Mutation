@@ -12,7 +12,7 @@ my $root = copy_of('calc');
 subtest 'a run with the expected status passes and returns its output' => sub {
     my $run;
     is Gate::outcomes( sub { $run = ran( 0, $root, 'list' ) } ), [ 'pass', 'pass' ], 'the status and the leftovers';
-    like $run->{stdout}, qr/^19 mutants$/m, 'standard output comes back';
+    like $run->{stdout}, qr/^21 mutants$/m, 'standard output comes back';
     is $run->{stderr}, q{}, 'and so does standard error';
     is $run->{exit},   0,   'and the exit status';
 };
@@ -64,7 +64,7 @@ subtest 'a run inside the test process is checked the same way' => sub {
     my ( $result, $events );
     is Gate::outcomes( sub { ( $result, $events ) = run_fixture( copy_of('calc') ) } ), ['pass'],
       'the run leaves nothing behind';
-    is scalar $result->entries->@*, 19,         'the result comes back';
+    is scalar $result->entries->@*, 21,         'the result comes back';
     is $events->[0],                'analyzed', 'and so do the events';
 
     my $kept = qr/\A[.]mutation\/run-\w+ in the project\z/;

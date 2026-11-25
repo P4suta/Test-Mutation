@@ -691,10 +691,13 @@ my $QUEUE_RECORD   = 8;
 my $QUEUE_TASKS    = 8000;
 my $PIPE_BYTES     = 65_536;
 
+# The change stays whole however long the path of its file is, and the detail fills the room that is left.
 sub _example ( $source, $mutant, $detail ) {
-    my $change = sprintf '%s line %d: %s -> %s', $source->path, $mutant->from->[0], $mutant->original,
+    my $change = sprintf '%s line %d: %s -> %s | ', $source->path, $mutant->from->[0], $mutant->original,
       $mutant->replacement;
-    return substr "$change | $detail" =~ s/\s+/ /gr, 0, $EXAMPLE_LENGTH;
+    $change =~ s/\s+/ /g;
+    my $room = $EXAMPLE_LENGTH > length $change ? $EXAMPLE_LENGTH - length $change : 0;
+    return $change . substr $detail =~ s/\s+/ /gr, 0, $room;
 }
 
 # The violations of one oracle as records: a count for each mutator, and each class of a mutator once with an example.

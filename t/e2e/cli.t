@@ -16,23 +16,23 @@ sub slurp ($path) {
 subtest 'run prints the summary and succeeds' => sub {
     my $root = copy_of('calc');
     my $run  = ran( 0, $root, 'run', '--jobs', 2 );
-    like $run->{stdout}, qr/^19 mutants: 13 killed, 3 survived, 3 no coverage$/m,            'the counts';
-    like $run->{stdout}, qr/^Score: 68\.4% \(13 of 19 valid mutants\)$/m,                    'the score';
+    like $run->{stdout}, qr/^21 mutants: 15 killed, 3 survived, 3 no coverage$/m,            'the counts';
+    like $run->{stdout}, qr/^Score: 71\.4% \(15 of 21 valid mutants\)$/m,                    'the score';
     like $run->{stdout}, qr/^  lib\/Calc\.pm:12:15  replaced > with >=  \[[0-9a-f]{12}\]$/m, 'a survived mutant';
-    like $run->{stderr}, qr/^19 mutants in 1 file, 2 tests$/m, 'the analysis is announced on standard error';
+    like $run->{stderr}, qr/^21 mutants in 1 file, 2 tests$/m, 'the analysis is announced on standard error';
 };
 
 subtest 'run reports its progress on standard error' => sub {
     my $run = ran( 0, copy_of('calc'), '--jobs', 2, '--format', 'terminal' );
     like $run->{stderr},   qr/^The unmodified run passed: 2 tests, 2 jobs$/m,      'the unmodified run';
-    like $run->{stderr},   qr/^\[19\/19\] 13 killed, 3 survived, 3 no coverage$/m, 'the last progress line';
+    like $run->{stderr},   qr/^\[21\/21\] 15 killed, 3 survived, 3 no coverage$/m, 'the last progress line';
     unlike $run->{stderr}, qr/\r/,                                                 'no carriage return in a log';
     unlike $run->{stderr}, qr/^mutation:/m,                                        'a complete run reports no problem';
 };
 
 subtest 'run is the default command' => sub {
     my $run = ran( 0, copy_of('calc'), '--jobs', 2 );
-    like $run->{stdout}, qr/^Score: 68\.4%/m, 'the score';
+    like $run->{stdout}, qr/^Score: 71\.4%/m, 'the score';
 };
 
 subtest 'a score below --min-score fails the run' => sub {
@@ -90,7 +90,7 @@ subtest 'tests that need the repository data fail in a copy and pass in the proj
       'the report names the other place for the tests';
 
     my $inside = ran( 0, $root, '--jobs', 2, '--in-place' );
-    like $inside->{stdout}, qr/^19 mutants: 13 killed, 3 survived, 3 no coverage$/m, 'and the mutants are measured';
+    like $inside->{stdout}, qr/^21 mutants: 15 killed, 3 survived, 3 no coverage$/m, 'and the mutants are measured';
 };
 
 subtest 'a usage error exits with status 2 and one line' => sub {
@@ -118,7 +118,7 @@ subtest 'run writes the JSON and HTML reports' => sub {
 
     my $document = JSON::PP->new->utf8->decode( slurp("$root/mutation-report/mutation.json") );
     is $document->{schemaVersion},                               '2', 'the JSON report has the schema version';
-    is scalar( $document->{files}{'lib/Calc.pm'}{mutants}->@* ), 19,  'the JSON report has every mutant';
+    is scalar( $document->{files}{'lib/Calc.pm'}{mutants}->@* ), 21,  'the JSON report has every mutant';
     like slurp("$root/mutation-report/mutation.html"), qr/<mutation-test-report-app\b/,
       'the HTML report has the viewer';
 };
@@ -148,7 +148,7 @@ subtest 'mutation.toml configures the run' => sub {
     write_file( "$root/mutation.toml",
         "jobs = 2\ndisable = [\"sub-body\", \"return-value\"]\nformat = [\"terminal\"]\n" );
     my $run = ran( 0, $root );
-    like $run->{stdout}, qr/^11 mutants: 7 killed, 3 survived, 1 no coverage$/m, 'the disabled mutators are left out';
+    like $run->{stdout}, qr/^13 mutants: 9 killed, 3 survived, 1 no coverage$/m, 'the disabled mutators are left out';
     like $run->{stdout}, qr/^2 tests, 2 jobs,/m,                                 'jobs come from the file';
     ok !-e "$root/mutation-report", 'the formats come from the file';
 
@@ -170,7 +170,7 @@ subtest 'a broken configuration file is a usage error' => sub {
 subtest '--config names another configuration file' => sub {
     my $root = copy_of('calc');
     write_file( "$root/ci.toml", "disable = [\"sub-body\"]\nformat = [\"terminal\"]\n" );
-    like ran( 0, $root, '--jobs', 2, '--config', 'ci.toml' )->{stdout}, qr/^15 mutants:/m, 'the named file is read';
+    like ran( 0, $root, '--jobs', 2, '--config', 'ci.toml' )->{stdout}, qr/^17 mutants:/m, 'the named file is read';
     my $missing = ran( 2, $root, '--config', 'absent.toml' );
     like $missing->{stderr}, qr/\Amutation: cannot read absent\.toml: /, 'the file is named';
 };
@@ -178,13 +178,13 @@ subtest '--config names another configuration file' => sub {
 subtest 'options choose mutators, files, and selection' => sub {
     my $root   = copy_of('calc');
     my @common = ( '--jobs', 2, '--format', 'terminal' );
-    like ran( 0, $root, @common, '--disable', 'sub-body', '--disable', 'return-value' )->{stdout}, qr/^11 mutants:/m,
+    like ran( 0, $root, @common, '--disable', 'sub-body', '--disable', 'return-value' )->{stdout}, qr/^13 mutants:/m,
       '--disable';
     like ran( 0, $root, @common, '--disable', 'arithmetic', '--enable', 'number-literal' )->{stdout},
       qr/^\d+ mutants:.*\n(?:.*\n)*.*replaced 0 with 1/m, '--enable adds an extended mutator';
     my ($extended) = ran( 0, $root, @common, '--profile', 'extended' )->{stdout} =~ /^(\d+) mutants:/m;
-    ok $extended > 19, "--profile extended yields more mutants ($extended)";
-    like ran( 0, $root, @common, '--coverage', 'file' )->{stdout}, qr/^19 mutants: 13 killed, 6 survived$/m,
+    ok $extended > 21, "--profile extended yields more mutants ($extended)";
+    like ran( 0, $root, @common, '--coverage', 'file' )->{stdout}, qr/^21 mutants: 15 killed, 6 survived$/m,
       '--coverage file runs every loading test';
     like ran( 0, $root, @common, '--test',   't/add.t' )->{stdout},         qr/^1 test, /m,   '--test';
     like ran( 0, $root, @common, '--source', 'lib/Nothing*.pm' )->{stdout}, qr/^0 mutants$/m, '--source';
@@ -222,9 +222,9 @@ subtest 'GitHub Actions gets annotations and a job summary' => sub {
     local $ENV{GITHUB_ACTIONS}      = 'true';
     local $ENV{GITHUB_STEP_SUMMARY} = "$root/summary.md";
     my $detected = ran( 0, $root, '--jobs', 2 );
-    like $detected->{stdout},       qr/^Score: 68\.4%/m,                 'the terminal report stays';
+    like $detected->{stdout},       qr/^Score: 71\.4%/m,                 'the terminal report stays';
     like $detected->{stdout},       qr/^::warning file=lib\/Calc\.pm,/m, 'annotations are added inside GitHub Actions';
-    like slurp("$root/summary.md"), qr/^Score: \*\*68\.4%\*\*/m,         'the job summary is appended';
+    like slurp("$root/summary.md"), qr/^Score: \*\*71\.4%\*\*/m,         'the job summary is appended';
 
     local $ENV{GITHUB_STEP_SUMMARY} = q{};
     my $unnamed = ran( 0, $root, '--jobs', 2 );

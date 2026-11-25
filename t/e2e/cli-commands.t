@@ -12,10 +12,10 @@ subtest 'list prints every mutant without running a test' => sub {
     my $before = tree_digest($root);
     my $run    = ran( 0, $root, 'list' );
     my @lines  = split /\n/, $run->{stdout};
-    is scalar(@lines), 20, 'one line for each mutant and a count';
+    is scalar(@lines), 22, 'one line for each mutant and a count';
     like $lines[0], qr/\A[0-9a-f]{12}  lib\/Calc\.pm:5:10  sub-body  removed the body of add\z/,
       'identifier, place, mutator, description';
-    is $lines[-1],         '19 mutants', 'the count';
+    is $lines[-1],         '21 mutants', 'the count';
     is tree_digest($root), $before,      'nothing is written';
 };
 
@@ -37,7 +37,7 @@ subtest '--root runs the command as if it had started in the named directory' =>
     my $library = Cwd::abs_path('lib');
     local $ENV{PERL5LIB} = join q{:}, grep { $_ ne $library } split /:/, defined $ENV{PERL5LIB} ? $ENV{PERL5LIB} : q{};
     my $relative = ran_from( 'lib', 0, Cwd::getcwd(), '--root', $root, '--jobs', 2, '--format', 'terminal' );
-    like $relative->{stdout}, qr/^Score: 68\.4%/m, 'and the run measures the project';
+    like $relative->{stdout}, qr/^Score: 71\.4%/m, 'and the run measures the project';
 };
 
 subtest 'list marks suppressed mutants and honors the mutator options' => sub {
@@ -140,7 +140,7 @@ subtest '--shard splits the mutants into disjoint parts' => sub {
     my @all    = $ids->()->@*;
     my @shards = map { $ids->( '--shard', "$_/3" ) } 1 .. 3;
     is [ sort map { $_->@* } @shards ],   [ sort @all ], 'the parts together hold every mutant once';
-    is [ map { scalar $_->@* } @shards ], [ 7, 6, 6 ],   'the parts have even sizes';
+    is [ map { scalar $_->@* } @shards ], [ 7, 7, 7 ],   'the parts have even sizes';
     is $ids->( '--shard', '1/1' ),        \@all,         'one part is the whole';
 
     for my $invalid (qw(0/3 4/3 2 a/b)) {
@@ -157,7 +157,7 @@ subtest 'mutators names every mutator with its profile and its description' => s
     like $run->{stdout}, qr/^regex-anchor +extended +Removes an anchor from a pattern$/m,
       'a mutator of the extended profile';
     my %columns = map { /\A(\S+ +)(\S+ +)/ ? ( length($1) . q{ } . length $2 => 1 ) : ( none => 1 ) } @lines;
-    is [ keys %columns ], ['21 10'], 'the columns line up two spaces after the longest name and profile';
+    is [ keys %columns ], ['20 10'], 'the columns line up two spaces after the longest name and profile';
 };
 
 subtest 'version, help, and stray arguments' => sub {

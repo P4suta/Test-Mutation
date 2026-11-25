@@ -14,179 +14,19 @@ mutants-b-installed	comparison yields code that perl refuses	the validity bounda
 mutants-b-installed	regex-anchor yields code that perl refuses	the validity boundary of the generator
 mutants-b-installed	string-literal yields code that perl refuses	the validity boundary of the generator
 mutants-b-product	condition-fixed yields code that perl refuses	the validity boundary of the generator
+mutants-b3-generated	bitwise leaves the file without a true value	the validity boundary of the generator
 mutants-b3-generated	comparison leaves the file without a true value	the validity boundary of the generator
 mutants-b3-generated	number-literal leaves the file without a true value	the validity boundary of the generator
 mutants-b3-generated	string-comparison leaves the file without a true value	the validity boundary of the generator
 mutants-b3-product	arithmetic leaves the file without a true value	the validity boundary of the generator
 mutants-b3-product	assignment leaves the file without a true value	the validity boundary of the generator
+mutants-b3-product	bitwise leaves the file without a true value	the validity boundary of the generator
 mutants-b3-product	comparison leaves the file without a true value	the validity boundary of the generator
 mutants-b3-product	match leaves the file without a true value	the validity boundary of the generator
 mutants-b3-product	number-literal leaves the file without a true value	the validity boundary of the generator
 mutants-b3-product	string-comparison leaves the file without a true value	the validity boundary of the generator
 mutants-c-sample	call-swap compiles to the code of the original in more than 2 percent of its mutants	the profile rule of the mutators, which places a mutator by its measured rates
 mutants-c-sample	comparison compiles to the code of the original in more than 2 percent of its mutants	the profile rule of the mutators, which places a mutator by its measured rates
-mutants-census-corpus	no mutant covers ArrayIndex, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers HereDoc, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers Number::Float, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers Number::Hex, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers Quote::Interpolate, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers Quote::Literal, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers QuoteLike::Readline, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers QuoteLike::Words, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers Regexp::Transliterate, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers operator &, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers operator - (unary), and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers operator -d, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers operator -e, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers operator -f, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers operator -l, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers operator -t, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers operator -x, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers operator ., and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers operator :, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers operator <=>, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers operator =, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers operator >>, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers operator ?, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers operator cmp, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers operator |, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word binmode, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word caller, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word chdir, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word chmod, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word chomp, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word close, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word defined, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word delete, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word die, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word do, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word else, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word elsif, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word eval, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word exec, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word exists, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word fcntl, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word fileno, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word for, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word fork, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word glob, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word grep, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word int, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word join, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word keys, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word kill, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word length, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word local, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word map, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word mkdir, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word my, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word no, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word oct, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word open, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word opendir, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word our, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word package, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word pipe, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word pos, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word print, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word printf, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word quotemeta, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word rand, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word readdir, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word readline, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word readlink, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word ref, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word rename, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word require, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word return, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word reverse, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word rmdir, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word say, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word scalar, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word setpgrp, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word splice, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word split, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word sprintf, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word sqrt, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word stat, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word sub, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word substr, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word symlink, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word sysread, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word system, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word syswrite, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word time, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word undef, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word unlink, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word use, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word values, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word waitpid, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers Number::Binary, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers Number::Exp, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers QuoteLike::Backtick, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers operator &=, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers operator + (unary), and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers operator -M, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers operator -S, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers operator -T, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers operator -c, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers operator -r, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers operator -s, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers operator -w, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers operator -z, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers operator <<, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers operator ^, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers operator x, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers operator xor, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers operator |=, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers operator ~, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word abs, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word alarm, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word bless, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word chop, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word chown, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word chr, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word closedir, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word continue, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word each, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word eof, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word exit, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word fc, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word flock, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word foreach, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word getc, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word gethostbyname, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word gmtime, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word goto, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word hex, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word ioctl, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word localtime, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word log, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word lstat, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word ord, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word pack, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word prototype, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word read, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word redo, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-corpus	no mutant covers word seek, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word select, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word setsockopt, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word sleep, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word srand, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word state, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word sysopen, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word tell, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word telldir, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word tie, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word tied, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word truncate, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word unpack, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word untie, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word utime, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word vec, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word wait, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word wantarray, and no reason declines it	the new mutators and the declined table of the census
-mutants-census-installed	no mutant covers word warn, and no reason declines it	the new mutators and the declined table of the census
 mutants-context-generated	the context changes the mutants of an expression: modifier	the typed analysis with its count of dropped sites
 mutants-context-generated	the context changes the mutants of an expression: use statement	the typed analysis with its count of dropped sites
 mutants-context-product	the context changes the mutants of an expression: modifier	the typed analysis with its count of dropped sites

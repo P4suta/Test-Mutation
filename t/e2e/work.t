@@ -61,8 +61,8 @@ subtest 'an undetected mutant costs a compile of its code, and the original cost
     my ($result) = run_fixture( project( 'lib/Small.pm' => $module, 't/small.t' => $test ), jobs => 1 );
     my %count;
     $count{$_}++ for values statuses($result)->%*;
-    is \%count, { Killed => 6, Survived => 1 }, 'one mutant survives';
-    is [ $result->stats->@{qw(compiles spawns baseline_tests verifications)} ], [ 3, 1 + 7 + 3, 1, 0 ],
+    is \%count, { Killed => 7, Survived => 1 }, 'one mutant survives';
+    is [ $result->stats->@{qw(compiles spawns baseline_tests verifications)} ], [ 3, 1 + 8 + 3, 1, 0 ],
       'three compiles, and a process for each test and each compile';
 };
 

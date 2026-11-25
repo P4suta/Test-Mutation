@@ -23,7 +23,7 @@ subtest 'the assertion passes when the score reaches the minimum' => sub {
     like $output, qr/^# returned 1$/m,                              'the assertion returns true';
 
     write_file( "$root/xt/exact.t",
-        "use Test::More tests => 1;\nuse Test::Mutation;\nmutation_score_ok( min => 13 / 19 * 100, jobs => 2, name => q{exact} );\n"
+        "use Test::More tests => 1;\nuse Test::Mutation;\nmutation_score_ok( min => 15 / 21 * 100, jobs => 2, name => q{exact} );\n"
     );
     ( $status, $output ) = run_test( $root, 'xt/exact.t' );
     is $status, 0, 'a score equal to the minimum passes' or diag $output;
@@ -37,7 +37,7 @@ subtest 'the assertion fails below the minimum and shows the undetected mutants'
     isnt $status, 0, 'the test fails';
     like $output, qr/^not ok 1 - strong tests$/m,                    'the given name';
     like $output, qr/^# returned 0$/m,                               'the assertion returns false';
-    like $output, qr/^# Score: 68\.4% \(13 of 19 valid mutants\)$/m, 'the diagnostics state the score';
+    like $output, qr/^# Score: 71\.4% \(15 of 21 valid mutants\)$/m, 'the diagnostics state the score';
     like $output, qr/^#   lib\/Calc\.pm:12:15  replaced > with >=/m, 'and list a survived mutant';
 };
 
@@ -91,7 +91,7 @@ subtest 'the assertion is skipped inside a mutation run of the same project' => 
         "use Test::More tests => 1;\nuse Test::Mutation;\nmutation_score_ok( min => 100, jobs => 2 );\n" );
     my ($result) = run_fixture( $project, switch => [ '-Ilib', "-I$library" ] );
     is $result->baseline_failures,       [], 'a copy among the tests of a run passes as a skip';
-    is $result->tally->{counts}{Killed}, 13, 'and the run measures the project';
+    is $result->tally->{counts}{Killed}, 15, 'and the run measures the project';
 };
 
 done_testing;

@@ -59,6 +59,13 @@ subtest 'the generator refuses a change that breaks the file' => sub {
 
     is refused( "my \$s = \"a\nb\";\n", enable => ['string-literal'] ), [ [ 'string-literal', 1, 'line-count' ] ],
       'an emptied string of two lines would move every later line';
+    my $wrapped = "if (\$a) { f() }\nelsif ( my \$m = g() ) { h(\$m) }\n";
+    is changes( $wrapped, 'condition-negation' ), [ [ 'if', 'unless' ], [ ' my $m = g() ', '!( my $m = g() )' ] ],
+      'a negated condition keeps the declaration that it wraps';
+    is changes( "my \$t = \$c ? <<A : \$d;\ntext\nA\n", 'condition-negation' ), [ [ '<<A : $d', '$d : <<A' ] ],
+      'and a swap of branches keeps an introducer on its line';
+    is refused("my \$t = \$c\n  ? <<A\ntext\nA\n  : \$d;\n"), [ [ 'condition-negation', 2, 'here-document' ] ],
+      'a swap that moves an introducer to another line would read the next line as its text';
     is refused('f() if !!$x;'), [ [ 'negation', 1, 'same-result' ] ],
       'the second of two changes with one resulting text';
     is changes( 'f() if !!$x;', 'negation' ), [ [ q{!}, q{} ] ], 'and the first one stands';
@@ -127,8 +134,51 @@ subtest 'operator families' => sub {
     my $slurp = "my \$data = do {\n    local \$/;\n    open my (\$fh), '<:raw', \$path\n"
       . "      or die \"could not read file <\$path>\\n\";\n    <\$fh>;\n};\n";
     is changes( $slurp, 'comparison' ), [], 'a readline at the start of a statement is no comparison';
-    is changes( '$a && $b || $c // $d; f() or g() and h();', 'logical' ),
-      [ [ '&&', '||' ], [ '||', '&&' ], [ '//', '||' ], [ 'or', 'and' ], [ 'and', 'or' ] ], 'logical';
+    is changes( '$a && $b || $c // $d; f() or g() and h(); $e xor $f; $g ^^ $h;', 'logical' ),
+      [
+        [ '&&',  '||' ],
+        [ '||',  '&&' ],
+        [ '//',  '||' ],
+        [ 'or',  'and' ],
+        [ 'and', 'or' ],
+        [ 'xor', 'or' ],
+        [ '^^',  '||' ]
+      ],
+      'logical, with the exclusive or of both precedences';
+    is changes( 'my $m = $a & $b | $c ^ $d << 1 >> 2; $e &= 1; $f |= 2; $g ^= 3; $h <<= 1; my $n = ~$i;', 'bitwise' ),
+      [
+        [ q{&},  q{|} ],
+        [ q{|},  q{&} ],
+        [ q{^},  q{&} ],
+        [ '<<',  '>>' ],
+        [ '>>',  '<<' ],
+        [ '&=',  '|=' ],
+        [ '|=',  '&=' ],
+        [ '^=',  '&=' ],
+        [ '<<=', '>>=' ],
+        [ q{~},  q{} ],
+      ],
+      'bitwise operators, their assignments, and the complement';
+    is changes( 'use feature q(bitwise); my $s = $a &. $b |. $c ^. $d; $e &.= $f; my $t = ~.$g;', 'bitwise' ),
+      [ [ '&.', '|.' ], [ '|.', '&.' ], [ '^.', '&.' ], [ '&.=', '|.=' ], [ '~.', q{} ] ],
+      'and their string forms';
+    is changes( 'my @bits = ( 1 << 0, 0x20 >> 0, 1 << 2, $mask >> 0, 2 << 0 + $n );', 'bitwise' ),
+      [ [ '<<', '>>' ], [ '>>', '<<' ], [ '<<', '>>' ] ],
+      'only shifts of a literal by a literal zero have the same result in either direction';
+    is changes( 'my @n = ( -$x, - $y, -1, 2 - 1, -bare => 1, $z ** -0.5 );', 'unary-minus' ),
+      [ [ q{-}, q{} ], [ q{-}, q{} ], [ '-1', '1' ], [ '-0.5', '0.5' ] ],
+      'a unary minus and a negative number lose their sign, and a subtraction and a dashed word stay';
+    my $postfix = 'sub last_pair { return 0 .. $array->$#*-1 } sub size { $array->@* -2 }';
+    is changes( $postfix, 'unary-minus' ), [], 'a subtraction after a postfix dereference keeps its minus';
+    is changes( $postfix, 'arithmetic' ), [ [ '-', '+' ], [ '-', '+' ] ],
+      'both subtractions expose their operator alone';
+    is changes( $postfix, 'number-literal', enable => ['number-literal'] ),
+      [ [ '0', '1' ], [ '1', '0' ], [ '2', '3' ] ], 'each subtrahend is an unsigned literal';
+    my $subtractions = 'sub f { return $_[0]-1, g($x)-2, ($x)-3, [$x]-4, $x++-5, $x---6, 0 .. -7 }';
+    is changes( $subtractions, 'unary-minus' ), [ [ '-7', '7' ] ],
+      'a negative range endpoint is distinct from a subtrahend after a completed operand';
+    is changes( $subtractions, 'arithmetic' ), [ ( [ '-', '+' ] ) x 6 ],
+      'subscripts, parenthesized calls, constructors, and postfix updates end before the subtraction sign';
     is changes( '$i++; --$j;', 'increment' ), [ [ '++', '--' ], [ '--', '++' ] ], 'increment';
     is changes( '$a += 1; $b .= "x"; $c //= 2; $d = 3;', 'assignment' ),
       [ [ '+=', '-=' ], [ '.=', '=' ], [ '//=', '||=' ] ],
@@ -139,10 +189,25 @@ subtest 'operator families' => sub {
 };
 
 subtest 'word families' => sub {
-    is changes( 'if ($a) { f() } g() unless $b; while ($c) { h() } i() until $d;', 'conditional-keyword' ),
+    is changes( 'if ($a) { f() } g() unless $b; while ($c) { h() } i() until $d;', 'condition-negation' ),
       [ [ 'if', 'unless' ], [ 'unless', 'if' ], [ 'while', 'until' ], [ 'until', 'while' ] ], 'conditional keywords';
-    is changes( 'for (@a) { next if $_; last; }', 'loop-control' ), [ [ 'next', 'last' ], [ 'last', 'next' ] ],
-      'loop control';
+    is changes(
+        "if (\$a) { f() }\nelsif ( \$b > 1 ) { g() }\nmy \$v = \$c ? \$d + 1 : h(\$e), 2;\n",
+        'condition-negation'
+      ),
+      [ [ 'if', 'unless' ], [ ' $b > 1 ', '!( $b > 1 )' ], [ '$d + 1 : h($e)', 'h($e) : $d + 1' ] ],
+      'an elsif condition is negated, and the branches of a conditional swap';
+    is changes( 'for (@a) { next if $_; last; redo }', 'loop-control' ),
+      [ [ 'next', 'last' ], [ 'last', 'next' ], [ 'redo', 'next' ] ], 'loop control, where a redo becomes a next';
+    is changes( 'my @t = ( defined $x, exists $h{a}, wantarray, -e $p, -s $q > 1, ref $r, - $s );', 'predicate' ),
+      [
+        [ 'defined',   '!defined' ],
+        [ 'exists',    '!exists' ],
+        [ 'wantarray', '!wantarray' ],
+        [ '-e',        '!-e' ],
+        [ '-s',        '!-s' ]
+      ],
+      'a test of definedness, existence, context, or a file is negated';
     my $imports = "use v5.40;\nuse List::Util qw(max min any all);\n";
     is changes( $imports . 'push @a, max(@b); my %h = ( min => 1 ); $o->uc; any { $_ } @c;', 'call-swap' ),
       [ [ 'push', 'unshift' ], [ 'max', 'min' ], [ 'any', 'all' ] ], 'call swaps skip hash keys and methods';
@@ -181,9 +246,9 @@ subtest 'extended mutators' => sub {
     is changes( 'my @a = ( 0, 1, 41, 1.5, 0x10 );', 'number-literal', %extended ),
       [ [ '0', '1' ], [ '1', '0' ], [ '41', '42' ] ],
       'integer literals';
-    is changes( q{my @s = ( 'abc', "", q{def} );}, 'string-literal', %extended ),
-      [ [ q{'abc'}, q{''} ], [ q{""}, q{"mutant"} ] ],
-      'string literals';
+    is changes( q{my @s = ( 'abc', "", q{def}, qq<g$h> );}, 'string-literal', %extended ),
+      [ [ q{'abc'}, q{''} ], [ q{""}, q{"mutant"} ], [ 'q{def}', 'q{}' ], [ 'qq<g$h>', 'qq<>' ] ],
+      'string literals in quotes and under a quote operator';
     is changes( 'if ($a) { f() } while ($b) { g() } until ($c) { h() }', 'condition-fixed', %extended ),
       [ [ '$a', '1' ], [ '$a', '0' ], [ '$b', '0' ], [ '$c', '1' ] ], 'fixed conditions avoid endless loops';
     is changes( 'my @s = sort { $a <=> $b } @n; my %h = ( sort => 1 ); $o->sort;', 'sort-order', %extended ),

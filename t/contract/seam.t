@@ -106,7 +106,7 @@ subtest 'the plan reads the project through the directory that --root names' => 
       'a process whose directory is gone has no project';
     is [ map { plan_of( $_, cwd => undef )->{command} } ['--version'], ['mutators'], [ '--root', $root, 'list' ] ],
       [qw(version mutators list)], 'and it still answers what needs none';
-    is World::observe( [ '--root', $root, 'list', '--shard', '1/19' ], cwd => undef )->{exit}, 0,
+    is World::observe( [ '--root', $root, 'list', '--shard', '1/21' ], cwd => undef )->{exit}, 0,
       'a named directory with its full path is a project all the same';
 };
 
@@ -205,7 +205,7 @@ subtest 'carrying out a refusal prints its text and returns its status' => sub {
 };
 
 subtest 'carrying out a plan enters the directory and prints to the streams of the world' => sub {
-    my $listed = World::observe( [ 'list', '--shard', '1/19' ], cwd => $root );
+    my $listed = World::observe( [ 'list', '--shard', '1/21' ], cwd => $root );
     like [ $listed->@{qw(exit stdout stderr)} ],
       [ 0, qr/\A[0-9a-f]{12}  lib\/Calc[.]pm:5:10  sub-body  [^\n]+\n1 mutant\n\z/, q{} ],
       'list prints to the output of the world';
@@ -358,7 +358,7 @@ subtest 'main plans and acts in the world of the process' => sub {
         open STDOUT, '>', \$output or die "stdout: $!";
         open STDERR, '>', \$errors or die "stderr: $!";
         local $ENV{GITHUB_ACTIONS} = 'false';
-        map { Test::Mutation::CLI::main( $_->@* ) } ['--version'], [ 'list', '--shard', '1/19' ], [ 'list', '--bogus' ];
+        map { Test::Mutation::CLI::main( $_->@* ) } ['--version'], [ 'list', '--shard', '1/21' ], [ 'list', '--bogus' ];
     };
     chdir $here or die "chdir: $!";
     is \@status, [ 0, 0, 2 ], 'the status of each command';

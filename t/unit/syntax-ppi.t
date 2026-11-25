@@ -38,6 +38,18 @@ subtest 'operators carry a role' => sub {
       ],
       'binary, unary, and update operators';
     is summary( 'return - $x;', 'operator' ), [ [ '-', 'unary' ] ], 'minus after return is unary';
+    my $postfix = 'sub f { my $n = \\ -4; $r->@*; return $r->$#*-1 + $r->$*-2 }';
+    is [ map { $_->text } sites_of( $postfix, 'number' )->@* ], [ '-4', '1', '2' ],
+      'a prefix reference keeps its signed operand and each postfix dereference ends before the subtraction';
+    is [ map { $_->text } grep { $_->text eq '-' } sites_of( $postfix, 'operator' )->@* ], [ '-', '-' ],
+      'both subtraction signs have operator spans';
+    is summary( 'sub last_index { $r->$#* }', 'operator' ), [ [ '->', 'binary' ] ],
+      'a postfix dereference can end its statement';
+    is [ map { $_->text } sites_of( 'sub first { -1 } sub second { $a[0]-2e-3 }', 'number' )->@* ],
+      [ '-1', '0', '2e-3' ], 'a leading minus and the sign in an exponent belong to the number';
+    my $shifts = 'my @n = ( 1 << 0, $mask >> 0, 2 & 0, 2 << 0 + $n );';
+    is [ map { $_->facts->{right} } grep { $_->text =~ /\A(?:<<|>>|&)\z/ } sites_of( $shifts, 'operator' )->@* ],
+      [ 0, undef, undef, undef ], 'a shift names a literal count when its left operand is also a literal';
     is [ map { $_->facts->{operand} } sites_of( '$a =~ /x/; $b =~ s/x/y/; $c !~ $re;', 'operator' )->@* ],
       [ 'match', 'substitute', 'match' ], 'binding operators name their operand';
     my $code = '$a + 0; $b - 0.0; $c * 1 + $d; $e + 0 * $f; $g * 1 ** $h; $i / $j; 0 + $k; $l - 1 if $m; f( $n + 0 );';
@@ -165,6 +177,65 @@ subtest 'unary operators and operators after a word' => sub {
         [ q{-},  'binary' ],
       ],
       'complement and not are unary, a reference is no operator, and a minus after a function name is binary';
+    is summary( 'f( length -$x, join -$y, LIMIT - $z, $o->size -$w, -e $p );', 'operator' ),
+      [
+        [ q{-}, 'unary' ],
+        [ q{,}, 'binary' ],
+        [ q{-}, 'unary' ],
+        [ q{,}, 'binary' ],
+        [ q{-}, 'binary' ],
+        [ q{,}, 'binary' ],
+        [ '->', 'binary' ],
+        [ q{-}, 'binary' ],
+        [ q{,}, 'binary' ],
+        [ '-e', 'unary' ],
+      ],
+      'a sign after an operator of the table starts its operand, and one after a constant or a method stands between two';
+    is summary( 'my $x = $p ^^ $q;', 'operator' ), [ [ q{=}, 'binary' ], [ '^^', 'binary' ] ],
+      'two carets without a space between are the logical exclusive or';
+    is summary( 'my $x = $p ^ ^$q;', 'operator' ), [ [ q{=}, 'binary' ], [ q{^}, 'binary' ], [ q{^}, 'binary' ] ],
+      'and with a space they are two tokens';
+    is [ map { $_->text } sites_of( 'my $v = $p ^^ $q ? $left : $right;', 'branches' )->@* ], ['$left : $right'],
+      'operators after a logical exclusive or still have both operands';
+};
+
+subtest 'the branches of a conditional operator' => sub {
+    my $code = "my \$r = \$c ? \$a + 1 : f(\$b), 2;\nmy \$s = \$c\n  ? \$d ? 3 : 4\n  : 5 or g();\n";
+    is [ map { [ $_->text, $_->facts->{branches}, $_->scope ] } sites_of( $code, 'branches' )->@* ],
+      [
+        [ '$a + 1 : f($b)',     [ 6,  9 ],  [ 1, 1 ] ],
+        [ "\$d ? 3 : 4\n  : 5", [ 10, 15 ], [ 2, 4 ] ],
+        [ '3 : 4',              [ 1,  4 ],  [ 2, 4 ] ]
+      ],
+      'each conditional with the length of its first branch and the place of its second one';
+    is [ map { $_->facts->{loose} }
+          sites_of( "my \$r = \$c ? \$a = 1 : 2;\nmy \$s = \$c ? \$d ? \$a = 1 : 2 : 3;\n", 'branches' )->@* ],
+      [ 1, undef, 1 ],
+      'a first branch with an assignment at its top binds looser than the conditional, and one with a conditional at its top does not';
+    is [ map { $_->facts->{loose} } sites_of( 'my $r = $c ? $obj->{key} = 1 : 0;', 'branches' )->@* ], [1],
+      'the assignment spans the first branch even when its target contains a tighter operator';
+    my ($first) = sites_of( $code, 'branches' )->@*;
+    is [ map { substr $code, $_->[0], $_->[1] - $_->[0] } $first->facts->{anchors}->@* ], [ q{?}, q{:} ],
+      'and the places of its question mark and its colon';
+    my $unpaired = analyze("my \$t = \$c ? 1 : ;\nmy \$u = 2;\n");
+    is $unpaired->{dropped},
+      [ { line => 1, kind => 'conditional', reason => 'the conditional operator has no colon or no second branch' } ],
+      'a conditional that fails to pair is a place left out';
+};
+
+subtest 'a site wider than a token names the token of its construct' => sub {
+    my $code     = "sub f {\n    if (\$a) { g() } elsif (\$b) { return \$c + 1 }\n}\n";
+    my $anchored = sub ($kind) {
+        return [
+            map {
+                [ map { substr $code, $_->[0], $_->[1] - $_->[0] } $_->facts->{anchors}->@* ]
+            } sites_of( $code, $kind )->@*
+        ];
+    };
+    is $anchored->('condition'), [ ['if'], ['elsif'] ], 'a condition names its keyword';
+    is $anchored->('return'),    [ ['return'] ],        'a return value its word';
+    is $anchored->('sub_body'),  [ ['sub'] ],           'the body of a subroutine its declaration';
+    is $anchored->('statement'), [ ['g'] ],             'and a statement the function that it calls first';
 };
 
 subtest 'a word with an argument or inside a list is a call' => sub {
@@ -725,7 +796,8 @@ subtest 'the analysis marks what a change must keep' => sub {
     is [ map { $_->facts } sites_of( "package A;\n'a true value';\n", 'string' )->@* ], [ { final_value => 1 } ],
       'a string in that place';
     is [ map { [ $_->text, $_->facts ] } sites_of( "package A;\nsub f { 1 }\n__PACKAGE__;\n", 'statement' )->@* ],
-      [ [ '__PACKAGE__;', { head => '__PACKAGE__', final_value => 1 } ] ], 'a word in that place';
+      [ [ '__PACKAGE__;', { head => '__PACKAGE__', anchors => [ [ 23, 34 ] ], final_value => 1 } ] ],
+      'a word in that place';
     is [ map { $_->facts } sites_of( "package A;\nf() + 1;\n1;\n__END__\n\n=head1 NAME\n", 'number' )->@* ],
       [ {}, { final_value => 1 } ], 'the documentation after the end mark moves nothing';
     is [ map { $_->facts->{final_value} } analyze("package A;\nA->setup( 1 + 2 );\n")->{sites}->@* ], [ (undef) x 5 ],
@@ -735,7 +807,7 @@ subtest 'the analysis marks what a change must keep' => sub {
     is [ map { $_->facts->{final_value} } sites_of( "use v5.40;\npackage A;\ntrue;\n", 'word' )->@* ], [1],
       'a boolean in that place';
     is [ map { [ $_->text, $_->facts ] } sites_of( "package A;\nsub run { 2 }\nrun;\n", 'statement' )->@* ],
-      [ [ 'run;', { head => 'run' } ] ], 'a word that may call a subroutine is no value';
+      [ [ 'run;', { head => 'run', anchors => [ [ 25, 28 ] ] } ] ], 'a word that may call a subroutine is no value';
     is [ map { $_->facts->{final_value} } sites_of( "package A;\n\$A::loaded;\n", 'statement' )->@* ], [undef],
       'and neither is a variable';
 
@@ -753,11 +825,11 @@ subtest 'the analysis marks what a change must keep' => sub {
 
     my $declaring = "if ( open my \$log, '<', \$path ) { print {\$log} 1 }\nif ( my \$n = f() ) { g() }\n";
     is [ map { $_->facts } sites_of( $declaring, 'condition' )->@* ],
-      [ { keyword => 'if', declares => 1 }, { keyword => 'if' } ],
+      [ { keyword => 'if', anchors => [ [ 0, 2 ] ], declares => 1 }, { keyword => 'if', anchors => [ [ 51, 53 ] ] } ],
       'a condition whose declaration the block names, and one whose declaration nothing names';
     is [ map { [ $_->text, $_->facts ] }
           sites_of( "sub f {\n    chomp( my \$line = g() );\n    return \$line;\n}\n", 'statement' )->@* ],
-      [ [ 'chomp( my $line = g() );', { head => 'chomp', declares => 1 } ] ],
+      [ [ 'chomp( my $line = g() );', { head => 'chomp', anchors => [ [ 12, 17 ] ], declares => 1 } ] ],
       'a statement whose declaration later code names is a site with that fact';
 };
 

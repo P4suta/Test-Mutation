@@ -191,7 +191,7 @@ subtest 'the work files of a finished task are removed while the run goes on' =>
     my ($result) = run_fixture( $root, keep_work => 1, leaves => $WORK_DIRECTORY );
     my %count;
     $count{$_}++ for values statuses($result)->%*;
-    is \%count, { CompileError => 3, Killed => 3, NoCoverage => 3, Survived => 1, Ignored => 1 },
+    is \%count, { CompileError => 3, Killed => 3, NoCoverage => 3, Survived => 1, Ignored => 2 },
       'the run has compile errors, detected mutants, and mutants whose code is compared';
     my ($work) = glob "$root/.mutation/run-*";
     ok defined $work && -d "$work/shim", 'the work directory stays on request';
@@ -324,13 +324,14 @@ subtest 'a mutant that leaves a file changes a copy, and the project and the lat
         is $result->warnings, [], "no warning with $jobs side by side";
         is status_by_line($result),
           {
-            '4 removed the body of next_one' => 'Killed',
-            '4 removed the return value'     => 'Killed',
-            '4 replaced + with -'            => 'Killed',
-            '5 removed the body of size'     => 'Killed',
-            '5 removed the return value'     => 'Killed',
-            '5 replaced > with <='           => 'Killed',
-            '5 replaced > with >='           => 'Survived',
+            '4 removed the body of next_one'            => 'Killed',
+            '4 removed the return value'                => 'Killed',
+            '4 replaced + with -'                       => 'Killed',
+            '5 removed the body of size'                => 'Killed',
+            '5 removed the return value'                => 'Killed',
+            '5 replaced > with <='                      => 'Killed',
+            '5 replaced > with >='                      => 'Survived',
+            '5 swapped the branches of the conditional' => 'Killed',
           },
           'every mutant has the verdict of its own tests';
         ok $result->conclusive, 'the run is conclusive';
@@ -417,7 +418,7 @@ subtest 'two jobs never work in one copy' => sub {
     chomp( my @lines = readline $handle );
     is \@lines, [ ('alone') x ( 1 + scalar $result->entries->@* ) ],
       'every run of the test has its directory to itself';
-    is scalar $result->entries->@*, 7, 'for the unmodified run and seven mutants';
+    is scalar $result->entries->@*, 8, 'for the unmodified run and eight mutants';
 };
 
 subtest 'a directory without any right in the temporary directory of a test goes with the work directory' => sub {
@@ -490,10 +491,11 @@ subtest 'a change of the project during the run reaches no test' => sub {
     my ($result) = run_fixture( $root, jobs => 1 );
     is status_by_line($result),
       {
-        '4 removed the body of size' => 'Killed',
-        '4 removed the return value' => 'Killed',
-        '4 replaced > with <='       => 'Killed',
-        '4 replaced > with >='       => 'Survived',
+        '4 removed the body of size'                => 'Killed',
+        '4 removed the return value'                => 'Killed',
+        '4 replaced > with <='                      => 'Killed',
+        '4 replaced > with >='                      => 'Survived',
+        '4 swapped the branches of the conditional' => 'Killed',
       },
       'the copied test decides, so the mutant that it misses survives';
     is $result->warnings, [], 'without a warning';
@@ -501,7 +503,7 @@ subtest 'a change of the project during the run reaches no test' => sub {
     my $place = project( 'lib/Small.pm' => $module, 't/small.t' => $editing );
     local $ENV{PROJECT} = $place;
     my ($inside) = run_fixture( $place, jobs => 1, in_place => 1 );
-    is [ sort values status_by_line($inside)->%* ], [ ('NoCoverage') x 4 ],
+    is [ sort values status_by_line($inside)->%* ], [ ('NoCoverage') x 5 ],
       'in the project itself, the edited test runs for every mutant and loads none';
 };
 
@@ -532,13 +534,14 @@ subtest 'in the project itself, a mutant that leaves a file takes the verdict fr
         map { $_ => $entry{$_}{status} } sort keys %entry
     },
       {
-        '4 removed the body of next_one' => 'Killed',
-        '4 removed the return value'     => 'Killed',
-        '4 replaced + with -'            => 'Killed',
-        '5 removed the body of size'     => 'NoVerdict',
-        '5 removed the return value'     => 'NoVerdict',
-        '5 replaced > with <='           => 'NoVerdict',
-        '5 replaced > with >='           => 'NoVerdict',
+        '4 removed the body of next_one'            => 'Killed',
+        '4 removed the return value'                => 'Killed',
+        '4 replaced + with -'                       => 'Killed',
+        '5 removed the body of size'                => 'NoVerdict',
+        '5 removed the return value'                => 'NoVerdict',
+        '5 replaced > with <='                      => 'NoVerdict',
+        '5 replaced > with >='                      => 'NoVerdict',
+        '5 swapped the branches of the conditional' => 'NoVerdict',
       },
       'a kill by the broken test is no kill, and a kill by a sound test stays';
     is [ $entry{'5 replaced > with >='}->@{qw(reason detail)} ],

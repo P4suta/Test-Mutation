@@ -54,7 +54,8 @@ note
 my $added    = Census::beyond( $far, $near );
 my $declined = Census::declined();
 my %reason   = map { $_ => $declined->{$_} } grep { $added->{observed}{$_} } keys $declined->%*;
-Gate::findings( 'mutants-census-installed', Census::undecided( $added, \%reason ) );
+is Census::undecided( $added, \%reason ), [],
+  'every construct that the installed modules add has a mutant or a reason in the declined table';
 Gate::findings( 'mutants-statements-installed',
     [ map { "no mutant touches a statement of the class $_" } Census::bare_classes($far)->@* ] );
 Gate::findings(

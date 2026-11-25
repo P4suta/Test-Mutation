@@ -26,7 +26,7 @@ A compile of every mutant costs one process for each, and a call that fails at r
 
 ## Consequences
 
-The rules read the span and never the replacement, so a change that wraps its span needs a narrower rule.
+A wrap such as `!(C)` keeps what the rules guard, so `declaration` and `here-document` read the replacement too.
 
 ## Confirmation
 

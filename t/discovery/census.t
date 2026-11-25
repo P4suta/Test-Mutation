@@ -83,9 +83,22 @@ subtest 'the census rejects a key that no token-level mutant covers' => sub {
     is $census->{claimed}{'Symbol'},               undef, 'a return value that is one variable changes no variable';
     is $census->{claimed}{'Structure'}, undef,
       'and the removal of a statement or of a body changes no token of its own';
-    is $census->{claimed}{'Number'}, 5, 'a number is claimed, in a subscript too';
+    is $census->{claimed}{'word return'}, 1, 'a change of a return value claims the word of its construct';
+    is $census->{claimed}{'word sub'},    2, 'and so does the removal of a body';
+    is $census->{claimed}{'Number'},      5, 'a number is claimed, in a subscript too';
     is $census->{refused}{'Number'}, 1,
       'and the final value of the file is declined by the rule that refuses its change';
+};
+
+subtest 'a change of a wider site claims the tokens that name its construct' => sub {
+    my $census = census_of("sub f {\n    if (\$a) { g() } elsif (\$b) { h() }\n    return \$c ? 1 : 2;\n}\n1;\n");
+    is [ map { $census->{claimed}{$_} } 'operator ?', 'operator :', 'word elsif', 'word if' ], [ 1, 1, 1, 1 ],
+      'the swapped branches claim the question mark and the colon, and the negated condition its keyword';
+    is $census->{claimed}{'Word'}, 2, 'and a statement the function that it calls first';
+    my $calls = census_of("sub concatenate { join q{}, join q{:}, \@_ }\n1;\n");
+    is $calls->{observed}{'word join'}, 2, 'the census observes both calls';
+    is $calls->{claimed}{'word join'},  1, 'statement removal claims only the outer call';
+    ok !exists Census::declined()->{'word join'}, 'the outer call already has a mutant';
 };
 
 subtest 'the gate rejects an undecided key, a declined key with a mutant, and a declined key that never shows' => sub {
@@ -144,12 +157,17 @@ subtest 'the census rejects a pattern that the analysis leaves out without a cou
       'a pattern without a count is a finding';
 };
 
+# The seed shows each declined construct that the corpus lacks, in a declaration that no mutator changes.
 my $SEED = <<'CODE';
 my ( $x, @list ) = ( \&code, [ 1, 2 ] );
 print { $x->[0] } "@list$#list";
 LABEL: for my $item ( @{ $x }, $_ ) { next LABEL }
 sub with($) { return }
 sub attributed :lvalue { $x }
+my @declined = ( 0b11, 1e3, +$x, `true`, chown( 0, 0, $x ), ioctl( $x, 0, $x ), each %$x, gethostbyname $x );
+my @valued = ( gmtime $x, localtime $x, log $x, lstat $x, ord $x, prototype $x, tell $x, telldir $x, tied $x, fc $x );
+foreach my $item (@list) { } continue { }
+sub counted { state $count; goto &code }
 __END__
 CODE
 
@@ -172,7 +190,8 @@ note
 
 is $census->{unplaced}, 0, 'PPI places every token of the corpus on its own text';
 Gate::findings( 'mutants-dropped-corpus', Census::uncounted($census) );
-Gate::findings( 'mutants-census-corpus',  Census::undecided( $census, Census::declined() ) );
+is Census::undecided( $census, Census::declined() ), [],
+  'every construct of the corpus has a mutant or a reason in the declined table, and every reason stands alone';
 Gate::findings( 'mutants-statements-corpus',
     [ map { "no mutant touches a statement of the class $_" } Census::bare_classes($census)->@* ] );
 Gate::checked( 'files',      scalar @files,                                              at_least => 50 );

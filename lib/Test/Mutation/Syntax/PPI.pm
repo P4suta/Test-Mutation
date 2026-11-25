@@ -8,15 +8,17 @@ use Type::Params    qw(signature_for);
 use version         ();
 use Test::Mutation::Mutator::Providers;
 use Test::Mutation::Site;
+use Test::Mutation::Syntax::Precedence;
 use Test::Mutation::Types qw(Analysis);
 
 our $VERSION = '0.001';
 
+my $TOKEN = InstanceOf ['PPI::Token'];
+
 my %CONDITIONAL  = map { $_ => 1 } qw(if unless while until);
 my %MODIFIER     = map { $_ => 1 } qw(if unless while until for foreach);
-my %LOOP_CONTROL = map { $_ => 1 } qw(last next);
+my %LOOP_CONTROL = map { $_ => 1 } qw(last next redo);
 my %DECLARATOR   = map { $_ => 1 } qw(sub method class role package field);
-my %UNARY_AFTER  = map { $_ => 1 } qw(return and or not xor if unless while until for foreach x print say push unshift);
 my %CODE_BLOCK_WORD =
   map { $_ => 1 }
   qw(do eval sub map grep first any all none notall try catch finally defer method ADJUST class role else continue
@@ -39,10 +41,28 @@ my %NEVER_A_CALL =
   continue given when default try catch finally defer BEGIN END INIT CHECK UNITCHECK ADJUST
   __PACKAGE__ __FILE__ __LINE__ __SUB__ __CLASS__);
 
-my %TIGHTER_THAN_PRODUCT = map { $_ => 1 } qw(** =~ !~ ++ -- ->);
-my %TIGHTER_THAN_SUM     = ( %TIGHTER_THAN_PRODUCT, map { $_ => 1 } qw(* / % x) );
-my %BINDS_TIGHTER_THAN =
-  ( ( map { $_ => \%TIGHTER_THAN_SUM } qw(+ -) ), ( map { $_ => \%TIGHTER_THAN_PRODUCT } qw(* / % **) ), );
+# The operators whose whole right operand the analysis names when it is a number, for the operands that leave a value alone.
+my %ARITHMETIC = map { $_ => 1 } qw(+ - * / % **);
+my %SHIFT      = map { $_ => 1 } qw(<< >>);
+
+# An operator that has no other use than before its operand, so the parse of its siblings may leave it without a place.
+my %ALWAYS_PREFIX = map { $_ => 1 } qw(! ~ ~. not);
+
+# The kinds of the siblings that the table of precedence reads, and every other significant element is a term.
+my @ITEM_KIND = (
+    [ 'PPI::Token::Operator'      => 'operator' ],
+    [ 'PPI::Token::Word'          => 'word' ],
+    [ 'PPI::Token::Cast'          => 'cast' ],
+    [ 'PPI::Token::Structure'     => 'stop' ],
+    [ 'PPI::Token::Label'         => 'stop' ],
+    [ 'PPI::Token::Separator'     => 'stop' ],
+    [ 'PPI::Structure::Subscript' => 'subscript' ],
+    [ 'PPI::Structure::Block'     => 'block' ],
+    [ 'PPI::Structure::List'      => 'list' ],
+    [ 'PPI::Structure::Condition' => 'list' ],
+    [ 'PPI::Structure::For'       => 'list' ],
+    [ 'PPI::Structure::Signature' => 'list' ],
+);
 
 my @BEFORE_A_SUB_BODY = qw(PPI::Structure::List PPI::Structure::Signature PPI::Token::Prototype PPI::Token::Attribute);
 my @REGEX_TOKEN       = qw(PPI::Token::Regexp::Match PPI::Token::Regexp::Substitute PPI::Token::QuoteLike::Regexp);
@@ -74,6 +94,7 @@ sub analyze ($source) {
         my $reason = PPI::Document->errstr;
         return _problem( 'PPI cannot parse the file: ' . ( defined $reason ? $reason : 'unknown error' ) );
     }
+    _split_subtractions($document);
     return _problem('PPI does not reproduce the file') if $document->serialize ne $copy;
 
     my $context = {
@@ -153,10 +174,13 @@ sub _starts_readline ($element) {
     return $element->isa('PPI::Token::Operator') && $element->content eq '<' ? 1 : 0;
 }
 
-# An operand starts with a name, a value, a bracket, or an operator that stands before its operand.
+# An operand starts with a name, a value, a bracket, or an operator that the table of precedence places before its operand.
 sub _lacks_operand ($next) {
     return 1 if !$next || _is_semicolon($next) || _is_word( $next, \%MODIFIER );
-    return $next->isa('PPI::Token::Operator') && $next->content !~ /\A(?:[-+!~]|[+][+]|--|-[[:alpha:]])\z/ ? 1 : 0;
+    return $next->isa('PPI::Token::Operator')
+      && !Test::Mutation::Syntax::Precedence::starts_operand( $next->content )
+      ? 1
+      : 0;
 }
 
 sub _line_offset ( $context, $line ) {
@@ -223,6 +247,26 @@ sub _document ($copy) {
     my $document = PPI::Document->new( \$copy ) or return;
     my $letters  = grep { $_->content =~ /[[:alpha:]]/ } @{ $document->find('PPI::Token::Prototype') || [] };
     return $letters ? PPI::Document->new( \$copy, feature_mods => { signatures => 1 } ) : $document;
+}
+
+# PPI can attach a subtraction sign after a completed operand to the following number.
+sub _split_subtractions ($document) {
+    for my $number ( @{ $document->find('PPI::Token::Number') || [] } ) {
+        my $text = $number->content;
+        next if substr( $text, 0, 1 ) ne q{-};
+        next unless _ends_operand( scalar $number->sprevious_sibling );
+        $number->insert_before( PPI::Token::Operator->new(q{-}) );
+        $number->set_content( substr $text, 1 );
+    }
+    return;
+}
+
+sub _ends_operand ($element) {
+    return 0 if !$element;
+    return 1
+      if grep { $element->isa($_) } qw(PPI::Structure::Subscript PPI::Structure::List PPI::Structure::Constructor);
+    return 1 if _is_operator( $element, '++', '--' );
+    return $element->isa('PPI::Token::Cast') && _is_operator( scalar $element->sprevious_sibling, '->' );
 }
 
 # A place that yields no site is a place without mutants, so each one is kept for the report of the run.
@@ -417,11 +461,11 @@ sub _regex_sites ( $context, $token ) {
 }
 
 sub _token_site ( $context, $token ) {
-    return                                  if $context->{misread}{ refaddr $token };
-    return _regex_sites( $context, $token ) if grep { $token->isa($_) } @REGEX_TOKEN;
+    return                                    if $context->{misread}{ refaddr $token };
+    return _regex_sites( $context, $token )   if grep { $token->isa($_) } @REGEX_TOKEN;
+    return _operator_site( $context, $token ) if $token->isa('PPI::Token::Operator');
     my $kind =
-        $token->isa('PPI::Token::Operator')        ? 'operator'
-      : $token->isa('PPI::Token::Word')            ? 'word'
+        $token->isa('PPI::Token::Word')            ? 'word'
       : $token->isa('PPI::Token::Number::Version') ? undef
       : $token->isa('PPI::Token::Prototype')       ? undef
       : $token->isa('PPI::Token::Number')          ? 'number'
@@ -431,30 +475,75 @@ sub _token_site ( $context, $token ) {
 
     my ( $start, $end ) = _span( $context, $token, $token ) or return;
     my $scope = _scope( $context, $token ) or return;
-    my ( $role, $facts ) =
-        $kind eq 'operator' ? _operator_role($token)
-      : $kind eq 'word'     ? ( _word_role( $context, $token ), {} )
-      :                       ( q{}, {} );
+    my $role  = $kind eq 'word' ? _word_role( $context, $token ) : q{};
     return if $kind eq 'word' && $role eq q{};
+    _add( $context, kind => $kind, start => $start, end => $end, role => $role, scope => $scope );
+    return;
+}
+
+sub _operator_site ( $context, $token ) {
+
+    # The second caret of a logical exclusive or belongs to the site of the first one.
+    my $place = _place( $context, $token );
+    return if refaddr( $place->{unit}{elements}[0] ) != refaddr $token;
+    my ( $start, $end ) = _span( $context, $token, $place->{unit}{elements}[-1] ) or return;
+    my $scope = _scope( $context, $token ) or return;
+    my ( $role, $facts ) = _operator_role($place);
     _add(
         $context,
-        kind  => $kind,
+        kind  => 'operator',
         start => $start,
         end   => $end,
         role  => $role,
         scope => $scope,
         facts => $facts,
     );
+    _branches_site( $context, $token, $place, $scope ) if $token->content eq q{?};
     return;
 }
 
-sub _operator_role ($token) {
-    my $content  = $token->content;
-    my $previous = $token->sprevious_sibling;
+# The siblings of an element as the table of precedence reads them, each unit with its elements and its record.
+sub _place ( $context, $element ) {
+    my $parent = $element->parent;
+    my $parsed = $context->{parsed}{ refaddr $parent } ||= _parsed($parent);
+    my $at     = $parsed->{index}{ refaddr $element };
+    return { $parsed->%*, unit => $parsed->{units}[$at], record => $parsed->{records}[$at] };
+}
+
+sub _parsed ($parent) {
+    my @units;
+    my @children = $parent->schildren;
+    while (@children) {
+        my $child    = shift @children;
+        my @elements = ($child);
+        if (   _is_operator( $child, q{^} )
+            && _is_operator( $children[0], q{^} )
+            && refaddr( $child->next_token ) == refaddr $children[0] )
+        {
+            push @elements, shift @children;
+        }
+        my ($kind) = map { $_->[1] } grep { $child->isa( $_->[0] ) } @ITEM_KIND;
+        push @units,
+          {
+            kind     => defined $kind             ? $kind                                      : 'term',
+            text     => $child->isa('PPI::Token') ? join( q{}, map { $_->content } @elements ) : q{},
+            elements => \@elements
+          };
+    }
+    my %index;
+    for my $at ( 0 .. $#units ) {
+        $index{ refaddr $_ } = $at for $units[$at]{elements}->@*;
+    }
+    my $records = Test::Mutation::Syntax::Precedence::parse( [ map { [ $_->@{qw(kind text)} ] } @units ] );
+    return { units => \@units, records => $records, index => \%index };
+}
+
+sub _operator_role ($place) {
+    my $content = $place->{unit}{text};
     return ( 'update', {} ) if $content eq '++' || $content eq '--';
 
     if ( $content eq '=~' || $content eq '!~' ) {
-        my $next = $token->snext_sibling;
+        my $next = $place->{unit}{elements}[0]->snext_sibling;
         my $operand =
            !$next                                           ? 'dynamic'
           : $next->isa('PPI::Token::Regexp::Substitute')    ? 'substitute'
@@ -463,34 +552,85 @@ sub _operator_role ($token) {
         return ( 'binary', { operand => $operand } );
     }
 
-    my $unary =
-         !$previous
-      || ( $previous->isa('PPI::Token::Operator') && $previous->content ne '++' && $previous->content ne '--' )
-      || ( $previous->isa('PPI::Token::Word') && $UNARY_AFTER{ $previous->content } );
-    return ( 'unary',  {} ) if $unary && ( $content eq '-' || $content eq '+' );
-    return ( 'unary',  {} ) if $content eq '!' || $content eq '~' || $content eq 'not';
-    return ( 'binary', { _right_number($token)->%*, _version_literal($token) } );
+    my $record = $place->{record};
+    my $prefix = $record ? $record->{position} eq 'prefix' : $ALWAYS_PREFIX{$content};
+    return ( 'unary',  {} ) if $prefix;
+    return ( 'binary', { _right_number($place)->%*, _version_literal($place) } );
+}
+
+# The element of an operand that is one element alone.
+sub _alone ( $place, $side ) {
+    my $span = $place->{record} ? $place->{record}{$side} : undef;
+    return $span && $span->[1] - $span->[0] == 1 ? $place->{units}[ $span->[0] ]{elements}[0] : undef;
+}
+
+sub _is_number ($element) {
+    return $element && $element->isa('PPI::Token::Number') && !$element->isa('PPI::Token::Number::Version') ? 1 : 0;
 }
 
 # A comparison of the version of Perl with a literal has one result on each interpreter.
-sub _version_literal ($token) {
-    return if !$BOUNDED_COMPARISON{ $token->content };
-    my @sides    = grep { ref } $token->sprevious_sibling, $token->snext_sibling;
-    my ($number) = grep { $_->isa('PPI::Token::Number') && !$_->isa('PPI::Token::Number::Version') } @sides;
+sub _version_literal ($place) {
+    return if !$BOUNDED_COMPARISON{ $place->{unit}{text} };
+    my @sides    = grep { defined } map { _alone( $place, $_ ) } qw(before after);
+    my ($number) = grep { _is_number($_) } @sides;
     my ($perl)   = grep { $_->content eq '$]' || $_->content eq '"$]"' } @sides;
     my $value    = $number && $perl ? $number->literal : undef;
     return defined $value ? ( version => 0 + $value ) : ();
 }
 
-# A number is the whole right operand unless the operator after it binds tighter.
-sub _right_number ($token) {
-    my $tighter = $BINDS_TIGHTER_THAN{ $token->content } or return {};
-    my $number  = $token->snext_sibling;
-    return {} if !$number || !$number->isa('PPI::Token::Number') || $number->isa('PPI::Token::Number::Version');
-    my $after = $number->snext_sibling;
-    return {} if $after && $after->isa('PPI::Token::Operator') && $tighter->{ $after->content };
+# A shift can dispatch to an overloaded operator unless its left operand is a literal number.
+sub _right_number ($place) {
+    my $operator = $place->{unit}{text};
+    return {} unless $ARITHMETIC{$operator} || $SHIFT{$operator} && _is_number( _alone( $place, 'before' ) );
+    my $number = _alone( $place, 'after' );
+    return {} if !_is_number($number);
     my $value = $number->literal;
     return defined $value ? { right => 0 + $value } : {};
+}
+
+# The two branches of a conditional, with the places of its question mark and its colon.
+sub _branches_site ( $context, $mark, $place, $scope ) {
+    my $record = $place->{record};
+    return _drop( $context, $mark, 'conditional', 'the conditional operator has no colon or no second branch' )
+      if !$record || !$record->{after};
+    my $units = $place->{units};
+    my ( $start, $first_end ) = _span( $context, _unit_edges( $units, $record->{middle} ) ) or return;
+    my ( $later, $end )       = _span( $context, _unit_edges( $units, $record->{after} ) )  or return;
+    my $colon   = $units->[ $record->{middle}[1] ]{elements}[0];
+    my @anchors = map { [ _span( $context, $_, $_ ) ] } $mark, $colon;
+    return if grep { !$_->@* } @anchors;
+    _add(
+        $context,
+        kind  => 'branches',
+        start => $start,
+        end   => $end,
+        scope => $scope,
+        facts => {
+            branches => [ $first_end - $start, $later - $start ],
+            anchors  => \@anchors,
+            _looser( $place, $record ) ? ( loose => 1 ) : ()
+        },
+    );
+    return;
+}
+
+# The colon closes the first branch, so it may hold an assignment, which binds looser than the conditional itself.
+# The operator whose operands span the whole branch is the one that binds loosest in it.
+sub _looser ( $place, $record ) {
+    my ( $from, $to ) = $record->{middle}->@*;
+    my ($root) = grep { $_ && $_->{position} eq 'infix' && $_->{before}[0] == $from && $_->{after}[1] == $to }
+      $place->{records}->@*;
+    return $root && $root->{level} < $record->{level} ? 1 : 0;
+}
+
+sub _unit_edges ( $units, $span ) {
+    return _edge_tokens( $units->[ $span->[0] ]{elements}[0], $units->[ $span->[1] - 1 ]{elements}[-1] );
+}
+
+# The place of the token that names the construct of a site wider than a token.
+sub _anchors ( $context, $token ) {
+    my @span = $TOKEN->check($token) ? _span( $context, $token, $token ) : ();
+    return @span ? ( anchors => [ \@span ] ) : ();
 }
 
 sub _word_role ( $context, $token ) {
@@ -598,7 +738,11 @@ sub _condition_site ( $context, $condition ) {
         start => $start,
         end   => $end,
         scope => $scope,
-        facts => { keyword => $keyword ? $keyword->content : q{}, $declares ? ( declares => 1 ) : () },
+        facts => {
+            keyword => $keyword ? $keyword->content : q{},
+            _anchors( $context, $keyword ),
+            $declares ? ( declares => 1 ) : ()
+        },
     );
     return;
 }
@@ -621,7 +765,7 @@ sub _add_body ( $context, $block, $name, $head ) {
         start => $start,
         end   => $end,
         scope => [ $first->[0], $last->[0] ],
-        facts => { name => $name },
+        facts => { name => $name, _anchors( $context, $head ) },
     );
     return;
 }
@@ -645,7 +789,7 @@ sub _return_site ( $context, $scope, $keyword, @rest ) {
         start => $start,
         end   => $end,
         scope => $scope,
-        facts => { defined $literal ? ( literal => $literal ) : () },
+        facts => { defined $literal ? ( literal => $literal ) : (), _anchors( $context, $keyword ) },
     );
     return;
 }
@@ -673,7 +817,8 @@ sub _statement_site ( $context, $segment ) {
         scope => $scope,
         facts => {
             head => $children[0]->isa('PPI::Token::Word') ? $children[0]->content : q{},
-            $declares ? ( declares => 1 ) : ()
+            $children[0]->isa('PPI::Token::Word') ? _anchors( $context, $children[0] ) : (),
+            $declares                             ? ( declares => 1 )                  : ()
         },
     );
     return;
@@ -757,6 +902,13 @@ There a token that spans two lines has another text than the file, so it is amon
 
 PPI reads a readline such as C<< <$handle> >> at the start of a statement and after some words as two comparisons around a name.
 No comparison lacks its right operand, so the module takes a C<< > >> without one for the end of a readline, and the tokens back to its C<< < >> yield no site.
+
+L<Test::Mutation::Syntax::Precedence> reads the siblings of each operator and finds its operands.
+A sign before its operand is unary, and an arithmetic operator names a number that is its whole right operand.
+Two carets without a space between are the logical exclusive or of Perl 5.40, which PPI reads as two tokens.
+A conditional operator yields a C<branches> site over its two branches, and one without its colon or its second branch is a place left out.
+A condition, a return value, the body of a subroutine, the branches of a conditional, and a statement that starts with a word name the places of the tokens of their construct.
+A first branch with an assignment at its top binds looser than the conditional, and its site carries the fact C<loose>.
 
 PPI joins the code after a method, a C<defer> block, or a C<finally> block to the block.
 The module splits such a statement at the closing brace, so each part has its own scope and its own sites.

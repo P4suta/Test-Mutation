@@ -31,7 +31,7 @@ subtest 'a signal ends the analysis between two files' => sub {
     my $config = Test::Mutation::Settings::of_call( { root => $root } );
     is ended_by( 'TERM', sub { Test::Mutation::Runner::analyze($config) } ), 'TERM',
       'the analysis dies with the interruption';
-    is scalar Test::Mutation::Runner::analyze($config)->{mutants}->@*, 19,
+    is scalar Test::Mutation::Runner::analyze($config)->{mutants}->@*, 21,
       'and the same analysis without a signal ends';
 };
 

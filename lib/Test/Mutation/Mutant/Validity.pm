@@ -84,18 +84,64 @@ signature_for refusal => (
 );
 
 sub refusal ( $self, $site, $replacement ) {
-    return 'line-count' if ( $replacement =~ tr/\n// ) != ( $site->text =~ tr/\n// );
-    my ( $start, $end ) = ( $site->start, $site->end );
+    return 'line-count'    if ( $replacement =~ tr/\n// ) != ( $site->text =~ tr/\n// );
+    return 'here-document' if !_keeps_heredocs( $site, $replacement, $self->heredocs );
 
-    # A here-document is the two ends of its introducer and the two ends of its text, which follows that line.
-    # A span that touches one of the two without taking both leaves text behind as code, or a string without its text.
-    return 'here-document' if grep {
-          !( $start <= $_->[0] && $_->[3] <= $end )
-        && ( ( $start < $_->[1] && $end > $_->[0] ) || ( $start < $_->[3] && $end > $_->[2] ) )
-    } $self->heredocs->@*;
-    return 'declaration' if $site->facts->{declares};
+    # A change that holds the whole text of its span, as one that wraps it does, keeps every declaration of the span.
+    my $original = $site->text;
+    return 'declaration' if $site->facts->{declares} && $replacement !~ /\Q$original\E/;
     return 'final-value' if $site->facts->{final_value};
     return;
+}
+
+# A here-document is the two ends of its introducer and the two ends of its text, which follows the line of the introducer.
+# A change keeps it when it leaves both alone or removes both.
+# A change that keeps the introducer keeps it on its line, after the introducers before it, and leaves the text where it stands.
+# A change that touches either in another way leaves text behind as code, a string without its text, or the text of another one.
+sub _keeps_heredocs ( $site, $replacement, $heredocs ) {
+    my ( $start, $end ) = ( $site->start, $site->end );
+    my $after = 0;
+    for my $heredoc ( $heredocs->@* ) {
+        my ( $from, $to, $first, $last ) = $heredoc->@*;
+        my $intro = _overlap( $start, $end, $from,  $to );
+        my $body  = _overlap( $start, $end, $first, $last );
+        next     if $intro eq 'apart' && $body eq 'apart';
+        return 0 if $intro ne 'whole' || $body eq 'partial';
+        my $introducer = _part( $site, $from, $to );
+        my $found      = index $replacement, $introducer, $after;
+        if ( $found < 0 ) {
+            return 0 if $body eq 'apart' || $replacement =~ /\Q$introducer\E/;
+            next;
+        }
+        return 0 if _lines_before( $replacement, $found ) != _lines_before( $site->text, $from - $start );
+        return 0 if $body eq 'whole' && !_text_kept( $site, $replacement, $first, $last );
+        $after = $found + length $introducer;
+    }
+    return 1;
+}
+
+sub _overlap ( $start, $end, $from, $to ) {
+    return 'apart' if $end <= $from || $start >= $to;
+    return 'whole' if $start <= $from && $end >= $to;
+    return 'partial';
+}
+
+sub _part ( $site, $from, $to ) {
+    return substr $site->text, $from - $site->start, $to - $from;
+}
+
+sub _lines_before ( $text, $place ) {
+    my $before = substr $text, 0, $place;
+    return $before =~ tr/\n//;
+}
+
+# The text of a here-document starts a line, and the replacement holds it at the start of the same line of the span.
+sub _text_kept ( $site, $replacement, $first, $last ) {
+    my $place = 0;
+    for ( 1 .. _lines_before( $site->text, $first - $site->start ) ) {
+        $place = 1 + index $replacement, "\n", $place;
+    }
+    return substr( $replacement, $place, $last - $first ) eq _part( $site, $first, $last );
 }
 
 signature_for resolved_call => ( method => 1, positional => [ Str, Str ], returns => Maybe [Str] );
@@ -188,7 +234,8 @@ The generator refuses the change without a name as C<same-text> and the second c
 Returns the name of the rule that refuses the change, or nothing.
 C<line-count> refuses a change that adds or removes a line, which would move every later line.
 C<here-document> refuses a change that touches the introducer of a here-document or its text without taking both whole.
-C<declaration> refuses the change of a span that declares a variable which later code names.
+A change that keeps the introducer on its line, after the introducers before it, and leaves the text in its place keeps the here-document, as a change that wraps its span does.
+C<declaration> refuses the change of a span that declares a variable which later code names, unless the replacement holds the whole text of the span.
 C<final-value> refuses a change of a statement that is a value alone, as the true value that ends a module is.
 
 =head2 resolved_call

@@ -76,8 +76,8 @@ subtest 'ignored survivors keep their statuses and reasons in a reused run' => s
     is statuses($after), statuses($before), 'the statuses are unchanged';
     is [ map { [ $_->@{qw(reason detail)} ] } $after->entries->@* ],
       [ map { [ $_->@{qw(reason detail)} ] } $before->entries->@* ], 'the reasons and the details are unchanged';
-    is scalar( grep { $_->{status} eq 'Ignored' } $after->entries->@* ), 2, 'both ignored mutants stay ignored';
-    is $after->reused,                                                   9, 'every result comes from the cache';
+    is scalar( grep { $_->{status} eq 'Ignored' } $after->entries->@* ), 2,  'both ignored mutants stay ignored';
+    is $after->reused,                                                   10, 'every result comes from the cache';
 };
 
 subtest 'a changed source without a mutant of its own invalidates the tests that load it' => sub {

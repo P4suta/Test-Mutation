@@ -17,7 +17,7 @@ Capability::need( 'second-perl', $version != $], "no interpreter of another vers
 my ($result) = run_fixture( copy_of('calc'), perl => $other );
 is $result->baseline_failures, [], "the unmodified run passes on Perl $version";
 my $counts = $result->tally->{counts};
-is { $counts->%{qw(Killed Survived NoCoverage)} }, { Killed => 13, Survived => 3, NoCoverage => 3 },
+is { $counts->%{qw(Killed Survived NoCoverage)} }, { Killed => 15, Survived => 3, NoCoverage => 3 },
   'the statuses match a run on the interpreter of the driver';
 
 done_testing;

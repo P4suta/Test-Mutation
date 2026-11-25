@@ -113,6 +113,42 @@ subtest 'a change keeps a here-document whole or removes it whole' => sub {
     is $refused->( ". g();\n", ". h();\n" ), undef, 'a change that ends where the text starts';
     is $refused->( '}',        q{ } ),       undef, 'a change that starts where the text ends';
     is $refused->( 'sub f {',  'sub g {' ),  undef, 'a change before the line of the introducer';
+
+    is $refused->( '<<"T" . g()', '!(<<"T" . g())' ), undef,
+      'a change that wraps the introducer keeps it on its line before its text';
+    is $refused->( "<<\"T\" . g();\nline\nT\n", "!(<<\"T\") . g();\nline\nT\n" ), undef,
+      'and so does one that keeps the text in its place';
+    is $refused->( "<<\"T\" . g();\nline\nT\n", "!(<<\"T\") . g();\nT\nline\n" ), 'here-document',
+      'a change that keeps the introducer and moves its text';
+    is $refused->( '<<"T" . g()', 'g() . <<"T"' ),    undef,        'an introducer that moves along its line';
+    is $refused->( '<<"T" . g()', "g() .\n<<\"T\"" ), 'line-count', 'and one that moves to another line adds one';
+    is $refused->( '<<"T" . g()', '<<"T" . h()' ),    undef, 'a replacement can start with the complete introducer';
+    is $refused->( '<<"T',        '<<T' ), 'here-document',  'a replacement cannot cut the end of an introducer';
+    is $refused->( "<<\"T\" . g();\nli", "<<\"T\" . h();\nli" ), 'here-document',
+      'a span containing the introducer cannot end inside the body';
+    is $refused->( "<<\"T\" . g();\nline\nT\n}", "<<\"T\" . h();\nline\nT\n }" ), undef,
+      'code following an intact body can change inside the replacement';
+
+    my $swapped  = "my \$v = \$c\n  ? <<A\nbody\nA\n  : \$d;\n";
+    my $branches = sub ( $original, $replacement ) {
+        return refusal( $swapped, $original, $replacement, heredocs => [ [ 15, 18, 19, 26 ] ] );
+    };
+    is substr( $swapped, 15, 3 ), '<<A', 'a conditional with an introducer in its first branch';
+    is $branches->( "<<A\nbody\nA\n  : \$d", "\$d\nbody\nA\n  : <<A" ), 'here-document',
+      'a swap that moves the introducer below its text';
+
+    my $pair = "f( \$c ? <<A : <<B );\na\nA\nb\nB\n";
+    is refusal( $pair, '<<A : <<B', '<<B : <<A', heredocs => [ [ 8, 11, 21, 25 ], [ 14, 17, 25, 29 ] ] ),
+      'here-document', 'a swap of two introducers on one line, which would swap their texts';
+    my $both = "<<A, <<B;\na\nA\nb\nB\n";
+    my @both = ( [ 0, 3, 10, 14 ], [ 5, 8, 14, 18 ] );
+    is refusal( $both, '<<B', '0', heredocs => \@both ), 'here-document',
+      'an unchanged document before a changed introducer does not end the check';
+    is refusal( $both, $both, "1, <<B;\n\n\nx\nB\n", heredocs => \@both ), 'here-document',
+      'removing one document still checks each later document';
+    my $repeated = "<<X, <<X;\na\nX\nb\nX\n";
+    is refusal( $repeated, $repeated, "<<X;\na\nX\nb\nX\n", heredocs => \@both ), 'here-document',
+      'two documents cannot share the same introducer in the replacement';
 };
 
 subtest 'a change keeps what the rest of the file relies on' => sub {
@@ -124,6 +160,15 @@ subtest 'a change keeps what the rest of the file relies on' => sub {
       'declaration', 'a declaration that later code names';
     is refusal( "if ( open my \$h, '<', \$p ) { f() }\n", q{open my $h, '<', $p}, '1' ), undef,
       'a declaration that no later code names';
+    is refusal(
+        "if ( open my \$h, '<', \$p ) { print \$h 1 }\n",
+        q{open my $h, '<', $p},
+        q{!(open my $h, '<', $p)},
+        facts => { declares => 1 }
+      ),
+      undef, 'a change that wraps the declaration keeps it';
+    is refusal( 'my $answer = f()', 'my $answer = f()', 'my $answer = f() + 1', facts => { declares => 1 } ),
+      undef, 'a replacement can start with the declaration that it keeps';
     is refusal( "package A;\n1;\n", '1', '0', facts => { final_value => 1 } ), 'final-value',
       'the true value that ends a module';
     is refusal( "package A;\nsub f { 1 }\n1;\n", '1', '0' ), undef, 'another number';

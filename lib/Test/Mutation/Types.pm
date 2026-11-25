@@ -37,9 +37,12 @@ declare Facts,
     literal     => Optional [Str],
     declares    => Optional [Bool],
     final_value => Optional [Bool],
+    branches    => Optional [ Tuple [ Int, Int ] ],
+    loose       => Optional [Bool],
+    anchors     => Optional [ ArrayRef [ Tuple [ Int, Int ] ] ],
   ];
 
-declare Dropped, as Dict [ line => Int, kind => Enum [qw(span regex)], reason => Str ];
+declare Dropped, as Dict [ line => Int, kind => Enum [qw(span regex conditional)], reason => Str ];
 
 declare Suppression, as Dict [ first => Int, last => Maybe [Int], names => Maybe [ ArrayRef [Str] ] ];
 
@@ -96,8 +99,12 @@ the first word of a statement, the name of a subroutine, and the literal of a re
 
 C<declares> marks a span with a declaration that later code names.
 C<final_value> marks a statement of the file that is a value alone, as the true value that ends a module is.
+C<branches> holds the length of the first branch of a conditional and the place where its second branch starts, both counted from the start of the span.
+C<loose> marks a first branch that holds an operator looser than the conditional, as an assignment, which needs parentheses in the place of the second branch.
+C<anchors> holds the places of the tokens that name the construct of a span wider than a token, such as the question mark and the colon of a conditional or the keyword of a condition.
 
 C<Dropped> names a place that the analysis left out, with its line, its kind, and the reason.
+A conditional operator without its colon or its second branch is such a place.
 
 C<Suppression> is a range of lines that a C<## no mutate> comment covers, with the mutators it names.
 

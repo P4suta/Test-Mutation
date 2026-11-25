@@ -10,7 +10,7 @@ with 'Test::Mutation::Value';
 
 has kind => (
     is       => 'ro',
-    isa      => Enum [qw(operator word number string regex statement condition sub_body return)],
+    isa      => Enum [qw(operator word number string regex statement condition sub_body return branches)],
     required => 1,
 );
 has text       => ( is => 'ro', isa => Str, required => 1 );
@@ -38,7 +38,8 @@ Mutators receive sites and return replacement text.
 
 =head2 kind
 
-One of C<operator>, C<word>, C<number>, C<string>, C<regex>, C<statement>, C<condition>, C<sub_body>, and C<return>.
+One of C<operator>, C<word>, C<number>, C<string>, C<regex>, C<statement>, C<condition>, C<sub_body>, C<return>, and C<branches>.
+A C<branches> site spans the two branches of a conditional operator, from the start of the first to the end of the second.
 
 =head2 text
 
@@ -67,8 +68,9 @@ A test reaches the site when it runs a line in this range.
 =head2 facts
 
 What the analysis learned about the span beyond its text, in the shape of L<Test::Mutation::Types/Facts>.
-C<right> holds the number that is the whole right operand of an arithmetic operator.
+C<right> holds the number that is the whole right operand of an arithmetic operator, as L<Test::Mutation::Syntax::Precedence> bounds the operand.
 C<operand> names the kind of the operand after a binding operator.
+C<branches> holds where the two branches of a conditional stand inside the span, and C<anchors> the places of the tokens that name a wider construct.
 A key outside that shape is a fatal error, so a mutator reads no fact that the analysis never writes.
 
 =head2 comparable

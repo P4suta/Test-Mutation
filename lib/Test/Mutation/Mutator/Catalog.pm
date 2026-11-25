@@ -46,7 +46,40 @@ my @OPERATOR_FAMILIES = (
         name        => 'logical',
         description => 'Replaces a logical operator with its counterpart',
         role        => 'binary',
-        table       => { '&&' => ['||'], '||' => ['&&'], 'and' => ['or'], 'or' => ['and'], '//' => ['||'] },
+        table       => {
+            '&&'  => ['||'],
+            '||'  => ['&&'],
+            'and' => ['or'],
+            'or'  => ['and'],
+            '//'  => ['||'],
+            'xor' => ['or'],
+            '^^'  => ['||'],
+        },
+    },
+    {
+        name        => 'bitwise',
+        description => 'Replaces a bitwise operator with its counterpart or removes a complement',
+        role        => 'binary',
+        table       => {
+            q{&}  => [q{|}],
+            q{|}  => [q{&}],
+            q{^}  => [q{&}],
+            '<<'  => ['>>'],
+            '>>'  => ['<<'],
+            '&.'  => ['|.'],
+            '|.'  => ['&.'],
+            '^.'  => ['&.'],
+            '&='  => ['|='],
+            '|='  => ['&='],
+            '^='  => ['&='],
+            '<<=' => ['>>='],
+            '>>=' => ['<<='],
+            '&.=' => ['|.='],
+            '|.=' => ['&.='],
+            '^.=' => ['&.='],
+        },
+        unary => { q{~} => [q{}], '~.' => [q{}] },
+        idle  => { '<<' => 0,     '>>' => 0 },
     },
     {
         name        => 'increment',
@@ -75,18 +108,11 @@ my @OPERATOR_FAMILIES = (
 
 my @WORD_FAMILIES = (
     {
-        name        => 'conditional-keyword',
-        profile     => 'default',
-        description => 'Swaps a conditional keyword with its negation',
-        roles       => [ 'compound', 'modifier' ],
-        table       => { if => 'unless', unless => 'if', while => 'until', until => 'while' },
-    },
-    {
         name        => 'loop-control',
         profile     => 'default',
-        description => 'Swaps last and next',
+        description => 'Swaps last and next, and turns redo into next',
         roles       => ['control'],
-        table       => { last => 'next', next => 'last' },
+        table       => { last => 'next', next => 'last', redo => 'next' },
     },
     {
         name        => 'call-swap',
@@ -148,7 +174,7 @@ sub _blank ($text) {
 # Zero added or subtracted never differs, and neither does one as an exponent.
 # One as a factor differs from one as a divisor for negative zero alone.
 sub _operator_mutator ($family) {
-    my ( $role, $table ) = $family->@{qw(role table)};
+    my %tables   = ( $family->{role} => $family->{table}, unary => $family->{unary} || {} );
     my $idle     = $family->{idle}     || {};
     my $boundary = $family->{boundary} || {};
     return Test::Mutation::Mutator->new(
@@ -156,16 +182,17 @@ sub _operator_mutator ($family) {
         profile     => 'default',
         description => $family->{description},
         generate    => sub ($site) {
-            return if $site->kind ne 'operator' || $site->role ne $role;
+            return if $site->kind ne 'operator';
+            my $table        = $tables{ $site->role } or return;
             my $text         = $site->text;
             my $replacements = $table->{$text} or return;
             my $operand      = $site->facts->{right};
             return if defined $operand && defined $idle->{$text} && $operand == $idle->{$text};
 
             # A settled comparison gives the same result on both sides of its boundary.
-            my $settled = $site->facts->{settled} ? $boundary->{$text} : q{};
-            return map { { replacement => $_, description => "replaced $text with $_" } }
-              grep { $_ ne $settled } $replacements->@*;
+            my $settled = $site->facts->{settled} ? $boundary->{$text} : undef;
+            return map { { replacement => $_, description => $_ ne q{} ? "replaced $text with $_" : "removed $text" } }
+              grep { !defined $settled || $_ ne $settled } $replacements->@*;
         },
     );
 }
@@ -198,6 +225,46 @@ sub _negation ($site) {
     my $text = $site->text;
     return if $text ne q{!} && $text ne 'not';
     return { replacement => q{}, description => "removed $text" };
+}
+
+sub _unary_minus ($site) {
+    my $text = $site->text;
+    return { replacement => q{}, description => 'removed the unary minus' }
+      if $site->kind eq 'operator' && $site->role eq 'unary' && $text eq q{-};
+    return if $site->kind ne 'number';
+    my ($unsigned) = $text =~ /\A-(.+)\z/s or return;
+    return { replacement => $unsigned, description => "replaced $text with $unsigned" };
+}
+
+my %NEGATED_KEYWORD = ( if => 'unless', unless => 'if', while => 'until', until => 'while' );
+
+# A keyword turns into its negation, and an elsif has none, so its condition is negated.
+# The condition of a conditional operator has no left edge that the analysis can name, so its branches swap.
+sub _condition_negation ($site) {
+    my ( $kind, $text, $facts ) = ( $site->kind, $site->text, $site->facts );
+    if ( $kind eq 'word' && ( $site->role eq 'compound' || $site->role eq 'modifier' ) ) {
+        my $negation = $NEGATED_KEYWORD{$text} or return;
+        return { replacement => $negation, description => "replaced $text with $negation" };
+    }
+    if ( $kind eq 'condition' && defined $facts->{keyword} && $facts->{keyword} eq 'elsif' ) {
+        return { replacement => "!($text)", description => 'negated the elsif condition' };
+    }
+    return if $kind ne 'branches' || !$facts->{branches};
+    my ( $first, $later ) = $facts->{branches}->@*;
+    my $moved   = $facts->{loose} ? '(' . substr( $text, 0, $first ) . ')' : substr $text, 0, $first;
+    my $swapped = substr( $text, $later ) . substr( $text, $first, $later - $first ) . $moved;
+    return { replacement => $swapped, description => 'swapped the branches of the conditional' };
+}
+
+# A test of definedness, of existence, of the context of a call, or of a file turns into its negation.
+my %PREDICATE = map { $_ => 1 } qw(defined exists wantarray);
+
+sub _predicate ($site) {
+    my $text = $site->text;
+    my $word = $site->kind eq 'word'     && $site->role eq 'call'  && $PREDICATE{ $text =~ s/\ACORE:://r };
+    my $file = $site->kind eq 'operator' && $site->role eq 'unary' && $text =~ /\A-[[:alpha:]]\z/;
+    return if !$word && !$file;
+    return { replacement => "!$text", description => "negated $text" };
 }
 
 sub _match ($site) {
@@ -252,15 +319,14 @@ sub _number_literal ($site) {
     return { replacement => "$replacement", description => "replaced $text with $replacement" };
 }
 
+# A string in quotes or under q or qq keeps its delimiters, and the text between them goes or, when empty, gets a word.
 sub _string_literal ($site) {
     return if $site->kind ne 'string';
-    my $text  = $site->text;
-    my $quote = substr $text, 0, 1;
-    return if $quote ne q{'} && $quote ne q{"};
-    return if length $text < 2 || substr( $text, -1 ) ne $quote;
-    return { replacement => $quote . 'mutant' . $quote, description => 'replaced the empty string' }
-      if length $text == 2;
-    return { replacement => $quote . $quote, description => 'emptied the string' };
+    my $text = $site->text;
+    my ( $open, $inside, $close ) = $text =~ /\A((?:qq?\s*)?[^\w\s])(.*)([^\w\s])\z/s or return;
+    return if $open =~ /\A['"]\z/ && $close ne $open;
+    return { replacement => $open . 'mutant' . $close, description => 'replaced the empty string' } if $inside eq q{};
+    return { replacement => $open . $close, description => 'emptied the string' };
 }
 
 sub _condition_fixed ($site) {
@@ -294,19 +360,25 @@ sub _regex_flag ($site) {
 }
 
 my @CODED = (
-    [ 'negation',          'default',  'Removes a logical negation',                       \&_negation ],
-    [ 'match',             'default',  'Negates a pattern match',                          \&_match ],
-    [ 'return-value',      'default',  'Removes a return value or flips a literal 0 or 1', \&_return_value ],
-    [ 'statement-removal', 'default',  'Removes an expression statement',                  \&_statement_removal ],
-    [ 'sub-body',          'default',  'Removes the body of a subroutine',                 \&_sub_body ],
-    [ 'close-removal',     'extended', 'Removes a close or closedir statement',            \&_close_removal ],
-    [ 'number-literal',    'extended', 'Changes an integer literal',                       \&_number_literal ],
-    [ 'string-literal',    'extended', 'Empties a string literal',                         \&_string_literal ],
-    [ 'condition-fixed',   'extended', 'Replaces a condition with a constant',             \&_condition_fixed ],
-    [ 'range-boundary',    'extended', 'Lowers the upper bound of a range by one',         \&_range_boundary ],
-    [ 'regex-anchor',      'extended', 'Removes an anchor from a pattern',                 \&_regex_anchor ],
-    [ 'regex-quantifier',  'extended', 'Changes a quantifier in a pattern',                \&_regex_quantifier ],
-    [ 'regex-flag',        'extended', 'Removes the case flag from a pattern',             \&_regex_flag ],
+    [ 'unary-minus', 'default', 'Removes a unary minus or the sign of a number', \&_unary_minus ],
+    [
+        'condition-negation',                                         'default',
+        'Negates a condition or swaps the branches of a conditional', \&_condition_negation
+    ],
+    [ 'predicate',         'default', 'Negates a test of definedness, existence, context, or a file', \&_predicate ],
+    [ 'negation',          'default', 'Removes a logical negation',                                   \&_negation ],
+    [ 'match',             'default', 'Negates a pattern match',                                      \&_match ],
+    [ 'return-value',      'default', 'Removes a return value or flips a literal 0 or 1',             \&_return_value ],
+    [ 'statement-removal', 'default',  'Removes an expression statement',          \&_statement_removal ],
+    [ 'sub-body',          'default',  'Removes the body of a subroutine',         \&_sub_body ],
+    [ 'close-removal',     'extended', 'Removes a close or closedir statement',    \&_close_removal ],
+    [ 'number-literal',    'extended', 'Changes an integer literal',               \&_number_literal ],
+    [ 'string-literal',    'extended', 'Empties a string literal',                 \&_string_literal ],
+    [ 'condition-fixed',   'extended', 'Replaces a condition with a constant',     \&_condition_fixed ],
+    [ 'range-boundary',    'extended', 'Lowers the upper bound of a range by one', \&_range_boundary ],
+    [ 'regex-anchor',      'extended', 'Removes an anchor from a pattern',         \&_regex_anchor ],
+    [ 'regex-quantifier',  'extended', 'Changes a quantifier in a pattern',        \&_regex_quantifier ],
+    [ 'regex-flag',        'extended', 'Removes the case flag from a pattern',     \&_regex_flag ],
 );
 
 my @ALL = (
@@ -376,6 +448,17 @@ The operator and its replacement give the same value there, apart from the sign 
 The C<comparison> mutator keeps the boundary of a comparison between C<$]> and a number, as in C<< $] < 5.010 >>.
 The boundary matters on the one interpreter whose version equals the number, and the tests of other interpreters cannot detect its change.
 The negation of such a comparison stays a mutant.
+
+The C<logical> mutator turns the exclusive C<xor> and C<^^> into the C<or> and the C<||> of their precedence.
+The C<bitwise> mutator swaps C<&> and C<|>, turns C<^> into C<&>, swaps C<<< << >>> and C<<< >> >>>, does the same to the string forms and to the assignments, and removes a complement.
+The C<unary-minus> mutator removes a unary minus and the sign of a negative number.
+The C<loop-control> mutator swaps C<last> and C<next> and turns C<redo> into C<next>.
+A C<next> never turns into a C<redo>, which would repeat the same pass of the loop without end.
+
+The C<condition-negation> mutator swaps C<if> and C<unless>, and C<while> and C<until>.
+An C<elsif> has no such counterpart, so its condition C<C> becomes C<!(C)>.
+The left edge of the condition of a conditional operator depends on every operator before it, so the mutator swaps the branches, and C<C ? A : B> becomes C<C ? B : A>.
+The C<predicate> mutator negates C<defined>, C<exists>, C<wantarray>, and a file test with a C<!> before it.
 
 The C<statement-removal> mutator leaves a C<close> or C<closedir> statement in place.
 A lexical handle closes at the end of its scope, so few test suites detect the removal.

@@ -4,10 +4,11 @@ use PPI;
 use PPI::Singletons ();
 use PPIx::Regexp;
 use Oracle;
+use Test::Mutation::Mutator::Declined;
 
 # The census of the constructs of a corpus.
 # PPI reads each file apart from the analysis of the tool, and every significant token gets the key of its construct.
-# A key is claimed where a mutator of the catalog changes a token of that key.
+# A key is claimed where a mutator of the catalog changes a token of that key, or the construct that the token names.
 
 # A sign after one of these words starts an operand.
 my %BEFORE_AN_OPERAND = map { $_ => 1 } qw(
@@ -23,26 +24,9 @@ my %TOKEN_SITE = map { $_ => 1 } qw(operator word number string regex);
 # The tokens that hold a pattern, which the analysis reads with PPIx::Regexp.
 my %PATTERN = map { ( "PPI::Token::$_" => 1 ) } qw(Regexp::Match Regexp::Substitute QuoteLike::Regexp);
 
-# The constructs that no mutator changes, each with its reason.
-# The table holds a construct that is syntax alone, and every other construct without a mutant is an open finding.
-my %DECLINED = (
-    'Structure'       => 'a brace, a bracket, a parenthesis, or a semicolon groups code and computes nothing',
-    'operator ,'      => 'a comma separates the items of a list',
-    'operator =>'     => 'a fat comma separates a key from its value',
-    'operator ->'     => 'an arrow names the target of a dereference or of a call',
-    'Symbol'          => 'the name of a variable has no counterpart that fits every place',
-    'Magic'           => 'the name of a special variable has no counterpart that fits every place',
-    'Cast'            => 'a sigil before a block or a reference names the type of the value',
-    'Label'           => 'a label names a loop',
-    'Prototype'       => 'a prototype belongs to the declaration of a subroutine',
-    'Attribute'       => 'an attribute belongs to a declaration',
-    'Separator'       => 'the end mark of the code holds no behavior',
-    'Data'            => 'the text after the data mark is no code',
-    'Number::Version' => 'a version number names a requirement',
-);
-
+# The constructs that no mutator changes, each with its reason, as the product declares them beside its catalog.
 sub declined () {
-    return {%DECLINED};
+    return Test::Mutation::Mutator::Declined::reasons();
 }
 
 sub _is ( $element, $class, @contents ) {
@@ -78,13 +62,23 @@ sub key_of ($token) {
     return _is_keyword($token) ? 'word ' . $token->content : 'Word';
 }
 
-# The spans of the changes that the given candidates propose, apart by what the generator made of each.
+# The places that a change of a site claims: the span of a site of one token, and the tokens that name the construct of a wider site.
+# A change of the branches of a conditional claims its question mark and its colon, and the negation of a condition its keyword.
+sub _claimed ($site) {
+    return [ $site->start, $site->end ] if $TOKEN_SITE{ $site->kind };
+    return ( $site->facts->{anchors} || [] )->@*;
+}
+
+sub _span ($site) {
+    return [ $site->start, $site->end ];
+}
+
+# The places of the changes that the given candidates propose, apart by what the generator made of each.
 # A change that became a mutant claims its place, and a change that the generator refused with a rule declines it.
-sub _changes (@candidates) {
+sub _changes ( $places, @candidates ) {
     my ( @made, @refused );
     for my $candidate (@candidates) {
-        my $span = [ $candidate->{site}->start, $candidate->{site}->end ];
-        push @{ $candidate->{mutant} ? \@made : \@refused }, $span;
+        push @{ $candidate->{mutant} ? \@made : \@refused }, $places->( $candidate->{site} );
     }
     my @in_order = map {
         [ sort { $a->[0] <=> $b->[0] } $_->@* ]
@@ -193,8 +187,8 @@ sub records ($source) {
     my %offset_of;
     $offset_of{ $_->{token}->location->[0] }{ $_->{token}->location->[1] } = $_->{start} for $tokens->@*;
     my @candidates = defined $made->{problem} ? () : Oracle::candidates( $source, $made )->@*;
-    my ( $made_of_token, $refused_of_token ) = _changes( grep { $TOKEN_SITE{ $_->{site}->kind } } @candidates );
-    my ( $made_at_all, $refused_at_all )     = _changes(@candidates);
+    my ( $made_of_token, $refused_of_token ) = _changes( \&_claimed, @candidates );
+    my ( $made_at_all, $refused_at_all )     = _changes( \&_span, @candidates );
     my @dropped = grep { $_->{kind} eq 'regex' } ( $made->{dropped} || [] )->@*;
     return (
         [ 'unplaced', $read->{unplaced} ],

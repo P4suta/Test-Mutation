@@ -518,7 +518,9 @@ sub of_kind ( $kind, @records ) {
 }
 
 subtest 'the survey of a file rejects each defect once for a mutator and a class' => sub {
-    my $directory = File::Temp->newdir;
+
+    # The path alone exceeds the space for an example, so the finding must keep the location and the change intact.
+    my $directory = File::Temp->newdir( 'directory-' x 18 . 'XXXXXX', TMPDIR => 1 );
     my $swap      = written( $directory, 'Swap.pm', <<'CODE' );
 package Swap;
 use strict;
