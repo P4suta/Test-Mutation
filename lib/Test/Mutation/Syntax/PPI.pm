@@ -287,6 +287,8 @@ sub _visit ( $context, $element, $excluded ) {
         return;
     }
     return _visit_segments( $context, $element, $excluded ) if ref $element eq 'PPI::Statement';
+    return
+      if !$excluded && $element->isa('PPI::Statement::Include') && _visit_constants( $context, $element->schildren );
     my $skip = $excluded || _excluded($element);
     _structure_sites( $context, $element ) if !$skip;
 
@@ -316,7 +318,8 @@ sub _visit_segments ( $context, $statement, $excluded ) {
       $parent->isa('PPI::Document') || ( $parent->isa('PPI::Structure::Block') && _is_code_block( $context, $parent ) );
     for my $segment ( _segments( $context, $statement )->@* ) {
         my @children = $segment->{children}->@*;
-        my $skip     = $excluded || _is_word( $children[0], \%EXCLUDED_HEAD ) || _holds_version(@children);
+        return if !$excluded && _visit_constants( $context, @children );
+        my $skip = $excluded || _is_word( $children[0], \%EXCLUDED_HEAD ) || _holds_version(@children);
 
         # B::Deparse prints neither a field nor an ADJUST block.
         local $context->{hidden} = 1 if _is_word( $children[0], \%HIDDEN_HEAD );
@@ -329,6 +332,36 @@ sub _visit_segments ( $context, $statement, $excluded ) {
         _visit( $context, $_, $skip || $header{ refaddr $_ } ) for @children;
     }
     return;
+}
+
+sub _visit_constants ( $context, $keyword, $module = undef, @arguments ) {
+    return 0 unless _is_word( $keyword, { 'use' => 1 } ) && _is_word( $module, { constant => 1 } );
+    shift @arguments if @arguments && $arguments[0]->isa('PPI::Token::Number');
+    @arguments = grep { !_is_semicolon($_) } @arguments;
+    while ( @arguments == 1 && $arguments[0]->isa('PPI::Structure::List') ) {
+        @arguments = map { $_->schildren } $arguments[0]->schildren;
+    }
+    my ( $name, $separator, @values ) = @arguments;
+    if ( _is_operator( $separator, q{,}, '=>' ) ) {
+        _visit( $context, $_, 0 ) for @values;
+        return 1;
+    }
+    return 0 if !$name || !$name->isa('PPI::Structure::Constructor');
+    for my $pairs ( $name->schildren ) {
+        my $value = 0;
+        for my $element ( $pairs->schildren ) {
+            if ( _is_operator( $element, q{,} ) ) {
+                $value = !$value;
+            }
+            elsif ( !$value && _is_operator( $element, '=>' ) ) {
+                $value = 1;
+            }
+            elsif ($value) {
+                _visit( $context, $element, 0 );
+            }
+        }
+    }
+    return 1;
 }
 
 # The name, the version, and the attributes of a declaration hold no behavior to change.
@@ -479,6 +512,13 @@ sub _token_site ( $context, $token ) {
     my $scope = _scope( $context, $token ) or return;
     my $role  = $kind eq 'word' ? _word_role( $context, $token ) : q{};
     return if $kind eq 'word' && $role eq q{};
+    if ( $role eq 'modifier' ) {
+        my @condition;
+        for ( my $part = $token->snext_sibling ; $part && !_is_semicolon($part) ; $part = $part->snext_sibling ) {
+            push @condition, $part;
+        }
+        _condition_site( $context, $token, @condition ) if @condition;
+    }
     _add( $context, kind => $kind, start => $start, end => $end, role => $role, scope => $scope );
     return;
 }
@@ -708,8 +748,12 @@ sub _scope ( $context, $element ) {
 }
 
 sub _structure_sites ( $context, $node ) {
-    _condition_site( $context, $node ) if $node->isa('PPI::Structure::Condition');
-    return                             if !$node->isa('PPI::Statement');
+    if ( $node->isa('PPI::Structure::Condition') ) {
+        my $keyword = $node->sprevious_sibling;
+        _condition_site( $context, $keyword, $node )
+          unless _is_word( $keyword, \%CONDITIONAL ) && _word_role( $context, $keyword ) eq 'modifier';
+    }
+    return if !$node->isa('PPI::Statement');
     if ( $node->isa('PPI::Statement::Sub') && !$node->isa('PPI::Statement::Scheduled') ) {
         my $block = $node->block;
         my $name  = $node->name;
@@ -729,11 +773,15 @@ sub _inner_span ( $context, $structure ) {
     return ( $start + 1, $end );
 }
 
-sub _condition_site ( $context, $condition ) {
-    my ( $start, $end ) = _inner_span( $context, $condition ) or return;
-    my $scope    = _scope( $context, $condition ) or return;
-    my $keyword  = $condition->sprevious_sibling;
-    my $declares = _declares_for_later( $context, $condition->parent, [ $condition->tokens ], $end );
+sub _condition_site ( $context, $keyword, @expression ) {
+    my ( $first, $last ) = @expression[ 0, -1 ];
+    my ( $start, $end ) =
+      @expression == 1 && $first->isa('PPI::Structure::Condition')
+      ? _inner_span( $context, $first )
+      : _span( $context, _edge_tokens( $first, $last ) );
+    return if !defined $start;
+    my $scope    = _scope( $context, $first ) or return;
+    my $declares = _declares_for_later( $context, $first->parent, [ map { $_->tokens } @expression ], $end );
     _add(
         $context,
         kind  => 'condition',

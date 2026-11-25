@@ -246,7 +246,7 @@ sub chosen (@tuples) {
     return @snippets;
 }
 
-my $SAMPLED = 8;
+my $SAMPLE_INTERVAL = 5;
 
 sub _snippet_records ( $judge, $snippet ) {
     my ( $context, $expression ) = $snippet->@{qw(context expression)};
@@ -294,9 +294,9 @@ sub _snippet_records ( $judge, $snippet ) {
 sub _share_records ( $snippets, $share, $shares ) {
     my $judge = Judge::start();
 
-    # A cold perl confirms an accepted mutant of every eighth snippet, so the sample is the same in every run.
+    # The position of a snippet fixes its sample across runs and worker counts.
     my @records =
-      map { _snippet_records( $judge, { $snippets->[$_]->%*, sampled => $_ % $SAMPLED == 0 } ) }
+      map { _snippet_records( $judge, { $snippets->[$_]->%*, sampled => $_ % $SAMPLE_INTERVAL == 0 } ) }
       grep { $_ % $shares == $share } 0 .. $snippets->$#*;
     Judge::stop($judge) or die "the judge of a share of snippets ended badly\n";
     return @records;

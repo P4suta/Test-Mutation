@@ -121,7 +121,7 @@ subtest 'the gate rejects an undecided key, a declined key with a mutant, and a 
 };
 
 subtest 'a statement that no mutant touches counts for its class' => sub {
-    my $census = census_of("use constant LIMIT => 1 + 2;\nmy \$n = 3;\nmy \@list;\nsub f { return LIMIT + 1 }\n1;\n");
+    my $census = census_of("use strict;\nmy \$n = 3;\nmy \@list;\nsub f { return 1 + 2 }\n1;\n");
     is $census->{statements},
       {
         'Statement'           => { all => 1, bare => 0, refused => 1 },
@@ -135,16 +135,17 @@ subtest 'a statement that no mutant touches counts for its class' => sub {
 };
 
 subtest 'the census rejects a pattern that the analysis leaves out without a count' => sub {
-    my $code  = "use constant PATTERN => qr/b/;\nsub f { return \$_[0] =~ /^a+\$/ }\n1;\n";
+    my $code = "use constant PATTERN => qr/b/;\nuse Metadata qr/unread/;\nuse Hook sub { qr/c/ };\n"
+      . "sub f { return \$_[0] =~ /^a+\$/ }\n1;\n";
     my $sound = census_of($code);
-    is [ $sound->@{qw(dropped unparsed patterns)} ], [ 0, 0, 1 ],
-      'a pattern that PPIx::Regexp reads is no pattern left out, and the census leaves the use statement out';
+    is [ $sound->@{qw(dropped unparsed patterns)} ], [ 0, 0, 3 ],
+      'the constant, callback, and return value hold patterns that the parser reads';
     my $failing = do {
         no warnings 'redefine';
         local *PPIx::Regexp::failures = sub { return 1 };
         census_of($code);
     };
-    is [ $failing->@{qw(dropped unparsed patterns)} ], [ 1, 1, 1 ],
+    is [ $failing->@{qw(dropped unparsed patterns)} ], [ 3, 3, 3 ],
       'the analysis counts the pattern that PPIx::Regexp fails on, as the census does';
     is Census::uncounted($failing), [], 'so the two counts agree';
     my $split = Census::summary( [ [ 'lib/A.pm', 'dropped', 1, 0, 1 ], [ 'lib/B.pm', 'dropped', 0, 1, 1 ] ] );

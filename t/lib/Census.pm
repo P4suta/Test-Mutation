@@ -113,17 +113,23 @@ sub _key_records ( $tokens, $made, $refused ) {
     return map { [ 'key', $_, $observed{$_}, $claimed{$_} || 0, $refused{$_} || 0 ] } sort keys %observed;
 }
 
-sub _in_use_statement ($token) {
-    my $node = $token->parent;
-    $node = $node->parent while $node && !$node->isa('PPI::Statement::Include');
-    return $node ? 1 : 0;
+sub _import_data ($token) {
+    for ( my $node = $token->parent ; $node ; $node = $node->parent ) {
+        if ( $node->isa('PPI::Structure::Block') ) {
+            my $start = $node->sprevious_sibling;
+            $start = $start->sprevious_sibling while $start && !$start->isa('PPI::Token::Word');
+            return 0 if $start && $start->content eq 'sub';
+        }
+        next unless $node->isa('PPI::Statement::Include');
+        return $node->type eq 'use' && ( $node->module // q{} ) eq 'constant' ? 0 : 1;
+    }
+    return 0;
 }
 
-# The patterns of a source outside the use statements, and the ones that PPIx::Regexp fails on or reads as another text.
-# The analysis reads no use statement, so a pattern there has no count of the analysis to compare.
+# The census counts patterns in executable expressions, including constant values and callback bodies.
 sub _unparsed ($tokens) {
     my ( $read, $unparsed ) = ( 0, 0 );
-    for my $token ( grep { $PATTERN{ $_->{class} } && !_in_use_statement( $_->{token} ) } $tokens->@* ) {
+    for my $token ( grep { $PATTERN{ $_->{class} } && !_import_data( $_->{token} ) } $tokens->@* ) {
         my $pattern = PPIx::Regexp->new( $token->{content} );
         my $sound =
           $pattern && !$pattern->failures && join( q{}, map { $_->content } $pattern->tokens ) eq $token->{content};

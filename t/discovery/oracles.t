@@ -249,13 +249,18 @@ CODE
     my $mutants   = Oracle::generated( $unit, [$changes] )->{mutants};
     my $judgement = Oracle::judgement( $unit, $mutants, wants => ['calls'] );
     is [ map { $_->original } $mutants->@* ],
-      [ q{defined &TRACE or eval 'sub TRACE () { 0 }'}, qq{die "no trace\\n" if TRACE == 1}, q{==}, 'DEBUG' ],
-      'two statements of a block, a comparison of a block, and a constant condition';
+      [
+        q{defined &TRACE or eval 'sub TRACE () { 0 }'},
+        qq{die "no trace\\n" if TRACE == 1},
+        'TRACE == 1', q{==}, 'DEBUG'
+      ],
+      'the statements, the full modifier condition, its comparison, and the constant condition';
     is classes( Oracle::refused( $unit, $judgement ) ),    [], 'no mutant counts as text that perl cannot parse';
     is classes( Oracle::unresolved( $unit, $judgement ) ), [], 'and none counts as a call that the mutant introduced';
     is classes( Oracle::apart( $unit, $judgement ) ),
       [
         'change changes code that the compilation runs',
+        'change dies while a block of the compilation runs',
         'change dies while a block of the compilation runs',
         'change reaches a call that the original leaves out',
       ],
@@ -421,6 +426,24 @@ subtest 'the cross-check rejects a verdict of the server that perl -c does not g
     is Oracle::cross_checked( $source, $judgement, accepted => 0 )->{compared}, 3,
       'a refused mutant and a mutant with a call are compared in every case';
     $checked += 3;
+};
+
+subtest 'a changed compile-time dependency leaves the same calls as a fresh perl' => sub {
+    my $directory = File::Temp->newdir;
+    written( $directory, 'ToggleDep.pm', "package ToggleDep; sub id { 1 } 1;\n" );
+    my $unit = Oracle::text_source( 'lib/Switch.pm', <<'CODE' );
+package Switch;
+use constant DISABLED => 0;
+BEGIN { require ToggleDep unless DISABLED }
+sub deferred { require ToggleDep; ToggleDep::id() }
+1;
+CODE
+    my @changes = grep { $_->from->[0] == 2 && $_->replacement eq '1' } Oracle::generated($unit)->{mutants}->@*;
+    is scalar @changes, 1, 'one mutant disables the dependency during compilation';
+    my @reach  = ( include => ["$directory"] );
+    my $result = Oracle::judgement( $unit, \@changes, wants => ['calls'], @reach );
+    is $result->{verdicts}[0]{introduced}, ['ToggleDep::id'], 'the deferred call has no definition at compile time';
+    is Oracle::cross_checked( $unit, $result, @reach ), { compared => 1, differences => [] }, 'fresh perl agrees';
 };
 
 subtest 'the literal oracle rejects a number that changes its base' => sub {

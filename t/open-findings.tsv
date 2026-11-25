@@ -11,12 +11,10 @@ realworld	URI: the run warns that B::Deparse gives no stable output	the kinds of
 realworld	URI: the run warns that a test loads a source around the hook	the placement of each mutant in the copy of its job
 realworld	Variable-Magic with blib: the run reports a mutant that fails to compile	the kinds of compile error, which tell a module that fails to load from invalid code
 realworld	Variable-Magic: the unmodified run fails where the tests of the distribution pass	the build of a distribution in the copy
-mutants-b-generated	condition-fixed yields code that perl refuses	the validity boundary of the generator
 mutants-b-installed	arithmetic leaves a variable without its declaration	the validity boundary of the generator
 mutants-b-installed	comparison yields code that perl refuses	the validity boundary of the generator
 mutants-b-installed	regex-anchor yields code that perl refuses	the validity boundary of the generator
 mutants-b-installed	string-literal yields code that perl refuses	the validity boundary of the generator
-mutants-b-product	condition-fixed yields code that perl refuses	the validity boundary of the generator
 mutants-b3-generated	bitwise leaves the file without a true value	the validity boundary of the generator
 mutants-b3-generated	comparison leaves the file without a true value	the validity boundary of the generator
 mutants-b3-generated	number-literal leaves the file without a true value	the validity boundary of the generator
@@ -30,10 +28,6 @@ mutants-b3-product	number-literal leaves the file without a true value	the valid
 mutants-b3-product	string-comparison leaves the file without a true value	the validity boundary of the generator
 mutants-c-sample	call-swap compiles to the code of the original in more than 2 percent of its mutants	the profile rule of the mutators, which places a mutator by its measured rates
 mutants-c-sample	comparison compiles to the code of the original in more than 2 percent of its mutants	the profile rule of the mutators, which places a mutator by its measured rates
-mutants-context-generated	the context changes the mutants of an expression: modifier	the typed analysis with its count of dropped sites
-mutants-context-generated	the context changes the mutants of an expression: use statement	the typed analysis with its count of dropped sites
-mutants-context-product	the context changes the mutants of an expression: modifier	the typed analysis with its count of dropped sites
-mutants-context-product	the context changes the mutants of an expression: use statement	the typed analysis with its count of dropped sites
 mutants-kills-fixtures	run_command serves no mutant to a test under taint mode	the exec command inside a copy of the project
 mutants-literal-installed	number-literal reads an octal literal as a decimal number	the number-literal mutator that keeps the base of a literal
 mutants-refusal-installed	boolean-literal has a change refused under unresolved-call that perl accepts	the import resolution of the validity boundary

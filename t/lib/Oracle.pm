@@ -456,9 +456,13 @@ sub _judged ( $judge, $source, $mutants, @wants ) {
     my $cold     = Judge::compiled( $judge, $original, 'calls', 'loaded' );
     return _unjudged( 'perl refuses the original', $cold->{diagnostics} ) if !$cold->{compiled};
 
-    # The server holds the modules of the original from here on, and the original must read the same with them.
-    my @deparser = ( grep { $_ eq 'deparse' } @wants ) ? 'B/Deparse.pm' : ();
-    Judge::preload( $judge, @deparser, $cold->{loaded}->@* );
+    # A compile-time change can omit a module that the original loads.
+    # Each child must then load its own dependencies to expose the calls that Perl sees.
+    my $places = _places($source);
+    if ( !grep { _within( $_, $places->{phase}->@* ) } $mutants->@* ) {
+        my @deparser = ( grep { $_ eq 'deparse' } @wants ) ? 'B/Deparse.pm' : ();
+        Judge::preload( $judge, @deparser, $cold->{loaded}->@* );
+    }
     my $warm = Judge::compiled( $judge, $original, @wants, 'calls' );
     return _unjudged('the modules that the judge holds change the original')
       if !$warm->{compiled} || "@{ $warm->{calls} }" ne "@{ $cold->{calls} }";

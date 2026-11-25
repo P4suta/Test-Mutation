@@ -107,8 +107,8 @@ subtest 'words carry a role and data words are left out' => sub {
 };
 
 subtest 'excluded regions produce no sites' => sub {
-    is analyze("use constant X => 1 + 2;\nno warnings;\npackage Foo;\nour \$VERSION = '1.2' + 0;\n")->{sites}, [],
-      'use, no, package, and $VERSION statements';
+    is analyze("use List::Util 1.45 qw(max);\nno warnings;\npackage Foo;\nour \$VERSION = '1.2' + 0;\n")->{sites},
+      [], 'imports, pragmas, package declarations, and version assignments';
     is summary( "1;\n__END__\nmy \$x = 1 + 2;\n", 'operator' ), [], 'text after __END__';
     is summary( "=pod\n\n1 + 2\n\n=cut\n\n# 3 + 4\nmy \$s = '5 + 6';\n", 'operator' ), [ [ '=', 'binary' ] ],
       'POD, comments, and string contents';
@@ -420,8 +420,8 @@ PERL
       'a return after a defer block has a return site';
     is [ map { $_->text } sites_of( $code, 'statement' )->@* ], [ 'cleanup()', 'one()', 'two()', 'three()', 'five()' ],
       'a declaration after a method stays, and the method before a version keeps its sites';
-    is [ map { $_->text } grep { $_->role eq 'binary' } sites_of( $code, 'operator' )->@* ], [ q{+}, q{=} ],
-      'a use statement and a version after a method produce no sites';
+    is [ map { $_->text } grep { $_->role eq 'binary' } sites_of( $code, 'operator' )->@* ], [ q{+}, q{*}, q{=} ],
+      'a constant after a method keeps its value expression';
 };
 
 subtest 'a compound statement and a loop control after an open block keep their roles' => sub {
@@ -455,7 +455,12 @@ PERL
       ],
       'the keywords lead their own statements';
     is [ map { [ $_->text, $_->facts->{keyword}, $_->scope ] } sites_of( $code, 'condition' )->@* ],
-      [ [ ' $a > 1 ', 'if', [ 8, 8 ] ], [ '$b', 'elsif', [ 8, 8 ] ], [ '$c', 'while', [ 9, 9 ] ] ],
+      [
+        [ '$item',    'if',    [ 3, 3 ] ],
+        [ ' $a > 1 ', 'if',    [ 8, 8 ] ],
+        [ '$b',       'elsif', [ 8, 8 ] ],
+        [ '$c',       'while', [ 9, 9 ] ]
+      ],
       'the conditions are condition sites';
     is [ map { $_->text } sites_of( $code, 'statement' )->@* ],
       [ 'done()', 'done()', 'g()', 'h()', 'i()', 'j()', 'k();' ],
@@ -751,14 +756,60 @@ subtest 'an anonymous subroutine inside a use statement yields its sites' => sub
       'each with the line of its own statement';
     is [ map { $_->text } sites_of( $code, 'statement' )->@* ], [ '$_[0]{value} + $_[1]', '$_[0]{text} . q{!}' ],
       'and the statement of each body';
-    is analyze("use constant LIMIT => 2 * 3;\nuse List::Util 1.45 qw(max);\n")->{sites}, [],
-      'the list of a use statement itself stays as it is';
+    is summary( "use constant LIMIT => 2 * 3;\nuse List::Util 1.45 qw(max);\n", 'operator' ), [ [ '*', 'binary' ] ],
+      'a constant value yields its arithmetic site';
     is analyze("use Sizes map { \$_ * 2 } 1 .. 3;\nour \$VERSION = do { 1 + 1 };\n")->{sites}, [],
       'a block of another kind inside an excluded statement stays out';
     my $nested = "use constant { PICK => sub { \$_[0] - 1 } };\n";
     is summary( $nested, 'operator' ), [ [ q{-}, 'binary' ] ], 'a subroutine inside a hash of constants';
     is summary( "use v5.36;\nuse constant PICK => sub (\$n = 2 * 3) { \$n - 1 };\n", 'operator' ),
-      [ [ q{-}, 'binary' ] ], 'a signature between the word and the body, whose default stays with the statement';
+      [ [ q{=}, 'binary' ], [ q{*}, 'binary' ], [ q{-}, 'binary' ] ],
+      'the default argument and the body of a constant subroutine';
+};
+
+subtest 'the name and version of a constant declaration stay outside the value' => sub {
+    my $code = <<'PERL';
+use constant 1.30 'LIMIT', 2 * 3;
+use constant {
+    'FIRST' => 4 + 5,
+    OTHER => join(':', 6, 7),
+};
+use constant 'PAIR' => (8, 9);
+use constant { 'TEN', 10, 'ELEVEN', 11 };
+use constant (('PAIR_AGAIN', 12, 13));
+use constant ({ 'LAST' => 14 });
+use constant;
+use constant {};
+no constant 'LAST';
+PERL
+    is [ map { $_->text } sites_of( $code, 'number' )->@* ], [qw(2 3 4 5 6 7 8 9 10 11 12 13 14)],
+      'the values of single, multiple, and list constants';
+    is [ map { $_->text } sites_of( $code, 'string' )->@* ], [q{':'}],
+      'only the separator in the value is a string site';
+    is [ map { $_->text } sites_of( $code, 'word' )->@* ], ['join'], 'only the function in the value is a call site';
+    is summary( 'use constant do { +{ COMPUTED => sub { 7 + 1 } } };', 'operator' ), [ [ q{+}, 'binary' ] ],
+      'an anonymous body in a computed hash of constants still runs as ordinary code';
+};
+
+subtest 'a statement modifier tests its whole expression' => sub {
+    my $code = <<'PERL';
+return 1 if ($x) != ($y);
+work() unless ($x);
+next while $left &&
+    $right;
+work() until (my $done = read_value()) || $finished;
+print $done;
+PERL
+    my @conditions = sites_of( $code, 'condition' )->@*;
+    is [ map { [ $_->text, $_->facts->{keyword}, $_->scope ] } @conditions ],
+      [
+        [ '($x) != ($y)',                           'if',     [ 1, 1 ] ],
+        [ '$x',                                     'unless', [ 2, 2 ] ],
+        [ "\$left &&\n    \$right",                 'while',  [ 3, 4 ] ],
+        [ '(my $done = read_value()) || $finished', 'until',  [ 5, 5 ] ]
+      ],
+      'a grouped operand, a grouped condition, and an ungrouped condition';
+    ok $conditions[-1]->facts->{declares}, 'the condition declares a name that the following statement uses';
 };
 
 subtest 'the analysis records where each here-document stands' => sub {
