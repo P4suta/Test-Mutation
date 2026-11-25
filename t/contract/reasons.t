@@ -227,6 +227,14 @@ my $writer =
   . "is \$next, 3, 'the next one';\n";
 my $reader = "use Test::More tests => 2;\nuse Small;\nok !-e 'left-behind.txt', 'no file is in the way';\n"
   . "is Small::size(9), 'big', 'a size';\n";
+{
+    no warnings 'redefine';
+    local *Test::Mutation::Tree::restore = sub { die "the job slot could not be restored\n" };
+    is of_status( measured( project( 'lib/Small.pm' => $plain, 't/writer.t' => $writer ), jobs => 1 ),
+        'lib/Small.pm', 'NoVerdict' ),
+      ['NoVerdict slot-not-restored'],
+      'a test that changes an unrestorable slot cannot supply a verdict';
+}
 is of_status(
     measured(
         project( 'lib/Small.pm' => $plain, 't/reader.t' => $reader, 't/writer.t' => $writer ),

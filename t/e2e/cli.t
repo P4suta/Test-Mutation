@@ -210,16 +210,18 @@ subtest 'options choose mutators, files, and selection' => sub {
 };
 
 subtest 'options choose the interpreter, the time limits, and the work directory' => sub {
-    my $root   = copy_of('calc');
-    my @common = ( '--jobs', 2, '--format', 'terminal' );
-    ran( 0, $root, @common, '--perl',           $^X, '--timeout-factor', 3, '--timeout-floor', 5 );
+    my $root     = copy_of('calc');
+    my @common   = ( '--jobs', 2, '--format', 'terminal' );
+    my $ordinary = ran( 0, $root, @common, '--perl', $^X, '--timeout-factor', 3, '--timeout-floor', 5 );
     ran( 3, $root, @common, '--perl',           "$root/no-such-perl" );
     ran( 2, $root, @common, '--timeout-factor', 0 );
 
-    ok !-e "$root/.mutation" || !glob("$root/.mutation/run-*"), 'the work directory is removed by default';
-    is Gate::outcomes( sub { ran( 0, $root, @common, '--keep-work' ) } ), [ 'pass', 'fail' ],
+    is [ glob "$ordinary->{temporary}/mutation-*" ], [], 'the workspace is removed by default';
+    my $kept;
+    is Gate::outcomes( sub { $kept = ran( 0, $root, @common, '--keep-work' ) } ), [ 'pass', 'fail' ],
       'the helper reports the kept work directory';
-    ok scalar( glob "$root/.mutation/run-*" ), '--keep-work keeps it';
+    my @kept = glob "$kept->{temporary}/mutation-*/kept";
+    is scalar @kept, 1, '--keep-work retains one marked workspace';
 };
 
 subtest '--mutant limits the run to the named mutants' => sub {

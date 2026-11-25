@@ -44,6 +44,6 @@ is $tally->{counts}{NoCoverage}, 3,  'no coverage';
 ok $result->conclusive, 'the run is conclusive';
 is [ sort { $a cmp $b } map { $_->{name} } $result->tests->@* ], [ 't/add.t', 't/sign.t' ],
   'tests of the unmodified run';
-is [ grep { $_ ne 'mutant' } $events->@* ], [ 'analyzed', 'baseline' ], 'events before the mutants';
+is [ grep { $_ ne 'mutant' && $_ ne 'phase' } $events->@* ], [ 'analyzed', 'baseline' ], 'events before the mutants';
 
 done_testing;

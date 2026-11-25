@@ -1,8 +1,9 @@
 use v5.36;
 use Test2::V0;
-use File::Path ();
-use File::Temp ();
-use List::Util ();
+use File::Path  ();
+use File::Temp  ();
+use List::Util  ();
+use Time::HiRes ();
 use lib 't/lib';
 use Capability;
 use Raised;
@@ -67,6 +68,15 @@ sub tree_file ( $path, $text ) {
     return;
 }
 
+subtest 'two snapshots compare the digests only when both recorded the file contents' => sub {
+    for my $pair ( [ 'metadata', "metadata\0first" ], [ "metadata\0first", 'metadata' ] ) {
+        is Test::Mutation::Tree::changes( { x => $pair->[0] }, { x => $pair->[1] } ), [],
+          'the same metadata stays equal as its digest ages out of a snapshot';
+    }
+    is Test::Mutation::Tree::changes( { x => "metadata\0first" }, { x => "metadata\0other" } ), ['changed x'],
+      'two recent signatures expose a rewrite with identical metadata';
+};
+
 subtest 'a file with new content of the same size counts by its time' => sub {
     my $root   = tree( 'data.txt' => 'first' );
     my $before = snapshot($root);
@@ -74,6 +84,40 @@ subtest 'a file with new content of the same size counts by its time' => sub {
     utime 1_000_000_000, 1_000_000_000, "$root/data.txt" or die "utime: $!";
     is Test::Mutation::Tree::changes( $before, snapshot($root) ), ['changed data.txt'],
       'another modification time is a change';
+};
+
+subtest 'the snapshot reads contents when either file time is recent' => sub {
+    my $root  = tree( 'stable' => 'stable', 'modified' => 'new time' );
+    my $later = int( Time::HiRes::time() ) + 60;
+    utime $later, $later, "$root/modified" or die "utime: $!";
+    no warnings 'redefine';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
+    local *Time::HiRes::time = sub { return $later };
+    my $files = snapshot($root);
+    unlike $files->{stable}, qr/\0/,               'the metadata suffices for older files';
+    like $files->{modified}, qr/\0[0-9a-f]{64}\z/, 'a recent modification time includes the content digest';
+};
+
+subtest 'a same-size rewrite or a replacement with a preserved modification time is visible' => sub {
+    my $root = tree( 'data.txt' => 'first', 'replace.txt' => 'first' );
+    my $path = "$root/data.txt";
+    my $time = 1_000_000_000;
+    utime $time, $time, $path, "$root/replace.txt" or die "utime: $!";
+    my $now   = int Time::HiRes::time();
+    my $lstat = \&Time::HiRes::lstat;
+    no warnings 'redefine';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
+    local *Time::HiRes::lstat = sub ($file) {
+        my @status = $lstat->($file);
+        $status[10] = $now if @status;
+        return @status;
+    };
+    my $before = snapshot($root);
+    tree_file( $path, 'other' );
+    utime $time, $time, $path or die "utime: $!";
+    tree_file( "$root/new.txt", 'first' );
+    utime $time, $time, "$root/new.txt" or die "utime: $!";
+    rename "$root/new.txt", "$root/replace.txt" or die "rename: $!";
+    is Test::Mutation::Tree::changes( $before, snapshot($root) ), [ 'changed data.txt', 'changed replace.txt' ],
+      'both the same inode with new content and a replacement inode count';
 };
 
 subtest 'another mode of a file or a directory is a change' => sub {
@@ -328,6 +372,8 @@ subtest 'a path that the system refuses to change is named' => sub {
     Capability::has( 'unprivileged', $> != 0, 'the superuser changes every path' ) or return;
     my $root = tree( 'from/sealed.txt' => 'x', 'closed/inner/file.txt' => 'y' );
     chmod 0, "$root/from/sealed.txt" or die "chmod: $!";
+    like snapshot("$root/from")->{'sealed.txt'}, qr/\Afile 0000 [^\0]+\z/,
+      'a recent unreadable file still has its metadata identity';
     like Raised::error(
         sub { Test::Mutation::Tree::copy( from => "$root/from", to => "$root/to", skip => [], link => [] ) } ),
       [

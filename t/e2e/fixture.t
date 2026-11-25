@@ -64,10 +64,10 @@ subtest 'a run inside the test process is checked the same way' => sub {
     my ( $result, $events );
     is Gate::outcomes( sub { ( $result, $events ) = run_fixture( copy_of('calc') ) } ), ['pass'],
       'the run leaves nothing behind';
-    is scalar $result->entries->@*, 21,         'the result comes back';
-    is $events->[0],                'analyzed', 'and so do the events';
+    is scalar $result->entries->@*, 21,      'the result comes back';
+    is $events->[0],                'phase', 'and so do the events';
 
-    my $kept = qr/\A[.]mutation\/run-\w+ in the project\z/;
+    my $kept = qr/\Amutation-\w+ in the temporary directory\z/;
     is Gate::outcomes( sub { run_fixture( copy_of('calc'), keep_work => 1 ) } ), ['fail'],
       'a kept work directory fails';
     is Gate::outcomes( sub { run_fixture( copy_of('calc'), keep_work => 1, leaves => $kept ) } ), ['pass'],

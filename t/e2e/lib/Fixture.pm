@@ -89,7 +89,7 @@ sub ran_from ( $library, $exit, $root, @arguments ) {
     );
     $context->release;
     _left_ok( "mutation @arguments", leftovers( $temporary, $root, @known ), undef );
-    return $run;
+    return { $run->%*, temporary => $temporary };
 }
 
 sub copy_of ($name) {
@@ -150,7 +150,7 @@ sub run_fixture ( $root, %settings ) {
     my $error = $@;
     _left_ok( 'the run', leftovers( $temporary, $root, @known ), $leaves );
     die $error if !$result;
-    return ( $result, \@events );
+    return ( $result, \@events, $temporary );
 }
 
 sub _label ($mutant) {

@@ -247,7 +247,7 @@ my @ROWS = (
     ],
     [
         'cache-dir', undef,   'value', $DIRECTORY, 'DIR', 'a directory', sub { '.mutation' },
-        '.mutation', 'cache', 'Directory for the cache and the work of a run'
+        '.mutation', 'cache', 'Directory for cached measurement results'
     ],
 );
 

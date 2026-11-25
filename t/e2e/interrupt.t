@@ -52,7 +52,7 @@ for my $signal ( sort keys %status_of ) {
 
         ok wait_for(
             sub {
-                scalar grep { /slow[.]t/ } processes_under($root)->@*;
+                scalar grep { /slow[.]t/ } processes_under($scratch)->@*;
             }
           ),
           'the slow test is running';
@@ -61,15 +61,16 @@ for my $signal ( sort keys %status_of ) {
         is $? >> 8, $status_of{$signal}, 'the exit status names the signal';
         like text_of("$root/stderr.txt"), qr/^mutation: interrupted by SIG$signal$/m, 'and so does standard error';
 
-        ok wait_for( sub { !processes_under($root)->@* } ), 'no process of the run is left'
-          or diag join q{}, processes_under($root)->@*;
-        ok !glob("$root/.mutation/run-*"), 'the work directory is removed';
-        is [ glob "$scratch/*" ], [], 'and so are the copies of the project';
+        ok wait_for( sub { !processes_under($scratch)->@* } ), 'no process of the run is left'
+          or diag join q{}, processes_under($scratch)->@*;
+        is [ glob "$scratch/*" ], [], 'the workspace and its copies are removed';
     };
 }
 
 subtest 'a signal during the mutant runs keeps the finished results' => sub {
-    my $root = copy_of('calc');
+    my $root    = copy_of('calc');
+    my $scratch = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    local $ENV{TMPDIR} = $scratch;
     write_file( "$root/t/slow.t",
         "use Test::More tests => 1;\nuse Calc;\nselect undef, undef, undef, 0.7;\nis Calc::add( 1, 1 ), 2, 'adds';\n" );
 
@@ -101,7 +102,7 @@ subtest 'a signal during the mutant runs keeps the finished results' => sub {
     like $read->('stderr.txt'), qr/^mutation: interrupted by SIGTERM$/m,     'and so does standard error';
     like $read->('mutation-report/mutation.json'), qr/"status"\s*:\s*"Pending"/,
       'the JSON report marks them as pending';
-    ok !glob("$root/.mutation/run-*"), 'the work directory is removed';
+    is [ glob "$scratch/*" ], [], 'the private workspace is removed';
 };
 
 done_testing;

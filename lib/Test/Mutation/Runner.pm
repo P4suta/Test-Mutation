@@ -14,6 +14,7 @@ use Test::Mutation::Cache;
 use Test::Mutation::Coverage;
 use Test::Mutation::Diff;
 use Test::Mutation::Error;
+use Test::Mutation::Event;
 use Test::Mutation::Git;
 use Test::Mutation::Message;
 use Test::Mutation::Mutant::Generator;
@@ -32,6 +33,8 @@ use Test::Mutation::Tree;
 use Test::Mutation::Types qw(PathSelection);
 use Test::Mutation::Try;
 use Test::Mutation::Verdict;
+use Test::Mutation::Workspace;
+use Test::Mutation::Workspace::Processes;
 
 our $VERSION = '0.001';
 
@@ -44,6 +47,12 @@ my $INTERRUPTION  = InstanceOf ['Test::Mutation::Interrupted'];
 # A test that prints a quarter of a gigabyte prints without end, as a loop that warns does, and the pool ends it.
 # The bytes stay in no file, and a test that prints a hundred megabytes and then fails still fails on its own.
 my $OUTPUT_LIMIT = 268_435_456;
+
+signature_for phases => ( positional => [], returns => ArrayRef [Str] );
+
+sub phases () {
+    return Test::Mutation::Event::phases();
+}
 
 my $ANALYSIS = Dict [
     sources   => HashRef [ InstanceOf ['Test::Mutation::Source'] ],
@@ -171,6 +180,7 @@ signature_for run => (
 
 sub run ( $config, $listener, $options = {} ) {
     my $started = Time::HiRes::time();
+    Test::Mutation::Event::phase( $listener, 'resolve' );
     my $project = Cwd::abs_path( $config->root );
     my $run     = {
         config   => $config,
@@ -185,12 +195,23 @@ sub run ( $config, $listener, $options = {} ) {
         free     => {},
         stats    => { map { $_ => 0 } qw(copies walks compiles spawns listings baseline_tests verifications) },
     };
-    my $measure = sub {
-        _copy_project($run) if !$config->in_place;
-        return _measure( $run, $started );
+    my $release = sub {
+        Test::Mutation::Try::with_cleanup(
+            sub { return [ Test::Mutation::Event::phase( $listener, 'release' ) ] },
+            sub { _release_workspace($run) },
+        );
+        return;
     };
-    my $release = sub { _discard( $run->{copies} ) if defined $run->{copies}; return };
-    return Test::Mutation::Signals::watch( sub { Test::Mutation::Try::with_cleanup( $measure, $release ) } );
+    my $result = Test::Mutation::Signals::watch(
+        sub {
+            Test::Mutation::Try::with_cleanup( sub { _measure( $run, $started ) }, $release );
+        }
+    );
+    return Test::Mutation::Result->new(
+        $result->%*,
+        warnings => [ sort keys $run->{warnings}->%* ],
+        finished => Time::HiRes::time()
+    );
 }
 
 # The tests run in a copy of the project, so a file that a test writes or removes leaves the project as it was.
@@ -199,13 +220,11 @@ sub _copy_project ($run) {
     my $project = $run->{project};
     $run->{name} = File::Basename::basename($project);
 
-    $run->{copies} = Cwd::abs_path( Test::Mutation::Tree::temporary( File::Spec->tmpdir, 'mutation-' ) );
-
-    # A temporary directory inside the project holds the copies, which are no part of a copy.
-    my @skip =
-      ( q{.git}, map { _inside( $project, $_ ) } $config->cache_dir, $config->report_dir, $run->{copies} );
-    my $copied =
-      Test::Mutation::Try::attempt( sub { $run->{root} = _new_copy( $run, $project, \@skip, $config->link ) } );
+    my $directory = $run->{workspace}->directory;
+    $run->{copies} = "$directory/slot";
+    my @skip   = ( q{.git}, map { _inside( $project, $_ ) } $config->cache_dir, $config->report_dir );
+    my $copied = Test::Mutation::Try::attempt(
+        sub { $run->{root} = _new_copy( $run, "$directory/tree", $project, \@skip, $config->link ) } );
     return if exists $copied->{value};
 
     # A failure of the system names its path, and the run adds what the user can do about it.
@@ -222,8 +241,8 @@ sub _inside ( $project, $path ) {
 }
 
 # Each copy has the name of the project inside a directory of its own.
-sub _new_copy ( $run, $from, $skip, $link ) {
-    my $to = Test::Mutation::Tree::temporary( $run->{copies}, q{} ) . "/$run->{name}";
+sub _new_copy ( $run, $directory, $from, $skip, $link ) {
+    my $to = "$directory/$run->{name}";
     Test::Mutation::Tree::copy( from => $from, to => $to, skip => $skip, link => $link );
     $run->{stats}{copies}++;
     return $to;
@@ -240,7 +259,7 @@ sub _job_root ( $run, $job ) {
     return $run->{root} if !defined $run->{copies};
     if ( !$job->{copy} ) {
         my ($free) = sort keys $run->{free}->%*;
-        my $root = defined $free ? $free : _new_copy( $run, $run->{root}, [], [] );
+        my $root = defined $free ? $free : _new_copy( $run, "$run->{copies}/" . ++$run->{slots}, $run->{root}, [], [] );
         delete $run->{free}{$root};
         $job->{copy} = { root => $root, state => _walk( $run, $root ) };
     }
@@ -254,7 +273,13 @@ sub _release ( $run, $job ) {
     my $root    = $copy->{root};
     my $changes = Test::Mutation::Tree::changes( $copy->{state}, _walk( $run, $root ) );
     my $restore = sub { Test::Mutation::Tree::restore( from => $run->{root}, to => $root, changes => $changes ) };
-    return if $changes->@* && exists Test::Mutation::Try::attempt($restore)->{error};
+    if ( $changes->@* ) {
+        my $restored = Test::Mutation::Try::attempt($restore);
+        if ( exists $restored->{error} ) {
+            $job->{restore_error} = "$restored->{error}";
+            return;
+        }
+    }
     $run->{free}{$root} = 1;
     return;
 }
@@ -271,10 +296,12 @@ sub _measure ( $run, $started ) {
     my $config   = $run->{config};
     my $listener = $run->{listener};
     my $root     = $run->{root};
+    Test::Mutation::Event::phase( $listener, 'analyze' );
     my $analysis = _analysis( $config, $run->{project}, $root, $run->{options} );
-    my @tests    = Test::Mutation::Project::files( $root, $config->test, $config->test_exclude )->@*;
-    my @active   = grep { !$_->suppressed } $analysis->{mutants}->@*;
-    my %targets  = map  { $_->path => 1 } @active;
+    Test::Mutation::Event::phase( $listener, 'plan' );
+    my @tests   = Test::Mutation::Project::files( $root, $config->test, $config->test_exclude )->@*;
+    my @active  = grep { !$_->suppressed } $analysis->{mutants}->@*;
+    my %targets = map  { $_->path => 1 } @active;
     $run->{sources} = $analysis->{sources};
 
     for my $path ( sort keys $analysis->{left_out}->%* ) {
@@ -301,9 +328,14 @@ sub _measure ( $run, $started ) {
     );
 
     if ( ( @active || $run->{options}{baseline_only} ) && @tests ) {
+        Test::Mutation::Event::phase( $listener, 'acquire' );
+        $run->{workspace} = Test::Mutation::Workspace::acquire( $run->{project} );
+        Test::Mutation::Event::phase( $listener, 'build' );
+        _copy_project($run) if !$config->in_place;
         my $measure = sub {
             _prepare_work($run);
             $run->{targets} = [ sort keys $analysis->{sources}->%* ];
+            Test::Mutation::Event::phase( $listener, 'baseline' );
             my $baseline = _baseline( $run, \@tests, $run->{targets} );
             my %measured = (
                 parallel_safe     => $baseline->{parallel_safe},
@@ -316,18 +348,14 @@ sub _measure ( $run, $started ) {
             if ( !$baseline->{failures}->@* ) {
                 $listener->( 'baseline', { tests => scalar(@tests), jobs => $run->{jobs} } );
                 if ( !$run->{options}{baseline_only} ) {
+                    Test::Mutation::Event::phase( $listener, 'mutants' );
                     $run->{tree} = _tree($run) if !defined $run->{copies};
                     $measured{entries} = _mutants( $run, $analysis->{mutants}, $baseline );
                 }
             }
             return \%measured;
         };
-        my $leave = sub {
-            _warn( $run, Test::Mutation::Message::warning( 'work-directory-stays', path => $run->{work} ) )
-              if !$config->keep_work && _leave_work($run);
-            return;
-        };
-        %result = ( %result, Test::Mutation::Try::with_cleanup( $measure, $leave )->%* );
+        %result = ( %result, $measure->()->%* );
     }
     else {
         _warn( $run, Test::Mutation::Message::warning('tests-unmatched') )
@@ -337,16 +365,15 @@ sub _measure ( $run, $started ) {
               $analysis->{mutants}->@* ];
     }
 
-    return Test::Mutation::Result->new(
+    Test::Mutation::Event::phase( $listener, 'conclude' );
+    return {
         %result,
-        warnings    => [ sort keys $run->{warnings}->%* ],
         jobs        => $run->{jobs},
         interrupted => $run->{interrupted},
         reused      => $run->{reused} || 0,
-        in_copies   => defined $run->{copies} ? 1 : 0,
-        finished    => Time::HiRes::time(),
+        in_copies   => $config->in_place ? 0 : 1,
         stats       => $run->{stats},
-    );
+    };
 }
 
 sub _slurp ($path) {
@@ -389,23 +416,15 @@ sub _warn ( $run, $text ) {
     return;
 }
 
-# The work directory leaves the project with its last file, and a cache or a kept run holds it there.
-sub _leave_work ($run) {
-    my $stuck = defined $run->{work} ? _discard( $run->{work} ) : 0;
-
-    # A directory that still holds a file refuses to go, which is the wanted result.
-    rmdir $run->{project} . q{/} . $run->{config}->cache_dir;
-    return $stuck;
+sub _release_workspace ($run) {
+    my $workspace = delete $run->{workspace} or return;
+    _warn( $run, Test::Mutation::Message::warning( 'work-directory-stays', path => $workspace->directory ) )
+      unless $workspace->release( $run->{config}->keep_work );
+    return;
 }
 
 sub _prepare_work ($run) {
-    my $base = $run->{project} . q{/} . $run->{config}->cache_dir;
-
-    Test::Mutation::Tree::make($base);
-    my $work = Test::Mutation::Tree::temporary( $base, 'run-' );
-
-    # The run owns the directory from here on, so a failure below still removes it.
-    $run->{work} = $work;
+    my $work       = $run->{work} = $run->{workspace}->directory . '/work';
     my $outer      = $ENV{TEST_MUTATION_GENERATION};
     my $generation = defined $outer ? $outer + 1 : 1;
     Test::Mutation::Tree::make( map { "$work/$_" } 'shim/Test/Mutation/Shim', 'mutants', 'records', 'tmp' );
@@ -526,9 +545,11 @@ sub run_command ( $config, $source, $mutant, $command ) {
     my $root = Cwd::abs_path( $config->root );
     my $run  = { config => $config, project => $root, root => $root };
     my $work = sub {
+        $run->{workspace} = Test::Mutation::Workspace::acquire($root);
         _prepare_work($run);
         my ( undef, $spec ) = _write_mutant( $run, $source, $mutant, $root );
         local %ENV = ( %ENV, _environment( $run, $spec, $root ) );
+        my $lease = Test::Mutation::Workspace::Processes::inherit( $run->{workspace}->directory . '/processes' );
 
         # A command that cannot start ends exec with one line of the tool, and the warning of Perl would add another.
         no warnings 'exec';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
@@ -542,7 +563,7 @@ sub run_command ( $config, $source, $mutant, $command ) {
     # A signal for the tool alone waits while the command runs, and it ends the work once the work directory is gone.
     my $ran = Test::Mutation::Signals::watch(
         sub {
-            Test::Mutation::Try::with_cleanup( $work, sub { _leave_work($run) } );
+            Test::Mutation::Try::with_cleanup( $work, sub { _release_workspace($run) } );
         }
     );
     my ( $status, $missing, $reason ) = $ran->@*;
@@ -582,6 +603,7 @@ sub _test_task ( $run, %arg ) {
             TMPDIR                              => $tmp,
         },
         cwd             => $arg{root},
+        lease           => $run->{workspace}->directory . '/processes',
         timeout         => $arg{timeout},
         output_limit    => $OUTPUT_LIMIT,
         stop_on_failure => $arg{stop_on_failure},
@@ -707,8 +729,8 @@ sub _mutants ( $run, $mutants, $baseline ) {
 
     my @waiting = @jobs;
     my $finish  = sub ($job) {
-        $entry_of{ $job->{mutant}->id } = _finish( $run, $job );
         _release( $run, $job );
+        $entry_of{ $job->{mutant}->id } = _finish( $run, $job );
         return;
     };
     my $measure = sub {
@@ -795,6 +817,9 @@ sub _after_task ( $run, $baseline, $task, $result ) {
         }
         elsif ( $run->{config}->mutant->@* && ( $trial->{status} eq 'Killed' || $trial->{status} eq 'Survived' ) ) {
             _release( $run, $job );
+
+            # A failed restore retires the slot, so confirmation starts from a new copy of the reference tree.
+            delete $job->{restore_error};
             delete $job->{spec};
             $job->{first}   = $trial;
             $job->{index}   = 0;
@@ -1015,6 +1040,7 @@ sub _compile_task ( $run, $job, $kind, $file, $switch ) {
         command         => [ $config->perl, $config->switch->@*, $switch, $file ],
         env             => { PERL_HASH_SEED => '0', PERL_PERTURB_KEYS => '0', PWD => $root },
         cwd             => $root,
+        lease           => $run->{workspace}->directory . '/processes',
         timeout         => $config->baseline_timeout,
         output_limit    => $OUTPUT_LIMIT,
         stop_on_failure => 0,
@@ -1041,7 +1067,10 @@ sub _finish ( $run, $job ) {
     my $mutant  = $job->{mutant};
     my $code    = defined $job->{code} ? $job->{code} : q{};
     my ( $status, $reason, $detail ) = $verdict->@{qw(status reason detail)};
-    if ( length $code ) {
+    if ( defined $job->{restore_error} ) {
+        ( $status, $reason, $detail ) = ( 'NoVerdict', 'slot-not-restored', $job->{restore_error} );
+    }
+    elsif ( length $code ) {
         $run->{code_of_mutant}{ $mutant->id } = $code;
         ( $status, $reason, $detail ) =
           ( 'Ignored', 'same-code-as-original', 'compiles to the same code as the original' )
@@ -1092,7 +1121,12 @@ The mutants of every mutator decide whether a comment suppresses one, so the cho
 =head2 run
 
 Runs the measurement and returns a L<Test::Mutation::Result>.
-The listener receives C<analyzed>, C<baseline>, and C<mutant> events with a hash reference of details.
+The listener receives C<phase>, C<analyzed>, C<baseline>, and C<mutant> events with a hash reference of details.
+Each C<phase> event gives the stage name and its start time.
+
+=head2 phases
+
+Returns the ordered names of the phases a complete measurement can enter.
 
 =head2 run_command
 

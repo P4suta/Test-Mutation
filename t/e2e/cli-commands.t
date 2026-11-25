@@ -231,13 +231,12 @@ subtest 'exec reports its own failures with the statuses of env' => sub {
     like $sealed->{stderr}, qr{\Amutation: cannot run \Q$root\E/lib: [^\n]+\n\z},
       'a command that exists and fails to run has status 126 and one line';
 
-    # A file in the place of the work directory keeps exec from placing its mutant.
-    open my $blocker, '>', "$root/.mutation" or die "open: $!";
-    close $blocker or die "close: $!";
-    my $unplaced = ran( 125, $root, 'exec', identifier('replaced + with -'), '--', $^X, '-e', 'exit 0' );
-    like $unplaced->{stderr}, qr{\Amutation: cannot create \Q$root\E/[.]mutation: [^\n]+\n\z},
+    my $id = identifier('replaced + with -');
+    symlink "$root/absent", "$root/lib/Missing.pm" or die "symlink: $!";
+    my $unplaced = ran( 125, $root, 'exec', $id, '--', $^X, '-e', 'exit 0' );
+    like $unplaced->{stderr}, qr{\Amutation: cannot read \Q$root\E/lib/Missing[.]pm: [^\n]+\n\z},
       'a failure of exec itself has status 125 and one line';
-    unlink "$root/.mutation" or die "unlink: $!";
+    unlink "$root/lib/Missing.pm" or die "unlink: $!";
 };
 
 subtest 'exec refuses a missing identifier or command' => sub {

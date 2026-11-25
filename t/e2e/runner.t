@@ -17,7 +17,7 @@ my $MODULE = "package Small;\nuse strict;\nuse warnings;\nsub next_one { return 
 my $TEST   = "use Test::More tests => 1;\nuse Small;\nis Small::next_one(2), 3, 'the next one';\n";
 
 # What the helper reports when a run leaves its work directory, for the tests that expect one to stay.
-my $WORK_DIRECTORY = qr/\A[.]mutation\/run-\w+ in the project\z/;
+my $WORK_DIRECTORY = qr/\Amutation-[[:alnum:]]{6} in the temporary directory\z/;
 
 sub project (%files) {
     my $root = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
@@ -126,13 +126,15 @@ subtest 'a suppressed mutant among others is ignored, and the others run in the 
 };
 
 subtest 'an error of the listener stops the run and leaves no work directory' => sub {
+    my $temporary = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    local $ENV{TMPDIR} = $temporary;
     my $root   = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $TEST );
     my $config = Test::Mutation::Settings::of_call( { root => $root, jobs => 1 } );
     is dies {
         Test::Mutation::Runner::run( $config,
             sub ( $event, $data ) { die "the listener broke\n" if $event eq 'mutant' } )
     }, "the listener broke\n", 'the error passes through unchanged';
-    ok !glob("$root/.mutation/run-*"), 'the work directory is removed';
+    is [ glob "$temporary/mutation-*" ], [], 'the workspace is removed';
 };
 
 subtest 'tests that fail side by side run one at a time' => sub {
@@ -201,13 +203,16 @@ subtest 'the work files of a finished task are removed while the run goes on' =>
           . "sub next_one { return \$_[0] + 1 }\nsub spare { return 10 > 5 ? 'big' : 'small' }\n1;\n",
         't/small.t' => $TEST,
     );
-    my ($result) = run_fixture( $root, keep_work => 1, leaves => $WORK_DIRECTORY, enable => ['comparison-boundary'] );
+    my ( $result, undef, $temporary ) =
+      run_fixture( $root, keep_work => 1, leaves => $WORK_DIRECTORY, enable => ['comparison-boundary'] );
     my %count;
     $count{$_}++ for values statuses($result)->%*;
     is \%count, { CompileError => 3, Killed => 3, NoCoverage => 3, Survived => 1, Ignored => 2 },
       'the run has compile errors, detected mutants, and mutants whose code is compared';
-    my ($work) = glob "$root/.mutation/run-*";
+    my ($workspace) = glob "$temporary/mutation-*";
+    my $work = "$workspace/work";
     ok defined $work && -d "$work/shim", 'the work directory stays on request';
+    ok -d "$workspace/slot/1",           'retained job slots start at one';
     is [ map { s{\A\Q$work\E/}{}r } map { glob "$work/$_/*" } qw(records tmp mutants) ], [],
       'and it holds no record, no temporary directory, and no mutant file';
     ok !-e "$work/stderr", 'and no file of error output, which the pool holds in memory';
@@ -451,8 +456,8 @@ subtest 'a work directory that resists removal stays, and a warning names it' =>
     my $root = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $TEST );
     no warnings 'redefine';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
     local *Test::Mutation::Tree::remove = sub { die "stuck\n" };
-    my ($result) = run_fixture( $root, jobs => 1, in_place => 1, leaves => $WORK_DIRECTORY );
-    my ($work)   = glob "$root/.mutation/run-*";
+    my ( $result, undef, $temporary ) = run_fixture( $root, jobs => 1, in_place => 1, leaves => $WORK_DIRECTORY );
+    my ($work) = glob "$temporary/mutation-*";
     is $result->warnings, ["the work directory $work stays, because a file in it resists removal"], 'the warning';
     is [ sort values statuses($result)->%* ], [ ('Killed') x 3 ], 'and the mutants are measured';
 };

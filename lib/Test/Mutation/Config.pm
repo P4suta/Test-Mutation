@@ -145,7 +145,7 @@ C<link> names the paths that a copy holds as links to the original.
 
 =head2 keep_work
 
-Whether the run keeps its work directory.
+Whether the run keeps its private workspace under the system temporary directory after it finishes.
 
 =head2 mutant
 
@@ -169,6 +169,6 @@ A change outside those directories, such as a new version of a dependency, needs
 
 =head2 cache_dir
 
-The directory of the cache and of the work of a run.
+The directory that stores cached measurement results.
 
 =cut

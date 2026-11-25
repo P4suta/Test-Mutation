@@ -71,13 +71,13 @@ my @DECLINED = (
     [
         'a function that acts on a handle, a file, the network, or a process has no counterpart, and statement-removal removes the statements that call it'
           => 'QuoteLike::Backtick',
-        map { "word $_" } qw(chown exec fcntl fork gethostbyname ioctl print printf say sysread system)
+        map { "word $_" } qw(chown exec fork gethostbyname ioctl print printf say sysread system)
     ],
     [
         'a function of a value has no counterpart that takes the same operands, and the mutants of its operands measure it'
           => map { "word $_" }
           qw(caller each fc fileno glob gmtime length localtime log lstat oct ord prototype quotemeta rand readdir
-          readlink ref split sprintf sqrt stat tell telldir tied time undef)
+          readlink ref split sprintf sqrt stat tell telldir tied undef)
     ],
 
     # The profile slice of the plan brings the mutators of these constructs, and the census then refuses each reason here.

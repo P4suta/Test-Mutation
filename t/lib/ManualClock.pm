@@ -1,5 +1,6 @@
 package ManualClock;
 use v5.36;
+use Time::HiRes ();
 
 # A clock for the pool that stands still until the test moves it, so each deadline falls where the test puts it.
 # Before each wait the clock offers the seconds and the handles of the wait to the next step of the test.
@@ -24,6 +25,13 @@ sub new ( $class, %arg ) {
 
 sub now ($self) {
     return $self->{now};
+}
+
+sub after_ready ( $path, $step ) {
+    return sub (@arguments) {
+        Time::HiRes::sleep(0.005) until -s $path;
+        return $step->(@arguments);
+    };
 }
 
 sub move ( $self, $seconds ) {

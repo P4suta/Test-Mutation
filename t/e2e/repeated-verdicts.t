@@ -115,6 +115,16 @@ subtest 'each attempt starts in a restored or replacement copy' => sub {
         is $calls,                   2,            'the runner restores a changed copy after each attempt';
         is $result->stats->{copies}, 2 + $discard, 'only a failed restoration needs a replacement';
     }
+    my $attempt = 0;
+    no warnings 'redefine';
+    local *Test::Mutation::Tree::restore = sub {
+        die "second restoration failed\n" if ++$attempt == 2;
+        return $restore->(@_);
+    };
+    write_file( $ENV{OBSERVATIONS}, "pass\npass\n" );
+    my ($result) = run_fixture( $root, %settings, cache => 0 );
+    is [ $result->entries->[0]->@{qw(status reason)} ], [ 'NoVerdict', 'slot-not-restored' ],
+      'an unrecovered final restoration failure makes the verdict inconclusive';
 };
 
 subtest 'the cache distinguishes the hash traversal settings of the child interpreter' => sub {

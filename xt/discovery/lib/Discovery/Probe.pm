@@ -78,18 +78,19 @@ sub _states ($bench) {
         unlink "$bench->{states}/$name";
         my ($root) = map { /\Acwd=(.*)\z/ ? $1 : () } @lines;
         s/\Q$root\E/<root>/g for @lines;
-        my %env = map { /\Aenv=([^=]+)=(.*)\z/s ? ( $1 => $2 ) : () } @lines;
+        my %env  = map { /\Aenv=([^=]+)=(.*)\z/s ? ( $1 => $2 ) : () } @lines;
+        my %shim = map { ( $env{$_} =~ s{/records/[0-9]+\z}{/shim}r => 1 ) }
+          grep { /\ATEST_MUTATION_RECORD_G[0-9]+\z/ } keys %env;
         delete @env{ grep { /\ATEST_MUTATION_/ || $_ eq 'TMPDIR' || $_ eq 'PWD' } keys %env };
         $env{PERL5OPT} = join q{ }, grep { !/\A-MTest::Mutation::Shim/ } split q{ }, $env{PERL5OPT}
           if defined $env{PERL5OPT};
         delete $env{PERL5OPT} if defined $env{PERL5OPT} && !length $env{PERL5OPT};
-        $env{PERL5LIB} = join q{:}, grep { !m{/[.]mutation/run-[^/]+/shim\z} } split /:/, $env{PERL5LIB}
+        $env{PERL5LIB} = join q{:}, grep { !$shim{$_} } split /:/, $env{PERL5LIB}
           if defined $env{PERL5LIB};
         $state{"t/$name.t"} = {
-            taint => ( map { /\Ataint=(.*)\z/ ? $1 : () } @lines )[0],
-            inc   =>
-              [ grep { $_ ne 'CODE' && !m{/[.]mutation/run-[^/]+/shim\z} } map { /\Ainc=(.*)\z/ ? $1 : () } @lines ],
-            env => \%env,
+            taint => ( map { /\Ataint=(.*)\z/                                   ? $1 : () } @lines )[0],
+            inc   => [ grep { $_ ne 'CODE' && !$shim{$_} } map { /\Ainc=(.*)\z/ ? $1 : () } @lines ],
+            env   => \%env,
         };
     }
     return \%state;

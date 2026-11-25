@@ -9,7 +9,7 @@ use Discovery::Faults;
 use Discovery::Tier;
 
 # A fault ends a run in a stated way: an exit status of the contract, one line of the tool, and nothing left behind.
-# The signals arrive at moments that the files of the run show, since the tool names no phase yet.
+# The phase listener and the files of the run identify when each signal arrives.
 
 Discovery::Tier::announce();
 my $engine = Discovery::Engine->new;
@@ -112,7 +112,7 @@ for my $case ( Discovery::Tier::cases( [ 'TERM', 'QUIT' ], [ 'INT', 'HUP', 'PIPE
     my ( $tier, $signal ) = $case->@*;
     met( $tier, "$signal twice", Discovery::Faults::signalled_twice( $engine, $bench, $signal ) );
 }
-for my $case ( Discovery::Tier::cases( ['mutant'], [ 'analyzed', 'baseline' ] ) ) {
+for my $case ( Discovery::Tier::cases( [ 'mutant', 'phase:release' ], [ 'analyzed', 'baseline' ] ) ) {
     my ( $tier, $event ) = $case->@*;
     push $found{$tier}->@*, Discovery::Faults::dying_listener( $engine, $small, $event );
     $ran{"a listener at $event"}++;

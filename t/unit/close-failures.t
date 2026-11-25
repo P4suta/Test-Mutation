@@ -27,6 +27,7 @@ BEGIN {
 use Test::Mutation::Cache;
 use Test::Mutation::Settings;
 use Test::Mutation::Host;
+use Test::Mutation::Tree;
 use Test::Mutation::Record;
 use Test::Mutation::Report::Html;
 
@@ -43,6 +44,11 @@ sub failing_in ( $pattern, $code ) {
     local $failing = $pattern;
     return $code->();
 }
+
+my $recent = write_file( 'recent', 'contents whose digest is required' );
+like dies {
+    failing_in( qr/::Tree::_signature\z/, sub { Test::Mutation::Tree::snapshot( root => $directory, skip => [] ) } )
+}, qr/cannot close \Q$recent\E/, 'a failed close invalidates the measured file signature';
 
 my $record = {
     inputs    => 'k',

@@ -1,5 +1,6 @@
 package Test::Mutation::Tree;
 use v5.36;
+use Digest::SHA     ();
 use File::Basename  ();
 use File::Copy      ();
 use File::Find      ();
@@ -12,9 +13,10 @@ use Test::Mutation::Signals;
 
 our $VERSION = '0.001';
 
-my @LETTERS     = ( 'a' .. 'z', 'A' .. 'Z', 0 .. 9 );
-my $NAME_LENGTH = 6;
-my $NAME_TRIES  = 20;
+my @LETTERS        = ( 'a' .. 'z', 'A' .. 'Z', 0 .. 9 );
+my $NAME_LENGTH    = 6;
+my $NAME_TRIES     = 20;
+my $RECENT_SECONDS = 2;
 
 signature_for make => ( positional => [ Slurpy [ ArrayRef [Str] ] ], returns => Int );
 
@@ -51,8 +53,9 @@ signature_for snapshot => (
 );
 
 sub snapshot ($arg) {
-    my $root = $arg->root;
-    my %skip = map { $_ => 1 } $arg->skip->@*;
+    my $root   = $arg->root;
+    my $recent = Time::HiRes::time() - $RECENT_SECONDS;
+    my %skip   = map { $_ => 1 } $arg->skip->@*;
     my %state;
     File::Find::find(
         {
@@ -64,7 +67,7 @@ sub snapshot ($arg) {
                     $File::Find::prune = 1;
                     return;
                 }
-                $state{$path} = _signature($File::Find::name);
+                $state{$path} = _signature( $File::Find::name, $recent );
                 return;
             },
         },
@@ -73,13 +76,24 @@ sub snapshot ($arg) {
     return \%state;
 }
 
-# The size and the time of a file stand for its content, which keeps the walk of a large tree short.
-sub _signature ($path) {
+sub _signature ( $path, $recent ) {
     my @status = Time::HiRes::lstat($path) or return 'gone';
-    return 'link ' . readlink $path if -l _;
+    return "link $status[1] " . readlink $path if -l _;
     my $mode = sprintf '%04o', $status[2] & oct '7777';
-    return "directory $mode" if -d _;
-    return "file $status[7] $status[9] $mode";
+    return "directory $mode $status[1]" if -d _;
+    my $identity = join q{ }, 'file', $mode, @status[ 0, 1, 7, 9, 10 ];
+    return $identity if !-f _ || $status[9] < $recent && $status[10] < $recent;
+    return $identity unless open my $file, '<:raw', $path;
+    my $digest = Digest::SHA->new(256)->addfile($file)->hexdigest;
+    close $file or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
+    return join "\0", $identity, $digest;
+}
+
+sub _changed ( $before, $after ) {
+    return 0 if $before eq $after;
+    my ( $old, $first ) = split /\0/, $before, 2;
+    my ( $new, $last )  = split /\0/, $after,  2;
+    return $old ne $new || defined $first && defined $last && $first ne $last;
 }
 
 signature_for changes => ( positional => [ HashRef [Str], HashRef [Str] ], returns => ArrayRef [Str] );
@@ -87,9 +101,9 @@ signature_for changes => ( positional => [ HashRef [Str], HashRef [Str] ], retur
 sub changes ( $before, $after ) {
     my %seen  = ( $before->%*, $after->%* );
     my @lines = map {
-            !exists $before->{$_}         ? "created $_"
-          : !exists $after->{$_}          ? "removed $_"
-          : $before->{$_} ne $after->{$_} ? "changed $_"
+            !exists $before->{$_}                   ? "created $_"
+          : !exists $after->{$_}                    ? "removed $_"
+          : _changed( $before->{$_}, $after->{$_} ) ? "changed $_"
           : ()
     } sort keys %seen;
     return \@lines;
@@ -280,8 +294,9 @@ Its name is the prefix and six letters that no other entry has, and its owner al
 
 Returns a signature for every file, directory, and link below C<root>, keyed by its path from the root.
 A path in C<skip> is left out with all it holds.
-The signature of a file holds its size, its modification time, and its mode, and no digest of its content.
-The signature of a directory holds its mode.
+File signatures include the device, inode, mode, size, modification time, and change time.
+The run also hashes readable regular files modified or changed within two seconds of a snapshot.
+Directory signatures include their mode and inode.
 
 =head2 changes
 

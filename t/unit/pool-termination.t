@@ -88,9 +88,15 @@ subtest 'each cause ends a test that would not end' => sub {
 };
 
 subtest 'a test that ignores the request to end is killed' => sub {
-    my $deaf = script( 'deaf.t', qq{\$SIG{TERM} = 'IGNORE';\n$GATE} );
-    my $clock =
-      ManualClock->new( steps => [ sub ( $clock, @ ) { $clock->move(3) }, sub ( $clock, @ ) { $clock->move(0.5) } ] );
+    my $deaf = script( 'deaf.t',
+        qq{\$SIG{TERM} = 'IGNORE';\nopen my \$ready, '>', "\$0.ready" or die \$!;\nprint {\$ready} '1';\nclose \$ready or die \$!;\n$GATE}
+    );
+    my $clock = ManualClock->new(
+        steps => [
+            ManualClock::after_ready( "$deaf.ready", sub ( $clock, @ ) { $clock->move(3) } ),
+            sub ( $clock, @ ) { $clock->move(0.5) }
+        ]
+    );
     is pooled( $clock, 1, [ task($deaf) ] )->{results}{$deaf}{signal}, 9, 'by force';
 };
 

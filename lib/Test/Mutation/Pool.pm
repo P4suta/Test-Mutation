@@ -14,6 +14,7 @@ use Test::Mutation::Message;
 use Test::Mutation::Signals;
 use Test::Mutation::Tap;
 use Test::Mutation::Try;
+use Test::Mutation::Workspace::Processes;
 
 our $VERSION = '0.001';
 
@@ -32,6 +33,7 @@ my $TASK = Dict [
     command         => ArrayRef [Str],
     env             => HashRef [ Maybe [Str] ],
     cwd             => Str,
+    lease           => Optional [Str],
     timeout         => PositiveNum,
     output_limit    => PositiveInt,
     stop_on_failure => Bool,
@@ -282,6 +284,8 @@ sub _exec_child ( $task, $output, $errors ) {
             open my $input, '<', '/dev/null' or Test::Mutation::Error::raise( 'test-streams-unset', reason => "$!" );
             ## use critic
             _take_standard_descriptors( $input, $output, $errors );
+            my $lease =
+              defined $task->{lease} ? Test::Mutation::Workspace::Processes::inherit( $task->{lease} ) : undef;
             no warnings 'exec';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
             exec { $task->{command}[0] } $task->{command}->@*
               or Test::Mutation::Error::raise( 'command-unstartable', command => $task->{command}[0], reason => "$!" );

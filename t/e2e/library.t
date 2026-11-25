@@ -6,6 +6,7 @@ use lib 't/e2e/lib';
 use Cwd     ();
 use Fixture qw(copy_of);
 use Test::Mutation;
+use Test::Mutation::Runner;
 
 my $root = copy_of('calc');
 
@@ -17,12 +18,21 @@ subtest 'mutants lists the mutants without running a test' => sub {
 };
 
 subtest 'run measures a project and returns the result' => sub {
-    my @events;
-    my $result =
-      Test::Mutation::run( root => $root, jobs => 2, on_event => sub ( $event, $data ) { push @events, $event } );
+    my ( @events, @phases );
+    my $result = Test::Mutation::run(
+        root     => $root,
+        jobs     => 2,
+        on_event => sub ( $event, $data ) {
+            push @events, $event;
+            push @phases, $data->{name} if $event eq 'phase';
+        }
+    );
     isa_ok $result, ['Test::Mutation::Result'], 'the result';
-    is $result->tally->{counts}{Killed}, 15,         'the killed mutants';
-    is $events[0],                       'analyzed', 'the listener receives the events';
+    is $result->tally->{counts}{Killed}, 15, 'the killed mutants';
+    is \@phases, [qw(resolve analyze plan acquire build baseline mutants conclude release)],
+      'each run phase arrives in order';
+    is Test::Mutation::Runner::phases(), \@phases, 'the phase inventory matches the observed run';
+    ok scalar grep( { $_ eq 'analyzed' } @events ), 'the listener receives the inventory as well';
 };
 
 subtest 'settings are checked' => sub {

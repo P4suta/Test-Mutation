@@ -111,18 +111,22 @@ subtest 'the time limit ends a test at its deadline and no earlier' => sub {
 };
 
 subtest 'a test that ignores the request to end meets force when its grace ends and no earlier' => sub {
-    my $deaf    = qq{\$SIG{TERM} = 'IGNORE';\n$PLAN};
+    my $deaf    = qq{\$SIG{TERM} = 'IGNORE';\n$NOTED$PLAN};
     my $patient = gated( 'within-grace.t', $deaf, $OK );
     my $clock   = ManualClock->new(
         at    => 100,
-        steps => [ move_by(3), sub ( $clock, @ ) { $clock->move(0.25); open_gate($patient) } ]
+        steps => [
+            ManualClock::after_ready( "$patient.pid", move_by(3) ),
+            sub ( $clock, @ ) { $clock->move(0.25); open_gate($patient) }
+        ]
     );
     is pooled( $clock, task($patient) )->{$patient}, hash { field timed_out => 1; field signal => 0; etc },
       'a quarter of a second into the grace the test ends on its own';
     is [ $clock->asked->@[ 0, 1 ] ], [ 3, 0.5 ], 'the wait after the request lasts for the grace';
 
     my $stubborn = gated( 'after-grace.t', $deaf, $OK );
-    $clock = ManualClock->new( at => 100, steps => [ move_by(3), move_by(0.5) ] );
+    $clock =
+      ManualClock->new( at => 100, steps => [ ManualClock::after_ready( "$stubborn.pid", move_by(3) ), move_by(0.5) ] );
     is pooled( $clock, task($stubborn) )->{$stubborn}, hash { field timed_out => 1; field signal => 9; etc },
       'at the end of the grace the pool kills it';
 };
@@ -235,7 +239,10 @@ subtest 'a signal ends the wait at once and leaves the tests their grace, then f
     my $patient = gated( 'interrupted-patient.t', $code, $after );
     my $clock   = ManualClock->new(
         at    => 100,
-        steps => [ $signal, sub ( $clock, @ ) { $clock->move(0.25); open_gate($patient) } ]
+        steps => [
+            ManualClock::after_ready( "$patient.pid", $signal ),
+            sub ( $clock, @ ) { $clock->move(0.25); open_gate($patient) }
+        ]
     );
     my $error = dies { pooled( $clock, task( $patient, timeout => 20 ) ) };
     is $error && $error->can('signal') ? $error->signal : $error, 'TERM', 'the pool ends with the signal';
@@ -244,7 +251,8 @@ subtest 'a signal ends the wait at once and leaves the tests their grace, then f
     is $reaped->($patient),          1,          'and the pool reaps it';
 
     my $stubborn = gated( 'interrupted-stubborn.t', $code, $after );
-    $clock = ManualClock->new( at => 100, steps => [ $signal, move_by(0.5) ] );
+    $clock =
+      ManualClock->new( at => 100, steps => [ ManualClock::after_ready( "$stubborn.pid", $signal ), move_by(0.5) ] );
     $error = dies { pooled( $clock, task( $stubborn, timeout => 20 ) ) };
     is $error && $error->can('signal') ? $error->signal : $error, 'TERM', 'the pool ends with the signal';
     ok !-e "$stubborn.passed", 'a test that is still running when the grace ends is killed';
