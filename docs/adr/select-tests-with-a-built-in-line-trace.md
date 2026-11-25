@@ -12,7 +12,7 @@ Running every test for every mutant makes mutation testing slow.
 
 The unmodified run serves every target through the hook and records which test loaded which file.
 In line mode the shim compiles targets with debugger statements and records each line that runs.
-A mutant runs the tests that reached a line of its statement, shortest first, until one fails.
+Run the tests that reached a line of the mutated statement in [project-relative path order](order-covering-tests-by-project-relative-path.md).
 A statement without an observable runtime line falls back to every test that loaded the file.
 A mutant run serves every target through the hook too.
 

@@ -1014,7 +1014,7 @@ Test::Mutation::Runner - run the tests against every mutant
 The runner finds the source and test files, generates the mutants, and measures each one.
 It first runs every test against the unmodified sources through the same hook that later serves the mutants.
 That run proves the hook leaves the tests passing, times each test, and records which test reaches which line.
-The runner then serves one mutant at a time to the tests that reach it, fastest first, until a test fails.
+The runner serves each mutant to its covering tests in project-relative path order until a test decides its verdict.
 It writes temporary files under the work directory and leaves the project files unchanged.
 The tests run in copies of the project: the unmodified run in one copy, and each job in a copy of the result.
 After every mutant, the runner restores a copy that the tests changed.

@@ -7,7 +7,8 @@ date: 2026-11-23
 ## Context
 
 [The classification](classify-a-mutant-by-what-the-run-observed.md) ended the work on a mutant at the first test over its time limit.
-The tests run in the order of their durations, so a short test that never ends hid a later test that fails.
+When the runner ordered tests by their measured durations, a test that reached its time limit could hide a later failure.
+The runner now visits covering tests in [project-relative path order](order-covering-tests-by-project-relative-path.md).
 
 ## Decision
 

@@ -33,7 +33,7 @@ sub tests_for ( $self, $mutant ) {
     if ( $self->mode eq 'line' && $self->_observable( $path, \@lines, \@loading ) ) {
         @selected = grep { $self->_reaches( $tests->{$_}{files}{$path}, \@lines ) } @loading;
     }
-    return [ sort { $tests->{$a}{duration} <=> $tests->{$b}{duration} || $a cmp $b } @selected ];
+    return [ sort @selected ];
 }
 
 sub _reaches ( $self, $file, $lines ) {
@@ -91,6 +91,6 @@ Maps a file to the lines that hold a runtime statement.
 
 =head2 tests_for
 
-Returns the names of the tests that can detect the mutant, fastest first.
+Returns the tests that can detect the mutant in ascending order of their project-relative paths.
 
 =cut
