@@ -144,9 +144,10 @@ sub _text_kept ( $site, $replacement, $first, $last ) {
     return substr( $replacement, $place, $last - $first ) eq _part( $site, $first, $last );
 }
 
-signature_for resolved_call => ( method => 1, positional => [ Str, Str ], returns => Maybe [Str] );
+signature_for resolved_call =>
+  ( method => 1, positional => [ Str, Str, ArrayRef [Str], { default => sub { [] } } ], returns => Maybe [Str] );
 
-sub resolved_call ( $self, $called, $name ) {
+sub resolved_call ( $self, $called, $name, $local ) {
     my ( $package, $word ) = $called =~ /\A(?:(.+)::)?(\w+)\z/;
     return if !defined $word;
     if ( defined $package ) {
@@ -163,8 +164,10 @@ sub resolved_call ( $self, $called, $name ) {
           grep { Test::Mutation::Mutator::Providers::provides( $_, $name ) } map { $_->{module} } @importing;
         return defined $module ? "${module}::$name" : undef;
     }
-    return
-      if !Test::Mutation::Mutator::Providers::is_core($word) || !Test::Mutation::Mutator::Providers::is_core($name);
+    unless ( Test::Mutation::Mutator::Providers::is_core($word) && Test::Mutation::Mutator::Providers::is_core($name) )
+    {
+        return ( grep { $_ eq $name } $local->@* ) ? $name : undef;
+    }
 
     # Perl warns about a bare core function whose name a subroutine of the file or an import shares.
     my $shared = ( grep { $_ eq $name } $self->names->{declared}->@* ) || grep { _lists( $_, $name ) } @imports;
@@ -247,6 +250,6 @@ A qualified call keeps its package.
 A name stays bare when every C<use> statement that imports the original imports it too, so the two share every scope.
 Another imported name gets the first module of those statements that provides it in front.
 A core function replaces a core function, under the name C<CORE::> when a subroutine of the file or an import shares its name.
-A subroutine that the file declares and a name of unknown origin have no counterpart.
+A local subroutine can call a counterpart that Perl resolves in the same package at the call site.
 
 =cut

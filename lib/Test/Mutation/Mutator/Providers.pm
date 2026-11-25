@@ -14,14 +14,17 @@ my @BUNDLE      = qw(ceil false floor true);
 # The table holds the names that a mutator may write in place of another, with the modules that define them.
 # CORE stands for Perl itself.
 my %PROVIDED = (
-    'CORE'            => [qw(index lc lcfirst pop push rindex shift uc ucfirst unshift)],
-    'List::Util'      => \@REDUCERS,
-    'List::MoreUtils' => \@QUANTIFIERS,
-    'List::SomeUtils' => \@QUANTIFIERS,
-    'List::AllUtils'  => \@REDUCERS,
-    'POSIX'           => \@ROUNDERS,
-    'builtin'         => \@BUNDLE,
-    'boolean'         => \@BOOLEANS,
+    'CORE'              => [qw(index lc lcfirst pop push rindex shift uc ucfirst unshift)],
+    'List::Util'        => \@REDUCERS,
+    'List::MoreUtils'   => \@QUANTIFIERS,
+    'List::SomeUtils'   => \@QUANTIFIERS,
+    'List::AllUtils'    => \@REDUCERS,
+    'POSIX'             => \@ROUNDERS,
+    'builtin'           => \@BUNDLE,
+    'boolean'           => \@BOOLEANS,
+    'JSON'              => \@BOOLEANS,
+    'JSON::PP'          => \@BOOLEANS,
+    'Types::Serialiser' => \@BOOLEANS,
 );
 
 # A tag in the list of a use statement stands for these names, and :DEFAULT is the tag of a statement without a list.

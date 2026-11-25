@@ -47,6 +47,81 @@ subtest 'the generator refuses a change that breaks the file' => sub {
     my $declaring = "sub f {\n    chomp( my \$line = g() );\n    return \$line;\n}\n";
     is refused($declaring), [ [ 'statement-removal', 2, 'declaration' ] ],
       'a removed statement would take a declaration that later code names';
+    my $callback = 'configure(default => sub { my $bytes = read_bytes(); return $bytes });';
+    is changes( "$callback\nsub other { my \$bytes = 4; return \$bytes }\n1;\n", 'statement-removal' ),
+      [ [ $callback, q{} ] ], 'a lexical declaration in a callback ends inside the removable statement';
+    my $read   = 'fetch(my $key);';
+    my $unused = <<'PERL';
+# $key appears here as documentation.
+my @key = ('value');
+my $quoted = '$key';
+my $escaped = "\$key";
+1;
+PERL
+    is changes( "$read\n$unused", 'statement-removal' ), [ [ $read, q{} ] ],
+      'a comment, a literal, an escaped dollar sign, and another sigil leave the scalar unused';
+    is refused( "$read\n" . 'return "key: $key";' ), [ [ 'statement-removal', 1, 'declaration' ] ],
+      'an interpolated scalar keeps its declaration';
+
+    for my $case (
+        [ '@items', '$items[0]',   1 ],
+        [ '@items', '$#items',     1 ],
+        [ '%items', '$items{key}', 1 ],
+        [ '$items', '${items}[0]', 1 ],
+        [ '@items', '${items}[0]', 0 ],
+        [ '$items', '$items[0]',   0 ],
+        [ '$items', '\\$items',    0 ],
+        [ '$items', '\\\\$items',  1 ],
+      )
+    {
+        my ( $symbol, $interpolation, $needed ) = $case->@*;
+        my $statement = "fetch(my $symbol);";
+        my $source    = qq{sub example { $statement return "$interpolation"; }\n1;\n};
+        is [ grep { $_->[0] eq $statement } changes( $source, 'statement-removal' )->@* ],
+          $needed ? [] : [ [ $statement, q{} ] ], "$interpolation resolves the declared $symbol";
+    }
+    for my $case ( [ q{'END_TEXT'}, 0 ], [ 'END_TEXT', 1 ] ) {
+        my ( $terminator, $needed ) = $case->@*;
+        my $code = "$read\nmy \$message = <<$terminator;\n\$key\nEND_TEXT\n1;\n";
+        is [ grep { $_->[0] eq $read } changes( $code, 'statement-removal' )->@* ],
+          $needed ? [] : [ [ $read, q{} ] ], "a here-document introduced by $terminator";
+    }
+    my $shadow = 'my $other = sub { my $key = 1; return $key };';
+    is [ grep { $_->[0] eq $read } changes( "$read\n$shadow\n1;", 'statement-removal' )->@* ], [ [ $read, q{} ] ],
+      'a use bound to another lexical in a nested block does not need the outer declaration';
+    is [ grep { $_->[0] eq $read } changes( "$read\n$shadow\n" . 'warn $key;', 'statement-removal' )->@* ], [],
+      'a later use outside the shadow still needs the declaration';
+    is changes( $read, 'statement-removal' ), [ [ $read, q{} ] ],
+      'a declaration at the end of the file has no later reference';
+    is [ grep { $_->[0] eq $read }
+          changes( "$read\n" . 'if (my $key = $key) { warn $key }', 'statement-removal' )->@* ],
+      [], 'the initializer of a shadowing condition still reads the outer lexical';
+    is [ grep { $_->[0] eq $read }
+          changes( "$read\n" . 'if (my $key = read_key()) { warn "$key" }', 'statement-removal' )->@* ],
+      [ [ $read, q{} ] ], 'a reference in a conditional block uses the lexical from the condition';
+    for my $loop (
+        'for my $key (@items) { inspect($key) } continue { count($key) }',
+        'for (my $key = first_key(); $key; --$key) { inspect($key) }'
+      )
+    {
+        is [ grep { $_->[0] eq $read } changes( "$read\n$loop\n1;", 'statement-removal' )->@* ], [ [ $read, q{} ] ],
+          'the loop variable shadows the outer lexical in the loop';
+        is [ grep { $_->[0] eq $read } changes( "$read\n$loop\n" . 'warn $key;', 'statement-removal' )->@* ], [],
+          'the same name after the loop refers to the outer lexical again';
+    }
+    is [ grep { $_->[0] eq $read }
+          changes( "$read\n" . 'for my $key ($key) { inspect($key) }', 'statement-removal' )->@* ],
+      [], 'the list supplying a foreach loop still sees the outer lexical';
+    my $pair = 'consume(my $key) and record($key);';
+    is [ grep { $_->[0] eq $pair } changes( "our \$key;\n$pair\n1;", 'statement-removal' )->@* ], [ [ $pair, q{} ] ],
+      'a reference inside the removed expression cannot require its declaration later';
+    is [ grep { $_->[0] eq $read } changes( 'our $key; { ' . $read . ' } warn $key;', 'statement-removal' )->@* ],
+      [ [ $read, q{} ] ], 'the later package variable lies outside the block that declared a lexical';
+    my $with_input = 'fetch($input, my $key);';
+    is [ grep { $_->[0] eq $with_input } changes( "$with_input\n" . 'warn $key;', 'statement-removal' )->@* ], [],
+      'a declaration after an ordinary argument still binds the later use';
+    is [ grep { $_->[0] eq $read } changes( "$read\n" . 'my $key = other(); warn $key;', 'statement-removal' )->@* ],
+      [ [ $read, q{} ] ], 'a later top-level declaration shadows the previous lexical through the end of the file';
     is refused( "if ( open my \$log, '<', \$p ) { print {\$log} 1 }\n", enable => ['condition-fixed'] ),
       [ [ 'condition-fixed', 1, 'declaration' ], [ 'condition-fixed', 1, 'declaration' ] ],
       'and so would either fixed condition';
@@ -94,10 +169,49 @@ subtest 'a change that calls a function names one that the file resolves' => sub
       [ [ 'shift', 'CORE::pop' ], [ 'CORE::pop', 'CORE::shift' ] ], 'the other family of core functions likewise';
 
     my $boolean = sub ($code) { return changes( $code, 'boolean-literal' ) };
+    for my $module (qw(JSON JSON::PP Types::Serialiser)) {
+        is $boolean->("use $module ();\nsub flag { \$_[0] ? ${module}::true : ${module}::false }\n1;\n"),
+          [ [ "${module}::true", "${module}::false" ], [ "${module}::false", "${module}::true" ] ],
+          "a qualified boolean keeps its provider $module";
+    }
     is $boolean->("use v5.40;\nmy \$f = true;\n"), [ [ 'true', 'false' ] ], 'a boolean of the bundle';
     is $boolean->("use builtin qw(true);\nmy \$f = true;\n"), [ [ 'true', 'builtin::false' ] ],
       'a boolean that the file imports alone';
     is $boolean->("my \$f = true;\n"), [], 'a word that only looks like a boolean';
+    my $local = <<'PERL';
+package Flags;
+sub true () { 1 }
+sub enabled { return true() }
+sub false () { 0 }
+sub disabled { return false }
+package Other { sub check { return true() } }
+sub again { return true() }
+1;
+PERL
+    is $boolean->($local), [ [ 'true', 'false' ], [ 'false', 'true' ], [ 'true', 'false' ] ],
+      'the replacement resolves in the package of the call, including a later definition called with parentheses';
+    is $boolean->('package Flags; sub true () { 1 } sub enabled { return true } sub false () { 0 } 1;'),
+      [], 'a bare name needs its declaration before the call';
+    is $boolean->('sub false (); sub true () { 1 } sub enabled { return true } sub false () { 0 } 1;'),
+      [ [ 'true', 'false' ] ], 'a forward declaration makes a later definition visible';
+    is $boolean->('sub false (); sub true () { 1 } sub enabled { return true() } 1;'),
+      [], 'a forward declaration alone cannot supply a replacement';
+    is $boolean->('sub Flags::true () { 1 } sub Flags::false () { 0 } package Flags { sub check { true() } } 1;'),
+      [ [ 'true', 'false' ] ], 'qualified definitions belong to the named package';
+    is $boolean->('package Flags { sub true () { 1 } sub check { true() } } package Other { sub false () { 0 } } 1;'),
+      [], 'a peer in a separate package block cannot resolve the call';
+    is $boolean->('package Other { sub false () { 0 } } sub true () { 1 } sub check { return true() } 1;'),
+      [], 'the main package resumes after a package block';
+    is $boolean->('my sub false () { 0 } sub true () { 1 } package Later; sub check { return true() } 1;'),
+      [], 'a lexical subroutine cannot provide a replacement in a different package';
+    is $boolean->('my sub spare () { 2 } sub main::false () { 0 } sub true () { 1 } sub check { return true() } 1;'),
+      [ [ 'true', 'false' ] ], 'a main-package definition after a lexical declaration still resolves';
+    is $boolean->('sub Flags::false () { 0 } package Flags { sub true () { 1 } sub check { return true() } } 1;'),
+      [ [ 'true', 'false' ] ], 'a qualified definition is visible inside its matching package block';
+    is $boolean->('sub Flags::false () { 0 } package Flags; sub true () { 1 } sub check { return true() } 1;'),
+      [ [ 'true', 'false' ] ], 'a qualified definition is visible after a semicolon package declaration';
+    is $boolean->('sub true () { 1 } { my sub false () { 0 } } sub check { return true() } 1;'),
+      [], 'a lexical definition in another block cannot supply a package subroutine';
 
     my ($described) =
       grep { $_->mutator eq 'call-swap' } mutants("use List::Util qw(any);\nmy \$ok = any { \$_ } \@c;\n")->@*;
@@ -124,17 +238,18 @@ subtest 'a swapped call compiles' => sub {
 };
 
 subtest 'operator families' => sub {
-    is changes( '$a + $b - $c * $d / $e % $f ** $g;', 'arithmetic' ),
+    my $in_module = sub ( $code, @options ) { return changes( "$code\n1;\n", @options ) };
+    is $in_module->( '$a + $b - $c * $d / $e % $f ** $g;', 'arithmetic' ),
       [ [ '+', '-' ], [ '-', '+' ], [ '*', '/' ], [ '/', '*' ], [ '%', '*' ], [ '**', '*' ] ], 'arithmetic';
-    is changes( 'f(-$a, +$b);', 'arithmetic' ), [], 'unary signs are left alone';
-    is changes( '$a < $b; $a >= $b; $a == $b;', 'comparison' ),
+    is $in_module->( 'f(-$a, +$b);', 'arithmetic' ), [], 'unary signs are left alone';
+    is $in_module->( '$a < $b; $a >= $b; $a == $b;', 'comparison' ),
       [ [ '<', '<=' ], [ '<', '>=' ], [ '>=', '>' ], [ '>=', '<' ], [ '==', '!=' ] ], 'comparison';
-    is changes( '$a lt $b; $a eq $b;', 'string-comparison' ), [ [ 'lt', 'le' ], [ 'lt', 'ge' ], [ 'eq', 'ne' ] ],
+    is $in_module->( '$a lt $b; $a eq $b;', 'string-comparison' ), [ [ 'lt', 'le' ], [ 'lt', 'ge' ], [ 'eq', 'ne' ] ],
       'string comparison';
     my $slurp = "my \$data = do {\n    local \$/;\n    open my (\$fh), '<:raw', \$path\n"
       . "      or die \"could not read file <\$path>\\n\";\n    <\$fh>;\n};\n";
-    is changes( $slurp, 'comparison' ), [], 'a readline at the start of a statement is no comparison';
-    is changes( '$a && $b || $c // $d; f() or g() and h(); $e xor $f; $g ^^ $h;', 'logical' ),
+    is $in_module->( $slurp, 'comparison' ), [], 'a readline at the start of a statement is no comparison';
+    is $in_module->( '$a && $b || $c // $d; f() or g() and h(); $e xor $f; $g ^^ $h;', 'logical' ),
       [
         [ '&&',  '||' ],
         [ '||',  '&&' ],
@@ -145,7 +260,9 @@ subtest 'operator families' => sub {
         [ '^^',  '||' ]
       ],
       'logical, with the exclusive or of both precedences';
-    is changes( 'my $m = $a & $b | $c ^ $d << 1 >> 2; $e &= 1; $f |= 2; $g ^= 3; $h <<= 1; my $n = ~$i;', 'bitwise' ),
+    is $in_module->(
+        'my $m = $a & $b | $c ^ $d << 1 >> 2; $e &= 1; $f |= 2; $g ^= 3; $h <<= 1; my $n = ~$i;', 'bitwise'
+      ),
       [
         [ q{&},  q{|} ],
         [ q{|},  q{&} ],
@@ -159,32 +276,33 @@ subtest 'operator families' => sub {
         [ q{~},  q{} ],
       ],
       'bitwise operators, their assignments, and the complement';
-    is changes( 'use feature q(bitwise); my $s = $a &. $b |. $c ^. $d; $e &.= $f; my $t = ~.$g;', 'bitwise' ),
+    is $in_module->( 'use feature q(bitwise); my $s = $a &. $b |. $c ^. $d; $e &.= $f; my $t = ~.$g;', 'bitwise' ),
       [ [ '&.', '|.' ], [ '|.', '&.' ], [ '^.', '&.' ], [ '&.=', '|.=' ], [ '~.', q{} ] ],
       'and their string forms';
-    is changes( 'my @bits = ( 1 << 0, 0x20 >> 0, 1 << 2, $mask >> 0, 2 << 0 + $n );', 'bitwise' ),
+    is $in_module->( 'my @bits = ( 1 << 0, 0x20 >> 0, 1 << 2, $mask >> 0, 2 << 0 + $n );', 'bitwise' ),
       [ [ '<<', '>>' ], [ '>>', '<<' ], [ '<<', '>>' ] ],
       'only shifts of a literal by a literal zero have the same result in either direction';
-    is changes( 'my @n = ( -$x, - $y, -1, 2 - 1, -bare => 1, $z ** -0.5 );', 'unary-minus' ),
+    is $in_module->( 'my @n = ( -$x, - $y, -1, 2 - 1, -bare => 1, $z ** -0.5 );', 'unary-minus' ),
       [ [ q{-}, q{} ], [ q{-}, q{} ], [ '-1', '1' ], [ '-0.5', '0.5' ] ],
       'a unary minus and a negative number lose their sign, and a subtraction and a dashed word stay';
     my $postfix = 'sub last_pair { return 0 .. $array->$#*-1 } sub size { $array->@* -2 }';
-    is changes( $postfix, 'unary-minus' ), [], 'a subtraction after a postfix dereference keeps its minus';
-    is changes( $postfix, 'arithmetic' ), [ [ '-', '+' ], [ '-', '+' ] ],
+    is $in_module->( $postfix, 'unary-minus' ), [], 'a subtraction after a postfix dereference keeps its minus';
+    is $in_module->( $postfix, 'arithmetic' ), [ [ '-', '+' ], [ '-', '+' ] ],
       'both subtractions expose their operator alone';
-    is changes( $postfix, 'number-literal', enable => ['number-literal'] ),
+    is $in_module->( $postfix, 'number-literal', enable => ['number-literal'] ),
       [ [ '0', '1' ], [ '1', '0' ], [ '2', '3' ] ], 'each subtrahend is an unsigned literal';
     my $subtractions = 'sub f { return $_[0]-1, g($x)-2, ($x)-3, [$x]-4, $x++-5, $x---6, 0 .. -7 }';
-    is changes( $subtractions, 'unary-minus' ), [ [ '-7', '7' ] ],
+    is $in_module->( $subtractions, 'unary-minus' ), [ [ '-7', '7' ] ],
       'a negative range endpoint is distinct from a subtrahend after a completed operand';
-    is changes( $subtractions, 'arithmetic' ), [ ( [ '-', '+' ] ) x 6 ],
+    is $in_module->( $subtractions, 'arithmetic' ), [ ( [ '-', '+' ] ) x 6 ],
       'subscripts, parenthesized calls, constructors, and postfix updates end before the subtraction sign';
-    is changes( '$i++; --$j;', 'increment' ), [ [ '++', '--' ], [ '--', '++' ] ], 'increment';
-    is changes( '$a += 1; $b .= "x"; $c //= 2; $d = 3;', 'assignment' ),
+    is $in_module->( '$i++; --$j;', 'increment' ), [ [ '++', '--' ], [ '--', '++' ] ], 'increment';
+    is $in_module->( '$a += 1; $b .= "x"; $c //= 2; $d = 3;', 'assignment' ),
       [ [ '+=', '-=' ], [ '.=', '=' ], [ '//=', '||=' ] ],
       'assignment';
-    is changes( 'f() if !$a; g() unless not $b;', 'negation' ), [ [ '!', q{} ], [ 'not', q{} ] ], 'negation';
-    is changes( '$a =~ /x/; $b !~ /y/; $c =~ s/x/y/; $d =~ tr/a/b/;', 'match' ), [ [ '=~', '!~' ], [ '!~', '=~' ] ],
+    is $in_module->( 'f() if !$a; g() unless not $b;', 'negation' ), [ [ '!', q{} ], [ 'not', q{} ] ], 'negation';
+    is $in_module->( '$a =~ /x/; $b !~ /y/; $c =~ s/x/y/; $d =~ tr/a/b/;', 'match' ),
+      [ [ '=~', '!~' ], [ '!~', '=~' ] ],
       'match negation skips substitution and transliteration';
 };
 
@@ -239,6 +357,54 @@ subtest 'structural mutators' => sub {
     is changes( "sub f {\n    g();\n}\nsub h { 1 }\nsub empty { }\n", 'sub-body' ),
       [ [ "\n    g();\n", "\n\n" ], [ ' 1 ', q{} ] ],
       'sub bodies';
+};
+
+subtest 'the computed return value of a module survives every proposed change' => sub {
+    my $header = "package Truth;\nour (\$left, \$right);\nBEGIN { (\$left,\$right) = (3, 4) }\n";
+    for my $tail ( q{}, 'sub later { 2 }', 'use strict;', 'package Other;', 'END { 1 }', '__DATA__' ) {
+        my $code = $header . "\$left != \$right;\n$tail\n";
+        is changes( $code, 'comparison' ), [], "the comparison returns the module value before '$tail'";
+        is [ grep { $_->[0] eq 'comparison' } refused($code)->@* ], [ [ 'comparison', 4, 'final-value' ] ],
+          'the generator records the reason for the refusal';
+    }
+    is changes( $header . "\$left != \$right;\n1;\n", 'comparison' ), [ [ '!=', '==' ] ],
+      'an explicit later value leaves the comparison eligible';
+    is changes( $header . "print \$left != \$right;\n", 'comparison' ), [ [ '!=', '==' ] ],
+      'an operand of the last output operation remains eligible';
+    for my $expression ( '(( $left != $right ))', '($left + 1) != $right', '$left + 1 != $right' ) {
+        is changes( "$header$expression", 'comparison' ), [], 'a computed value may be grouped or end at EOF';
+    }
+    for my $after ( 'require strict;', 'package Last { 1 }' ) {
+        is changes( $header . "\$left != \$right;\n$after\n", 'comparison' ), [ [ '!=', '==' ] ],
+          "the runtime value of $after follows the comparison";
+    }
+};
+
+subtest 'mutants preserve the grammar of an open, a typeglob, a comparison, and a pattern' => sub {
+    my $code = <<'PERL';
+sub alias {
+    no strict 'refs';
+    if ($ready) { prepare() }
+    *{'Alias::f'} = \&original;
+    return $left * $right;
+}
+sub longer { return length > $limit || length($name) > $limit }
+sub output {
+    open STDERR, '>&', STDOUT;
+    CORE::open(my $file, '>', 'path');
+    $object->open($key, '>&', 'other');
+}
+1;
+PERL
+    is changes( $code, 'arithmetic' ), [ [ '*', '/' ] ], 'only multiplication changes into division';
+    is changes( $code, 'comparison' ), [ [ '>', '>=' ], [ '>', '() <=' ], [ '>', '>=' ], [ '>', '<=' ] ],
+      'the introduced less-than sign follows an explicit empty call when the operand used the default';
+    is changes( $code, 'string-literal', enable => ['string-literal'] ),
+      [ [ q{'Alias::f'}, q{''} ], [ q{'path'}, q{''} ], [ q{'>&'}, q{''} ], [ q{'other'}, q{''} ] ],
+      'open modes keep their meaning and a method of the same name takes ordinary string arguments';
+    is changes( 'sub matches { $_[0] =~ /(^?a)\z+?|\A{1}b$/ }', 'regex-anchor', enable => ['regex-anchor'] ),
+      [ [ '^', '(?:)' ], [ q{\z}, '(?:)' ], [ q{\A}, '(?:)' ], [ '$', q{} ] ],
+      'quantifiers keep their own atom when its anchoring requirement is removed';
 };
 
 subtest 'extended mutators' => sub {
@@ -328,7 +494,7 @@ subtest 'two mutators with the same replacement yield one mutant' => sub {
     is [ map { [ $_->mutator, $_->original, $_->replacement ] } grep { $_->original eq '1' } @mutants ],
       [ [ 'return-value', '1', '0' ] ], 'the first mutator is credited';
 
-    my $source = Test::Mutation::Source->new( path => 'lib/X.pm', text => '$a + $b;', encoding => 'UTF-8' );
+    my $source = Test::Mutation::Source->new( path => 'lib/X.pm', text => '$a + $b; 1;', encoding => 'UTF-8' );
     my @proposed =
       ( [ first => [q{-}] ], [ second => [ q{-}, q{*} ] ], [ third => [ q{*}, q{/} ] ], [ fourth => [ q{+}, q{%} ] ] );
     my $proposing = sub ( $name, $replacements ) {

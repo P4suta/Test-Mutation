@@ -143,17 +143,37 @@ sub _is_value_token ($token) {
 
 # The spans of the statements of a file that are a value alone: literals and operators, as the last `1;` of a module.
 sub _value_statements ($source) {
-    my $read  = tokens($source);
-    my %place = map { refaddr( $_->{token} ) => $_ } $read->{tokens}->@*;
+    my $read        = tokens($source);
+    my %place       = map { refaddr( $_->{token} ) => $_ } $read->{tokens}->@*;
+    my @statements  = $read->{document} ? $read->{document}->schildren : ();
+    my ($returning) = grep {
+             $_->isa('PPI::Statement')
+          && !$_->isa('PPI::Statement::Sub')
+          && !$_->isa('PPI::Statement::End')
+          && !$_->isa('PPI::Statement::Data')
+          && !$_->isa('PPI::Statement::Null')
+          && ( !$_->isa('PPI::Statement::Include') || $_->type eq 'require' )
+          && ( !$_->isa('PPI::Statement::Package') || $_->find_first('PPI::Structure::Block') )
+    } reverse @statements;
     my @spans;
-    for my $statement ( $read->{document} ? $read->{document}->schildren : () ) {
+    for my $statement (@statements) {
         next if ref $statement ne 'PPI::Statement';
         my @tokens = grep { $_->significant } $statement->tokens;
-        next if grep { !_is_value_token($_) } @tokens;
+        if ( grep { !_is_value_token($_) } @tokens ) {
+            next unless $returning && refaddr($returning) == refaddr($statement);
+            next unless _computed_footer($statement);
+        }
         my ( $first, $last ) = @place{ refaddr( $tokens[0] ), refaddr( $tokens[-1] ) };
         push @spans, [ $first->{start}, $last->{end} ] if $first && $last;
     }
     return @spans;
+}
+
+sub _computed_footer ($statement) {
+    my @parts = grep { $_->content ne q{;} } $statement->schildren;
+    return 0 if !@parts || $parts[0]->content =~ /\A(?:print|printf|say|warn|die)\z/;
+    return 1 if @parts == 1 && $parts[0]->isa('PPI::Structure::List');
+    return scalar grep { $_->isa('PPI::Token::Operator') && $_->content ne '->' } @parts;
 }
 
 my %BY_PERL = map { $_ => 1 } qw(here-document declaration unresolved-call);

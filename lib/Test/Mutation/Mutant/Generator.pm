@@ -78,7 +78,7 @@ sub generate ($arg) {
 sub _checked ( $rules, $site, $mutation, $results ) {
     my $replacement = $mutation->{replacement};
     if ( defined $mutation->{calls} ) {
-        $replacement = $rules->resolved_call( $site->text, $mutation->{calls} );
+        $replacement = $rules->resolved_call( $site->text, $mutation->{calls}, $site->facts->{local_calls} || [] );
         return ( undef, 'unresolved-call' ) if !defined $replacement;
     }
     my $change = $rules->change( $site, $replacement );

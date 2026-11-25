@@ -38,6 +38,11 @@ subtest 'operators carry a role' => sub {
       ],
       'binary, unary, and update operators';
     is summary( 'return - $x;', 'operator' ), [ [ '-', 'unary' ] ], 'minus after return is unary';
+    my $aliases = q!sub bind { if ($ok) { *{'A::first'} = \&first; } *{'A::second'} = \&second; return $a * $b }!;
+    is [ map { $_->role } grep { $_->text eq '*' } sites_of( $aliases, 'operator' )->@* ], [ 'unary', 'binary' ],
+      'the typeglob after a conditional assignment is distinct from the multiplication that follows it';
+    is [ map { $_->role } grep { $_->text eq '*' } sites_of( 'my $value = $factor * { pairs() };', 'operator' )->@* ],
+      ['binary'], 'a completed left operand multiplies a hash reference even when PPI calls the braces a block';
     my $postfix = 'sub f { my $n = \\ -4; $r->@*; return $r->$#*-1 + $r->$*-2 }';
     is [ map { $_->text } sites_of( $postfix, 'number' )->@* ], [ '-4', '1', '2' ],
       'a prefix reference keeps its signed operand and each postfix dereference ends before the subtraction';

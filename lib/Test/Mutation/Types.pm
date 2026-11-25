@@ -30,19 +30,22 @@ declare Entry,
 
 declare Facts,
   as Dict [
-    right       => Optional [Num],
-    version     => Optional [Num],
-    settled     => Optional [Bool],
-    operand     => Optional [ Enum [qw(match substitute transliterate dynamic)] ],
-    keyword     => Optional [Str],
-    head        => Optional [Str],
-    name        => Optional [Str],
-    literal     => Optional [Str],
-    declares    => Optional [Bool],
-    final_value => Optional [Bool],
-    branches    => Optional [ Tuple [ Int, Int ] ],
-    loose       => Optional [Bool],
-    anchors     => Optional [ ArrayRef [ Tuple [ Int, Int ] ] ],
+    right         => Optional [Num],
+    version       => Optional [Num],
+    settled       => Optional [Bool],
+    implicit_call => Optional [Bool],
+    quantified    => Optional [Bool],
+    local_calls   => Optional [ ArrayRef [Str] ],
+    operand       => Optional [ Enum [qw(match substitute transliterate dynamic)] ],
+    keyword       => Optional [Str],
+    head          => Optional [Str],
+    name          => Optional [Str],
+    literal       => Optional [Str],
+    declares      => Optional [Bool],
+    final_value   => Optional [Bool],
+    branches      => Optional [ Tuple [ Int, Int ] ],
+    loose         => Optional [Bool],
+    anchors       => Optional [ ArrayRef [ Tuple [ Int, Int ] ] ],
   ];
 
 declare Dropped, as Dict [ line => Int, kind => Enum [qw(span regex conditional)], reason => Str ];
@@ -113,7 +116,10 @@ the version in a comparison with C<$]>, the kind of the operand of a match, the 
 the first word of a statement, the name of a subroutine, and the literal of a return.
 
 C<declares> marks a span with a declaration that later code names.
-C<final_value> marks a statement of the file that is a value alone, as the true value that ends a module is.
+C<final_value> marks a standalone literal value or the expression that computes a module's return value.
+C<implicit_call> marks a comparison after a function that uses its default argument.
+C<local_calls> lists the subroutines that the package of a local call defines and that the call can name.
+C<quantified> indicates that a regular expression quantifier applies to the anchor.
 C<branches> holds the length of the first branch of a conditional and the place where its second branch starts, both counted from the start of the span.
 C<loose> marks a first branch that holds an operator looser than the conditional, as an assignment, which needs parentheses in the place of the second branch.
 C<anchors> holds the places of the tokens that name the construct of a span wider than a token, such as the question mark and the colon of a conditional or the keyword of a condition.

@@ -191,7 +191,12 @@ sub _operator_mutator ($family) {
 
             # A settled comparison gives the same result on both sides of its boundary.
             my $settled = $site->facts->{settled} ? $boundary->{$text} : undef;
-            return map { { replacement => $_, description => $_ ne q{} ? "replaced $text with $_" : "removed $text" } }
+            return map {
+                {
+                    replacement => $site->facts->{implicit_call} && /\A</ ? "() $_"                  : $_,
+                    description => $_ ne q{}                              ? "replaced $text with $_" : "removed $text",
+                }
+              }
               grep { !defined $settled || $_ ne $settled } $replacements->@*;
         },
     );
@@ -321,7 +326,7 @@ sub _number_literal ($site) {
 
 # A string in quotes or under q or qq keeps its delimiters, and the text between them goes or, when empty, gets a word.
 sub _string_literal ($site) {
-    return if $site->kind ne 'string';
+    return if $site->kind ne 'string' || $site->role eq 'open-mode';
     my $text = $site->text;
     my ( $open, $inside, $close ) = $text =~ /\A((?:qq?\s*)?[^\w\s])(.*)([^\w\s])\z/s or return;
     return if $open =~ /\A['"]\z/ && $close ne $open;
@@ -343,7 +348,10 @@ sub _range_boundary ($site) {
 
 sub _regex_anchor ($site) {
     return if $site->kind ne 'regex' || $site->role ne 'anchor';
-    return { replacement => q{}, description => 'removed the anchor ' . $site->text };
+    return {
+        replacement => $site->facts->{quantified} ? '(?:)' : q{},
+        description => 'removed the anchor ' . $site->text
+    };
 }
 
 sub _regex_quantifier ($site) {

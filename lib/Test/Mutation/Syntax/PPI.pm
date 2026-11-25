@@ -15,6 +15,7 @@ use Test::Mutation::Types qw(Analysis);
 our $VERSION = '0.001';
 
 my $TOKEN = InstanceOf ['PPI::Token'];
+my $BLOCK = InstanceOf ['PPI::Structure::Block'];
 
 my %CONDITIONAL  = map { $_ => 1 } qw(if unless while until);
 my %MODIFIER     = map { $_ => 1 } qw(if unless while until for foreach);
@@ -74,6 +75,7 @@ my %REGEX_ROLE        = (
     'PPIx::Regexp::Token::Modifier'   => 'flag',
 );
 my %ANCHOR = map { $_ => 1 } ( q{^}, q{$}, '\\A', '\\z', '\\Z' );
+my %OPEN   = map { $_ => 1 } qw(open CORE::open);
 
 # The bundle of Perl 5.40, in development from 5.39, imports the booleans and the rounding functions of the core.
 my $BUNDLE_WITH_BUILTINS = version->parse('v5.39.0');
@@ -110,6 +112,7 @@ sub analyze ($source) {
     };
     $context->{values}  = _value_spans( $context, $document );
     $context->{misread} = _misread_readlines($document);
+    my $names = _names( $document, $context );
     _visit( $context, $document, 0 );
     my @sites    = sort { $a->start <=> $b->start || $a->end <=> $b->end } $context->{sites}->@*;
     my $heredocs = _heredocs( $context, $document );
@@ -118,7 +121,7 @@ sub analyze ($source) {
         suppressions => _suppressions( $context, $document ),
         dropped      => $context->{dropped},
         heredocs     => $heredocs,
-        names        => _names($document),
+        names        => $names,
         problem      => undef
     };
 }
@@ -134,13 +137,42 @@ sub _problem ($message) {
     };
 }
 
-# A statement of the file that holds literals and operators alone is a value without behavior of its own.
-# The last one is the true value that ends a module, and a change of it keeps the file from loading.
+# A module can return a calculated value before trailing declarations or a data section.
 sub _value_spans ( $context, $document ) {
-    my @values = grep { ref $_ eq 'PPI::Statement' && _is_value($_) } $document->schildren;
+    my @statements = $document->schildren;
+    my ($last)     = grep { _runs_at_load($_) } reverse @statements;
+    my @values     = grep {
+        ref $_ eq 'PPI::Statement'
+          && ( _is_value($_) || $last && refaddr($_) == refaddr($last) && _computed_value($_) )
+    } @statements;
 
     # A statement whose place holds another text has no span, and it is among the places left out.
     return [ grep { $_->@* } map { [ _whole_span( $context, $_->schildren ) ] } @values ];
+}
+
+sub _runs_at_load ($statement) {
+    return 0
+      if grep { $statement->isa($_) }
+      qw(PPI::Statement::Sub PPI::Statement::End PPI::Statement::Data PPI::Statement::Null);
+    return $statement->type eq 'require' if $statement->isa('PPI::Statement::Include');
+    return scalar grep { $_->isa('PPI::Structure::Block') } $statement->schildren
+      if $statement->isa('PPI::Statement::Package');
+    return $statement->isa('PPI::Statement');
+}
+
+sub _computed_value ($statement) {
+    my @parts = grep { !_is_semicolon($_) } $statement->schildren;
+    if ( @parts == 1 && $parts[0]->isa('PPI::Structure::List') ) {
+        return scalar grep { _computed_value($_) } $parts[0]->schildren;
+    }
+    my $parsed = _parsed($statement);
+    my $end    = grep { $_->{kind} ne 'stop' } $parsed->{units}->@*;
+    for my $at ( keys $parsed->{records}->@* ) {
+        my $op = $parsed->{records}[$at] or next;
+        next unless $op->{position} eq 'infix' && $op->{before}[0] == 0 && $op->{after} && $op->{after}[1] == $end;
+        return $parsed->{units}[$at]{text} ne '->';
+    }
+    return 0;
 }
 
 sub _whole_span ( $context, @children ) {
@@ -232,7 +264,7 @@ sub _imported ($include) {
 }
 
 # The names of subroutines that the file resolves: what each of its use statements imports, and what it declares.
-sub _names ($document) {
+sub _names ( $document, $context ) {
     my @imports;
     for my $include ( grep { $_->type eq 'use' } @{ $document->find('PPI::Statement::Include') || [] } ) {
         my ( $module, @names ) = _imported($include);
@@ -240,7 +272,31 @@ sub _names ($document) {
     }
     my @subs     = grep { !$_->isa('PPI::Statement::Scheduled') } @{ $document->find('PPI::Statement::Sub') || [] };
     my %declared = map  { ( $_ => 1 ) } grep { defined } map { $_->name } @subs;
+    my %by_package;
+    for my $sub (@subs) {
+        my $name = $sub->name;
+        next if !defined $name || defined $sub->type;
+        my @parts    = split /::/, $name;
+        my $short    = pop @parts;
+        my $scope    = @parts ? join( '::', @parts ) : _package_of($sub);
+        my $function = $by_package{$scope}{$short} ||= {};
+        $function->{defined}                     = 1 if $sub->block;
+        $context->{declarations}{ refaddr $sub } = $function;
+        $context->{local_subs}{$short}{$scope}   = $by_package{$scope};
+    }
     return { imports => \@imports, declared => [ sort keys %declared ] };
+}
+
+sub _package_of ($node) {
+    for ( my $part = $node ; $part ; $part = $part->parent ) {
+        return $part->namespace if $part->isa('PPI::Statement::Package');
+        for ( my $prior = $part->sprevious_sibling ; $prior ; $prior = $prior->sprevious_sibling ) {
+            return $prior->namespace
+              if $prior->isa('PPI::Statement::Package')
+              && !grep { $_->isa('PPI::Structure::Block') } $prior->schildren;
+        }
+    }
+    return 'main';
 }
 
 # PPI learns from a few pragmas that a file uses signatures, and it reads the signature of another file as a prototype.
@@ -285,6 +341,9 @@ sub _visit ( $context, $element, $excluded ) {
     if ( $element->isa('PPI::Token') ) {
         _token_site( $context, $element ) if !$excluded && $element->significant;
         return;
+    }
+    if ( my $function = $context->{declarations}{ refaddr $element } ) {
+        $function->{visible} = 1;
     }
     return _visit_segments( $context, $element, $excluded ) if ref $element eq 'PPI::Statement';
     return
@@ -490,7 +549,16 @@ sub _regex_sites ( $context, $token ) {
             ( $from, $text ) = ( $from + length $before, 'i' );
         }
         next if $role eq 'anchor' && !$ANCHOR{$text};
-        _add( $context, kind => 'regex', start => $from, end => $from + length $text, role => $role, scope => $scope );
+        my $next = $role eq 'anchor' ? $part->snext_sibling : undef;
+        _add(
+            $context,
+            kind  => 'regex',
+            start => $from,
+            end   => $from + length $text,
+            role  => $role,
+            scope => $scope,
+            $next && $next->is_quantifier ? ( facts => { quantified => 1 } ) : ()
+        );
     }
     return;
 }
@@ -511,16 +579,45 @@ sub _token_site ( $context, $token ) {
     my ( $start, $end ) = _span( $context, $token, $token ) or return;
     my $scope = _scope( $context, $token ) or return;
     my $role  = $kind eq 'word' ? _word_role( $context, $token ) : q{};
-    return if $kind eq 'word' && $role eq q{};
-    if ( $role eq 'modifier' ) {
-        my @condition;
-        for ( my $part = $token->snext_sibling ; $part && !_is_semicolon($part) ; $part = $part->snext_sibling ) {
-            push @condition, $part;
-        }
-        _condition_site( $context, $token, @condition ) if @condition;
-    }
-    _add( $context, kind => $kind, start => $start, end => $end, role => $role, scope => $scope );
+    return                                  if $kind eq 'word' && $role eq q{};
+    _modifier_condition( $context, $token ) if $role eq 'modifier';
+    $role = 'open-mode' if $kind eq 'string' && _open_mode($token);
+    my $facts = $role eq 'call' ? _local_calls( $context, $token ) : {};
+    _add( $context, kind => $kind, start => $start, end => $end, role => $role, scope => $scope, facts => $facts );
     return;
+}
+
+sub _modifier_condition ( $context, $token ) {
+    my @condition;
+    for ( my $part = $token->snext_sibling ; $part && !_is_semicolon($part) ; $part = $part->snext_sibling ) {
+        push @condition, $part;
+    }
+    _condition_site( $context, $token, @condition ) if @condition;
+    return;
+}
+
+sub _local_calls ( $context, $token ) {
+    my $packages = $context->{local_subs}{ $token->content } or return {};
+    my $peers    = $packages->{ _package_of($token) }        or return {};
+    my $args     = $token->snext_sibling;
+    my $explicit = $args && $args->isa('PPI::Structure::List');
+    return { local_calls =>
+          [ sort grep { $peers->{$_}{defined} && ( $explicit || $peers->{$_}{visible} ) } keys $peers->%* ] };
+}
+
+sub _open_mode ($string) {
+    my $comma = $string->sprevious_sibling;
+    return 0 unless _is_operator( $comma, q{,} ) && _is_operator( scalar $string->snext_sibling, q{,} );
+    my $open;
+    for ( $open = $comma->sprevious_sibling ; $open ; $open = $open->sprevious_sibling ) {
+        last     if _is_word( $open, \%OPEN );
+        return 0 if _is_operator( $open, q{,} );
+    }
+    if ( !$open ) {
+        my $list = $string->parent->parent;
+        $open = $list->sprevious_sibling if $list->isa('PPI::Structure::List');
+    }
+    return _is_word( $open, \%OPEN ) && !_is_operator( scalar $open->sprevious_sibling, '->' );
 }
 
 sub _operator_site ( $context, $token ) {
@@ -531,6 +628,14 @@ sub _operator_site ( $context, $token ) {
     my ( $start, $end ) = _span( $context, $token, $place->{unit}{elements}[-1] ) or return;
     my $scope = _scope( $context, $token ) or return;
     my ( $role, $facts ) = _operator_role($place);
+    if ( $BOUNDED_COMPARISON{ $token->content } ) {
+        my $before = $token->sprevious_sibling;
+        $facts->{implicit_call} = 1
+          if $before
+          && $before->isa('PPI::Token::Word')
+          && Test::Mutation::Syntax::Precedence::starts_operand( $before->content =~ s/\ACORE:://r )
+          && !_is_operator( scalar $before->sprevious_sibling, '->' );
+    }
     _add(
         $context,
         kind  => 'operator',
@@ -595,6 +700,9 @@ sub _operator_role ($place) {
     }
 
     my $record = $place->{record};
+    if ( !$record && $content eq q{*} ) {
+        return ( 'unary', {} ) if $BLOCK->check( scalar $place->{unit}{elements}[0]->snext_sibling );
+    }
     my $prefix = $record ? $record->{position} eq 'prefix' : $ALWAYS_PREFIX{$content};
     return ( 'unary',  {} ) if $prefix;
     return ( 'binary', { _right_number($place)->%*, _version_literal($place) } );
@@ -781,7 +889,7 @@ sub _condition_site ( $context, $keyword, @expression ) {
       : _span( $context, _edge_tokens( $first, $last ) );
     return if !defined $start;
     my $scope    = _scope( $context, $first ) or return;
-    my $declares = _declares_for_later( $context, $first->parent, [ map { $_->tokens } @expression ], $end );
+    my $declares = _declares_for_later( $first->parent, [ map { $_->tokens } @expression ] );
     _add(
         $context,
         kind  => 'condition',
@@ -858,7 +966,7 @@ sub _statement_site ( $context, $segment ) {
     my ( $start, $end ) = _span( $context, _edge_tokens( @children[ 0, -1 ] ) ) or return;
     my $scope    = _segment_scope($segment) or return;
     my @tokens   = map { $_->isa('PPI::Token') ? $_ : $_->tokens } @children;
-    my $declares = _declares_for_later( $context, $children[0]->parent, \@tokens, $end );
+    my $declares = _declares_for_later( $children[0]->parent, \@tokens );
     _add(
         $context,
         kind  => 'statement',
@@ -882,21 +990,94 @@ sub _is_whole_list_block ($statement) {
 }
 
 # A variable that the statement declares and later code of the block names needs its declaration under strict.
-sub _declares_for_later ( $context, $statement, $tokens, $end ) {
-    my @names = map { $_->content =~ /\A[\$\@%](\w+)\z/ } grep {
-        my $list = $_->parent->parent;
-        $_->isa('PPI::Token::Symbol')
-          && ( _is_word( scalar $_->sprevious_sibling, \%DECLARATION )
-            || ( $list->isa('PPI::Structure::List') && _is_word( scalar $list->sprevious_sibling, \%DECLARATION ) ) )
-    } $tokens->@*;
-    return 0 if !@names;
+sub _declares_for_later ( $statement, $tokens ) {
+    my %declared;
+    for my $token ( grep { $_->isa('PPI::Token::Symbol') } $tokens->@* ) {
+        next unless _declaration_of($token);
+        my $parent = $token->parent;
+        $parent = $parent->parent
+          while refaddr($parent) != refaddr($statement) && !$parent->isa('PPI::Structure::Block');
+        $declared{ $token->symbol } = 1 if refaddr($parent) == refaddr($statement);
+    }
+    return 0 if !%declared;
+    my $scope = $statement->isa('PPI::Statement::Compound') ? $statement : $statement->parent;
+    return _uses_lexical( scalar $tokens->[-1]->next_token, scalar $scope->next_token, \%declared );
+}
 
-    # The block of the statement bounds the variable, and a file has no closing brace.
-    my $block  = $statement->parent;
-    my $finish = $block->isa('PPI::Structure::Block') ? $block->finish               : undef;
-    my $limit  = $finish                              ? _offset( $context, $finish ) : undef;
-    my $later  = substr $context->{text}, $end, ( defined $limit ? $limit : length $context->{text} ) - $end;
-    return scalar grep { $later =~ /[\$\@%]\#?\{?\Q$_\E\b/ } @names;
+sub _uses_lexical ( $first, $after, $declared ) {
+    my %changes;
+    my %depth = map { $_ => 0 } keys $declared->%*;
+    for (
+        my $token = $first ;
+        $token && ( !$after || refaddr($token) != refaddr($after) ) ;
+        $token = $token->next_token
+      )
+    {
+        my $events = delete $changes{ refaddr $token } || {};
+        $depth{$_} += $events->{$_} for keys $events->%*;
+        if ( $token->isa('PPI::Token::Symbol') ) {
+            my $symbol = $token->symbol;
+            next unless $declared->{$symbol};
+            if ( _declaration_of($token) ) {
+                my ( $start, $end ) = _shadow_scope($token);
+                $changes{ refaddr $start }{$symbol}++ if $start;
+                $changes{ refaddr $end }{$symbol}--   if $end;
+            }
+            elsif ( $depth{$symbol} < 1 ) {
+                return 1;
+            }
+        }
+        else {
+            return 1 if grep { $declared->{$_} && $depth{$_} < 1 } _interpolated_symbols($token);
+        }
+    }
+    return 0;
+}
+
+# An initializer can still refer to the previous lexical until the declaration takes effect.
+sub _shadow_scope ($token) {
+    for ( my $node = $token ; my $parent = $node->parent ; $node = $parent ) {
+        if ( $parent->isa('PPI::Structure::For') ) {
+            return ( scalar $node->next_token, scalar $parent->parent->next_token );
+        }
+        return ( scalar $node->next_token, scalar $parent->next_token )
+          if $parent->isa('PPI::Structure::Block')
+          || $parent->isa('PPI::Document')
+          || $node->isa('PPI::Structure::Condition');
+        if ( $parent->isa('PPI::Statement::Compound') ) {
+            my ($body) = grep { $_->isa('PPI::Structure::Block') } $parent->schildren;
+            return ( scalar $body->first_token, scalar $parent->next_token ) if $body;
+        }
+    }
+    return;
+}
+
+sub _declaration_of ($token) {
+    return 1 if _is_word( scalar $token->sprevious_sibling, \%DECLARATION );
+    my $list = $token->parent->parent;
+    return $list->isa('PPI::Structure::List') && _is_word( scalar $list->sprevious_sibling, \%DECLARATION );
+}
+
+sub _interpolated_symbols ($token) {
+    my $text;
+    if ( $token->isa('PPI::Token::HereDoc') ) {
+        return if $token->content =~ /<<[~]?\s*['\\]/;
+        $text = join q{}, $token->heredoc;
+    }
+    else {
+        return
+          unless grep { $token->isa("PPI::Token::$_") }
+          qw(Quote::Double Quote::Interpolate QuoteLike::Backtick QuoteLike::Command QuoteLike::Readline QuoteLike::Regexp Regexp);
+        $text = $token->content;
+    }
+    my @references = $text =~ /(?<!\\) (?:\\\\)* ([\$\@] \#? (?: \{\w+\} | \w+ [\[\{]? )) /gx;
+    for my $reference (@references) {
+        $reference =~ s/\A\$\#/\@/;
+        $reference =~ s/\A[\$\@](\w+)\[\z/\@$1/;
+        $reference =~ s/\A[\$\@](\w+)\{\z/%$1/;
+        $reference =~ tr/{}//d;
+    }
+    return @references;
 }
 
 # The grammar of the comments reads facts alone: the place and the text of each comment, and the routine after it.
@@ -982,7 +1163,7 @@ The one statement of a C<map> or C<grep> block is no statement site, and the bra
 
 The module reports what a change must keep and leaves the decision to the generator.
 A site that declares a variable which later code names carries the fact C<declares>.
-A statement of the file that holds literals and operators alone, as the true value that ends a module does, gives its sites the fact C<final_value>.
+Sites in a standalone literal value or in the expression that computes a module's return value carry the fact C<final_value>.
 The result lists each here-document with the place of its introducer and of its text.
 It lists each C<use> statement with the names it imports, as far as the text of the statement tells, and the subroutines that the file declares.
 C<use v5.40> and a later version import the booleans and the rounding functions of the core.
