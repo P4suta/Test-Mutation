@@ -60,7 +60,7 @@ sub foreign_name ($setting) {
 }
 
 sub accepts ( $setting, $command ) {
-    return scalar grep { $_ eq $command } $setting->commands->@*;
+    return Test::Mutation::Commands::of($command)->accepts( $setting->name );
 }
 
 sub cache_keeps ($status) {
@@ -265,7 +265,7 @@ sub _dashed_case ($written) {
     my ( $form, $command, $flag, $least ) = $written->@{qw(form command flag least)};
     my @behind = ( $flag, $written->{value}->@* );
     my $exec   = $command->name eq 'exec';
-    my $fits   = $exec || !defined $command->most || $least + @behind <= $command->most;
+    my $fits   = $exec || $command->operands eq 'reports';
     my @before = $exec ? ( $form->{word}, Samples::operands( 'exec', 1 )->@* ) : line( $form, [], $least )->@*;
     return [ 'after-dashes', [ @before, q{--}, @behind ], $fits ? 'accept' : 'refuse', $flag ];
 }

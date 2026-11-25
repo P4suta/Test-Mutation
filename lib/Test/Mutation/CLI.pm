@@ -1,12 +1,13 @@
 package Test::Mutation::CLI;
 use v5.36;
-use Cwd             ();
-use Errno           ();
-use File::Spec      ();
-use List::Util      ();
-use Scalar::Util    ();
-use Time::HiRes     ();
-use Types::Standard qw(ArrayRef Bool CodeRef Dict Enum FileHandle GlobRef HashRef InstanceOf Int Maybe Slurpy Str);
+use Cwd          ();
+use Errno        ();
+use File::Spec   ();
+use List::Util   ();
+use Scalar::Util ();
+use Time::HiRes  ();
+use Types::Standard
+  qw(ArrayRef Bool CodeRef Dict Enum FileHandle GlobRef HashRef InstanceOf Int Maybe Optional Slurpy Str);
 use Types::Common::Numeric qw(PositiveInt);
 use Type::Params           qw(signature_for);
 use overload               ();
@@ -27,6 +28,9 @@ use Test::Mutation::Report::Patch;
 use Test::Mutation::Report::Progress;
 use Test::Mutation::Report::Terminal;
 use Test::Mutation::Runner;
+use Test::Mutation::Project;
+use Test::Mutation::Select;
+use Test::Mutation::Types qw(PathSelection);
 use Test::Mutation::Settings;
 use Test::Mutation::Signals;
 use Test::Mutation::Tree;
@@ -42,8 +46,16 @@ my $INTERRUPTION = InstanceOf ['Test::Mutation::Interrupted'];
 my %OF_EXEC_COMMAND = ( 'command-not-found' => 'command-not-found', 'command-not-runnable' => 'command-not-runnable' );
 my %IN_EXEC         = ( environment         => 'exec-failed',       internal               => 'exec-failed' );
 
-my %COMMAND =
-  ( run => \&_run, list => \&_list, show => \&_show, exec => \&_exec, merge => \&_merge, mutators => \&_mutators );
+my %COMMAND = (
+    run      => \&_run,
+    baseline => \&_baseline,
+    settings => \&_settings,
+    list     => \&_list,
+    show     => \&_show,
+    exec     => \&_exec,
+    merge    => \&_merge,
+    mutators => \&_mutators
+);
 
 signature_for main => ( positional => [ Slurpy [ ArrayRef [Str] ] ], returns => Int );
 
@@ -63,29 +75,14 @@ my $WORLD = Dict [
 ];
 my $REFUSED    = Dict [ refused => Dict [ status => Int, text => Str ] ];
 my $INVOCATION = $REFUSED | Dict [
-    command    => Enum [qw(run list show exec merge mutators help version)],
+    command    => Enum [ ( map { $_->name } Test::Mutation::Commands::rows()->@* ), 'version' ],
     directory  => Maybe [Str],
     config     => Maybe [ InstanceOf ['Test::Mutation::Config'] ],
     operands   => ArrayRef [Str],
+    paths      => Optional [PathSelection],
+    topic      => Optional [Str],
     processors => Maybe [ Dict [ count => PositiveInt, source => Str ] ],
 ];
-
-my $USAGE = <<'TEXT';
-Usage: mutation [run] [options]
-       mutation list [options]
-       mutation show ID [options]
-       mutation exec ID -- COMMAND [ARGUMENT...]
-       mutation merge FILE... [options]
-       mutation mutators
-
-Commands:
-  run       Measure how many mutants the tests detect (the default)
-  list      Print the mutants without running a test
-  show      Print one mutant as a unified diff
-  exec      Run a command with one mutant active
-  merge     Report one run from the mutation.json of every part of --shard
-  mutators  Print the name, the profile, and the description of every mutator
-TEXT
 
 # The words of an option in the help text: its spellings and the placeholder of its value.
 sub _option_words ($setting) {
@@ -97,16 +94,21 @@ sub _option_words ($setting) {
     return join q{ }, join( q{, }, @spelled ), ( defined $setting->placeholder ? $setting->placeholder : () );
 }
 
-# The options come from the table of the settings and from the commands that an option selects.
-my @OPTIONS = (
-    ( map { [ _option_words($_), $_->help ] } grep { $_->offers('line') } Test::Mutation::Settings::rows()->@* ),
-    (
-        map  { [ join( q{, }, $_->words->@* ), $_->summary ] }
-        grep { $_->words->[0] =~ /\A-/ } Test::Mutation::Commands::rows()->@*
-    ),
-);
-my $WIDTH = List::Util::max( map { length $_->[0] } @OPTIONS );
-my $HELP  = $USAGE . "\nOptions:\n" . join q{}, map { sprintf "  %-*s  %s\n", $WIDTH, $_->@* } @OPTIONS;
+sub _help ($command) {
+    my @commands = Test::Mutation::Commands::rows()->@*;
+    my @rows     = $command ? ($command) : @commands;
+    my $text     = 'Usage: ' . join( "\n       ", map { $_->usage } @rows ) . "\n";
+    if ( !$command ) {
+        my $width = List::Util::max( map { length $_->name } @commands );
+        $text .= "\nCommands:\n" . join q{}, map { sprintf "  %-*s  %s\n", $width, $_->name, $_->summary } @commands;
+    }
+    my @options = map { [ _option_words($_), $_->help ] }
+      grep { $_->offers('line') && ( !$command || $command->accepts( $_->name ) ) }
+      Test::Mutation::Settings::rows()->@*;
+    push @options, map { [ join( q{, }, $_->{words}->@* ), $_->{summary} ] } Test::Mutation::Commands::switches()->@*;
+    my $width = List::Util::max( map { length $_->[0] } @options );
+    return $text . "\nOptions:\n" . join q{}, map { sprintf "  %-*s  %s\n", $width, $_->@* } @options;
+}
 
 sub main ($list) {
     my $world = {
@@ -127,33 +129,32 @@ sub _terminal ($stream) {
     return defined fileno $stream && -t $stream ? 1 : 0;    ## no critic (InputOutput::ProhibitInteractiveTest)
 }
 
-# The commands that answer without a look at the project.
-my %ANSWER = ( version => 1, help => 1 );
+sub _unknown_command ($word) {
+    my @names = ( map { $_->name } Test::Mutation::Commands::rows()->@* );
+    push @names, map { $_->{words}->@* } Test::Mutation::Commands::switches()->@*;
+    return Test::Mutation::Error::raise(
+        'command-unknown',
+        command => $word,
+        nearest => Test::Mutation::Settings::nearest( $word, \@names )
+    );
+}
 
-# The operands that a command refuses, each with the error of its refusal.
-my %REFUSE_OPERANDS = (
-    run => sub (@operands) {
-        Test::Mutation::Error::raise( 'argument-unexpected', argument => $operands[0] ) if @operands;
-        return;
-    },
-    list => sub (@operands) { return },
-    show => sub (@operands) {
-        Test::Mutation::Error::raise('show-without-identifier') if !@operands;
-        return;
-    },
-    exec => sub (@operands) {
-        Test::Mutation::Error::raise('exec-without-command') if @operands < 2;
-        return;
-    },
-    merge => sub (@operands) {
-        Test::Mutation::Error::raise('merge-without-report') if !@operands;
-        return;
-    },
-    mutators => sub (@operands) {
-        Test::Mutation::Error::raise( 'argument-unexpected', argument => $operands[0] ) if @operands;
-        return;
-    },
-);
+sub _operands ( $row, $parsed ) {
+    my $operands = $parsed->{operands};
+    my $grammar  = $row->operands;
+    my %missing  = (
+        identifier => sub { Test::Mutation::Error::raise('show-without-identifier') },
+        execute    => sub { Test::Mutation::Error::raise('exec-without-command') },
+        reports    => sub { Test::Mutation::Error::raise('merge-without-report') },
+    );
+    _unknown_command( $operands->[0] )
+      if $grammar eq 'command' && $operands->@* && !Test::Mutation::Commands::of( $operands->[0] );
+    my $missing_program = $grammar eq 'execute' && ( $parsed->{before_separator} != 1 || !length $operands->[1] );
+    $missing{$grammar}->() if $operands->@* < $row->least || $missing_program;
+    Test::Mutation::Error::raise( 'argument-unexpected', argument => $operands->[ $row->most ] )
+      if defined $row->most && $operands->@* > $row->most;
+    return;
+}
 
 # What an exception calls for: the exit status and the line for standard error.
 sub _failure ( $error, $command ) {
@@ -184,7 +185,11 @@ sub _planned ( $argv, $world ) {
         operands   => $parsed->{operands},
         processors => undef
     );
-    return \%plan if $ANSWER{$command};
+    return \%plan if $parsed->{global};
+    my $row = Test::Mutation::Commands::of($command);
+    _operands( $row, $parsed );
+    $plan{topic} = $plan{operands}[0] if $command eq 'help' && $plan{operands}->@*;
+    return \%plan                     if $command eq 'help' || $command eq 'settings';
 
     # The directory comes first, so every later path and the configuration file are read from inside it.
     my $given  = $parsed->{given};
@@ -206,7 +211,13 @@ sub _planned ( $argv, $world ) {
             facts => { processors => $plan{processors}{count}, env => $world->{env} },
         );
     }
-    $REFUSE_OPERANDS{$command}->( $plan{operands}->@* );
+    if ( $row->operands eq 'paths' && $plan{operands}->@* ) {
+        my $first = $plan{operands}[0];
+        _unknown_command($first) if $parsed->{implicit} && $first !~ m{[./:]} && !-e _under( $inside, $first );
+        my $config = $plan{config};
+        my $files  = Test::Mutation::Project::files( $config->root, $config->source, $config->source_exclude );
+        $plan{paths} = Test::Mutation::Select::paths( $config->root, $plan{operands}, $files );
+    }
     return \%plan;
 }
 
@@ -263,7 +274,8 @@ sub _carried_out ( $invocation, $world ) {
         return 0;
     }
     if ( $command eq 'help' ) {
-        print { $world->{out} } $HELP;
+        my $selected = $invocation->{topic};
+        print { $world->{out} } _help( defined $selected ? Test::Mutation::Commands::of($selected) : undef );
         return 0;
     }
     return $COMMAND{$command}->( $invocation, $world );
@@ -281,9 +293,28 @@ sub _first_line ($error) {
 sub _run ( $invocation, $world ) {
     my $config = $invocation->{config};
     print { $world->{err} } Test::Mutation::Host::describe( $invocation->{processors} ), "\n";
-    my $result = Test::Mutation::Runner::run( $config, _progress( $world->{err}, $world->{err_tty} ) );
+    my $result = Test::Mutation::Runner::run(
+        $config,
+        _progress( $world->{err}, $world->{err_tty} ),
+        ( $invocation->{paths} ? { paths => $invocation->{paths} } : () )
+    );
     _report( $result, $config, $world );
     return _concluded( $result, $config, $world );
+}
+
+sub _baseline ( $invocation, $world ) {
+    my $config = $invocation->{config};
+    my $result = Test::Mutation::Runner::run( $config, sub { }, { baseline_only => 1 } );
+    say { $world->{out} } 'Baseline: ', _plural( scalar $result->tests->@*, 'test' );
+    say { $world->{err} } $_->{test} for $result->baseline_failures->@*;
+    return _concluded( $result, $config, $world );
+}
+
+sub _settings ( $invocation, $world ) {
+    for my $setting ( Test::Mutation::Settings::rows()->@* ) {
+        say { $world->{out} } _option_words($setting), '  ', $setting->help, ' (default: ', $setting->default_text, ')';
+    }
+    return 0;
 }
 
 sub _progress ( $errors, $in_place ) {
@@ -386,7 +417,7 @@ sub _heading ($mutant) {
 }
 
 sub _list ( $invocation, $world ) {
-    my @mutants = Test::Mutation::Runner::analyze( $invocation->{config} )->{mutants}->@*;
+    my @mutants = Test::Mutation::Runner::analyze( $invocation->{config}, $invocation->{paths} )->{mutants}->@*;
     say { $world->{out} } _heading($_), _suppression($_) for @mutants;
     say { $world->{out} } _plural( scalar @mutants, 'mutant' );
     return 0;

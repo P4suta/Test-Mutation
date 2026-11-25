@@ -12,13 +12,17 @@ mutation - measure how many mutants the tests of a Perl project detect
 
 =head1 SYNOPSIS
 
-    mutation [run] [options]
-    mutation list
-    mutation show ID
-    mutation exec ID -- COMMAND [ARGUMENT...]
-    mutation merge FILE...
-    mutation mutators
+    mutation [run] [PATH[:LINES]...] [options]
+    mutation baseline [options]
+    mutation list [PATH[:LINES]...] [options]
+    mutation show ID [options]
+    mutation exec ID [options] -- COMMAND [ARGUMENT...]
+    mutation merge FILE... [options]
+    mutation mutators [options]
+    mutation settings
+    mutation help [COMMAND]
     mutation --help
+    mutation --version
 
 =head1 DESCRIPTION
 

@@ -42,7 +42,8 @@ sub types () {
 
 # The first words that name no command, each with the name that stands nearest to it.
 my %NEAREST = (
-    help    => '--help',
+    hepl    => 'help',
+    hl      => 'help',
     version => '--version',
     lst     => 'list',
     runn    => 'run',
@@ -59,7 +60,14 @@ sub words_without_command () {
 }
 
 # One operand for each place of a command that takes operands.
-my %OPERANDS = ( show => ['0123456789ab'], exec => [ '0123456789ab', 'true' ], merge => ['part.json'] );
+my %OPERANDS = (
+    run   => ['lib/Calc.pm'],
+    list  => ['lib/Calc.pm'],
+    help  => ['show'],
+    show  => ['0123456789ab'],
+    exec  => [ '0123456789ab', 'true' ],
+    merge => ['part.json']
+);
 
 sub operands ( $command, $count ) {
     my @named = @{ $OPERANDS{$command} || [] };

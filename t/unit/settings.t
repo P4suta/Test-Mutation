@@ -5,6 +5,7 @@ use File::Temp ();
 use lib 't/lib';
 use Raised;
 use Test::Mutation::Settings;
+use Test::Mutation::Commands;
 
 # The table of the settings, the decoders of the three surfaces, and the resolution of the layers into a configuration.
 
@@ -57,8 +58,11 @@ subtest 'one row for each setting, with one name on every surface' => sub {
     is [ sort map { $_->name } grep { $_->selects } values %row ], [qw(mutant shard since)],
       'the settings that narrow a run';
     is [ map { $_->short // () } @row{qw(root jobs cache)} ], [ '-C', '-j' ], 'the short options';
-    is $row{root}->commands, [qw(run list show exec merge mutators)], 'every command takes the directory';
-    is $row{jobs}->commands, [qw(run list show exec merge)],          'and every command that runs takes the others';
+    my @commands = Test::Mutation::Commands::rows()->@*;
+    is [ map { $_->name } grep { $_->accepts('root') } @commands ], [qw(run baseline list show exec merge mutators)],
+      'commands that accept a project directory';
+    is [ map { $_->name } grep { $_->accepts('jobs') } @commands ], [qw(run baseline list show exec merge)],
+      'commands that accept the job count';
 };
 
 subtest 'each default has the type of its setting' => sub {

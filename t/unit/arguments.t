@@ -59,6 +59,7 @@ subtest 'each way to write a setting' => sub {
 subtest 'the help and the version wherever they stand' => sub {
     is [ map { parsed( $_->@* )->{command} } ['--help'], ['-h'], ['--version'], [ 'list', '--jobs', 2, '-h' ] ],
       [qw(help help version help)], 'the word anywhere before the two dashes';
+    is parsed( '--jobs', '-h' )->{command}, 'help', 'the short help option takes precedence over a missing value';
     is parsed( '--version', '--help' )->{command},            'version',                    'the first of them';
     is parsed( 'list', '--bogus', '--help' )->{command},      'help',                       'before a refusal';
     is parsed( 'list', '--jobs', '--help' )->{command},       'help',                       'and in place of a value';

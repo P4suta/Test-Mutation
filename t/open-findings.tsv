@@ -47,10 +47,6 @@ contract-plan-settings	the default of switch differs from the contract	the launc
 contract-plan-settings	the table lacks the setting color of the contract	the progress display
 contract-plan-settings	the table lacks the setting github of the contract	the terminal report and the summary of GitHub
 contract-plan-settings	the table lacks the setting lib of the contract	the launch of a test command
-contract-stray-arguments	after-dashes: accepted; flags --baseline-timeout --cache --cache-dir --config --coverage --disable --enable --equivalence --format --in-place --jobs --keep-work --link --min-score --mutant --perl --profile --report-dir --root --shard --since --source --source-exclude --suppress-require-names --suppress-require-reason --switch --test --test-exclude --threshold-high --threshold-low --timeout-factor --timeout-floor; commands list show	the commands table
-contract-stray-arguments	operands: accepted; counts 1; commands list	the commands table
-contract-stray-arguments	operands: accepted; counts 2; commands show	the commands table
-contract-unknown-arguments	first word: the refusal names no nearest name; words List exce help lits lst merg mutator runn shwo version; commands default	the commands table
 contract-selector-selectors	malformed: status 0, where the selector calls for 2; selectors exclude mutant source test; origins file line	the selection resolved before the first write
 contract-selector-selectors	malformed: status 3, where the selector calls for 2; selectors perl; origins file line	the selection resolved before the first write
 contract-selector-selectors	malformed: status 5, where the selector calls for 2; selectors since; origins file line	the selection resolved before the first write
@@ -73,8 +69,6 @@ contract-gate-outcomes	success without a score; gates any; parts whole	the singl
 contract-three-deciders-outcomes	pass: merge, run; fail: assertion; gates 50; parts whole	the single outcome of a run
 contract-three-deciders-outcomes	pass: run; fail: assertion; gates 0 100; parts whole	the single outcome of a run
 contract-three-deciders-outcomes	the gate of the file: pass: run; fail: assertion; gates 50; parts whole	the single outcome of a run
-contract-exit-table-process	status 0, where the table calls for 2; cases operand-of-list operand-of-show; part commands	the commands table
-contract-exit-table-process	status 0, where the table calls for 2; cases options-after-dashes; part settings	the commands table
 contract-exit-table-process	status 0, where the table calls for 2; cases unmatched-mutant unmatched-source unmatched-test; part selection	the selection resolved before the first write
 contract-exit-table-process	status 0, where the table calls for 4; cases no-source-and-a-gate; part outcome	the single outcome of a run
 contract-exit-table-process	status 3, where the table calls for 2; cases missing-interpreter; part selection	the selection resolved before the first write
@@ -181,5 +175,4 @@ contract-manual-manual	the manual names no row of the table; rows --baseline-tim
 contract-manual-manual	the manual names no row of the table; rows 0 1 125 126 127 129 130 131 141 143 2 3 4 5 6; tables exit-statuses	the manual that the tables generate
 contract-manual-manual	the manual names no row of the table; rows Pending; tables statuses	the manual that the tables generate
 contract-manual-manual	the manual names no row of the table; rows mutant shard since; tables keys	the manual that the tables generate
-contract-manual-manual	the manual names no row of the table; rows version; tables commands	the manual that the tables generate
 contract-independent-pairs	the environment changes the output where no table declares it; streams stderr; environments GITHUB_ACTIONS+NO_COLOR+terminal GITHUB_ACTIONS+terminal NO_COLOR+terminal terminal	the progress display

@@ -1,6 +1,6 @@
 package Test::Mutation::CLI::Arguments;
 use v5.36;
-use Types::Standard qw(ArrayRef Dict Str);
+use Types::Standard qw(ArrayRef Bool Dict Int Str);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Commands;
 use Test::Mutation::Error;
@@ -9,11 +9,10 @@ use Test::Mutation::Settings;
 our $VERSION = '0.001';
 
 # The words that select a command, and the options that answer without a project.
-my ( %COMMAND, %ANSWER );
-for my $command ( Test::Mutation::Commands::rows()->@* ) {
-    for my $word ( $command->words->@* ) {
-        ( $word =~ /\A-/ ? $ANSWER{$word} : $COMMAND{$word} ) = $command->name;
-    }
+my %COMMAND = map { $_->name => 1 } Test::Mutation::Commands::rows()->@*;
+my %ANSWER;
+for my $switch ( Test::Mutation::Commands::switches()->@* ) {
+    $ANSWER{$_} = $switch->{answer} for $switch->{words}->@*;
 }
 my @ANSWERS = sort keys %ANSWER;
 
@@ -58,7 +57,7 @@ sub _item ($word) {
 sub _items ($argv) {
     my ( @items, $behind, $waiting );
     for my $word ( $argv->@* ) {
-        if ( $waiting && $word !~ /\A--/ ) {
+        if ( $waiting && $word !~ /\A--/ && !$ANSWER{$word} ) {
             $waiting->{text} = $word;
             $waiting = undef;
             next;
@@ -84,7 +83,7 @@ sub _spellings ($command) {
 }
 
 sub _accepts ( $setting, $command ) {
-    return scalar grep { $_ eq $command } $setting->commands->@*;
+    return Test::Mutation::Commands::of($command)->accepts( $setting->name );
 }
 
 # The value of one option, or the refusal of the word that set it.
@@ -106,20 +105,36 @@ sub _value ( $item, $command ) {
 
 signature_for parse => (
     named   => [ argv => ArrayRef [Str] ],
-    returns => Dict [ command => Str, operands => ArrayRef [Str], given => Test::Mutation::Settings::layer_type() ],
+    returns => Dict [
+        command          => Str,
+        operands         => ArrayRef [Str],
+        given            => Test::Mutation::Settings::layer_type(),
+        global           => Bool,
+        implicit         => Bool,
+        before_separator => Int
+    ],
 );
 
 sub parse ($arg) {
     my @items    = _items( $arg->argv );
     my @operands = map  { $_->{operand} } grep { defined $_->{operand} } @items;
     my ($first)  = grep { defined $_->{operand} && !$_->{behind} } @items;
-    my $command  = $first && $COMMAND{ $first->{operand} };
-    shift @operands if $command;
+    my $named    = $first && $COMMAND{ $first->{operand} };
+    my $before   = grep { defined $_->{operand} && !$_->{behind} } @items;
+    my $command  = $named ? shift @operands : 'run';
+    $before-- if $named;
     my %given = ( origin => 'line', name => undef, entries => {} );
     my ($answer) = grep { $_->{answer} } @items;
-    return { command => $answer->{answer}, operands => \@operands, given => \%given } if $answer;
+    return {
+        command          => $answer->{answer},
+        operands         => \@operands,
+        given            => \%given,
+        global           => 1,
+        implicit         => 0,
+        before_separator => 0
+      }
+      if $answer;
 
-    $command = 'run' if !$command;
     my $entries = $given{entries};
     for my $item ( grep { !defined $_->{operand} } @items ) {
         my $value   = _value( $item, $command );
@@ -128,7 +143,14 @@ sub parse ($arg) {
           if $setting->kind eq 'list';
         $entries->{ $setting->name } = { value => $value, spelled => $item->{spelled}, surface => 'line' };
     }
-    return { command => $command, operands => \@operands, given => \%given };
+    return {
+        command          => $command,
+        operands         => \@operands,
+        given            => \%given,
+        global           => 0,
+        implicit         => $first && !$named ? 1 : 0,
+        before_separator => $before
+    };
 }
 
 1;

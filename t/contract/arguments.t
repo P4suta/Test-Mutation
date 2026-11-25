@@ -107,8 +107,8 @@ subtest 'the help and the version at every position' => sub {
         version => "mutation $Test::Mutation::CLI::VERSION\n",
     );
     my %answer;
-    for my $command ( Test::Mutation::Commands::rows()->@* ) {
-        $answer{$_} = $command->name for grep { /\A-/ } $command->words->@*;
+    for my $switch ( Test::Mutation::Commands::switches()->@* ) {
+        $answer{$_} = $switch->{answer} for $switch->{words}->@*;
     }
     my @words = sort keys %answer;
     my ( $count, $expected ) = ( 0, 0 );

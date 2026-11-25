@@ -215,7 +215,8 @@ subtest 'the space rejects a message that no case produces' => sub {
 
 # The command line: the refusals of the plan, and the refusals while the command runs.
 printed($_)
-  for [ 'run', 'surplus' ], ['show'], ['exec'], ['merge'], [ '--root', 'absent', 'list' ], [ 'show', 'zzzz' ],
+  for ['lst'], [ 'run', 'surplus' ], [ 'mutators', 'surplus' ], ['show'], ['exec'], ['merge'],
+  [ '--root', 'absent', 'list' ], [ 'show', 'zzzz' ],
   [ 'show', q{} ], [ 'merge', 'absent.json' ], [ 'merge', 'broken.json' ];
 
 # The command of exec: a name that names nothing, and a directory that the system refuses to run.

@@ -22,7 +22,6 @@ has help         => ( is => 'ro', isa => Str, required => 1 );
 has group        => ( is => 'ro', isa => Enum [qw(project selection tests mutators report cache)], required => 1 );
 has surfaces     => ( is => 'ro', isa => ArrayRef [$SURFACE], required => 1 );
 has selects      => ( is => 'ro', isa => Bool, default => 0 );
-has commands     => ( is => 'ro', isa => ArrayRef [Str], required => 1 );
 
 signature_for flag => ( method => 1, positional => [], returns => Str );
 
@@ -133,10 +132,6 @@ The surfaces that offer the setting: C<line> for the command line, C<file> for t
 =head2 selects
 
 True for a setting that narrows the run to a part of its mutants.
-
-=head2 commands
-
-The commands that accept the setting on the command line.
 
 =head1 METHODS
 

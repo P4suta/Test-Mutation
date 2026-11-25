@@ -11,6 +11,16 @@ with 'Test::Mutation::Value';
 # Each row: the identifier, the kind, the text with its slots, and the description for the manual.
 my @ROWS = (
     [
+        'command-unknown', 'usage',
+        'unknown command {command}, did you mean {nearest}?',
+        'The first word or the command named in help has no matching command.'
+    ],
+    [
+        'path-selector-invalid', 'usage',
+        'invalid path selection {path}: {reason}',
+        'A path operand must name a project source or directory and use positive, ascending line ranges.'
+    ],
+    [
         'argument-unexpected',            'usage',
         'unexpected argument {argument}', 'The command line holds an operand, and the command takes none.'
     ],

@@ -8,7 +8,7 @@ use File::Find      ();
 use File::Spec      ();
 use List::Util      ();
 use Time::HiRes     ();
-use Types::Standard qw(ArrayRef CodeRef Dict HashRef InstanceOf Int Str Tuple);
+use Types::Standard qw(ArrayRef Bool CodeRef Dict HashRef InstanceOf Int Maybe Optional Str Tuple);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Cache;
 use Test::Mutation::Coverage;
@@ -28,6 +28,7 @@ use Test::Mutation::Status;
 use Test::Mutation::Suppression;
 use Test::Mutation::Syntax::PPI;
 use Test::Mutation::Tree;
+use Test::Mutation::Types qw(PathSelection);
 use Test::Mutation::Try;
 use Test::Mutation::Verdict;
 
@@ -52,15 +53,17 @@ my $ANALYSIS = Dict [
     inventory => Dict [ mutants => Int, digest => Str ],
 ];
 
-signature_for analyze => ( positional => [ InstanceOf ['Test::Mutation::Config'] ], returns => $ANALYSIS );
+signature_for analyze =>
+  ( positional => [ InstanceOf ['Test::Mutation::Config'], Optional [ Maybe [PathSelection] ] ], returns => $ANALYSIS );
 
-sub analyze ($config) {
+sub analyze ( $config, $paths = undef ) {
     my $root = Cwd::abs_path( $config->root );
-    return _analysis( $config, $root, $root );
+    return _analysis( $config, $root, $root, { paths => $paths } );
 }
 
 # Git answers for the project, and the files come from the tree that the tests run in.
-sub _analysis ( $config, $project, $root ) {
+sub _analysis ( $config, $project, $root, $options ) {
+    my $paths    = $options->{paths};
     my $mutators = Test::Mutation::Mutator::Catalog::choose(
         profile => $config->profile,
         enable  => $config->enable,
@@ -72,11 +75,16 @@ sub _analysis ( $config, $project, $root ) {
     my $others = [ grep { !$chosen{ $_->name } } Test::Mutation::Mutator::Catalog::mutators()->@* ];
     my ( %sources, %left_out, @mutants, @problems, @rejected, @refusals );
     my %only    = map { $_ => 1 } $config->mutant->@*;
-    my $changed = defined $config->since ? Test::Mutation::Git::changed( $project, $config->since ) : undef;
-    my $perl    = _perl_version( $config->perl );
+    my $changed = defined $config->since    ? Test::Mutation::Git::changed( $project, $config->since ) : undef;
+    my $perl    = $options->{baseline_only} ? undef : _perl_version( $config->perl );
     for my $path ( Test::Mutation::Project::files( $root, $config->source, $config->source_exclude )->@* ) {
         next if $changed && !$changed->{$path};
-        my $source   = Test::Mutation::Source->from_bytes( path => $path, bytes => _slurp("$root/$path") );
+        next if $paths   && !exists $paths->{$path};
+        my $source = Test::Mutation::Source->from_bytes( path => $path, bytes => _slurp("$root/$path") );
+        if ( $options->{baseline_only} ) {
+            $sources{$path} = $source;
+            next;
+        }
         my $analysis = Test::Mutation::Syntax::PPI::analyze($source);
 
         # The analysis of a file is the longest step outside the tests, so a signal ends the work after the file it met.
@@ -107,7 +115,8 @@ sub _analysis ( $config, $project, $root ) {
             require_names  => $config->suppress_require_names,
             require_reason => $config->suppress_require_reason,
           )->@*;
-        push @mutants, grep { !$changed || _in_changed_lines( $changed->{$path}, $_ ) }
+        push @mutants, grep { !$paths || !$paths->{$path}->@* || _in_changed_lines( $paths->{$path}, $_ ) }
+          grep { !$changed || _in_changed_lines( $changed->{$path}, $_ ) }
           grep { !%only || $only{ $_->id } } $generated->{mutants}->@*;
         push @rejected, map { { path => $path, $_->%* } } $generated->{rejected}->@*;
     }
@@ -150,15 +159,21 @@ sub _in_changed_lines ( $ranges, $mutant ) {
 }
 
 signature_for run => (
-    positional => [ InstanceOf ['Test::Mutation::Config'], CodeRef ],
-    returns    => InstanceOf ['Test::Mutation::Result'],
+    positional => [
+        InstanceOf ['Test::Mutation::Config'],
+        CodeRef,
+        Dict [ paths => Optional [ Maybe [PathSelection] ], baseline_only => Optional [Bool] ],
+        { default => sub { {} } }
+    ],
+    returns => InstanceOf ['Test::Mutation::Result'],
 );
 
-sub run ( $config, $listener ) {
+sub run ( $config, $listener, $options = {} ) {
     my $started = Time::HiRes::time();
     my $project = Cwd::abs_path( $config->root );
     my $run     = {
         config   => $config,
+        options  => $options,
         project  => $project,
         root     => $project,
         listener => $listener,
@@ -255,7 +270,7 @@ sub _measure ( $run, $started ) {
     my $config   = $run->{config};
     my $listener = $run->{listener};
     my $root     = $run->{root};
-    my $analysis = _analysis( $config, $run->{project}, $root );
+    my $analysis = _analysis( $config, $run->{project}, $root, $run->{options} );
     my @tests    = Test::Mutation::Project::files( $root, $config->test, $config->test_exclude )->@*;
     my @active   = grep { !$_->suppressed } $analysis->{mutants}->@*;
     my %targets  = map  { $_->path => 1 } @active;
@@ -284,7 +299,7 @@ sub _measure ( $run, $started ) {
         started           => $started,
     );
 
-    if ( @active && @tests ) {
+    if ( ( @active || $run->{options}{baseline_only} ) && @tests ) {
         my $measure = sub {
             _prepare_work($run);
             $run->{targets} = [ sort keys $analysis->{sources}->%* ];
@@ -299,8 +314,10 @@ sub _measure ( $run, $started ) {
             );
             if ( !$baseline->{failures}->@* ) {
                 $listener->( 'baseline', { tests => scalar(@tests), jobs => $run->{jobs} } );
-                $run->{tree} = _tree($run) if !defined $run->{copies};
-                $measured{entries} = _mutants( $run, $analysis->{mutants}, $baseline );
+                if ( !$run->{options}{baseline_only} ) {
+                    $run->{tree} = _tree($run) if !defined $run->{copies};
+                    $measured{entries} = _mutants( $run, $analysis->{mutants}, $baseline );
+                }
             }
             return \%measured;
         };
@@ -312,7 +329,8 @@ sub _measure ( $run, $started ) {
         %result = ( %result, Test::Mutation::Try::with_cleanup( $measure, $leave )->%* );
     }
     else {
-        _warn( $run, Test::Mutation::Message::warning('tests-unmatched') ) if @active && !@tests;
+        _warn( $run, Test::Mutation::Message::warning('tests-unmatched') )
+          if ( @active || $run->{options}{baseline_only} ) && !@tests;
         $result{entries} =
           [ map { $_->suppressed ? _suppressed($_) : _entry( $_, 'NoCoverage', 'unreached', undef, undef, [], 0, 0 ) }
               $analysis->{mutants}->@* ];

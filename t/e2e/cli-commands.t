@@ -5,8 +5,62 @@ use Cwd        ();
 use File::Temp ();
 use Fixture    qw(copy_of ran ran_from tree_digest write_file);
 use Test::Mutation::Mutator::Catalog;
+use Test::Mutation::Runner;
+use Test::Mutation::Settings;
 
 my $root = copy_of('calc');
+
+subtest 'command help and reference settings are available outside a project' => sub {
+    my $empty = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    my $help  = ran( 0, $empty, 'help' );
+    like $help->{stdout}, qr/^  baseline\s+/m, 'the reference names the unmodified test run';
+    my $show = ran( 0, $empty, 'help', 'show' );
+    like $show->{stdout},   qr/\AUsage: mutation show ID/, 'help gives the usage of the selected command';
+    unlike $show->{stdout}, qr/^  merge\s+/m,              'command help describes one command';
+    my $mutators = ran( 0, $empty, 'help', 'mutators' )->{stdout};
+    like $mutators,   qr/^  --root\b/m, 'the selected command accepts a project directory';
+    unlike $mutators, qr/^  --jobs\b/m, 'the command lists only its own settings';
+    like ran( 2, $empty, 'help', 'hepl' )->{stderr}, qr/hepl.*help/,
+      'an unknown help topic suggests its nearest command';
+    like ran( 0, $empty, 'settings' )->{stdout}, qr/--jobs.*(?:process|parallel)/i, 'settings explains the options';
+    like ran( 2, $empty, 'hepl' )->{stderr},     qr/hepl.*help/, 'a misspelling includes the nearest command';
+    is tree_digest($empty), {}, 'reference commands and refusals leave the directory empty';
+};
+
+subtest 'path operands narrow both the listing and the measurement to matching lines' => sub {
+    my $all = ran( 0, $root, 'list' )->{stdout};
+    is ran( 0, $root, 'list', 'lib' )->{stdout}, $all, 'a directory includes its sources';
+    my $selected = ran( 0, $root, 'list', 'lib/Calc.pm:7,17-18' )->{stdout};
+    like $selected,   qr/lib\/Calc[.]pm:7:\d+\s+arithmetic/,  'the first range selects the addition';
+    like $selected,   qr/lib\/Calc[.]pm:17:\d+\s+arithmetic/, 'the second range selects the multiplication';
+    unlike $selected, qr/lib\/Calc[.]pm:12:\d+\s+comparison/, 'a line outside the ranges is absent';
+    my $run = ran( 0, $root, 'run', '--format', 'terminal', 'lib/Calc.pm:7' );
+    like $run->{stderr}, qr/\b3 mutants in 1 file/, 'run measures the addition, return and containing subroutine';
+    like ran( 2, $root, 'list', 'lib/Calc.pm:8-7' )->{stderr}, qr/8-7/,          'a reversed range names the input';
+    like ran( 2, $root, 'list', 'missing.pm' )->{stderr},      qr/missing[.]pm/, 'an absent path names the input';
+};
+
+subtest 'baseline runs the unmodified tests without mutating or replacing a report' => sub {
+    my $project = copy_of('calc');
+    write_file( "$project/lib/Other.pm", "package Other;\nsub total { 2 + 3 }\n1;\n" );
+    my $config = Test::Mutation::Settings::of_call( { root => $project } );
+    like dies { Test::Mutation::Runner::analyze( $config, { 'lib/Other.pm' => 'invalid' } ) }, qr/PathSelection/,
+      'an invalid line selection is rejected before analysis';
+    my $later = ran( 0, $project, 'list', 'lib/Other.pm' )->{stdout};
+    like $later,   qr/lib\/Other[.]pm:2:\d+\s+arithmetic/, 'a source following an unselected file is listed';
+    unlike $later, qr/lib\/Calc[.]pm/,                     'the unselected source stays out of the listing';
+    my $baseline = Test::Mutation::Runner::run( $config, sub { }, { baseline_only => 1 } );
+    is [ sort keys $baseline->sources->%* ], [qw(lib/Calc.pm lib/Other.pm)],
+      'the unmodified run records every source even when the project has several files';
+    is $baseline->entries, [], 'a baseline produces no mutant entries';
+    write_file( "$project/mutation-report/mutation.json", "previous report\n" );
+    my $before = tree_digest($project);
+    my $run    = ran( 0, $project, 'baseline' );
+    like $run->{stdout}, qr/\b2 tests?\b/, 'the result counts unmodified tests';
+    is tree_digest($project), $before, 'the project and its last report are intact';
+    write_file( "$project/t/fails.t", "use Test::More tests => 1;\nfail 'broken test';\n" );
+    like ran( 3, $project, 'baseline' )->{stderr}, qr/t\/fails[.]t/, 'a failure names the test and exits with status 3';
+};
 
 subtest 'list prints every mutant without running a test' => sub {
     my $before = tree_digest($root);
@@ -223,10 +277,10 @@ subtest 'version, help, and stray arguments' => sub {
     like $version->{stdout}, qr/\Amutation \d+[.]\d+\n\z/, 'the version line';
 
     my $help = ran( 0, $root, '--help' );
-    like $help->{stdout}, qr/^Usage: mutation \[run\] \[options\]$/m, 'the usage line';
-    like $help->{stdout}, qr/^\s+mutation exec ID -- COMMAND/m,       'the commands';
-    like $help->{stdout}, qr/^\s+mutation merge FILE/m,               'the merge command';
-    like $help->{stdout}, qr/^\s+mutation mutators$/m,                'the mutators command';
+    like $help->{stdout}, qr/^Usage: mutation \[run\] \[PATH\[:LINES\]\.\.\.\] \[options\]$/m, 'the usage line';
+    like $help->{stdout}, qr/^\s+mutation exec ID \[options\] -- COMMAND/m,                    'the commands';
+    like $help->{stdout}, qr/^\s+mutation merge FILE/m,                                        'the merge command';
+    like $help->{stdout}, qr/^\s+mutation mutators \[options\]$/m,                             'the mutators command';
     my @undocumented = grep { $help->{stdout} !~ /^\s+(?:--[\w-]+, )*--\Q$_\E(?![\w-])/m }
       qw(root config jobs min-score format report-dir threshold-high threshold-low perl switch source source-exclude test
       test-exclude profile enable disable equivalence no-equivalence coverage timeout-factor timeout-floor baseline-timeout
@@ -234,7 +288,8 @@ subtest 'version, help, and stray arguments' => sub {
     is \@undocumented, [], 'every option is described';
 
     my $stray = ran( 2, $root, 'run', 'surplus' );
-    is $stray->{stderr}, "mutation: unexpected argument surplus\n", 'the message';
+    is $stray->{stderr}, "mutation: invalid path selection surplus: the path does not exist\n",
+      'the missing source path is named';
 
     my $listed = ran( 2, $root, 'mutators', 'surplus' );
     is [ $listed->@{qw(exit stdout stderr)} ], [ 2, q{}, "mutation: unexpected argument surplus\n" ],

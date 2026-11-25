@@ -1,12 +1,15 @@
 package Test::Mutation::Types;
 use v5.36;
 use Type::Library -base,
-  -declare => qw(Analysis Directive Dropped Entry Facts Heredoc Names Reason Refusal Rejected StatusName Suppression);
+  -declare =>
+  qw(Analysis Directive Dropped Entry Facts Heredoc Names PathSelection Reason Refusal Rejected StatusName Suppression);
 use Type::Utils     qw(as declare where);
-use Types::Standard qw(ArrayRef Bool Dict Enum InstanceOf Int Maybe Num Optional Str StrMatch Tuple);
+use Types::Standard qw(ArrayRef Bool Dict Enum HashRef InstanceOf Int Maybe Num Optional Str StrMatch Tuple);
 use Test::Mutation::Status;
 
 our $VERSION = '0.001';
+
+declare PathSelection, as HashRef [ ArrayRef [ Tuple [ Int, Int ] ] ];
 
 declare StatusName, as Enum [ Test::Mutation::Status::names()->@* ];
 
@@ -135,5 +138,8 @@ C<Analysis> is the result for one file: the sites, the suppressions, the places 
 C<StatusName> is the name of a status of L<Test::Mutation::Status>, and C<Reason> is a reason that some status may carry.
 C<Entry> is the result of one mutant: the mutant, its status, the reason that its status calls for, a sentence about the case, the deciding test, the selected tests, the number of tests that ran, and the time they took.
 The verdict, the result, the reports, and the cache share these types, so a status outside the catalog or a reason of another status fails at the first of them.
+
+C<PathSelection> maps each selected source path to its inclusive line ranges.
+An empty list of ranges selects the whole file.
 
 =cut

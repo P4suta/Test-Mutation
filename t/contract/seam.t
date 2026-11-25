@@ -42,14 +42,18 @@ subtest 'the plan changes no directory and no search path' => sub {
 };
 
 subtest 'the plan names the command, the directory, the settings, and the operands' => sub {
-    my $plan = plan_of( [ 'show', 'abc', '--jobs', 2, 'def' ] );
-    is [ $plan->@{qw(command directory operands)} ], [ 'show', undef, [ 'abc', 'def' ] ], 'a command with operands';
+    for my $name (qw(help settings)) {
+        my $observed = World::observe( [$name], cwd => undef, processors => sub { die 'unexpected project lookup' } );
+        is $observed->{exit}, 0, "$name is available after the working directory disappears";
+    }
+    my $plan = plan_of( [ 'merge', 'abc', '--jobs', 2, 'def' ] );
+    is [ $plan->@{qw(command directory operands)} ], [ 'merge', undef, [ 'abc', 'def' ] ], 'a command with operands';
     is [ $plan->{config}->jobs, $plan->{config}->root ], [ 2, $root ], 'the settings, with the directory of the world';
 
     is [
         map { plan_of($_)->{command} } ['list'],
         [ 'show',  'a' ],
-        [ 'exec',  'a', 'b' ],
+        [ 'exec',  'a', '--', 'b' ],
         [ 'merge', 'a' ],
         ['mutators'], ['run']
       ],
@@ -137,8 +141,10 @@ subtest 'the plan refuses with a status and the text for standard error' => sub 
       'the first word that the parser refuses';
     is refusal_of( [ 'list', '--jobs', 0 ] ), [ 2, "mutation: --jobs takes a whole number above zero, not 0\n" ],
       'a value outside its type';
-    is refusal_of( [ 'run', 'surplus' ] ), [ 2, "mutation: unexpected argument surplus\n" ], 'a stray argument of run';
-    is refusal_of( ['surplus'] ), [ 2, "mutation: unexpected argument surplus\n" ], 'and of the default command';
+    is refusal_of( [ 'run', 'surplus' ] ),
+      [ 2, "mutation: invalid path selection surplus: the path does not exist\n" ], 'a missing operand of run';
+    is refusal_of( ['runn'] ), [ 2, "mutation: unknown command runn, did you mean run?\n" ],
+      'a command spelling suggestion';
     is refusal_of( [ 'mutators', 'surplus', 'more' ] ), [ 2, "mutation: unexpected argument surplus\n" ],
       'and of mutators';
     is refusal_of( ['show'] ), [ 2, "mutation: show needs a mutant identifier\n" ], 'show without an identifier';
@@ -149,12 +155,15 @@ subtest 'the plan refuses with a status and the text for standard error' => sub 
     is refusal_of( ['merge'] ), [ 2, "mutation: merge needs the report of every part\n" ], 'merge without a report';
     is [
         map { ref refusal_of($_) } ['list'],
-        [ 'list',  'a', 'b' ],
-        [ 'show',  'a', 'b' ],
-        [ 'exec',  'a', 'b', 'c' ],
+        [ 'list',  'lib/Calc.pm', 'lib/Calc.pm:7' ],
+        [ 'show',  'a' ],
+        [ 'exec',  'a', '--', 'b', 'c' ],
         [ 'merge', 'a', 'b' ]
       ],
       [ q{}, q{}, q{}, q{}, q{} ], 'the operands that the commands accept today';
+    is refusal_of( [ 'show', 'a', 'b' ] ), [ 2, "mutation: unexpected argument b\n" ], 'show takes one identifier';
+    is refusal_of( [ 'exec', 'a', 'b' ] ), [ 2, "mutation: exec needs a mutant identifier and a command\n" ],
+      'exec requires the separator';
     is refusal_of( [ 'show', '--jobs', 0 ] ), [ 2, "mutation: --jobs takes a whole number above zero, not 0\n" ],
       'the settings are checked before the operands';
 };
@@ -192,7 +201,7 @@ subtest 'carrying out a refusal prints its text and returns its status' => sub {
     like [ $help->@{qw(exit stdout stderr)} ],
       [
         0,
-        qr/\AUsage: mutation \[run\] \[options\]\n.*--help, -h +Print this text\n  --version +Print the version\n\z/s,
+        qr/\AUsage: mutation \[run\] \[PATH\[:LINES\]\.\.\.\] \[options\]\n.*--help, -h +Print this text\n  --version +Print the version\n\z/s,
         q{}
       ],
       'the help';

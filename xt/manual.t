@@ -27,7 +27,8 @@ my @statuses = map { $_->name } Test::Mutation::Status::rows()->@*;
 my @schema   = map { $_->schema } Test::Mutation::Status::rows()->@*;
 my @types    = Test::Mutation::Types->type_names;
 my %usage    = map { $_->usage =~ s/ \[options\]//r => 1 } @commands;
-my %word     = map { $_ => 1 } map { $_->words->@* } @commands;
+my @switches = Test::Mutation::Commands::switches()->@*;
+my %word     = map { $_ => 1 } ( ( map { $_->words->@* } @commands ), map { $_->{words}->@* } @switches );
 my %flag =
   ( %word, map { $_->flag => 1, ( $_->kind eq 'flag' ? ( '--no-' . $_->name => 1 ) : () ) } Space::flags()->@* );
 
@@ -159,6 +160,10 @@ for my $command (@commands) {
     push @unnamed, [ 'the manual names no row of the table', $command->name, 'commands' ]
       if !grep { $manual =~ /\bmutation (?:\[)?\Q$_\E/ } $command->words->@*;
 }
+for my $switch (@switches) {
+    push @unnamed, [ 'the manual names no row of the table', $switch->{words}[0], 'flags' ]
+      if !grep { $manual =~ /\bmutation \Q$_\E\b/ } $switch->{words}->@*;
+}
 push @unnamed, map { [ 'the manual names no row of the table', $_->flag, 'flags' ] }
   grep { $manual !~ /(?<![\w-])\Q@{[ $_->flag ]}\E(?![\w-])/ } Space::flags()->@*;
 push @unnamed, map { [ 'the manual names no row of the table', $_->key, 'keys' ] }
@@ -170,7 +175,7 @@ push @unnamed, map { [ 'the manual names no row of the table', $_->code, 'exit-s
 Gate::findings( 'contract-manual-manual', Space::folded( \@unnamed, 'rows', 'tables' ) );
 Gate::checked(
     'rows of the tables',
-    @commands + Space::flags()->@* + @statuses + 8 + grep( { $_->offers('file') } @settings ),
+    @commands + @switches + Space::flags()->@* + @statuses + 8 + grep( { $_->offers('file') } @settings ),
     at_least => 60
 );
 

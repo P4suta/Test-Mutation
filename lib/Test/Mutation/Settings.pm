@@ -45,8 +45,6 @@ my %NUMBER = map { $_ => 1 } qw(Count Positive Percent);
 my %TOML =
   ( Count => ['integer'], Positive => [qw(integer float)], Percent => [qw(integer float)], Boolean => ['boolean'] );
 
-my @TAKE_SETTINGS = qw(run list show exec merge);
-
 # A variable that the environment leaves out reads as an empty text.
 sub _inside_github_actions ($env) {
     my ($hosted) = grep { defined } $env->{GITHUB_ACTIONS}, q{};
@@ -60,7 +58,7 @@ my @ROWS = (
         'root', '-C', 'value', $DIRECTORY, 'DIR', 'a directory', sub { q{.} },
         q{.},   'project',
         'Run as if mutation had started in DIR',
-        { surfaces => [qw(line call)], commands => [ @TAKE_SETTINGS, 'mutators' ] }
+        { surfaces => [qw(line call)] }
     ],
     [
         'config', undef, 'value', $FILE, 'FILE', 'a file', undef, 'mutation.toml when it exists',
@@ -266,7 +264,6 @@ sub _row ( $name, $short, $kind, $type, $placeholder, $expects, $default, $defau
         group        => $group,
         help         => $help,
         surfaces     => [qw(line file call)],
-        commands     => [@TAKE_SETTINGS],
         $other->%*,
     );
 }

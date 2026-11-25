@@ -75,20 +75,24 @@ subtest 'the commands table names every command and its line in the help' => sub
       or die "the help text has another shape\n";
     my @words = grep { $_->words->[0] !~ /\A-/ } @commands;
     is [ map { s/\A\s+//r } split /\n/, $usage ], [ map { $_->usage } @words ], 'the usage lines';
+    my @columns = map { /\A(  \S+ +)\S/ ? length $1 : 0 } split /\n/, $summaries;
+    is \@columns, [ ( $columns[0] ) x @words ], 'every command description starts in the same column';
+    like dies { Test::Mutation::Commands::switches('extra') }, qr/Wrong number of parameters/,
+      'the global switch table accepts no argument';
     is { map { /\A\s+(\S+)\s+(.+)\z/ ? ( $1 => $2 ) : () } split /\n/, $summaries },
       { map { $_->name => $_->summary } @words },
       'the summaries';
-    my %line     = map  { /\A\s+(--[\w-]+)(?:, -\w)?\s{2,}(.+)\z/ ? ( $1 => $2 ) : () } split /\n/, $options;
-    my @optional = grep { $_->words->[0] =~ /\A-/ } @commands;
-    is {
-        map { $_->name => $line{ $_->words->[0] } } @optional
-    }, { map { $_->name => $_->summary } @optional }, 'the lines of the commands that an option selects';
+    my %line = map { /\A\s+(--[\w-]+)(?:, -\w)?\s{2,}(.+)\z/ ? ( $1 => $2 ) : () } split /\n/, $options;
+
+    for my $switch ( Test::Mutation::Commands::switches()->@* ) {
+        is $line{ $switch->{words}[0] }, $switch->{summary}, 'help describes the global option';
+    }
 
     my ( %selects, %selected );
     for my $command (@commands) {
         for my $word ( $command->words->@* ) {
             $selects{$word} = $command->name;
-            my $line = [ $word, ('x') x $command->least ];
+            my $line = Space::line( { word => $word, command => $command }, [], $command->least );
             $selected{$word} = World::observe( $line, cwd => $root, run => 'cheap' )->{plan}{command};
         }
     }
@@ -96,7 +100,8 @@ subtest 'the commands table names every command and its line in the help' => sub
     my ($default) = grep { $_->default } @commands;
     is [ map { World::observe( $_, cwd => $root, run => 'cheap' )->{plan}{command} } [], [ '--jobs', 2 ] ],
       [ $default->name, $default->name ], 'no word selects the default command';
-    is scalar(@commands), 8, 'the commands';
+    is [ map { $_->name } @commands ], [qw(run baseline list show exec merge mutators settings help)],
+      'the nine commands';
 };
 
 subtest 'the status table names every status and what each report does with it' => sub {
