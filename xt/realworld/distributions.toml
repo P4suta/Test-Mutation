@@ -4,6 +4,7 @@
 # `sha256` is the digest that the build of the image requires of the archive.
 # `shape` says what the distribution brings that the others lack.
 # `build` lists the commands that prepare an unpacked tree, each as a list of words.
+# `hash_seed` selects a reproducible Perl hash traversal for the reference tests and the measured run.
 # `tests` is the command that states the truth about the unmodified tests.
 # `options` holds the options of `mutation run`, and `config` holds the text of a mutation.toml for the run.
 # `expect.mutants` is the band of the number of mutants that the run announces.
@@ -165,6 +166,7 @@ version = "20261105.001"
 pathname = "B/BR/BRIANDFOY/CPAN-Audit-20261105.001.tar.gz"
 sha256 = "fe4b3f83afdac976cbd924f16ddcb0479d9d1776cb5258fb1e05b4faf2242130"
 shape = "a script that the tests start with system, without the test file that the list leaves out"
+hash_seed = "01"
 build = [["perl", "Makefile.PL"], ["make"]]
 tests = ["make", "test"]
 options = ["--shard", "1/4"]

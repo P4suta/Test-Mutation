@@ -110,6 +110,27 @@ sub conclude ($state) {
     return { $state->%*, status => 'NoCoverage', reason => $state->{tests} ? 'not-loaded' : 'unreached' };
 }
 
+signature_for confirm => ( positional => [ $STATE, $STATE ], returns => $STATE );
+
+sub confirm ( $first, $repeat ) {
+    my %result = ( $repeat->%*, tests => $first->{tests} + $repeat->{tests} );
+    my ( $first_test, $repeat_test ) = map { defined $_->{by} ? $_->{by} : q{} } $first, $repeat;
+    return \%result if $first->{status} eq $repeat->{status} && $first_test eq $repeat_test;
+    my ( $before, $after ) = map { _observation($_) } $first, $repeat;
+    return {
+        %result,
+        status => 'NoVerdict',
+        reason => $repeat->{status} eq 'NoVerdict' ? $repeat->{reason} : 'unstable-test',
+        detail => "$before on the first run, $after on the second run",
+        by     => undef,
+    };
+}
+
+sub _observation ($state) {
+    return $state->{detail} if defined $state->{detail};
+    return $state->{status} eq 'Survived' ? 'the covering tests passed' : $state->{status};
+}
+
 signature_for final => ( positional => [$STATE], returns => StatusName );
 
 sub final ($state) {
@@ -166,6 +187,11 @@ An outcome with C<load_failed> set needs a defined C<syntax>: C<ok>, or the kind
 Returns the state as the end of the tests leaves it.
 A state without a decision takes the status of its timeout, C<Survived> when a test loaded the mutant, or C<NoCoverage>.
 The state holds the status, its reason, the deciding test, and a sentence about the case in C<detail>.
+
+=head2 confirm
+
+Compares a candidate C<Killed> or C<Survived> with a second concluded state and counts the tests in both attempts.
+Conflicting observations give C<NoVerdict> and a detail that names both observations.
 
 =head2 final
 

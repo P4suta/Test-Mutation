@@ -31,6 +31,41 @@ sub decided (@outcomes) {
     return join q{ }, grep { defined } $state->@{qw(status reason)};
 }
 
+subtest 'two completed attempts name their evidence and count every test process' => sub {
+    my $pass     = Test::Mutation::Verdict::conclude( folded( outcome(), outcome( test => 't/b.t' ) ) );
+    my $a        = folded( outcome( result => 'fail' ) );
+    my $b        = folded( outcome(), outcome( test => 't/b.t', result => 'fail' ) );
+    my $lost     = folded( outcome( test => 't/c.t', bypassed => 1 ) );
+    my $limited  = Test::Mutation::Verdict::conclude( folded( outcome( result => 'timeout' ) ) );
+    my $unloaded = Test::Mutation::Verdict::conclude( folded( outcome( served => 0 ) ) );
+    for my $case (
+        [ $pass, $pass,     'Survived',  undef,                4 ],
+        [ $a,    $a,        'Killed',    undef,                2 ],
+        [ $b,    $b,        'Killed',    undef,                4 ],
+        [ $pass, $a,        'NoVerdict', 'unstable-test',      3 ],
+        [ $a,    $pass,     'NoVerdict', 'unstable-test',      3 ],
+        [ $a,    $b,        'NoVerdict', 'unstable-test',      3 ],
+        [ $b,    $a,        'NoVerdict', 'unstable-test',      3 ],
+        [ $a,    $lost,     'NoVerdict', 'loaded-around-hook', 2 ],
+        [ $pass, $limited,  'NoVerdict', 'unstable-test',      3 ],
+        [ $pass, $unloaded, 'NoVerdict', 'unstable-test',      3 ],
+      )
+    {
+        my ( $first, $repeat, @expected ) = $case->@*;
+        my $state = Test::Mutation::Verdict::confirm( $first, $repeat );
+        is [ $state->@{qw(status reason tests)} ], \@expected, "$first->{status} then $repeat->{status}";
+    }
+    is Test::Mutation::Verdict::confirm( $a, $b )->{detail},
+      't/a.t failed on the first run, t/b.t failed on the second run', 'two different detecting tests';
+    is Test::Mutation::Verdict::confirm( $pass, $unloaded )->{detail},
+      'the covering tests passed on the first run, NoCoverage on the second run', 'coverage disappeared';
+    is Test::Mutation::Verdict::confirm( $a, $lost )->{detail},
+      't/a.t failed on the first run, t/c.t loaded the target without the hook on the second run',
+      'a more specific anomaly keeps its cause and both observations';
+    is $a->{tests}, 1, 'the first observation stays available';
+    is $b->{tests}, 2, 'the second observation stays available';
+};
+
 subtest 'single outcomes over the whole input domain' => sub {
     my @rows;
     my %limit = ( timeout => 'time-limit', overflow => 'output-limit' );

@@ -248,7 +248,7 @@ sub perturbations () {
 
 # A cold run fills the cache, a second run on the same inputs reuses it, and each perturbation then starts from that cache.
 # Every result of the bench depends on its one test, so a run after a perturbation may reuse nothing.
-# `selections` adds the runs of one mutant and of one part, which may reuse the records of the whole run.
+# A named mutant repeats its observations; the following whole run reuses the record under the same key.
 # `since` adds the run on the changed lines of a repository, which needs the git command.
 sub cache ( $engine, $bench, %option ) {
     my $project  = $bench->{project};
@@ -281,12 +281,14 @@ sub cache ( $engine, $bench, %option ) {
     return @found if !$option{selections};
 
     my ($one) = grep { $cold->{status}{$_} eq 'Killed' } sort keys $cold->{status}->%*;
-    for my $selection ( [ 'mutant', mutants => [$one] ], [ 'shard', shard => '1/2' ] ) {
-        my ( $name, @selected ) = $selection->@*;
-        _pristine( $bench, $filled );
-        my $run = $engine->run( $project, %settings, @selected );
-        push @found, _related( 'cache', "cache selection=$name", [$run], run => $run, @truth, reuse => 'all' );
-    }
+    _pristine( $bench, $filled );
+    my $named = $engine->run( $project, %settings, mutants => [$one] );
+    push @found, _related( 'cache', 'cache selection=mutant', [$named], run => $named, @truth, reuse => 'none' );
+    my $bulk = $engine->run( $project, %settings, state => 'after a named mutant' );
+    push @found, _related( 'cache', 'cache after a named mutant', [$bulk], run => $bulk, @truth, reuse => 'all' );
+    _pristine( $bench, $filled );
+    my $shard = $engine->run( $project, %settings, shard => '1/2' );
+    push @found, _related( 'cache', 'cache selection=shard', [$shard], run => $shard, @truth, reuse => 'all' );
     return @found if !$option{since};
 
     # The run on the changed lines follows a whole run on the same files, so every record it needs is in the cache.

@@ -183,6 +183,7 @@ sub observed ( $run, $environment ) {
     my $library = "$DEPENDENCIES/$run->{name}-$run->{version}/lib/perl5";
     local $ENV{PERL5LIB} = $library;
     delete $ENV{PERL5LIB} if !-d $library;
+    local @ENV{qw(PERL_HASH_SEED PERL_PERTURB_KEYS)} = ( $run->{hash_seed}, '0' ) if defined $run->{hash_seed};
     my $place = "$WORK/runs/" . $run->{run} =~ s/[^[:alnum:].-]+/-/gr;
     my $tests = truth( $run, "$place/tests", $run->{tests} );
     my $prove = "@{ $run->{tests} }" eq "@PROVE" ? $tests : truth( $run, "$place/prove", \@PROVE );
@@ -193,11 +194,15 @@ sub observed ( $run, $environment ) {
         name        => $run->{name},
         version     => $run->{version},
         sha256      => $run->{sha256},
-        environment => { $environment->%*, library => $ENV{PERL5LIB} },
-        tests       => $tests,
-        prove       => $prove,
-        mutation    => $mutation,
-        report      => $report,
+        environment => {
+            $environment->%*,
+            library => $ENV{PERL5LIB},
+            map { defined $ENV{$_} ? ( $_ => $ENV{$_} ) : () } qw(PERL_HASH_SEED PERL_PERTURB_KEYS)
+        },
+        tests    => $tests,
+        prove    => $prove,
+        mutation => $mutation,
+        report   => $report,
     };
 }
 

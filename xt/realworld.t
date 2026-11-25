@@ -45,25 +45,30 @@ subtest 'the table rejects a run that lacks a field or misstates one' => sub {
     my ($run) = RealWorld::runs($TABLE)->@*;
     is $run,
       {
-        run      => 'Example',
-        name     => 'Example',
-        version  => '1.0',
-        pathname => 'A/AU/AUTHOR/Example-1.0.tar.gz',
-        sha256   => 'a' x 64,
-        shape    => 'pure Perl',
-        build    => [ [ 'perl', 'Makefile.PL' ] ],
-        tests    => [ 'prove',   '-lr', 't' ],
-        options  => [ '--shard', '1/2' ],
-        config   => undef,
-        expect   => { mutants => [ 3, 5 ], score => [ 40, 70 ], warnings => [], seconds => 60 },
+        run       => 'Example',
+        name      => 'Example',
+        version   => '1.0',
+        pathname  => 'A/AU/AUTHOR/Example-1.0.tar.gz',
+        sha256    => 'a' x 64,
+        shape     => 'pure Perl',
+        build     => [ [ 'perl', 'Makefile.PL' ] ],
+        tests     => [ 'prove',   '-lr', 't' ],
+        options   => [ '--shard', '1/2' ],
+        config    => undef,
+        hash_seed => undef,
+        expect    => { mutants => [ 3, 5 ], score => [ 40, 70 ], warnings => [], seconds => 60 },
       },
       'a run with every field';
     is RealWorld::runs( table( score => undef ) )->[0]{expect}{score}, undef,
       'a run may leave out the band of the score';
+    is RealWorld::runs( table( hash_seed => '"01"' ) )->[0]{hash_seed}, '01',
+      'a distribution can pin the hash seed of its reference tests and mutation run';
 
     my @refused = (
-        [ { sha256 => undef },   qr/\AExample needs a sha256\n/ ],
-        [ { sha256 => '"abc"' }, qr/\AExample: the sha256 is no digest of 64 hexadecimal digits\n/ ],
+        [ { hash_seed => '"not-hex"' }, qr/\AExample: hash_seed needs whole hexadecimal bytes\n/ ],
+        [ { hash_seed => '"a"' },       qr/\AExample: hash_seed needs whole hexadecimal bytes\n/ ],
+        [ { sha256    => undef },       qr/\AExample needs a sha256\n/ ],
+        [ { sha256    => '"abc"' },     qr/\AExample: the sha256 is no digest of 64 hexadecimal digits\n/ ],
         [
             { pathname => '"A/AU/AUTHOR/Other-1.0.tar.gz"' },
             qr/\AExample: the pathname names no archive of Example 1[.]0\n/
@@ -318,8 +323,18 @@ sub stopped ($record) {
     return;
 }
 
+my $PINNED   = { $RUN->%*, hash_seed => '01' };
 my @REJECTED = (
     [ $RUN, sub ($r) { $r->{sha256} = 'b' x 64 }, ['the record belongs to another archive'] ],
+    [
+        $PINNED,
+        sub ($r) { $r->{environment} = { PERL_HASH_SEED => '02', PERL_PERTURB_KEYS => '0' } },
+        ['the record uses another Perl hash traversal']
+    ],
+    [
+        $PINNED, sub ($r) { $r->{environment} = { PERL_HASH_SEED => '01' } },
+        ['the record uses another Perl hash traversal']
+    ],
     [
         $RUN,
         sub ($r) { $r->{tests}{exit} = 1 },

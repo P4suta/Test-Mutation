@@ -10,7 +10,7 @@ use TOML::Tiny ();
 
 my @WARNING_KINDS = qw(around-the-hook no-stable-output other);
 my @TEXTS         = qw(name version pathname sha256 shape);
-my %FIELD         = map { $_ => 1 } @TEXTS, qw(build tests options config expect);
+my %FIELD         = map { $_ => 1 } @TEXTS, qw(build tests options config expect hash_seed);
 my %EXPECTED      = map { $_ => 1 } qw(mutants score warnings seconds);
 my $NUMBER        = qr/\A[0-9]+(?:[.][0-9]+)?\z/;
 
@@ -63,14 +63,18 @@ sub _run ( $run, $table ) {
     die "$run: build is no list of commands\n" if ref $build ne 'ARRAY' || grep { !_words($_) || !$_->@* } $build->@*;
     die "$run: options is no list of words\n"  if !_words($options);
     die "$run: config is no text\n"            if ref $table->{config};
+    my $seed = $table->{hash_seed};
+    die "$run: hash_seed needs whole hexadecimal bytes\n"
+      if defined $seed && $seed !~ /\A(?:[0-9a-fA-F]{2})+\z/;
     return {
         run => $run,
         ( map { $_ => $table->{$_} } @TEXTS ),
-        build   => $build,
-        tests   => $table->{tests},
-        options => $options,
-        config  => $table->{config},
-        expect  => _expectation( $run, $table->{expect} ),
+        build     => $build,
+        tests     => $table->{tests},
+        options   => $options,
+        config    => $table->{config},
+        hash_seed => $seed,
+        expect    => _expectation( $run, $table->{expect} ),
     };
 }
 
@@ -266,6 +270,15 @@ my $SCRATCH_LIMIT = 256;
 # The text of a kind is fixed, so a finding names the run and the kind and nothing that changes from run to run.
 my @INVARIANTS = (
     [ 'the record belongs to another archive', sub ( $run, $record, $seen ) { $record->{sha256} ne $run->{sha256} } ],
+    [
+        'the record uses another Perl hash traversal',
+        sub ( $run, $record, $seen ) {
+            return if !defined $run->{hash_seed};
+            my $environment = $record->{environment} || {};
+            my ( $seed, $mode ) = $environment->@{qw(PERL_HASH_SEED PERL_PERTURB_KEYS)};
+            return !defined $seed || $seed ne $run->{hash_seed} || !defined $mode || $mode ne '0';
+        }
+    ],
     [ 'the tests of the distribution fail without the tool', sub ( $run, $record, $seen ) { !$seen->{passes} } ],
     [
         'the unmodified run fails where the tests of the distribution pass',

@@ -226,7 +226,7 @@ my @ROWS = (
         'a list of mutant identifiers',
         sub { [] },
         'none', 'selection',
-        'Run the named mutant; repeatable',
+        'Rerun the named mutant and confirm a kill or survival with a second attempt (repeatable)',
         { selects => 1 }
     ],
     [

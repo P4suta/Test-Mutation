@@ -707,11 +707,11 @@ sub _mutants ( $run, $mutants, $baseline ) {
         die $error if !$INTERRUPTION->check($error);    ## no critic (ErrorHandling::RequireCarping)
         $run->{interrupted} = $error->signal;
         for my $job ( grep { !$entry_of{ $_->{mutant}->id } } @jobs ) {
-            $entry_of{ $job->{mutant}->id } = _entry(
-                $job->{mutant}, 'Pending',     'interrupted', 'the run was interrupted',
-                undef,          $job->{tests}, $job->{verdict}{tests},
-                $job->{duration}
-            );
+            my $tests_run = $job->{verdict}{tests};
+            $tests_run += $job->{first}{tests} if $job->{first};
+            $entry_of{ $job->{mutant}->id } =
+              _entry( $job->{mutant}, 'Pending', 'interrupted', 'the run was interrupted',
+                undef, $job->{tests}, $tests_run, $job->{duration} );
         }
     }
 
@@ -757,8 +757,21 @@ sub _after_task ( $run, $baseline, $task, $result ) {
     if ( $kind !~ /\Acode-/ ) {
         $job->{verdict} = Test::Mutation::Verdict::step( $job->{verdict}, $job->{outcome} );
         $job->{index}++;
+        return _next_test( $run, $job, $baseline )
+          if !defined $job->{verdict}{status} && $job->{index} < $job->{tests}->@*;
+        my $trial = Test::Mutation::Verdict::conclude( $job->{verdict} );
+        if ( my $first = delete $job->{first} ) {
+            $job->{verdict} = Test::Mutation::Verdict::confirm( $first, $trial );
+        }
+        elsif ( $run->{config}->mutant->@* && ( $trial->{status} eq 'Killed' || $trial->{status} eq 'Survived' ) ) {
+            _release( $run, $job );
+            delete $job->{spec};
+            $job->{first}   = $trial;
+            $job->{index}   = 0;
+            $job->{verdict} = Test::Mutation::Verdict::start();
+            return _next_test( $run, $job, $baseline );
+        }
     }
-    return _next_test( $run, $job, $baseline ) if !defined $job->{verdict}{status} && $job->{index} < $job->{tests}->@*;
     return _next_code( $run, $job );
 }
 
@@ -798,8 +811,14 @@ sub _open_cache ( $run, $baseline ) {
     my @tests       = sort keys $baseline->{tests}->%*;
     my @interpreter = map { defined ? $_ : q{} } ( stat $config->perl )[ 7, 9 ];
     my @shared      = (
-        $VERSION,            $config->perl,     @interpreter, scalar $config->switch->@*,
-        $config->switch->@*, $config->coverage, $config->equivalence,
+        $VERSION,
+        $config->perl,
+        @interpreter,
+        scalar $config->switch->@*,
+        $config->switch->@*,
+        $config->coverage,
+        $config->equivalence,
+        ( map { defined $ENV{$_} ? ( 'set', $ENV{$_} ) : ('unset') } qw(PERL_HASH_SEED PERL_PERTURB_KEYS) ),
         map { ( $_, $digest_of->($_) ) } _support_files( $run, [ @tests, keys $run->{sources}->%* ] ),
     );
     return {
@@ -822,6 +841,7 @@ sub _open_cache ( $run, $baseline ) {
 sub _reused_entry ( $run, $cache, $job ) {
     my $mutant = $job->{mutant};
     my $key    = $cache->{keys}{ $mutant->id } = $cache->{key_of}->($job);
+    return if $run->{config}->mutant->@*;
     my $record = $cache->{records}{ $mutant->id };
     return                                                  if !$record || $record->{inputs} ne $key;
     $run->{code_of_mutant}{ $mutant->id } = $record->{code} if defined $record->{code};
@@ -1015,6 +1035,9 @@ The runner finds the source and test files, generates the mutants, and measures 
 It first runs every test against the unmodified sources through the same hook that later serves the mutants.
 That run proves the hook leaves the tests passing, times each test, and records which test reaches which line.
 The runner serves each mutant to its covering tests in project-relative path order until a test decides its verdict.
+When a run names mutant identifiers, it bypasses cached verdicts and repeats the covering tests for each candidate C<Killed> or C<Survived> in the same order.
+In copy mode both attempts start from the tree that the unmodified tests left.
+Conflicting observations give C<NoVerdict> and the result names both observations.
 It writes temporary files under the work directory and leaves the project files unchanged.
 The tests run in copies of the project: the unmodified run in one copy, and each job in a copy of the result.
 After every mutant, the runner restores a copy that the tests changed.
