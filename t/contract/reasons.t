@@ -151,6 +151,74 @@ is of_status( $compiled, 'lib/Guarded.pm', 'CompileError' ), ['CompileError comp
 is of_status( $compiled, 'lib/Bound.pm',   'CompileError' ), ['CompileError standalone'], 'a source that fails alone';
 is of_status( $compiled, 'lib/Small.pm',   'NoVerdict' ),    ['NoVerdict loaded-around-hook'], 'a load around the hook';
 
+subtest 'an unobservable baseline is carried forward only for the affected source' => sub {
+    my $program = <<'PERL';
+use Test::More tests => 2;
+use Cwd ();
+my $generation = $ENV{TEST_MUTATION_GENERATION};
+my $spec = $ENV{"TEST_MUTATION_SPEC_G$generation"};
+if ( $spec =~ m{/mutants/} ) {
+    require Small;
+}
+else {
+    require $ENV{FIXTURE_ORIGINAL};
+}
+require Zed;
+is Small::next_one(2), 3, 'the increment';
+is Zed::size(4), 8, 'the product';
+PERL
+    my $root = project(
+        'lib/Small.pm' => $module,
+        'lib/Zed.pm'   => "package Zed;\nsub size { return \$_[0] * 2 }\n1;\n",
+        't/both.t'     => $program,
+    );
+    local $ENV{FIXTURE_ORIGINAL} = "$root/lib/Small.pm";
+    my $config     = Test::Mutation::Settings::of_call( { root => $root, jobs => 1, coverage => 'file' } );
+    my $result     = Test::Mutation::Runner::run( $config, sub (@) { return } );
+    my %arithmetic = map { $_->{mutant}->path => [ $_->{status}, $_->{reason} ] }
+      grep { $_->{mutant}->mutator eq 'arithmetic' } $result->entries->@*;
+    is \%arithmetic, { 'lib/Small.pm' => [ 'NoVerdict', 'outside-copy' ], 'lib/Zed.pm' => [ 'Killed', undef ] },
+      'a missing baseline observation prevents a kill for one source while a later source still measures';
+    $program =~ s/require \$ENV\{FIXTURE_ORIGINAL\};/require( Cwd::getcwd() . '\/lib\/Small.pm' );/;
+    write_file( "$root/t/both.t", $program );
+    $result = Test::Mutation::Runner::run( $config, sub (@) { return } );
+    is [
+        map  { $_->{status} }
+        grep { $_->{mutant}->path eq 'lib/Zed.pm' && $_->{mutant}->mutator eq 'arithmetic' } $result->entries->@*
+      ],
+      ['Killed'], 'a bypassed target cannot hide the next target in the same test';
+};
+
+subtest 'an unavailable observation cannot yield a detected or surviving mutant' => sub {
+    my %during = (
+        'outside-copy' => 'require $ENV{FIXTURE_ORIGINAL};',
+        'shim-error'   => 'my $body = $spec =~ s/[.]spec\z/.pm/r; unlink $body or die $!; require Small;',
+        'no-record'    => <<'PERL',
+require Small;
+my $dir = $ENV{"TEST_MUTATION_RECORD_G$generation"};
+opendir my $entries, $dir or die $!;
+unlink "$dir/$_" or die $! for grep { /[.]rec\z/ } readdir $entries;
+closedir $entries or die $!;
+PERL
+    );
+    for my $reason ( sort keys %during ) {
+        my $program = <<'PERL';
+use strict;
+use warnings;
+use Test::More tests => 1;
+my $generation = $ENV{TEST_MUTATION_GENERATION};
+my $spec = $ENV{"TEST_MUTATION_SPEC_G$generation"};
+if ($spec =~ m{/mutants/}) { ACTION } else { require Small }
+is Small::next_one(2), 3, 'the increment';
+PERL
+        $program =~ s/ACTION/$during{$reason}/;
+        my $root = project( 'lib/Small.pm' => $module, 't/small.t' => $program );
+        local $ENV{FIXTURE_ORIGINAL} = "$root/lib/Small.pm";
+        is of_status( measured( $root, coverage => 'file' ), 'lib/Small.pm', 'NoVerdict' ),
+          ["NoVerdict $reason"], "the report explains $reason";
+    }
+};
+
 # A mutant that leaves a file in the project, which breaks another test from then on.
 my $plain = $module =~ s/ ## no mutate//r;
 my $writer =
@@ -182,6 +250,24 @@ is of_status(
     is measured( project( 'lib/Small.pm' => $module, 't/small.t' => $test ) ),
       { 'lib/Small.pm' => [ 'Ignored suppressed', 'Pending interrupted' ] }, 'a signal before the mutants';
 }
+
+subtest 'a test that skips the target needs no syntax check' => sub {
+    my $source = "package Small;\nsub size { return \$_[0] + 1 }\n1;\n";
+    my $root   = project( 'lib/Small.pm' => $source, 't/skip.t' => <<'TEST' );
+use Test::More tests => 1;
+my $generation = $ENV{TEST_MUTATION_GENERATION};
+if ( $ENV{"TEST_MUTATION_SPEC_G$generation"} !~ m{/mutants/} ) {
+    require Small;
+    is Small::size(2), 3, 'the original reaches the addition';
+}
+else { pass('a task without a target load') }
+TEST
+    my $config   = Test::Mutation::Settings::of_call( { root => $root, jobs => 1, equivalence => 0 } );
+    my $measured = Test::Mutation::Runner::run( $config, sub (@) { return } );
+    my ($entry)  = grep { $_->{mutant}->mutator eq 'arithmetic' } $measured->entries->@*;
+    is [ $entry->@{qw(status reason)} ], [ 'NoCoverage', 'not-loaded' ], 'the task never loaded the mutant';
+    is $measured->stats->{compiles},     0, 'the driver only compiles a target when its load failed';
+};
 
 # A test that reached the line in the unmodified run and never loaded the mutant.
 is decided( outcome( served => 0 ) ), ['NoCoverage not-loaded'], 'a test that never loads the mutant';

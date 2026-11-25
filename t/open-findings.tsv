@@ -84,8 +84,6 @@ engine-zoo	files=mkdir-out: I7 the run gives Killed where the truth gives Surviv
 engine-zoo	files=same-size-rewrite: I6 the verdicts deviate without a warning or a reason	the tree signature of the workspace
 engine-zoo	files=same-size-rewrite: I7 the run gives Killed where the truth gives Survived	the tree signature of the workspace
 engine-zoo	loading=absolute-copy: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the placement of a mutant in the copy
-engine-zoo	loading=absolute-original: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
-engine-zoo	loading=absolute-original: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the placement of a mutant in the copy
 engine-zoo	loading=cleared-env: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
 engine-zoo	loading=cleared-env: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the placement of a mutant in the copy
 engine-zoo	loading=cleared-perl5lib: the unmodified run fails	the launch of a test command
@@ -101,11 +99,8 @@ engine-zoo	loading=perl-x: I8 the run gives NoCoverage where the reference style
 engine-zoo	loading=system-perl: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the placement of a mutant in the copy
 engine-zoo	loading=taint-child: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
 engine-zoo	loading=taint-child: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the placement of a mutant in the copy
-engine-zoo	path=path-glob: I6 the verdicts deviate without a warning or a reason	the records without a pattern over the path of a project
-engine-zoo	path=path-glob: I7 the run gives NoCoverage where the truth gives Killed and Survived	the records without a pattern over the path of a project
 engine-zoo	path=path-quote: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
 engine-zoo	path=path-quote: I7 the run gives Survived where the truth gives NoCoverage	the witness that a target writes for itself
-engine-zoo	path=path-space: the run exits with status 5	the records without a pattern over the path of a project
 engine-zoo	process: I2 a process outlives the run: the child of t/child-leaves-group.t that left the process group	the workspace that owns every resource of a run
 engine-zoo	process: I2 a process outlives the run: the daemon of t/daemonize.t	the workspace that owns every resource of a run
 engine-zoo	suite=inc-assert: the unmodified run fails	the placement of a mutant in the copy
@@ -121,14 +116,10 @@ engine-zoo-full	in the project, files=remove-file: I4 the project changed: remov
 engine-zoo-full	in the project, files=same-size-rewrite: I4 the project changed: changed data/table.txt	the limits that a run in the project states for itself
 engine-zoo-full	in the project, files=write-file: I4 the project changed: created out	the limits that a run in the project states for itself
 engine-zoo-full	in the project, files=write-file: I4 the project changed: created out/written.txt	the limits that a run in the project states for itself
-records	the record table parses the kind error into errors, and the runner never reads errors	the closed record vocabulary and its evidence
-records	the shim writes the kind end, and the record table drops it	the closed record vocabulary and its evidence
+engine-zoo-full	in the project, loading=absolute-original: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the limits that a run in the project states for itself
 contract-reason-reasons	no case gives the reason CompileError parse	the kinds of compile error, which tell a mutant whose code dies at compile time from invalid code
 contract-reason-reasons	no case gives the reason NoVerdict build-copy-not-updated	the build of a distribution in the copy
 contract-reason-reasons	no case gives the reason NoVerdict conflicting-test	the recheck of a failure beside another run of the same test
-contract-reason-reasons	no case gives the reason NoVerdict no-record	the closed record vocabulary and its evidence
-contract-reason-reasons	no case gives the reason NoVerdict outside-copy	the closed record vocabulary and its evidence
-contract-reason-reasons	no case gives the reason NoVerdict shim-error	the closed record vocabulary and its evidence
 contract-reason-reasons	no case gives the reason NoVerdict slot-not-restored	the workspace outside the project
 contract-progress-sum-progress	the counts of a line sum to less than its position; lengths 1 2 3 4; streams log terminal	the progress display
 contract-progress-final-progress	the last line states another count than the result; statuses Ignored Pending; streams log terminal	the progress display

@@ -1,44 +1,58 @@
 package Test::Mutation::Record;
 use v5.36;
-use Types::Standard qw(ArrayRef Bool Dict HashRef Str);
+use Types::Standard qw(ArrayRef Str);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Error;
+use Test::Mutation::Types qw(TaskRecord);
 
 our $VERSION = '0.001';
 
-my $LINES  = HashRef [Bool];
-my $RECORD = Dict [
-    served      => HashRef [ Dict [ traced => Bool, hits => $LINES ] ],
-    compiled    => HashRef [Bool],
-    load_failed => HashRef [Bool],
-    bypassed    => HashRef [Bool],
-    breakable   => HashRef [$LINES],
-    errors      => ArrayRef [Str],
-];
-
 my %APPLY = (
-    served => sub ( $record, $traced, $path, $value ) {
+    begin => sub ( $record, $trace, $path, $value ) {
+        ${$trace} = $path ? 1 : 0;
+        $record->{begun}++;
+        return;
+    },
+    end => sub ( $record, $trace, $path, $value ) {
+        $record->{ended}++;
+        return;
+    },
+    seen => sub ( $record, $trace, $path, $value ) {
         my $file = _served( $record, $path );
-        $file->{traced} = 0 if !$traced;
+        $file->{traced} = 0 if !${$trace};
+        if ( !length $value ) {
+            $record->{compiled}{$path} = 1;
+        }
+        elsif ( $value eq 'failed' ) {
+            $record->{load_failed}{$path} = 1;
+        }
+        elsif ( $value ne 'opened' ) {
+            push $record->{errors}->@*, "$path: unknown load stage $value";
+        }
+        return;
+    },
+    blind => sub ( $record, $trace, $path, $value ) {
+        _served( $record, $path )->{traced} = 0;
+        $record->{compiled}{$path} = 1;
         return;
     },
     hit => sub ( $record, $traced, $path, $value ) {
-        _served( $record, $path )->{hits}{$value} = 1 if length $value;
+        if ( $value !~ /\A[1-9][0-9]*\z/ ) {
+            push $record->{errors}->@*, "$path: invalid hit line";
+            return;
+        }
+        _served( $record, $path )->{hits}{$value} = 1;
         return;
     },
     lines => sub ( $record, $traced, $path, $value ) {
         $record->{breakable}{$path}{$_} = 1 for grep { length } split /,/, $value;
         return;
     },
-    compiled => sub ( $record, $traced, $path, $value ) {
-        $record->{compiled}{$path} = 1;
+    outside => sub ( $record, $traced, $path, $value ) {
+        $record->{outside}{$path} = 1;
         return;
     },
-    loadfail => sub ( $record, $traced, $path, $value ) {
-        $record->{load_failed}{$path} = 1;
-        return;
-    },
-    bypass => sub ( $record, $traced, $path, $value ) {
+    around => sub ( $record, $traced, $path, $value ) {
         $record->{bypassed}{$path} = 1;
         return;
     },
@@ -48,21 +62,35 @@ my %APPLY = (
     },
 );
 
-signature_for parse => ( positional => [ ArrayRef [Str] ], returns => $RECORD );
+signature_for parse => ( positional => [ ArrayRef [Str] ], returns => TaskRecord );
 
 sub parse ($texts) {
-    my %record = ( served => {}, compiled => {}, load_failed => {}, bypassed => {}, breakable => {}, errors => [] );
+    my %record = (
+        begun       => 0,
+        ended       => 0,
+        served      => {},
+        compiled    => {},
+        load_failed => {},
+        bypassed    => {},
+        outside     => {},
+        breakable   => {},
+        errors      => []
+    );
     for my $text ( $texts->@* ) {
         my $traced = 0;
         for my $line ( split /\n/, $text ) {
             my ( $kind, $path, $value ) = split /\t/, $line, 3;
-            next if !defined $kind || !defined $path;
-            if ( $kind eq 'begin' ) {
-                $traced = $path ? 1 : 0;
+            next if !defined $kind;
+            my $apply = $APPLY{$kind};
+            if ( !$apply ) {
+                push $record{errors}->@*, "unknown record kind $kind";
                 next;
             }
-            my $apply = $APPLY{$kind} or next;
-            $apply->( \%record, $traced, $path, defined $value ? $value : q{} );
+            if ( !defined $path || !length $path ) {
+                push $record{errors}->@*, "missing field for record kind $kind";
+                next;
+            }
+            $apply->( \%record, \$traced, $path, defined $value ? $value : q{} );
         }
     }
     return \%record;
@@ -74,11 +102,16 @@ sub _served ( $record, $path ) {
     return $served->{$path};
 }
 
-signature_for read_directory => ( positional => [Str], returns => $RECORD );
+signature_for read_directory => ( positional => [Str], returns => TaskRecord );
 
 sub read_directory ($directory) {
     my @texts;
-    for my $path ( sort glob "$directory/*.rec" ) {
+    opendir my $entries, $directory
+      or Test::Mutation::Error::raise( 'directory-unopenable', path => $directory, reason => "$!" );
+    my @names = sort grep { /[.]rec\z/ } readdir $entries;
+    closedir $entries or Test::Mutation::Error::raise( 'file-unclosable', path => $directory, reason => "$!" );
+    for my $name (@names) {
+        my $path = "$directory/$name";
         open my $handle, '<:raw', $path
           or Test::Mutation::Error::raise( 'file-unreadable', path => $path, reason => "$!" );
         local $/ = undef;
@@ -109,11 +142,13 @@ Test::Mutation::Record - read what the shim recorded about one test run
 Folds the texts of the record files of one test run into one record.
 C<served> maps each target that the hook served to its trace state and the lines that ran.
 A target counts as traced when every process that loaded it was tracing.
-C<compiled>, C<load_failed>, and C<bypassed> name the targets with those events.
+C<begun> and C<ended> count process starts and endings across the record files.
+C<compiled>, C<load_failed>, C<bypassed>, and C<outside> name the targets with those observations.
+C<errors> preserves diagnostics from the shim and the record decoder.
 C<breakable> maps a target to the lines that hold a runtime statement.
 
 =head2 read_directory
 
-Reads every record file in a directory and parses them.
+Reads the files whose names end in C<.rec> in the given directory in filename order.
 
 =cut

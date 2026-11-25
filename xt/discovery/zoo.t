@@ -91,6 +91,31 @@ subtest 'the comparison of two members rejects a lost kill and a silent one' => 
         'I6 the verdicts deviate without a warning or a reason'
       ],
       'a member without a mutant';
+
+    my $outside = sub ($observed) {
+        return [
+            findings(
+                ['I8'],
+                run             => $observed,
+                member          => $member{require},
+                reference       => $member{use},
+                expected_reason => 'outside-copy'
+            )
+        ];
+    };
+    my $escaped = $run->('NoVerdict');
+    $escaped->{reason}{b} = 'outside-copy';
+    is $outside->($escaped), [], 'a hard-coded source path reports that the test escaped its copy';
+    $escaped->{reason}{b} = 'no-record';
+    ok scalar $outside->($escaped)->@*,           'a different cause cannot stand for an outside load';
+    ok scalar $outside->( $run->('Killed') )->@*, 'a test that ran the original source cannot kill a mutant';
+    ok scalar $outside->($absent)->@*,            'every mutant in the reference cells is still required';
+    my $completed = { baseline_failures => [], exit => 4, reported => 1 };
+    is [ findings( ['completes'], run => $completed, expected_exit => 4 ) ], [],
+      'outside the copy the run reports an inconclusive outcome';
+    $completed->{exit} = 0;
+    is [ findings( ['completes'], run => $completed, expected_exit => 4 ) ], ['the run exits with status 0'],
+      'a successful gate cannot hide an inconclusive run';
 };
 
 # prove is the oracle of the unmodified run: every member passes there, in a copy that its tests may change.
@@ -131,9 +156,10 @@ sub together ( $axis, $members, %more ) {
         @names = grep { !$failing{$_} } @names;
     }
     my $reference = $built->{$plain} or die "the plain member of $axis fails without a mutant\n";
+    my $outside   = $built->{'absolute-original'} && !$more{in_place};
     my @found     = (
         ( map { "$axis=$_: the unmodified run fails" } @failed ),
-        ( map { "$axis: $_" } findings( [ @run, 'I1' ], run => $run ) ),
+        ( map { "$axis: $_" } findings( [ @run, 'I1' ], run => $run, expected_exit => $outside ? 4 : 0 ) ),
         findings( ['I5'], run => $run ),
         ( map { "$axis=$plain: $_" } findings( ['I7'], run => $run, member => $reference, @truth ) ),
     );
@@ -142,6 +168,7 @@ sub together ( $axis, $members, %more ) {
 
         # A member whose behavior turns the statuses has a truth of its own, and no other member shows it.
         my @compared = $member->{turns}->%* ? @truth : ( reference => $reference );
+        push @compared, expected_reason => 'outside-copy' if $outside && $name eq 'absolute-original';
         push @found,
           map { "$axis=$name: $_" }
           findings( [ ( $member->{turns}->%* ? 'I7' : 'I8' ), 'I6' ], run => $run, member => $member, @compared );

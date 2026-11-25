@@ -41,7 +41,8 @@ sub read_spec {
         next if !length $line;
         my ( $key, @fields ) = split /\t/, $line, -1;
         if ( $key eq 'target' ) {
-            push @{ $spec{targets} }, { original => $fields[0], serve => $fields[1] };
+            push @{ $spec{targets} },
+              { original => $fields[0], serve => $fields[1], defined $fields[2] ? ( outside => $fields[2] ) : () };
         }
         else {
             $spec{$key} = $fields[0];
@@ -61,6 +62,11 @@ sub activate {
         my @stat = stat $target->{original};
         $target->{device} = $stat[0];
         $target->{inode}  = $stat[1];
+        if ( defined $target->{outside} ) {
+            my @outside = stat $target->{outside};
+            $target->{outside_device} = $outside[0];
+            $target->{outside_inode}  = $outside[1];
+        }
         push @{ $by_base{ _basename( $target->{original} ) } }, $target;
     }
 
@@ -72,13 +78,14 @@ sub activate {
         by_base     => \%by_base,
         by_path     => {},
         record_dir  => scalar _untainted($record_dir),
-        pid         => $$,
     );
 
     my $hook = sub { return _serve(@_) };
     unshift @INC, $hook;
     _keep_hook_first($hook);
     $STATE{trace} = _install_tracer() if $spec->{trace};
+    $STATE{blind} = $spec->{trace} && !$STATE{trace};
+    _record_handle();
     return;
 }
 
@@ -145,9 +152,20 @@ sub _serve {
     my ( undef, $file ) = @_;
     _trace_compile(0) if $STATE{trace};
 
-    my $candidates = $STATE{by_base}{ _basename($file) }     or return;
-    my $path       = _resolve($file)                         or return;
-    my $target     = _target_at( $path, $file, $candidates ) or return;
+    my $candidates = $STATE{by_base}{ _basename($file) } or return;
+    my $path       = _resolve($file)                     or return;
+    my @actual     = stat $path;
+    for my $target ( @{$candidates} ) {
+        if (   defined $target->{outside_inode}
+            && @actual
+            && $actual[1] == $target->{outside_inode}
+            && $actual[0] == $target->{outside_device} )
+        {
+            _record( 'outside', $target->{original} );
+            return;
+        }
+    }
+    my $target = _target_at( $path, $file, $candidates ) or return;
 
     open my $handle, '<', $target->{serve} or do {    ## no critic (InputOutput::RequireBriefOpen)
         _record( 'error', $target->{original}, "cannot open $target->{serve}: $!" );
@@ -157,7 +175,7 @@ sub _serve {
     $target->{file}         = $file;
     $target->{logical_path} = $path;
     $STATE{by_path}{$path}  = $target;
-    _record( 'served', $target->{original} );
+    _record( 'seen', $target->{original}, 'opened' );
 
     $INC{$file} = $path;                              ## no critic (Variables::RequireLocalizedPunctuationVars)
         # Code in package DB compiles without trace points, so the block adds no hit to the first line of the file.
@@ -179,7 +197,12 @@ sub _serve {
 sub mark_compiled {
     my ($index) = @_;
     my $target = $STATE{targets}[$index] or return;
-    _record( 'compiled', $target->{original} );
+    if ( $STATE{blind} ) {
+        _record( 'blind', $target->{original} );
+    }
+    else {
+        _record( 'seen', $target->{original} );
+    }
     return;
 }
 
@@ -237,19 +260,27 @@ sub _define_dispatcher {
     return;
 }
 
+sub _record_handle {
+    my $dir = $STATE{record_dir};
+    return                       if !defined $dir;
+    return $STATE{record_handle} if defined $STATE{pid} && $STATE{pid} == $$;
+    $STATE{pid} = $$;
+    delete $STATE{record_handle};
+    my $name = "$dir/$$.rec";
+    open my $handle, '>>:raw', $name or do {    ## no critic (InputOutput::RequireBriefOpen)
+        warn "mutation: cannot open record $name: $!\n";
+        return;
+    };
+    syswrite $handle, "begin\t$STATE{trace}\n";
+    return $STATE{record_handle} = $handle;
+}
+
 sub _record {
     my (@fields) = @_;
-    my $dir = $STATE{record_dir};
-    return if !defined $dir;
-    if ( !$STATE{record_handle} ) {
-        my $name = sprintf '%s/%d-%d-%d.rec', $dir, $STATE{pid}, time, int rand 1_000_000_000;
-        open my $handle, '>>', $name or return;    ## no critic (InputOutput::RequireBriefOpen)
-        $STATE{record_handle} = $handle;
-        syswrite $handle, "begin\t$STATE{trace}\n";
-    }
-    my @clean = @fields;
+    my $handle   = _record_handle() or return;
+    my @clean    = @fields;
     tr/\t\n/  / for @clean;
-    syswrite $STATE{record_handle}, join( "\t", @clean ) . "\n";
+    syswrite $handle, join( "\t", @clean ) . "\n";
     return;
 }
 
@@ -267,11 +298,12 @@ sub _breakable_lines {
 }
 
 sub _loaded_from_disk {
-    my ($target) = @_;
+    my ( $target, $device, $inode ) = @_;
+    return 0 if !defined $inode;
     for my $path ( grep { defined && !ref } values(%INC), $0 ) {
         next if _basename($path) ne _basename( $target->{original} );
         my @stat = stat $path or next;
-        return 1 if $stat[1] == $target->{inode} && $stat[0] == $target->{device};
+        return 1 if $stat[1] == $inode && $stat[0] == $device;
     }
     return 0;
 }
@@ -279,12 +311,14 @@ sub _loaded_from_disk {
 sub finish {
     return if !$STATE{active};
     for my $target ( @{ $STATE{targets} } ) {
+        _record( 'outside', $target->{original} )
+          if _loaded_from_disk( $target, $target->{outside_device}, $target->{outside_inode} );
         if ( !$target->{served} ) {
-            _record( 'bypass', $target->{original} )
-              if defined $target->{inode} && _loaded_from_disk($target);
+            _record( 'around', $target->{original} )
+              if _loaded_from_disk( $target, $target->{device}, $target->{inode} );
             next;
         }
-        _record( 'loadfail', $target->{original} ) if !defined $INC{ $target->{file} };
+        _record( 'seen', $target->{original}, 'failed' ) if !defined $INC{ $target->{file} };
         _record( 'lines', $target->{original}, join q{,}, _breakable_lines( $target->{logical_path} ) )
           if $STATE{trace};
     }
@@ -317,7 +351,11 @@ The module depends on core modules alone and runs on Perl 5.10 and later.
 
 Each process writes tab-separated lines to one file in the record directory.
 C<begin> carries 1 when line tracing is active.
-C<served>, C<compiled>, C<loadfail>, and C<bypass> carry the original path of a target.
+C<seen> names a target that compiled.
+The optional C<opened> and C<failed> fields record opening the source and a failed load.
+C<blind> names a target that compiled without an available line tracer.
+C<around> records loading the target around the hook and C<outside> records loading the project file outside its copy.
+C<error> carries the target and the diagnostic from the shim.
 C<hit> carries a target and a line that ran.
 C<lines> carries a target and the lines that hold a runtime statement.
 C<end> marks a process that reached its C<END> block.

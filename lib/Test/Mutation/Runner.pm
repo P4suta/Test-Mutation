@@ -21,6 +21,7 @@ use Test::Mutation::Mutator::Catalog;
 use Test::Mutation::Pool;
 use Test::Mutation::Project;
 use Test::Mutation::Record;
+use Test::Mutation::Evidence;
 use Test::Mutation::Result;
 use Test::Mutation::Signals;
 use Test::Mutation::Source;
@@ -465,9 +466,13 @@ sub _taint_switch ( $run, $test ) {
     return $run->{taint}{$test};
 }
 
-sub _spec ( $run, $name, $trace, $targets ) {
+sub _spec ( $run, $root, $name, $trace, $targets ) {
     my $path  = "$run->{work}/$name.spec";
-    my @lines = ( "trace\t" . ( $trace ? 1 : 0 ), map { join "\t", 'target', $_->@* } $targets->@* );
+    my @lines = ( "trace\t" . ( $trace ? 1 : 0 ) );
+    for my $target ( $targets->@* ) {
+        my @original = $root ne $run->{project} ? $run->{project} . substr( $target->[0], length $root ) : ();
+        push @lines, join "\t", 'target', $target->@*, @original;
+    }
     _spew( $path, join q{}, map { "$_\n" } @lines );
     return $path;
 }
@@ -503,7 +508,7 @@ sub _write_mutant ( $run, $source, $mutant, $root ) {
     my $file = "$run->{work}/mutants/" . $mutant->id . '.pm';
     _spew( $file, $source->to_bytes( $source->replace_span( $mutant->start, $mutant->end, $mutant->replacement ) ) );
     my $targets = target_pairs( $root, $run->{targets} ? $run->{targets} : [], $mutant->path, $file );
-    my $spec    = _spec( $run, 'mutants/' . $mutant->id, 0, $targets );
+    my $spec    = _spec( $run, $root, 'mutants/' . $mutant->id, 0, $targets );
     return ( $file, $spec );
 }
 
@@ -595,7 +600,7 @@ sub _collect ($task) {
 # `counted` names the count of the work that the runs of these tests add to.
 sub _unmodified ( $run, $name, $trace, $jobs, $tests, $counted ) {
     my $root  = $run->{root};
-    my $spec  = _spec( $run, $name, $trace, [ map { [ "$root/$_", "$root/$_" ] } $run->{targets}->@* ] );
+    my $spec  = _spec( $run, $root, $name, $trace, [ map { [ "$root/$_", "$root/$_" ] } $run->{targets}->@* ] );
     my @queue = $tests->@*;
     my %outcome;
     Test::Mutation::Pool::run(
@@ -645,16 +650,23 @@ sub _baseline ( $run, $tests, $targets ) {
     my ( %tests, %breakable );
     for my $test ( $tests->@* ) {
         my ( $result, $record ) = $outcome->{$test}->@{qw(result record)};
-        my %files;
+        my ( %files, %anomalies );
         for my $path ( $targets->@* ) {
             my $absolute = "$root/$path";
-            $files{$path} = $record->{served}{$absolute} if $record->{served}{$absolute};
-            my $lines = $record->{breakable}{$absolute};
+            my $evidence = Test::Mutation::Evidence::target( $record, $absolute );
+            $files{$path} = $evidence->{coverage} if $evidence->{coverage};
+            my $lines = $evidence->{breakable};
             $breakable{$path} = { ( $breakable{$path} ? $breakable{$path}->%* : () ), $lines->%* } if $lines;
-            _warn( $run, Test::Mutation::Message::warning( 'loaded-around-hook', test => $test, path => $path ) )
-              if $record->{bypassed}{$absolute};
+            my $anomaly = $evidence->{anomaly} or next;
+            if ( $anomaly->{reason} eq 'loaded-around-hook' ) {
+                _warn( $run, Test::Mutation::Message::warning( 'loaded-around-hook', test => $test, path => $path ) );
+                next;
+            }
+            $anomalies{$path} = $anomaly;
+            $files{$path}     = { traced => 0, hits => {} };
         }
-        $tests{$test} = { duration => $result->{duration}, files => \%files, early => $result->{early} };
+        $tests{$test} =
+          { duration => $result->{duration}, files => \%files, early => $result->{early}, anomalies => \%anomalies };
     }
     return {
         tests         => \%tests,
@@ -935,17 +947,22 @@ sub _after_test ( $run, $task, $result ) {
     my $job      = $payload->{job};
     my $path     = $job->{mutant}->path;
     my $absolute = _job_root( $run, $job ) . "/$path";
-    my $record   = _collect($task);
+    my $evidence = Test::Mutation::Evidence::target( _collect($task), $absolute );
     $job->{duration} += $result->{duration};
     $job->{outcome} = {
         test        => $payload->{test},
         result      => _ending($result),
-        served      => $record->{served}{$absolute}                                         ? 1 : 0,
-        load_failed => $record->{load_failed}{$absolute} || !$record->{compiled}{$absolute} ? 1 : 0,
-        bypassed    => $record->{bypassed}{$absolute}                                       ? 1 : 0,
+        served      => $evidence->{coverage} ? 1 : 0,
+        load_failed => $evidence->{load_failed},
+        bypassed    => 0,
+        anomaly     => $evidence->{anomaly} || $payload->{baseline_anomaly},
         syntax      => $job->{syntax},
     };
-    return if !$job->{outcome}{served} || !$job->{outcome}{load_failed} || defined $job->{syntax};
+    return
+         if $job->{outcome}{anomaly}
+      || !$job->{outcome}{served}
+      || !$job->{outcome}{load_failed}
+      || defined $job->{syntax};
 
     my $known = $run->{syntax_of_original}{$path};
     return _compile_task( $run, $job, 'syntax-original', "$run->{root}/$path", '-c' ) if !defined $known;
@@ -977,6 +994,7 @@ sub _next_test ( $run, $job, $baseline ) {
           _write_mutant( $run, $run->{sources}{ $mutant->path }, $mutant, _job_root( $run, $job ) );
     }
     my $test     = $job->{tests}[ $job->{index} ];
+    my $anomaly  = $baseline->{tests}{$test}{anomalies}{ $mutant->path };
     my $duration = $baseline->{tests}{$test}{duration} * $config->timeout_factor;
     return _test_task(
         $run,
@@ -985,7 +1003,7 @@ sub _next_test ( $run, $job, $baseline ) {
         spec            => $job->{spec},
         timeout         => List::Util::max( $duration, $config->timeout_floor ),
         stop_on_failure => $baseline->{tests}{$test}{early} ? 0 : 1,
-        payload         => { kind => 'test', job => $job },
+        payload         => { kind => 'test', job => $job, $anomaly ? ( baseline_anomaly => $anomaly ) : () },
     );
 }
 

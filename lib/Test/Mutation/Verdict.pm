@@ -1,6 +1,6 @@
 package Test::Mutation::Verdict;
 use v5.36;
-use Types::Standard qw(Bool Dict Enum Int Maybe Str);
+use Types::Standard qw(Bool Dict Enum Int Maybe Optional Str);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Message;
 use Test::Mutation::Status;
@@ -33,6 +33,7 @@ my $OUTCOME = Dict [
     served      => Bool,
     load_failed => Bool,
     bypassed    => Bool,
+    anomaly     => Optional [ Maybe [ Dict [ reason => Reason, detail => Str ] ] ],
     syntax      => Maybe [ Enum [ 'ok', Test::Mutation::Status::of('CompileError')->reasons->@* ] ],
 ];
 my %COMPILE_DETAIL = (
@@ -65,6 +66,7 @@ sub step ( $state, $outcome ) {
         return { %next, status => $status, reason => $reason, by => $test, detail => $detail, waiting => undef };
     };
 
+    return $decide->( 'NoVerdict', $outcome->{anomaly}->@{qw(reason detail)} ) if $outcome->{anomaly};
     return $decide->( 'NoVerdict', 'loaded-around-hook', "$test loaded the target without the hook" )
       if $outcome->{bypassed};
     my $limit = limit( $outcome->{result} );

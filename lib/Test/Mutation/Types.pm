@@ -2,7 +2,7 @@ package Test::Mutation::Types;
 use v5.36;
 use Type::Library -base,
   -declare =>
-  qw(Analysis Directive Dropped Entry Facts Heredoc Names PathSelection Reason Refusal Rejected StatusName Suppression);
+  qw(Analysis Directive Dropped Entry Facts Heredoc Names PathSelection Reason Refusal Rejected StatusName Suppression TaskRecord);
 use Type::Utils     qw(as declare where);
 use Types::Standard qw(ArrayRef Bool Dict Enum HashRef InstanceOf Int Maybe Num Optional Str StrMatch Tuple);
 use Test::Mutation::Status;
@@ -14,6 +14,18 @@ declare PathSelection, as HashRef [ ArrayRef [ Tuple [ Int, Int ] ] ];
 declare StatusName, as Enum [ Test::Mutation::Status::names()->@* ];
 
 declare Reason, as Enum [ map { $_->reasons->@* } Test::Mutation::Status::rows()->@* ];
+declare TaskRecord,
+  as Dict [
+    begun       => Int,
+    ended       => Int,
+    served      => HashRef [ Dict [ traced => Bool, hits => HashRef [Bool] ] ],
+    compiled    => HashRef [Bool],
+    load_failed => HashRef [Bool],
+    bypassed    => HashRef [Bool],
+    outside     => HashRef [Bool],
+    breakable   => HashRef [ HashRef [Bool] ],
+    errors      => ArrayRef [Str],
+  ];
 
 declare Entry,
   as Dict [
@@ -112,6 +124,8 @@ Test::Mutation::Types - the types that the analysis and its readers share
 
 The analysis of a source file and the generator of mutants agree on one shape of the result.
 A type that two modules name lives here, so a change of the shape reaches both.
+
+C<TaskRecord> holds process starts and endings, target observations, and diagnostics for one test invocation.
 
 C<Facts> holds what the analysis learned about a site beyond its text: the number on the right of an operator,
 the version in a comparison with C<$]>, the kind of the operand of a match, the keyword of a condition,

@@ -11,12 +11,12 @@ subtest 'a traced process' => sub {
     my $record = Test::Mutation::Record::parse(
         [
             lines(
-                [ 'begin',  1 ],
-                [ 'served', '/p/lib/A.pm' ],
-                [ 'hit',    '/p/lib/A.pm', 3 ],
-                [ 'hit',    '/p/lib/A.pm', 7 ],
-                [ 'lines',  '/p/lib/A.pm', '3,5,7' ],
-                [ 'end',    4242 ],
+                [ 'begin', 1 ],
+                [ 'seen',  '/p/lib/A.pm', 'opened' ],
+                [ 'hit',   '/p/lib/A.pm', 3 ],
+                [ 'hit',   '/p/lib/A.pm', 7 ],
+                [ 'lines', '/p/lib/A.pm', '3,5,7' ],
+                [ 'end',   4242 ],
             )
         ]
     );
@@ -30,12 +30,12 @@ subtest 'load failures, bypasses, and errors' => sub {
     my $record = Test::Mutation::Record::parse(
         [
             lines(
-                [ 'begin',    0 ],
-                [ 'served',   '/p/A.pm' ],
-                [ 'loadfail', '/p/A.pm' ],
-                [ 'bypass',   '/p/B.pm' ],
-                [ 'error',    '/p/C.pm', 'cannot open' ],
-                [ 'error',    '/p/D.pm', 'cannot read' ],
+                [ 'begin',  0 ],
+                [ 'seen',   '/p/A.pm', 'opened' ],
+                [ 'seen',   '/p/A.pm', 'failed' ],
+                [ 'around', '/p/B.pm' ],
+                [ 'error',  '/p/C.pm', 'cannot open' ],
+                [ 'error',  '/p/D.pm', 'cannot read' ],
             )
         ]
     );
@@ -46,9 +46,9 @@ subtest 'load failures, bypasses, and errors' => sub {
 };
 
 subtest 'several processes of one test run' => sub {
-    my $traced   = lines( [ 'begin', 1 ], [ 'served', '/p/A.pm' ], [ 'hit', '/p/A.pm', 2 ] );
-    my $untraced = lines( [ 'begin', 0 ], [ 'served', '/p/A.pm' ] );
-    my $other    = lines( [ 'begin', 1 ], [ 'served', '/p/B.pm' ], [ 'hit', '/p/B.pm', 9 ] );
+    my $traced   = lines( [ 'begin', 1 ], [ 'seen', '/p/A.pm', 'opened' ], [ 'hit', '/p/A.pm', 2 ] );
+    my $untraced = lines( [ 'begin', 0 ], [ 'seen', '/p/A.pm', 'opened' ] );
+    my $other    = lines( [ 'begin', 1 ], [ 'seen', '/p/B.pm', 'opened' ], [ 'hit', '/p/B.pm', 9 ] );
     is Test::Mutation::Record::parse( [ $traced, $other ] )->{served},
       { '/p/A.pm' => { traced => 1, hits => { 2 => 1 } }, '/p/B.pm' => { traced => 1, hits => { 9 => 1 } } },
       'files of different processes are merged';
@@ -58,29 +58,52 @@ subtest 'several processes of one test run' => sub {
     is Test::Mutation::Record::parse( [ $untraced, $traced ] )->{served}{'/p/A.pm'}{traced}, 0, 'whatever the order';
 };
 
-subtest 'unknown and malformed lines are ignored' => sub {
-    my $record = Test::Mutation::Record::parse( ["begin\t1\nmystery\t/p/A.pm\nserved\n\nhit\t/p/A.pm\n"] );
-    is $record, { served => {}, compiled => {}, load_failed => {}, bypassed => {}, breakable => {}, errors => [] },
-      'an unknown kind, a line without a path, and a hit without a line number leave nothing';
+subtest 'unknown and malformed records leave a diagnostic' => sub {
+    my $record = Test::Mutation::Record::parse( ["begin\t1\nmystery\t/p/A.pm\nseen\n\nhit\t/p/A.pm\n"] );
+    is $record->{errors},
+      [ 'unknown record kind mystery', 'missing field for record kind seen', '/p/A.pm: invalid hit line' ],
+      'unknown kinds, missing paths, and missing line numbers each retain their diagnostic';
+    is $record->{served},                             {}, 'malformed records do not establish coverage';
     is Test::Mutation::Record::parse( [] )->{served}, {}, 'no record files';
 
     my $after =
-      Test::Mutation::Record::parse( ["begin\t1\nserved\nbypass\t/p/A.pm\nmystery\t/p/B.pm\nloadfail\t/p/C.pm\n"] );
+      Test::Mutation::Record::parse( ["begin\t1\nseen\naround\t/p/A.pm\nmystery\t/p/B.pm\nseen\t/p/C.pm\tfailed\n"] );
     is [ $after->{bypassed}, $after->{load_failed} ], [ { '/p/A.pm' => 1 }, { '/p/C.pm' => 1 } ],
       'the lines after a malformed line and after an unknown kind still count';
+    my $stages = Test::Mutation::Record::parse(
+        ["begin\t1\nerror\t/p/B.pm\tfirst\nseen\t/p/A.pm\twaiting\nmisspelt\tpath\nseen\t\topened\n"] );
+    is $stages->{errors},
+      [
+        '/p/B.pm: first',
+        '/p/A.pm: unknown load stage waiting',
+        'unknown record kind misspelt',
+        'missing field for record kind seen'
+      ],
+      'errors retain wire order and an empty path supplies no target';
+    like dies { Test::Mutation::Record::parse( [ {} ] ) }, qr/Str/, 'each process stream must be a string';
+    like dies { Test::Mutation::Record::read_directory( File::Temp->newdir ) }, qr/Str/,
+      'a directory must be a path string';
 };
 
 subtest 'a compiled line marks a target that compiled' => sub {
     my $record = Test::Mutation::Record::parse(
-        [ lines( [ 'begin', 0 ], [ 'served', '/p/A.pm' ], [ 'compiled', '/p/A.pm' ], [ 'served', '/p/B.pm' ] ) ] );
+        [
+            lines(
+                [ 'begin', 0 ],
+                [ 'seen',  '/p/A.pm', 'opened' ],
+                [ 'seen',  '/p/A.pm' ],
+                [ 'seen',  '/p/B.pm', 'opened' ]
+            )
+        ]
+    );
     is $record->{compiled}, { '/p/A.pm' => 1 }, 'the compiled target, without the one that failed';
 };
 
 subtest 'read_directory reads every record file' => sub {
     my $directory = File::Temp::tempdir( CLEANUP => 1 );
     for my $file (
-        [ 'one.rec',  lines( [ 'begin', 1 ], [ 'served', '/p/A.pm' ], [ 'error', '/p/A.pm', 'first' ] ) ],
-        [ 'two.rec',  lines( [ 'begin', 1 ], [ 'bypass', '/p/B.pm' ], [ 'error', '/p/B.pm', 'second' ] ) ],
+        [ 'one.rec',  lines( [ 'begin', 1 ], [ 'seen',   '/p/A.pm', 'opened' ], [ 'error', '/p/A.pm', 'first' ] ) ],
+        [ 'two.rec',  lines( [ 'begin', 1 ], [ 'around', '/p/B.pm' ], [ 'error', '/p/B.pm', 'second' ] ) ],
         [ 'note.txt', 'served' ]
       )
     {
@@ -92,6 +115,55 @@ subtest 'read_directory reads every record file' => sub {
     is [ sort keys $record->{served}->%* ],   ['/p/A.pm'],         'served';
     is [ sort keys $record->{bypassed}->%* ], ['/p/B.pm'],         'bypassed';
     is $record->{errors}, [ '/p/A.pm: first', '/p/B.pm: second' ], 'the errors follow the names of the files';
+};
+
+subtest 'records account for process boundaries and reject unknown kinds' => sub {
+    my $record = Test::Mutation::Record::parse( [ "begin\t1\nseen\t/p/A.pm\nend\t24\n", "begin\t0\n" ] );
+    is [ $record->{begun}, $record->{ended} ], [ 2, 1 ], 'a process can end before the END block';
+    is $record->{compiled}, { '/p/A.pm' => 1 }, 'a witness identifies the target that compiled';
+    is Test::Mutation::Record::parse( ["begin\t0\nmisspelt\t/p/A.pm\n"] )->{errors},
+      ['unknown record kind misspelt'], 'a stream with an unknown kind cannot support a verdict';
+};
+
+like dies { Test::Mutation::Record::read_directory( [] ) }, qr/Str/, 'the record directory must be a path string';
+
+subtest 'the record directory is a literal path' => sub {
+    my $base = File::Temp::tempdir( CLEANUP => 1 );
+    my $path = "$base/records [a]*?";
+    mkdir $path or die "mkdir: $!";
+    open my $handle, '>:raw', "$path/child.rec" or die "open: $!";
+    print {$handle} "begin\t1\noutside\t/p/A.pm\nend\t24\n" or die "write: $!";
+    close $handle                                           or die "close: $!";
+    is Test::Mutation::Record::read_directory($path)->{outside}, { '/p/A.pm' => 1 },
+      'the outside load is read from the directory with spaces and pattern characters';
+};
+
+subtest 'evidence separates a missing observer from an untested target' => sub {
+    require Test::Mutation::Evidence;
+    my $evidence = sub (@streams) {
+        return Test::Mutation::Evidence::target( Test::Mutation::Record::parse( \@streams ), '/p/A.pm' );
+    };
+    is $evidence->()->{anomaly}, { reason => 'no-record', detail => 'the task produced no begin record' },
+      'no process recorded the start of the test';
+    is $evidence->("end\t24\n")->{anomaly},
+      { reason => 'no-record', detail => 'a process ended without a begin record' },
+      'an ending cannot stand for a start';
+    is $evidence->("begin\t0\nend\t24\n")->{anomaly}, undef, 'an observed test can finish without loading the target';
+    is $evidence->("begin\t0\noutside\t/p/B.pm\n")->{anomaly}, undef,
+      'an outside load of another target stays separate';
+    is $evidence->("begin\t0\noutside\t/p/A.pm\n")->{anomaly}{reason}, 'outside-copy', 'the project file was loaded';
+    is $evidence->("begin\t0\naround\t/p/A.pm\n")->{anomaly}{reason},  'loaded-around-hook', 'the hook was bypassed';
+    is $evidence->("begin\t0\nerror\t/p/A.pm\twriter failed\n")->{anomaly}{detail}, '/p/A.pm: writer failed',
+      'the diagnostic survives into the verdict';
+    my $blind = $evidence->("begin\t1\nblind\t/p/A.pm\n");
+    is $blind->{coverage}, { traced => 0, hits => {} }, 'a blind witness proves file coverage';
+    is $blind->{load_failed}, 0, 'the witness ran during compilation';
+    is $evidence->("begin\t1\nseen\t/p/A.pm\topened\n")->{load_failed}, 1,
+      'an opened file still needs a compile witness';
+    is $evidence->("begin\t1\nseen\t/p/A.pm\nseen\t/p/A.pm\tfailed\n")->{load_failed}, 1,
+      'a failed load remains visible after a successful compilation';
+    like dies { Test::Mutation::Evidence::target( Test::Mutation::Record::parse( [] ), [] ) }, qr/Str/,
+      'a target must be a path string';
 };
 
 done_testing;

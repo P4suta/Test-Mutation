@@ -5,6 +5,7 @@ use File::Temp ();
 # A close that fails means lost data or an unread error, so the library checks every close.
 # The override below closes the handle and then reports a failure to the subroutine that the pattern names.
 our $failing;    ## no critic (Variables::ProhibitPackageVars)
+my $fail_directory_close;
 
 BEGIN {
     no warnings 'once';
@@ -12,6 +13,12 @@ BEGIN {
         my $closed = @handle ? CORE::close( $handle[0] ) : CORE::close();
         my $caller = ( caller 1 )[3] || 'main';
         return $closed if !defined $failing || $caller !~ $failing;
+        $! = 5;    ## no critic (Variables::RequireLocalizedPunctuationVars)
+        return !1;
+    };
+    *CORE::GLOBAL::closedir = sub : prototype(*) ($handle) {
+        my $closed = CORE::closedir($handle);
+        return $closed unless $fail_directory_close;
         $! = 5;    ## no critic (Variables::RequireLocalizedPunctuationVars)
         return !1;
     };
@@ -67,11 +74,15 @@ like dies {
     failing_in( qr/::Settings::_file_layer\z/, sub { Test::Mutation::Settings::configure(%plain) } )
 }, qr/\Acannot close mutation[.]toml: /, 'a configuration file that does not close is an error';
 
-my $records = write_file( 'one.rec', "begin\t0\nbypass\t/p/A.pm\n" );
+my $records = write_file( 'one.rec', "begin\t0\naround\t/p/A.pm\n" );
 is Test::Mutation::Record::read_directory($directory)->{bypassed}, { '/p/A.pm' => 1 }, 'the record file is read';
 like dies {
     failing_in( qr/::Record::read_directory\z/, sub { Test::Mutation::Record::read_directory($directory) } )
 }, qr/\Acannot close \Q$records\E: /, 'a record file that does not close is an error';
+$fail_directory_close = 1;
+like dies { Test::Mutation::Record::read_directory($directory) }, qr/\Acannot close \Q$directory\E: /,
+  'a record directory that does not close is an error';
+$fail_directory_close = 0;
 
 is failing_in( qr/::Host::_read\z/, sub { Test::Mutation::Host::processors() } ), { count => 1, source => 'none' },
   'a processor count that does not close counts as no answer';

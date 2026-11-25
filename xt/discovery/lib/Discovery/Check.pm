@@ -65,13 +65,14 @@ sub _unique (@texts) {
     return @unique;
 }
 
-# A project whose tests pass is measured: the run ends on its own, with status 0 and a report.
+# An observed load outside the copy makes a completed run inconclusive.
 sub _completes ($arg) {
-    my $run = $arg->{run};
+    my $run  = $arg->{run};
+    my $exit = defined $arg->{expected_exit} ? $arg->{expected_exit} : 0;
     return 'the run exceeds its deadline'           if $run->{hung};
     return "the run ends by signal $run->{signal}"  if $run->{signal};
     return 'the unmodified run fails'               if $run->{baseline_failures}->@*;
-    return "the run exits with status $run->{exit}" if $run->{exit} != 0;
+    return "the run exits with status $run->{exit}" if $run->{exit} != $exit;
     return 'the run writes no report'               if !$run->{reported};
     return;
 }
@@ -402,6 +403,7 @@ sub _deviations ($arg) {
     # The behavior of a member may turn one status into another: a test that loops on a wrong value times out.
     my $turns = $member->{turns} || {};
     $want{$_} = $turns->{ $want{$_} } for grep { defined $turns->{ $want{$_} } } keys %want;
+    %want = map { $_ => 'NoVerdict' } keys %want if defined $arg->{expected_reason};
     return [
         map  { { want => $want{$_}, id => $cells->{$_} ? $cells->{$_}{id} : undef } }
         grep { !$cells->{$_} || _differs( $want{$_}, $run->{status}{ $cells->{$_}{id} } ) } sort keys %want
@@ -415,8 +417,18 @@ sub _same_under_styles ($arg) {
     my @absent     = grep { !defined $_->{id} } $deviations->@*;
     return 'I8 the run lists no mutant in the cells of the style'
       if @absent && !%{ _cells( $run, $arg->{known}, $arg->{member} ) };
+    my $reason = $arg->{expected_reason};
+    my @wrong;
+    if ( defined $reason ) {
+        my $cells = _cells( $run, $arg->{known}, $arg->{member} );
+        @wrong = grep {
+            my $observed = $run->{reason}{ $_->{id} };
+            !defined $observed || $observed ne $reason
+        } values $cells->%*;
+    }
     return (
         ( @absent ? 'I8 the style lacks a mutant of the reference style' : () ),
+        ( @wrong  ? "I8 the run omits the expected reason $reason"       : () ),
         _changes( $run, $deviations, 'I8 the run', 'the reference style' ),
     );
 }

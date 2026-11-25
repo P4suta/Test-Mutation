@@ -27,6 +27,42 @@ subtest 'an empty line in the spec does not end it' => sub {
     is shim_run($root)->{stdout}, '2', 'the target after the empty line is served';
 };
 
+subtest 'targets keep the optional original pathname' => sub {
+    require Test::Mutation::Shim;
+    my $root = project();
+    write_spec( "$root/spec", targets => [ [ 'a.pm', 'served.pm' ], [ 'b.pm', 'copy.pm', 'project.pm' ] ] );
+    is_deeply Test::Mutation::Shim::read_spec("$root/spec")->{targets},
+      [
+        { original => 'a.pm', serve => 'served.pm' },
+        { original => 'b.pm', serve => 'copy.pm', outside => 'project.pm' },
+      ],
+      'only a target in a copy has an outside pathname';
+};
+
+subtest 'another loader can supply a missing target' => sub {
+    my $root = project();
+    my $path = write_file( "$root/lib/Tracked.pm", module( 'Tracked', 1 ) );
+    write_spec( "$root/spec", targets => [ [ $path, $path ] ] );
+    write_file( "$root/script.pl", <<'PERL' );
+my @resolved;
+my $resolve = \&Test::Mutation::Shim::_resolve;
+{
+    no warnings 'redefine';
+    local *Test::Mutation::Shim::_resolve = sub { push @resolved, $_[0]; return $resolve->(@_) };
+    my $code = "1;\n";
+    push @INC, sub { return unless $_[1] eq 'Missing/Tracked.pm' || $_[1] eq 'UntrackedPlugin.pm';
+        open my $in, '<', \$code or die $!; return $in };
+    require UntrackedPlugin;
+    require Missing::Tracked;
+}
+print join(q{,}, @resolved);
+PERL
+    my $run = shim_run($root);
+    is $run->{status}, 0,                    'both modules reach their loader';
+    is $run->{stdout}, 'Missing/Tracked.pm', 'only a candidate with a matching basename requires a filesystem search';
+    is $run->{stderr}, q{},                  'a candidate without a filesystem path raises no warning';
+};
+
 subtest 'each of several targets keeps its own identity' => sub {
     my $root = project();
     write_file( "$root/lib/$_.pm", module( $_, 1 ) ) for qw(Aa Bb Cc);
@@ -39,9 +75,10 @@ subtest 'each of several targets keeps its own identity' => sub {
     my $run = shim_run($root);
     is $run->{stdout}, '1', 'the program runs';
     my %by_kind;
-    push @{ $by_kind{ $_->[0] } }, $_->[1] for @{ records($root) };
-    is_deeply $by_kind{served},   ["$root/lib/Bb.pm"], 'the loaded target is served';
-    is_deeply $by_kind{compiled}, ["$root/lib/Bb.pm"], 'the compiled record names the same target';
+    push @{ $by_kind{ $_->[0] eq 'seen' && defined $_->[2] ? "seen $_->[2]" : $_->[0] } }, $_->[1]
+      for @{ records($root) };
+    is_deeply $by_kind{'seen opened'}, ["$root/lib/Bb.pm"], 'the loaded target is served';
+    is_deeply $by_kind{seen},          ["$root/lib/Bb.pm"], 'the compiled record names the same target';
     is_deeply $by_kind{lines}, ["$root/lib/Bb.pm"], 'a target after one that was never loaded still reports its lines';
 };
 
@@ -102,6 +139,29 @@ subtest 'a replacement that cannot be opened leaves the original and an error re
     like $error->[2], qr/\Acannot open \Q$root\E\/missing[.]pm: /, 'and the reason';
 };
 
+subtest 'a compiled target records file coverage when tracing is unavailable' => sub {
+    require POSIX;
+    require Test::Mutation::Shim;
+    my $root = project();
+    my $path = write_file( "$root/lib/One.pm", module( 'One', 1 ) );
+    my $pid  = fork;
+    die "fork: $!" unless defined $pid;
+    if ( !$pid ) {
+        {
+            no warnings qw(once redefine);
+            local *DB::DB = sub { return };
+            Test::Mutation::Shim::activate( { trace => 1, targets => [ { original => $path, serve => $path } ] },
+                "$root/records" );
+        }
+        Test::Mutation::Shim::mark_compiled(0);
+        POSIX::_exit(0);
+    }
+    waitpid $pid, 0;
+    is $?, 0, 'the process completed before END';
+    is_deeply [ grep { $_->[0] eq 'blind' } @{ all_records($root) } ], [ [ 'blind', $path ] ],
+      'the unavailable tracer leaves a file witness before normal shutdown';
+};
+
 subtest 'another debugger keeps its hook and tracing stays off' => sub {
     my $root = project();
     write_file( "$root/lib/One.pm",         module( 'One', 1 ) );
@@ -113,6 +173,8 @@ subtest 'another debugger keeps its hook and tracing stays off' => sub {
     my @all = @{ all_records($root) };
     is_deeply [ map { $_->[1] } grep { $_->[0] eq 'begin' } @all ], [0], 'the record marks the process as untraced';
     is scalar( grep { $_->[0] eq 'hit' || $_->[0] eq 'lines' } @all ), 0, 'no line is recorded';
+    is_deeply [ grep { $_->[0] eq 'blind' } @all ], [ [ 'blind', "$root/lib/One.pm" ] ],
+      'the target still records compilation when the debugger owns the line hook';
 };
 
 subtest 'a debugger that takes over after an outer shim turns tracing off' => sub {
@@ -174,6 +236,48 @@ PERL
     is shim_run($root)->{stdout}, '2,1,1,2', 'the mutant, the other hook once, the directory, and two hooks in all';
 };
 
+subtest 'a project file outside the copy is identified by its device and inode' => sub {
+    my $root    = project();
+    my $copy    = write_file( "$root/lib/One.pm",     module( 'One', 1 ) );
+    my $outside = write_file( "$root/outside/One.pm", module( 'One', 1 ) );
+    my $mutant  = write_file( "$root/mutant.pm",      module( 'One', 2 ) );
+    write_spec( "$root/spec", targets => [ [ $copy, $mutant, $outside ] ] );
+    write_file( "$root/script.pl", "use POSIX ();\nuse lib 'outside';\nuse One;\nPOSIX::_exit(One::value());\n" );
+    my $run = shim_run($root);
+    is $run->{status}, 1, 'the test loaded the project file despite its matching bytes';
+    is_deeply records($root), [ [ 'outside', $copy ] ], 'the outside load is recorded before END runs';
+
+    my $bare = project();
+    write_spec( "$bare/spec", targets => [ [ $copy, $mutant, $outside ] ] );
+    write_file( "$bare/script.pl", "require q{$outside}; print One::value();\n" );
+    my $absolute = shim_run($bare);
+    is $absolute->{stdout}, '1', 'an absolute require loads the project file directly';
+    is_deeply [ map { $_->[0] } @{ records($bare) } ], [ 'outside', 'end' ], 'END identifies the same outside inode';
+};
+
+subtest 'a child whose record cannot be opened leaves the parent record intact' => sub {
+    my $root   = project();
+    my $module = write_file( "$root/lib/One.pm", module( 'One', 1 ) );
+    write_spec( "$root/spec", targets => [ [ $module, $module ] ] );
+    write_file( "$root/script.pl", <<'PERL' );
+my $child = fork;
+die "fork: $!" unless defined $child;
+if (!$child) {
+    rename 'records', 'closed' or die "rename: $!";
+    require One;
+    print One::value();
+    exit 0;
+}
+waitpid $child, 0;
+rename 'closed', 'records' or die "restore: $!";
+PERL
+    my $run = shim_run($root);
+    is $run->{stdout}, '1', 'the child still loads the module';
+    like $run->{stderr}, qr/cannot open record/, 'the failed write is diagnosed';
+    is_deeply [ map { $_->[0] } @{ all_records($root) } ], [ 'begin', 'end' ],
+      'the child did not append target observations to the parent record';
+};
+
 subtest 'a tab in a path stays inside its field' => sub {
     my $root = project();
     write_file( "$root/lib/Odd\tName.pm", module( 'Odd', 1 ) );
@@ -191,8 +295,8 @@ subtest 'a tab in a path stays inside its field' => sub {
         ],
     );
     is $run->{stdout}, '1', 'the program runs' or diag $run->{stderr};
-    my ($served) = grep { $_->[0] eq 'served' } @{ records($root) };
-    is_deeply $served, [ 'served', "$root/lib/Odd Name.pm" ], 'the tab becomes a space and the record has two fields';
+    my ($served) = grep { $_->[0] eq 'seen' && !defined $_->[2] } @{ records($root) };
+    is_deeply $served, [ 'seen', "$root/lib/Odd Name.pm" ], 'the tab becomes a space and the record has two fields';
 };
 
 subtest 'a failed load of another module raises no warning at the end' => sub {
@@ -204,6 +308,17 @@ subtest 'a failed load of another module raises no warning at the end' => sub {
     my $run = shim_run($root);
     is $run->{stdout}, 'failed', 'the program runs';
     unlike $run->{stderr}, qr/uninitialized|Shim/, 'no warning from the shim';
+};
+
+subtest 'the start is visible before the test loads a target or registers an END block' => sub {
+    my $root = project();
+    write_file( "$root/script.pl", "use POSIX (); POSIX::_exit(0);\n" );
+    write_spec( "$root/spec", targets => [] );
+    my $run = shim_run($root);
+    is $run->{status}, 0, 'the program exits directly';
+    is_deeply all_records($root), [ [ 'begin', 0 ] ], 'the process left its start even without an ending';
+    my $lost = shim_run( $root, env => { TEST_MUTATION_RECORD => "$root/missing" } );
+    like $lost->{stderr}, qr/\Amutation: cannot open record .*\n\z/, 'an unavailable record directory is reported once';
 };
 
 done_testing;

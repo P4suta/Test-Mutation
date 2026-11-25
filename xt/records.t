@@ -95,13 +95,16 @@ PERL
       'a field that the runner never reads';
 };
 
-my $shim   = slurp('lib/Test/Mutation/Shim.pm');
-my $table  = slurp('lib/Test/Mutation/Record.pm');
-my $runner = slurp('lib/Test/Mutation/Runner.pm');
+my $shim     = slurp('lib/Test/Mutation/Shim.pm');
+my $table    = slurp('lib/Test/Mutation/Record.pm');
+my $evidence = slurp('lib/Test/Mutation/Evidence.pm');
 
-Gate::findings( 'records', violations( $shim, $table, $runner ) );
-Gate::checked( 'kinds that the shim writes',        scalar written($shim)->@*,      at_least => 9 );
-Gate::checked( 'kinds that the record table reads', scalar keys parsed($table)->%*, at_least => 8 );
-Gate::checked( 'fields that the runner reads',      scalar read_by($runner)->@*,    at_least => 5 );
+my @kinds = qw(around begin blind end error hit lines outside seen);
+is written($shim),                   \@kinds, 'the shim writes every documented record kind';
+is [ sort keys parsed($table)->%* ], \@kinds, 'the decoder has one entry for each kind';
+Gate::findings( 'records', violations( $shim, $table, $evidence ) );
+Gate::checked( 'kinds that the shim writes',          scalar written($shim)->@*,      at_least => 9 );
+Gate::checked( 'kinds that the record table reads',   scalar keys parsed($table)->%*, at_least => 8 );
+Gate::checked( 'fields used to derive test evidence', scalar read_by($evidence)->@*,  at_least => 9 );
 
 done_testing;

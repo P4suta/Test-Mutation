@@ -30,9 +30,10 @@ subtest 'a child perl started through PERL5OPT gets the mutant' => sub {
         },
         args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
-    is $run->{status},                                             0,            'exit status' or diag $run->{stderr};
-    is $run->{stdout},                                             "child=41\n", 'the child ran the mutant';
-    is scalar( grep { $_->[0] eq 'served' } @{ records($root) } ), 1,            'the child recorded the serve';
+    is $run->{status}, 0,            'exit status' or diag $run->{stderr};
+    is $run->{stdout}, "child=41\n", 'the child ran the mutant';
+    is scalar( grep { $_->[0] eq 'seen' && ( $_->[2] || q{} ) eq 'opened' } @{ records($root) } ), 1,
+      'the child recorded the serve';
 };
 
 subtest 'a forked child that loads the target records the serve' => sub {
@@ -50,9 +51,10 @@ PERL
         env  => { TEST_MUTATION_SPEC => "$root/spec", TEST_MUTATION_RECORD => "$root/records" },
         args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
-    is $run->{status},                                             0,             'exit status' or diag $run->{stderr};
-    is $run->{stdout},                                             "forked=41\n", 'the forked child ran the mutant';
-    is scalar( grep { $_->[0] eq 'served' } @{ records($root) } ), 1,             'one serve is recorded';
+    is $run->{status}, 0,             'exit status' or diag $run->{stderr};
+    is $run->{stdout}, "forked=41\n", 'the forked child ran the mutant';
+    is scalar( grep { $_->[0] eq 'seen' && ( $_->[2] || q{} ) eq 'opened' } @{ records($root) } ), 1,
+      'one serve is recorded';
 };
 
 subtest 'taint mode works with explicit switches' => sub {
@@ -64,7 +66,7 @@ subtest 'taint mode works with explicit switches' => sub {
     );
     is $run->{status}, 0,                     'exit status' or diag $run->{stderr};
     is $run->{stdout}, "taint=1 answer=41\n", 'the mutant runs under taint mode';
-    is_deeply [ map { $_->[0] } @{ records($root) } ], [ 'served', 'compiled', 'end' ],
+    is_deeply [ map { $_->[0] } @{ records($root) } ], [ 'seen', 'seen', 'end' ],
       'the record is written under taint mode';
 };
 

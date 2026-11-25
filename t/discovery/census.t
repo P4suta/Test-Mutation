@@ -165,6 +165,8 @@ print { $x->[0] } "@list$#list";
 LABEL: for my $item ( @{ $x }, $_ ) { next LABEL }
 sub with($) { return }
 sub attributed :lvalue { $x }
+my @records = glob '*.rec';
+my $now = time;
 my $order = $x cmp 'limit';
 my @declined = ( 0b11, 1e3, +$x, `true`, chown( 0, 0, $x ), ioctl( $x, 0, $x ), each %$x, gethostbyname $x );
 my @valued = ( gmtime $x, localtime $x, log $x, lstat $x, ord $x, prototype $x, tell $x, telldir $x, tied $x, fc $x );
