@@ -30,10 +30,13 @@ my %FLAG = (
     perl           => sub ($value) { return ( '--perl',           $value ) },
     report         => sub ($value) { return ( '--report-dir',     $value ) },
     configuration  => sub ($value) { return ( '--config',         $value ) },
-    in_place       => sub ($value) { return $value ? '--in-place' : () },
-    cache          => sub ($value) { return $value ? '--cache'    : () },
-    equivalence    => sub ($value) { return $value ? ()           : '--no-equivalence' },
-    mutants        => sub ($value) {
+    enable         => sub ($value) {
+        return map { ( '--enable', $_ ) } $value->@*;
+    },
+    in_place    => sub ($value) { return $value ? '--in-place' : () },
+    cache       => sub ($value) { return $value ? '--cache'    : () },
+    equivalence => sub ($value) { return $value ? ()           : '--no-equivalence' },
+    mutants     => sub ($value) {
         return map { ( '--mutant', $_ ) } $value->@*;
     },
     sources => sub ($value) {

@@ -5,7 +5,7 @@ use Fixture qw(copy_of run_fixture tree_digest statuses);
 
 my $root     = copy_of('mechanics');
 my $before   = tree_digest($root);
-my ($result) = run_fixture( $root, timeout_floor => 1, timeout_factor => 2 );
+my ($result) = run_fixture( $root, timeout_floor => 1, timeout_factor => 2, enable => ['comparison-boundary'] );
 my $statuses = statuses($result);
 
 sub of ($file) {

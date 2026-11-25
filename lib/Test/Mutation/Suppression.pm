@@ -174,7 +174,7 @@ The comments that suppress mutants follow one grammar of three forms.
 C<## no mutate> behind code covers the mutants that start on its line.
 C<## no mutate> on a line of its own opens a block that C<## use mutate> on a line of its own closes.
 C<## no mutate sub> on a line of its own covers the named subroutine or method that follows, with its signature and its body.
-Each form may name mutators, as in C<## no mutate (arithmetic, comparison)>, and a reason may follow a colon and a space, as in C<## no mutate (arithmetic): the sum is a constant>.
+Each form may name mutators, as in C<## no mutate (arithmetic, comparison-boundary)>, and a reason may follow a colon and a space, as in C<## no mutate (arithmetic): the sum is a constant>.
 The names narrow the form to the mutants of those mutators, and the reason stays with every mutant that the comment covers.
 
 A candidate is a comment that matches C</\A\s*#+\s*(?:no|use)\s*mutat/i>.

@@ -41,6 +41,24 @@ sub copy ($data) {
     return JSON::PP->new->decode( JSON::PP->new->encode($data) );
 }
 
+subtest 'default mutators must load in at least nine tenths of the real distribution sample' => sub {
+    my $archives = [ { run => 'Example', name => 'Example' }, { run => 'Other', name => 'Other' } ];
+    my $records  = {
+        Example => { loads => { edge => [ 1, 5 ], over => [ 0, 4 ], extra => [ 1, 1 ] } },
+        Other   => { loads => { edge => [ 0, 5 ], over => [ 1, 5 ] } },
+    };
+    my $counts = RealWorld::load_counts( $archives, $records );
+    is $counts, { edge => [ 1, 10 ], over => [ 1, 9 ], extra => [ 1, 1 ] },
+      'the numerator counts failed loads and the denominator counts all probes';
+    is RealWorld::load_findings( $counts, [qw(edge missing over)] ),
+      [ 'missing has no real distribution load sample', 'over failed to load in 1 of 9 real distribution probes' ],
+      'the bound includes ten percent and a mutator without a sample cannot enter the default profile';
+    like dies { RealWorld::load_counts( $archives, { Example => $records->{Example} } ) }, qr/Other.*load sample/,
+      'an archive without observations fails the gate';
+    like dies { RealWorld::load_counts( $archives, { %$records, Other => { loads => { edge => [ 2, 1 ] } } } ) },
+      qr/Other.*edge/, 'a failed count larger than the number of probes is refused';
+};
+
 subtest 'the table rejects a run that lacks a field or misstates one' => sub {
     my ($run) = RealWorld::runs($TABLE)->@*;
     is $run,

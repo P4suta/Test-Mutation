@@ -81,15 +81,6 @@ my @DECLINED = (
     ],
 
     # The profile slice of the plan brings the mutators of these constructs, and the census then refuses each reason here.
-    [
-        'the number-literal mutator reads the decimal integers alone until it keeps the base of every numeric class' =>
-          qw(Number::Float Number::Hex Number::Binary Number::Exp)
-    ],
-    [ 'the literal-collection mutator of the extended profile empties a list of words' => 'QuoteLike::Words' ],
-    [ 'the three-way mutator swaps the operands of a comparison of three ways' => 'operator <=>', 'operator cmp' ],
-    [ 'the filter-negation mutator negates the condition of a filter'          => 'word grep' ],
-    [ 'the call-removal mutator removes a call that rounds a number'           => 'word int' ],
-    [ 'the list-order mutator removes a reverse'                               => 'word reverse' ],
 );
 
 signature_for reasons => ( positional => [], returns => HashRef [Str] );

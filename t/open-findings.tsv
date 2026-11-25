@@ -6,15 +6,11 @@ realworld	Params-Util with blib: the number of mutants lies outside its band	the
 realworld	Params-Util: the number of mutants lies outside its band	the expectations of the real distributions after the mutator catalog changes
 realworld	Params-Util: the unmodified run fails where the tests of the distribution pass	the build of a distribution in the copy
 realworld	TOML-Tiny: the run warns that B::Deparse gives no stable output	the comparison of compiled code without the addresses that B::Deparse prints
-realworld	URI: the number of mutants lies outside its band	the expectations of the real distributions after the mutator catalog changes
 realworld	URI: the run warns that B::Deparse gives no stable output	the kinds of compile error, which name a source that fails to compile alone
 realworld	URI: the run warns that a test loads a source around the hook	the placement of each mutant in the copy of its job
 realworld	Variable-Magic with blib: the run reports a mutant that fails to compile	the kinds of compile error, which tell a module that fails to load from invalid code
 realworld	Variable-Magic: the unmodified run fails where the tests of the distribution pass	the build of a distribution in the copy
-mutants-c-sample	call-swap compiles to the code of the original in more than 2 percent of its mutants	the profile rule of the mutators, which places a mutator by its measured rates
-mutants-c-sample	comparison compiles to the code of the original in more than 2 percent of its mutants	the profile rule of the mutators, which places a mutator by its measured rates
 mutants-kills-fixtures	run_command serves no mutant to a test under taint mode	the exec command inside a copy of the project
-mutants-literal-installed	number-literal reads an octal literal as a decimal number	the number-literal mutator that keeps the base of a literal
 contract-plan-settings	the default of cache differs from the contract	the cache key over every input of a result
 contract-plan-settings	the default of format differs from the contract	the terminal report and the summary of GitHub
 contract-plan-settings	the default of source differs from the contract	the Perl scripts of a project as sources of a run

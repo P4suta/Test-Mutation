@@ -51,8 +51,8 @@ sub mutant ( $line, $mutator ) {
 
 subtest 'the grammar reads each accepted form as a range of lines' => sub {
     is ranges( comment( 3, '## no mutate' ) ), [ [ 3, 3, 3, undef, undef ] ], 'a comment behind code covers its line';
-    is ranges( comment( 3, '## no mutate (arithmetic, comparison): the sum is a constant' ) ),
-      [ [ 3, 3, 3, [ 'arithmetic', 'comparison' ], 'the sum is a constant' ] ], 'with names and a reason';
+    is ranges( comment( 3, '## no mutate (arithmetic, comparison-boundary): the sum is a constant' ) ),
+      [ [ 3, 3, 3, [ 'arithmetic', 'comparison-boundary' ], 'the sum is a constant' ] ], 'with names and a reason';
     is ranges( comment( 3, '## no mutate: the port is fixed' ) ), [ [ 3, 3, 3, undef, 'the port is fixed' ] ],
       'with a reason alone';
     is ranges( own( 2, '## no mutate (logical)' ), own( 6, '## use mutate' ) ),
@@ -83,7 +83,7 @@ subtest 'the grammar refuses every candidate that breaks it, and reads on' => su
         '## No Mutate',
         '### no mutate',
         '## no mutate()',
-        '## no mutate (arithmetic,comparison)',
+        '## no mutate (arithmetic,comparison-boundary)',
         '## no mutate (Arithmetic)',
         '## no mutate (arithmetic) trailing words',
         '## no mutate:',
@@ -104,9 +104,9 @@ subtest 'the grammar refuses every candidate that breaks it, and reads on' => su
         own( 5, '## use mutate' )
       ),
       [ map { [ $_, 'suppression-malformed' ] } 2 .. 4 ], 'an end with a name, a reason, or a subroutine';
-    is refused( comment( 3, '##no mutate' ), comment( 4, '## no mutate (arithmetc, comparison, nonesuch)' ) ),
+    is refused( comment( 3, '##no mutate' ), comment( 4, '## no mutate (arithmetc, comparison-boundary, nonesuch)' ) ),
       [ [ 3, 'suppression-malformed' ], [ 4, 'suppression-mutator-unknown' ] ], 'an unknown name';
-    is parsed( comment( 4, '## no mutate (arithmetc, comparison, nonesuch)' ) )->{refusals}[0]{text},
+    is parsed( comment( 4, '## no mutate (arithmetc, comparison-boundary, nonesuch)' ) )->{refusals}[0]{text},
       'lib/A.pm:4: unknown mutator arithmetc, nonesuch', 'the refusal names every unknown name';
     is refused( own( 4, '## no mutate (arithmetc)' ), own( 5, '## use mutate' ) ),
       [ [ 4, 'suppression-mutator-unknown' ], [ 5, 'suppression-end-unopened' ] ],
@@ -161,7 +161,7 @@ subtest 'a mutant falls under the last comment that covers its first line and it
         own( 1, '## no mutate: the block' ),
         comment( 3, '## no mutate (arithmetic): the line' ),
         own( 4,  '## use mutate' ),
-        own( 5,  '## no mutate sub (comparison)', routine => [ 6, 8 ] ),
+        own( 5,  '## no mutate sub (comparison-boundary)', routine => [ 6, 8 ] ),
         own( 10, '## no mutate (logical)' ),
     )->{directives};
     my $reason = sub ( $line, $mutator ) {
@@ -171,8 +171,12 @@ subtest 'a mutant falls under the last comment that covers its first line and it
     };
     is [ map { $reason->( @{$_} ) } [ 2, 'arithmetic' ], [ 3, 'arithmetic' ], [ 3, 'logical' ], [ 4, 'logical' ] ],
       [ 'the block', 'the line', 'the block', 'the block' ], 'the block, and the line inside it';
-    is [ map { $reason->( @{$_} ) } [ 5, 'comparison' ], [ 6, 'comparison' ], [ 8, 'comparison' ],
-        [ 9, 'comparison' ] ],
+    is [
+        map { $reason->( @{$_} ) } [ 5, 'comparison-boundary' ],
+        [ 6, 'comparison-boundary' ],
+        [ 8, 'comparison-boundary' ],
+        [ 9, 'comparison-boundary' ]
+      ],
       [ 'none', 'no reason', 'no reason', 'none' ], 'the lines of a subroutine and no line around them';
     is [ map { $reason->( @{$_} ) } [ 7, 'arithmetic' ], [ 10, 'arithmetic' ], [ 99, 'logical' ], [ 9, 'logical' ] ],
       [ 'none', 'none', 'no reason', 'none' ], 'the names narrow a range, and an open block runs to the end';
@@ -181,7 +185,7 @@ subtest 'a mutant falls under the last comment that covers its first line and it
 subtest 'the run refuses a comment that suppresses no mutant, and asks for names and reasons on request' => sub {
     my $suppression = parsed(
         comment( 2, '## no mutate' ),
-        comment( 3, '## no mutate (comparison): the boundary is free' ),
+        comment( 3, '## no mutate (comparison-boundary): the boundary is free' ),
         own( 5, '## no mutate (arithmetic)' ),
         own( 7, '## use mutate' ),
         own( 1, '## use mutate' ),
@@ -195,12 +199,12 @@ subtest 'the run refuses a comment that suppresses no mutant, and asks for names
         );
         return [ map { [ $_->@{qw(line id)} ] } $found->@* ];
     };
-    my @mutants = ( mutant( 2, 'logical' ), mutant( 3, 'comparison' ), mutant( 6, 'arithmetic' ) );
+    my @mutants = ( mutant( 2, 'logical' ), mutant( 3, 'comparison-boundary' ), mutant( 6, 'arithmetic' ) );
     is $refusals->( \@mutants ), [ [ 1, 'suppression-end-unopened' ] ], 'each comment covers a mutant';
     is $refusals->( [ mutant( 2, 'logical' ), mutant( 3, 'arithmetic' ), mutant( 7, 'arithmetic' ) ] ),
       [ [ 1, 'suppression-end-unopened' ], [ 3, 'suppression-unused' ] ],
       'a comment whose line holds mutants of other mutators alone, and a block that ends on the line of a mutant';
-    is $refusals->( [ mutant( 1, 'logical' ), mutant( 4, 'comparison' ), mutant( 8, 'arithmetic' ) ] ),
+    is $refusals->( [ mutant( 1, 'logical' ), mutant( 4, 'comparison-boundary' ), mutant( 8, 'arithmetic' ) ] ),
       [
         [ 1, 'suppression-end-unopened' ],
         [ 2, 'suppression-unused' ],
@@ -228,7 +232,7 @@ subtest 'the run refuses a comment that suppresses no mutant, and asks for names
         'lib/B.pm:2: "## no mutate" names no mutator, and suppress-require-names asks for one',
         'lib/B.pm:2: "## no mutate" gives no reason, and suppress-require-reason asks for one',
         'lib/B.pm:2: "## no mutate" suppresses no mutant',
-        'lib/B.pm:3: "## no mutate (comparison): the boundary is free" suppresses no mutant',
+        'lib/B.pm:3: "## no mutate (comparison-boundary): the boundary is free" suppresses no mutant',
         'lib/B.pm:5: "## no mutate (arithmetic)" gives no reason, and suppress-require-reason asks for one',
         'lib/B.pm:5: "## no mutate (arithmetic)" suppresses no mutant',
       ],

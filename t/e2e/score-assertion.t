@@ -43,7 +43,7 @@ subtest 'the assertion fails below the minimum and shows the undetected mutants'
 
 subtest 'settings pass through to the run' => sub {
     write_file( "$root/xt/narrow.t",
-        "use Test::More tests => 1;\nuse Test::Mutation;\nmutation_score_ok( min => 100, jobs => 2, disable => [ 'comparison', 'sub-body', 'return-value' ], source => ['lib/Calc.pm'], coverage => 'file' );\n"
+        "use Test::More tests => 1;\nuse Test::Mutation;\nmutation_score_ok( min => 100, jobs => 2, disable => [ 'comparison-boundary', 'comparison-negation', 'sub-body', 'return-value' ], source => ['lib/Calc.pm'], coverage => 'file' );\n"
     );
     my ( $status, $output ) = run_test( $root, 'xt/narrow.t' );
     isnt $status, 0, 'the mutants without a detecting test still fail the assertion' or diag $output;
@@ -54,7 +54,7 @@ subtest 'the assertion reads mutation.toml, and a setting overrides the file' =>
     my $project = copy_of('calc');
     write_file( "$project/lib/Extra.pm",
         "package Extra;\nuse strict;\nuse warnings;\nsub twice { my (\$n) = \@_; return \$n * 2 + 1 - 1 }\n1;\n" );
-    write_file( "$project/mutation.toml", "source-exclude = [\"lib/Extra.pm\"]\n" );
+    write_file( "$project/mutation.toml", "source-exclude = [\"lib/Extra.pm\"]\nenable = [\"comparison-boundary\"]\n" );
     write_file( "$project/xt/file.t",
         "use Test::More tests => 1;\nuse Test::Mutation;\nmutation_score_ok( min => 60, jobs => 2 );\n" );
     write_file( "$project/xt/override.t",

@@ -467,12 +467,13 @@ subtest 'the literal oracle rejects a number that changes its base' => sub {
 subtest 'the code oracle rejects a mutant that compiles to the code of the original' => sub {
     my $unit = Oracle::text_source( 'lib/Folds.pm',
         "use strict;\nsub size { return 10 > 5 ? 'big' : 'small' }\nsub more { return \$_[0] > 5 }\n1;\n" );
-    my @comparisons = grep { $_->mutator eq 'comparison' } Oracle::generated($unit)->{mutants}->@*;
-    my $judgement   = Oracle::judgement( $unit, \@comparisons, wants => [ 'calls', 'deparse' ] );
+    my @comparisons =
+      grep { $_->mutator =~ /\Acomparison-(?:boundary|negation)\z/ } Oracle::generated($unit)->{mutants}->@*;
+    my $judgement = Oracle::judgement( $unit, \@comparisons, wants => [ 'calls', 'deparse' ] );
     is [ map { $_->{mutant}->replacement . q{ } . $_->{same_code} } $judgement->{verdicts}->@* ],
       [ '>= 1', '<= 0', '>= 0', '<= 0' ],
       'perl folds the first comparison, and one of its mutants folds to the same value';
-    is classes( Oracle::equivalent($judgement) ), ['comparison compiles to the code of the original'],
+    is classes( Oracle::equivalent($judgement) ), ['comparison-boundary compiles to the code of the original'],
       'that mutant is a finding';
     my %count;
     $count{ $_->[2] } += $_->[3] for grep { $_->[0] eq 'count' } Oracle::judged_records( $unit, $judgement, 'deparse' );
@@ -482,7 +483,7 @@ subtest 'the code oracle rejects a mutant that compiles to the code of the origi
     # B::Deparse dies on the code of some mutants, and such a mutant has no code to compare.
     my $verdict = $judgement->{verdicts}[1];
     $verdict->@{qw(undeparsed same_code)} = ( 'Unexpected statement modifier', 0 );
-    is classes( Oracle::apart( $unit, $judgement ) ), ['comparison has code that B::Deparse cannot print'],
+    is classes( Oracle::apart( $unit, $judgement ) ), ['comparison-negation has code that B::Deparse cannot print'],
       'a mutant that B::Deparse cannot print counts apart';
     %count = ();
     $count{ $_->[2] } += $_->[3] for grep { $_->[0] eq 'count' } Oracle::judged_records( $unit, $judgement, 'deparse' );
@@ -512,20 +513,20 @@ subtest 'the tally rejects a table that hides a column' => sub {
 
 subtest 'the rate rejects a mutator of the default profile above its bound, and no single mutant' => sub {
     my $tally = Oracle::tally();
-    Oracle::count( $tally, 'comparison',     'compared',   100 );
-    Oracle::count( $tally, 'comparison',     'equivalent', 3 );
-    Oracle::count( $tally, 'arithmetic',     'compared',   100 );
-    Oracle::count( $tally, 'arithmetic',     'equivalent', 2 );
-    Oracle::count( $tally, 'number-literal', 'compared',   10 );
-    Oracle::count( $tally, 'number-literal', 'equivalent', 5 );
-    Oracle::count( $tally, 'negation',       'equivalent', 1 );
+    Oracle::count( $tally, 'comparison-negation', 'compared',   100 );
+    Oracle::count( $tally, 'comparison-negation', 'equivalent', 3 );
+    Oracle::count( $tally, 'arithmetic',          'compared',   100 );
+    Oracle::count( $tally, 'arithmetic',          'equivalent', 2 );
+    Oracle::count( $tally, 'number-literal',      'compared',   10 );
+    Oracle::count( $tally, 'number-literal',      'equivalent', 5 );
+    Oracle::count( $tally, 'negation',            'equivalent', 1 );
     is Oracle::rated( $tally, 'equivalent', 'compared', 0.02, 'is equivalent too often' ),
-      ['comparison is equivalent too often'],
+      ['comparison-negation is equivalent too often'],
       'a share above the bound fails, a share at the bound passes, and a mutator of the extended profile has no bound';
     is Oracle::rated( $tally, 'equivalent', 'compared', 0.5, 'is equivalent too often' ), [],
       'a mutator without a base has no rate';
     is [ Oracle::rates( $tally, 'equivalent', 'compared' ) ],
-      [ [ 'arithmetic', 2, 100, 0.02 ], [ 'comparison', 3, 100, 0.03 ], [ 'number-literal', 5, 10, 0.5 ] ],
+      [ [ 'arithmetic', 2, 100, 0.02 ], [ 'comparison-negation', 3, 100, 0.03 ], [ 'number-literal', 5, 10, 0.5 ] ],
       'each mutator with a base has its count, its base, and its rate';
 };
 

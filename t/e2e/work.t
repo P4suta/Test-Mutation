@@ -58,7 +58,11 @@ subtest 'a run in the project itself makes no copy and walks the project before 
 subtest 'an undetected mutant costs a compile of its code, and the original costs two' => sub {
     my $module   = $MODULE =~ s/^1;$/sub size { return \$_[0] > 5 ? 'big' : 'small' }\n1;/mr;
     my $test     = "use Test::More tests => 2;\nuse Small;\nis Small::next_one(2), 3;\nis Small::size(9), 'big';\n";
-    my ($result) = run_fixture( project( 'lib/Small.pm' => $module, 't/small.t' => $test ), jobs => 1 );
+    my ($result) = run_fixture(
+        project( 'lib/Small.pm' => $module, 't/small.t' => $test ),
+        jobs   => 1,
+        enable => ['comparison-boundary']
+    );
     my %count;
     $count{$_}++ for values statuses($result)->%*;
     is \%count, { Killed => 7, Survived => 1 }, 'one mutant survives';

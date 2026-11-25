@@ -201,7 +201,7 @@ subtest 'the work files of a finished task are removed while the run goes on' =>
           . "sub next_one { return \$_[0] + 1 }\nsub spare { return 10 > 5 ? 'big' : 'small' }\n1;\n",
         't/small.t' => $TEST,
     );
-    my ($result) = run_fixture( $root, keep_work => 1, leaves => $WORK_DIRECTORY );
+    my ($result) = run_fixture( $root, keep_work => 1, leaves => $WORK_DIRECTORY, enable => ['comparison-boundary'] );
     my %count;
     $count{$_}++ for values statuses($result)->%*;
     is \%count, { CompileError => 3, Killed => 3, NoCoverage => 3, Survived => 1, Ignored => 2 },
@@ -333,7 +333,7 @@ subtest 'a mutant that leaves a file changes a copy, and the project and the lat
     for my $jobs ( 1, 4 ) {
         my $root     = writing_project();
         my $before   = project_state($root);
-        my ($result) = run_fixture( $root, jobs => $jobs );
+        my ($result) = run_fixture( $root, jobs => $jobs, enable => ['comparison-boundary'] );
         is $result->warnings, [], "no warning with $jobs side by side";
         is status_by_line($result),
           {
@@ -426,7 +426,7 @@ subtest 'two jobs never work in one copy' => sub {
     my $root = project( 'lib/Small.pm' => $module, 't/small.t' => $holding );
     my $log  = File::Temp->new;
     local $ENV{RUN_LOG} = $log->filename;
-    my ($result) = run_fixture( $root, jobs => 2 );
+    my ($result) = run_fixture( $root, jobs => 2, enable => ['comparison-boundary'] );
     open my $handle, '<', $log->filename or die "read: $!";
     chomp( my @lines = readline $handle );
     is \@lines, [ ('alone') x ( 1 + scalar $result->entries->@* ) ],
@@ -501,7 +501,7 @@ subtest 'a change of the project during the run reaches no test' => sub {
       . "open my \$out, '>', \"\$ENV{PROJECT}/t/small.t\" or die \$!;\nprint {\$out} \"die 'edited';\\n\";\nclose \$out;\n";
     my $root = project( 'lib/Small.pm' => $module, 't/small.t' => $editing );
     local $ENV{PROJECT} = $root;
-    my ($result) = run_fixture( $root, jobs => 1 );
+    my ($result) = run_fixture( $root, jobs => 1, enable => ['comparison-boundary'] );
     is status_by_line($result),
       {
         '4 removed the body of size'                => 'Killed',
@@ -515,7 +515,7 @@ subtest 'a change of the project during the run reaches no test' => sub {
 
     my $place = project( 'lib/Small.pm' => $module, 't/small.t' => $editing );
     local $ENV{PROJECT} = $place;
-    my ($inside) = run_fixture( $place, jobs => 1, in_place => 1 );
+    my ($inside) = run_fixture( $place, jobs => 1, in_place => 1, enable => ['comparison-boundary'] );
     is [ sort values status_by_line($inside)->%* ], [ ('NoCoverage') x 5 ],
       'in the project itself, the edited test runs for every mutant and loads none';
 };
@@ -533,7 +533,7 @@ subtest 'in the project itself, a mutant that leaves a file takes the verdict fr
     my $reader = "use Test::More tests => 2;\nuse Small;\nok !-e 'left-behind.txt', 'no file is in the way';\n"
       . "is Small::size(9), 'big', 'a size';\n";
     my $root = project( 'lib/Small.pm' => $module, 't/reader.t' => $reader, 't/writer.t' => $writer );
-    my ($result) = run_fixture( $root, jobs => 1, in_place => 1 );
+    my ($result) = run_fixture( $root, jobs => 1, in_place => 1, enable => ['comparison-boundary'] );
 
     is $result->warnings,
       [
@@ -586,7 +586,8 @@ subtest 'a comparison with the version of Perl follows the interpreter of the te
     };
     my $boundary = sub (%settings) {
         my $analysis =
-          Test::Mutation::Runner::analyze( Test::Mutation::Settings::of_call( { root => $root, %settings } ) );
+          Test::Mutation::Runner::analyze(
+            Test::Mutation::Settings::of_call( { root => $root, enable => ['comparison-boundary'], %settings } ) );
         return scalar grep { $_->description eq 'replaced < with <=' } $analysis->{mutants}->@*;
     };
     is $boundary->(), 0, 'the interpreter of this test has another version, so the boundary yields no mutant';

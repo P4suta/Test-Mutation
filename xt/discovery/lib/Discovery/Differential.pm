@@ -251,10 +251,11 @@ sub perturbations () {
 # A named mutant repeats its observations; the following whole run reuses the record under the same key.
 # `since` adds the run on the changed lines of a repository, which needs the git command.
 sub cache ( $engine, $bench, %option ) {
-    my $project  = $bench->{project};
-    my @classes  = $option{classes} ? $option{classes}->@* : perturbations();
-    my %settings = ( cache => 1, perl => $bench->{wrapper}, configuration => $bench->{config} );
-    my @truth    = ( known => $bench->{plain}, coverage => 'line' );
+    my $project = $bench->{project};
+    my @classes = $option{classes} ? $option{classes}->@* : perturbations();
+    my %settings =
+      ( cache => 1, perl => $bench->{wrapper}, configuration => $bench->{config}, enable => ['comparison-boundary'] );
+    my @truth = ( known => $bench->{plain}, coverage => 'line' );
     _pristine( $bench, undef );
     my $cold   = $engine->run( $project, %settings );
     my $filled = $project->text('.mutation/cache.json');

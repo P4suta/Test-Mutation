@@ -7,7 +7,9 @@ use JSON::PP    ();
 use List::Util  ();
 use POSIX       ();
 use Time::HiRes ();
-use lib "$FindBin::Bin/../lib";
+use lib "$FindBin::Bin/../lib", "$FindBin::Bin/../../t/lib", "$FindBin::Bin/../../lib";
+use Library;
+use Oracle;
 use RealWorld;
 
 # Runs inside the container of the real-world harness, as a user without rights and without the network.
@@ -74,14 +76,14 @@ sub used () {
 # Runs one command in a directory and returns its exit status, its time, and what it printed.
 # The command leads a process group of its own, so the limit ends every process that it started.
 # A sample of the scratch directory each second gives the space that the command held at its peak.
-sub run_command ( $directory, $command, $capture ) {
+sub run_command ( $directory, $command, $capture, $seconds = $LIMIT ) {
     my ( $output, $errors ) = ( "$capture.out", "$capture.err" );
     my $started = Time::HiRes::time();
     my $pid     = fork;
     die "cannot fork: $!\n"                          if !defined $pid;
     _child( $directory, $command, $output, $errors ) if !$pid;
 
-    my ( $limit, $deadline ) = ( 0, $started + $LIMIT );
+    my ( $limit, $deadline ) = ( 0, $started + $seconds );
     my ( $level, $peak, $sampled ) = ( used(), 0, $started );
     while ( waitpid( $pid, POSIX::WNOHANG() ) == 0 ) {
         my $now = Time::HiRes::time();
@@ -138,6 +140,38 @@ sub truth ( $run, $place, $command ) {
     };
 }
 
+# Probe the original and each replacement in fresh interpreters with the distribution's build and dependencies.
+sub load_sample ( $run, $place ) {
+    my ( $tree, $failure ) = prepared( $run, $place );
+    die "$run->{name}: cannot build the load sample\n" if $failure;
+    my @perl = ( $^X, "-I$tree/lib", "-I$tree/blib/lib", "-I$tree/blib/arch", '-e', 'require $ARGV[0]' );
+    my %by_mutator;
+    for my $path ( Library::modules("$tree/lib")->@* ) {
+        my $module = substr $path, length("$tree/lib/");
+        my $result = run_command( $tree, [ @perl, $module ], "$place/load", 10 );
+        next if $result->{exit} || $result->{limit};
+        my $source = Oracle::file_source($path);
+        my $made   = Oracle::generated($source);
+        die "$module: $made->{problem}\n" if defined $made->{problem};
+        push $by_mutator{ $_->mutator }->@*, [ $module, $source, $_ ] for $made->{mutants}->@*;
+    }
+    my %counts;
+    for my $name ( sort keys %by_mutator ) {
+        my ( $failed, $probed ) = ( 0, 0 );
+        for my $item ( Oracle::spread( $by_mutator{$name}, 4 ) ) {
+            my ( $module, $source, $mutant ) = $item->@*;
+            my $changed = $source->replace_span( $mutant->start, $mutant->end, $mutant->replacement );
+            spew( $source->path, $source->to_bytes($changed) );
+            my $result = run_command( $tree, [ @perl, $module ], "$place/load", 10 );
+            spew( $source->path, $source->to_bytes( $source->text ) );
+            $failed++ if $result->{exit} || $result->{limit};
+            $probed++;
+        }
+        $counts{$name} = [ $failed, $probed ];
+    }
+    return \%counts;
+}
+
 sub kept ($lines) {
     return $lines if $lines->@* <= $KEPT_LINES;
     return [ $lines->@[ 0 .. $KEPT_LINES - 1 ], sprintf '(%d more lines)', $lines->@* - $KEPT_LINES ];
@@ -188,6 +222,7 @@ sub observed ( $run, $environment ) {
     my $tests = truth( $run, "$place/tests", $run->{tests} );
     my $prove = "@{ $run->{tests} }" eq "@PROVE" ? $tests : truth( $run, "$place/prove", \@PROVE );
     my ( $mutation, $report ) = measured( $run, "$place/mutation", $environment->{jobs} );
+    my $loads = $run->{run} eq $run->{name} ? load_sample( $run, "$place/load" ) : undef;
     File::Path::remove_tree($place);
     return {
         run         => $run->{run},
@@ -203,6 +238,7 @@ sub observed ( $run, $environment ) {
         prove    => $prove,
         mutation => $mutation,
         report   => $report,
+        ( defined $loads ? ( loads => $loads ) : () ),
     };
 }
 

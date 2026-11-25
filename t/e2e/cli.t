@@ -13,6 +13,24 @@ sub slurp ($path) {
     return scalar readline $handle;
 }
 
+subtest 'a first run identifies a missing assertion and a new test detects the survivor' => sub {
+    my $root = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    write_file( "$root/lib/Total.pm", 'package Total; sub sum { return $_[0] + $_[1] } 1;' );
+    my $zero = "use Test::More tests => 1;\nuse Total;\nis Total::sum(4, 0), 4, 'adding zero';\n";
+    write_file( "$root/t/zero.t", $zero );
+    my @options = ( '--jobs', 1, '--format', 'terminal', '--min-score', 100 );
+    my $initial = ran( 1, $root, @options );
+    my ($id)    = $initial->{stdout} =~ /replaced \+ with -  \[([0-9a-f]{12})\]/;
+    ok $id, 'the report names the surviving arithmetic change';
+    like ran( 0, $root, 'show', $id )->{stdout}, qr/return \$_\[0\] - \$_\[1\]/,
+      'the patch shows the missing distinction';
+    write_file( "$root/t/nonzero.t",
+        "use Test::More tests => 1;\nuse Total;\nis Total::sum(4, 2), 6, 'adding a nonzero value';\n" );
+    like ran( 0, $root, @options, '--mutant', $id )->{stdout}, qr/^1 mutant: 1 killed$/m,
+      'the new test detects the same mutant on a fresh run';
+    like ran( 0, $root, @options )->{stdout}, qr/^Score: 100[.]0%/m, 'the project meets its score threshold';
+};
+
 subtest 'run prints the summary and succeeds' => sub {
     my $root = copy_of('calc');
     my $run  = ran( 0, $root, 'run', '--jobs', 2 );
@@ -139,7 +157,8 @@ subtest '--format and --report-dir choose the reports' => sub {
     my $named     = ran( 0, $project, '--jobs', 2, '--format', 'json', '--report-dir', "$elsewhere/out" );
     ok -f "$elsewhere/out/mutation.json", 'the report is in that directory';
     is $named->{stdout}, "Reports: $elsewhere/out/mutation.json\n", 'and the output names it';
-    is [ grep { !/\A(?:lib|t|[.]mutation)\z/ } map { s{.*/}{}r } glob "$project/* $project/.mutation" ], [],
+    is [ grep { !/\A(?:lib|t|[.]mutation|mutation[.]toml)\z/ } map { s{.*/}{}r } glob "$project/* $project/.mutation" ],
+      [],
       'the project gets no directory for it';
 };
 
@@ -148,8 +167,8 @@ subtest 'mutation.toml configures the run' => sub {
     write_file( "$root/mutation.toml",
         "jobs = 2\ndisable = [\"sub-body\", \"return-value\"]\nformat = [\"terminal\"]\n" );
     my $run = ran( 0, $root );
-    like $run->{stdout}, qr/^13 mutants: 9 killed, 3 survived, 1 no coverage$/m, 'the disabled mutators are left out';
-    like $run->{stdout}, qr/^2 tests, 2 jobs,/m,                                 'jobs come from the file';
+    like $run->{stdout}, qr/^10 mutants: 9 killed, 1 no coverage$/m, 'the disabled mutators are left out';
+    like $run->{stdout}, qr/^2 tests, 2 jobs,/m,                     'jobs come from the file';
     ok !-e "$root/mutation-report", 'the formats come from the file';
 
     like ran( 0, $root, '--jobs', 1 )->{stdout}, qr/^2 tests, 1 job,/m, 'the command line beats the file';
@@ -170,7 +189,7 @@ subtest 'a broken configuration file is a usage error' => sub {
 subtest '--config names another configuration file' => sub {
     my $root = copy_of('calc');
     write_file( "$root/ci.toml", "disable = [\"sub-body\"]\nformat = [\"terminal\"]\n" );
-    like ran( 0, $root, '--jobs', 2, '--config', 'ci.toml' )->{stdout}, qr/^17 mutants:/m, 'the named file is read';
+    like ran( 0, $root, '--jobs', 2, '--config', 'ci.toml' )->{stdout}, qr/^14 mutants:/m, 'the named file is read';
     my $missing = ran( 2, $root, '--config', 'absent.toml' );
     like $missing->{stderr}, qr/\Amutation: cannot read absent\.toml: /, 'the file is named';
 };

@@ -172,7 +172,7 @@ C<mutation mutators> prints the name, the profile, and the description of every 
 A comment suppresses mutants in one of three forms, and the first line of a mutant decides whether a comment covers it.
 
     my $port = $base + 1;    ## no mutate
-    ## no mutate (arithmetic, comparison): the limit is fixed
+    ## no mutate (arithmetic, comparison-boundary): the limit is fixed
     my $limit = $port * 2 > 1024;
     ## use mutate
     ## no mutate sub: the banner is cosmetic

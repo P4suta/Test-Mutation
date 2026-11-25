@@ -1,7 +1,7 @@
 use v5.36;
 use Test2::V0;
 use lib 't/contract/lib', 't/e2e/lib', 't/lib';
-use Fixture qw(copy_of write_file);
+use Fixture qw(write_file);
 use Gate;
 use Invariants;
 use Samples;
@@ -13,7 +13,7 @@ use Test::Mutation::Runner;
 # One setting changes what another does only where the table of the interactions declares it.
 # The environment changes a setting only where the table states a default that depends on it.
 
-my $project = copy_of('calc');
+my $project = Space::tree();
 write_file( "$project/ci.toml", "\n" );
 my @flags        = Space::flags()->@*;
 my @environments = Space::environments()->@*;

@@ -1,7 +1,7 @@
 use v5.36;
 use Test2::V0;
 use lib 't/contract/lib', 't/e2e/lib', 't/lib';
-use Fixture qw(copy_of write_file);
+use Fixture qw(write_file);
 use Gate;
 use Invariants;
 use Samples;
@@ -13,7 +13,7 @@ use Test::Mutation::Settings;
 # S3, the surfaces: every sample of every setting on the command line, in the configuration file, and in a call.
 # One setting has one name and one meaning on all three, and each difference of today is an open finding.
 
-my $project = copy_of('calc');
+my $project = Space::tree();
 write_file( "$project/ci.toml",    "\n" );
 write_file( "$project/empty.toml", "\n" );
 my @settings = Test::Mutation::Settings::rows()->@*;

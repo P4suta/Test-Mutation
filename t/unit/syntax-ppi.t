@@ -596,7 +596,7 @@ subtest 'the grammar of the suppression comments reads the place of each comment
     };
     my $code = join "\n",
       'my $a = 1 + 2;    ## no mutate',
-      '## no mutate (arithmetic, comparison)',
+      '## no mutate (arithmetic, comparison-boundary)',
       'my $b = 3 + 4;',
       '## use mutate',
       '# a plain comment',
@@ -610,9 +610,9 @@ subtest 'the grammar of the suppression comments reads the place of each comment
       'a comment behind code, a block, and an indented block';
     is [ map { [ $_->@{qw(text names reason)} ] } analyze($code)->{suppressions}{directives}->@* ],
       [
-        [ '## no mutate',                          undef,                          undef ],
-        [ '## no mutate (arithmetic, comparison)', [ 'arithmetic', 'comparison' ], undef ],
-        [ '## no mutate (logical): kept',          ['logical'],                    'kept' ],
+        [ '## no mutate',                                   undef,                                   undef ],
+        [ '## no mutate (arithmetic, comparison-boundary)', [ 'arithmetic', 'comparison-boundary' ], undef ],
+        [ '## no mutate (logical): kept',                   ['logical'],                             'kept' ],
       ],
       'the text of each comment without its indent and its trailing blanks';
 

@@ -79,7 +79,7 @@ subtest 'the census rejects a key that no token-level mutant covers' => sub {
     is $census->{observed}{'operator + (binary)'}, 2,     'both additions are observed';
     is $census->{claimed}{'operator + (binary)'},  2,     'and a mutator changes each';
     is $census->{observed}{'operator <=>'},        1,     'the comparison of three ways is observed';
-    is $census->{claimed}{'operator <=>'},         undef, 'and no mutator changes it';
+    is $census->{claimed}{'operator <=>'},         1,     'and swapping the operands claims the comparison';
     is $census->{claimed}{'Symbol'},               undef, 'a return value that is one variable changes no variable';
     is $census->{claimed}{'Structure'}, undef,
       'and the removal of a statement or of a body changes no token of its own';

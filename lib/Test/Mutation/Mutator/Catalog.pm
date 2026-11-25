@@ -1,5 +1,6 @@
 package Test::Mutation::Mutator::Catalog;
 use v5.36;
+use Math::BigInt    ();
 use Types::Standard qw(ArrayRef Enum InstanceOf Str);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Error;
@@ -10,40 +11,52 @@ our $VERSION = '0.001';
 my @OPERATOR_FAMILIES = (
     {
         name        => 'arithmetic',
+        profile     => 'default',
         description => 'Replaces an arithmetic operator with its counterpart',
         role        => 'binary',
         table       => { '+' => ['-'], '-' => ['+'], '*' => ['/'], '/' => ['*'], '%'  => ['*'], '**' => ['*'] },
         idle        => { '+' => 0,     '-' => 0,     '*' => 1,     '/' => 1,     '**' => 1 },
     },
     {
-        name        => 'comparison',
-        description => 'Moves the boundary of a numeric comparison or negates it',
+        name        => 'comparison-boundary',
+        profile     => 'extended',
+        description => 'Moves the boundary of a numeric or string comparison',
         role        => 'binary',
         table       => {
-            '<'  => [ '<=', '>=' ],
-            '<=' => [ '<',  '>' ],
-            '>'  => [ '>=', '<=' ],
-            '>=' => [ '>',  '<' ],
-            '==' => ['!='],
-            '!=' => ['=='],
+            '<'  => ['<='],
+            '<=' => ['<'],
+            '>'  => ['>='],
+            '>=' => ['>'],
+            lt   => ['le'],
+            le   => ['lt'],
+            gt   => ['ge'],
+            ge   => ['gt'],
         },
         boundary => { '<' => '<=', '<=' => '<', '>' => '>=', '>=' => '>' },
     },
     {
-        name        => 'string-comparison',
-        description => 'Moves the boundary of a string comparison or negates it',
+        name        => 'comparison-negation',
+        profile     => 'default',
+        description => 'Negates a numeric or string comparison',
         role        => 'binary',
         table       => {
-            lt => [ 'le', 'ge' ],
-            le => [ 'lt', 'gt' ],
-            gt => [ 'ge', 'le' ],
-            ge => [ 'gt', 'lt' ],
-            eq => ['ne'],
-            ne => ['eq'],
+            '<'  => ['>='],
+            '<=' => ['>'],
+            '>'  => ['<='],
+            '>=' => ['<'],
+            '==' => ['!='],
+            '!=' => ['=='],
+            lt   => ['ge'],
+            le   => ['gt'],
+            gt   => ['le'],
+            ge   => ['lt'],
+            eq   => ['ne'],
+            ne   => ['eq'],
         },
     },
     {
         name        => 'logical',
+        profile     => 'default',
         description => 'Replaces a logical operator with its counterpart',
         role        => 'binary',
         table       => {
@@ -58,6 +71,7 @@ my @OPERATOR_FAMILIES = (
     },
     {
         name        => 'bitwise',
+        profile     => 'default',
         description => 'Replaces a bitwise operator with its counterpart or removes a complement',
         role        => 'binary',
         table       => {
@@ -83,12 +97,14 @@ my @OPERATOR_FAMILIES = (
     },
     {
         name        => 'increment',
+        profile     => 'default',
         description => 'Swaps increment and decrement',
         role        => 'update',
         table       => { '++' => ['--'], '--' => ['++'] },
     },
     {
         name        => 'assignment',
+        profile     => 'default',
         description => 'Replaces a compound assignment with its counterpart',
         role        => 'binary',
         table       => {
@@ -116,7 +132,7 @@ my @WORD_FAMILIES = (
     },
     {
         name        => 'call-swap',
-        profile     => 'default',
+        profile     => 'extended',
         description => 'Replaces a function with its counterpart',
         roles       => ['call'],
         calls       => 1,
@@ -158,11 +174,23 @@ my @WORD_FAMILIES = (
         table       => { shift => 'pop', pop => 'shift' },
     },
     {
-        name        => 'sort-order',
+        name        => 'list-order',
         profile     => 'extended',
-        description => 'Reverses the result of a sort',
+        description => 'Reverses a sort or removes an explicit reverse',
         roles       => ['call'],
-        table       => { sort => 'reverse sort' },
+        table       => {
+            sort            => 'reverse sort',
+            reverse         => q{},
+            'CORE::sort'    => 'CORE::reverse CORE::sort',
+            'CORE::reverse' => q{}
+        },
+    },
+    {
+        name        => 'call-removal',
+        profile     => 'default',
+        description => 'Removes abs or int while keeping its argument',
+        roles       => ['call'],
+        table       => { abs => q{}, int => q{}, 'CORE::abs' => q{}, 'CORE::int' => q{} },
     },
 );
 
@@ -179,7 +207,7 @@ sub _operator_mutator ($family) {
     my $boundary = $family->{boundary} || {};
     return Test::Mutation::Mutator->new(
         name        => $family->{name},
-        profile     => 'default',
+        profile     => $family->{profile},
         description => $family->{description},
         generate    => sub ($site) {
             return if $site->kind ne 'operator';
@@ -218,6 +246,8 @@ sub _word_mutator ($family) {
             my $word        = $family->{calls} ? $text =~ s/\A.*:://r : $text;
             my $replacement = $table->{$word};
             return if !defined $replacement;
+            return if !length($replacement) && !$site->facts->{has_argument};
+            return { replacement => q{}, description => "removed $text" } if !length $replacement;
             return { replacement => $replacement, description => "replaced $text with %s", calls => $replacement }
               if $family->{calls};
             return { replacement => $replacement, description => "replaced $text with $replacement" };
@@ -242,6 +272,29 @@ sub _unary_minus ($site) {
 }
 
 my %NEGATED_KEYWORD = ( if => 'unless', unless => 'if', while => 'until', until => 'while' );
+
+sub _three_way ($site) {
+    return if $site->kind ne 'comparison';
+    my ( $operand_end, $operand_start ) = $site->facts->{operands}->@*;
+    my $text = $site->text;
+    my $swapped =
+        substr( $text, $operand_start )
+      . substr( $text, $operand_end, $operand_start - $operand_end )
+      . substr( $text, 0,            $operand_end );
+    return { replacement => $swapped, description => 'swapped the operands of ' . $site->role };
+}
+
+sub _early_exit ($site) {
+    return if $site->kind ne 'guarded_exit';
+    return { replacement => _blank( $site->text ), description => 'removed a guarded exit' };
+}
+
+sub _filter_negation ($site) {
+    return if $site->kind ne 'filter';
+    my $text        = $site->text;
+    my $replacement = $site->role eq 'block' ? "{ !do $text }" : "!($text)";
+    return { replacement => $replacement, description => 'negated the filter predicate' };
+}
 
 # A keyword turns into its negation, and an elsif has none, so its condition is negated.
 # The condition of a conditional operator has no left edge that the analysis can name, so its branches swap.
@@ -316,11 +369,33 @@ sub _sub_body ($site) {
     return { replacement => _blank( $site->text ), description => "removed the body of $name" };
 }
 
+my %RADIX = ( b => 'as_bin', o => 'as_oct', x => 'as_hex' );
+
+sub _successor ($number) {
+    $number =~ tr/_//d;
+    if ( $number =~ /\Av|\d[.]\d+[.]\d/ ) {
+        return $number =~ s/(\d+)\z/Math::BigInt->new($1)->binc/er;
+    }
+    if ( my ( $sign, $prefix, $digits ) = $number =~ /\A (-?) (0[box]|0(?=[0-7])) ([[:xdigit:]]+) \z/ix ) {
+        my $base  = length($prefix) == 1 ? 'o' : lc substr( $prefix, 1 );
+        my $value = Math::BigInt->new( $sign . '0' . $base . $digits )->binc;
+        return if $value->is_nan;
+        my $format = $RADIX{$base};
+        return $value->$format() =~ s/\A(-?)0[box]?/$1$prefix/ir;
+    }
+    return Math::BigInt->new($number)->binc->bstr if $number =~ /\A-?\d+\z/;
+    return unless $number =~ /\A -? (?:\d+(?:[.]\d*)?|[.]\d+) (?:e[+-]?\d+)? \z/ix;
+    my $next = $number + 1;
+    return if $next == $number;
+    my $short = "$next";
+    return $short == $next ? $short : sprintf( '%.17g', $next );
+}
+
 sub _number_literal ($site) {
     return if $site->kind ne 'number';
-    my $text = $site->text;
-    return if $text !~ /\A[0-9]+\z/;
-    my $replacement = $text eq '0' ? '1' : $text eq '1' ? '0' : $text + 1;
+    my $text        = $site->text;
+    my $replacement = _successor($text);
+    return unless defined $replacement;
     return { replacement => "$replacement", description => "replaced $text with $replacement" };
 }
 
@@ -363,12 +438,47 @@ sub _regex_quantifier ($site) {
 }
 
 sub _regex_flag ($site) {
-    return if $site->kind ne 'regex' || $site->role ne 'flag';
-    return { replacement => q{}, description => 'removed the flag i' };
+    return if $site->kind ne 'regex';
+    my $text = $site->text;
+    return { replacement => q{}, description => "removed the flag $text" } if $site->role eq 'flag';
+    return                                                                 if $site->role ne 'modifier';
+    my ( $open, $flags, $close ) = $text =~ /\A(\(?\?)([\^a-z-]+)([):])\z/ or return;
+    my @changes;
+    while ( $flags =~ /[ims]/g ) {
+        my $offset = $-[0];
+        my $other  = $flags;
+        my $flag   = substr( $other, $offset, 1, q{} );
+        $other =~ s/-\z//;
+        my $replacement = length($other) || $close eq ':' ? "$open$other$close" : '(?:)';
+        push @changes, { replacement => $replacement, description => "removed the flag $flag" };
+    }
+    return @changes;
+}
+
+sub _regex_class ($site) {
+    return if $site->kind ne 'regex' || $site->role ne 'class';
+    my $text = $site->text;
+    my $changed =
+        $text =~ /\A\\/     ? $text =~ tr/dDsSwW/DdSsWw/r
+      : $text =~ /\A\[\^\^/ ? $text =~ s/\A\[\^/[\\/r
+      : $text =~ /\A\[\^/   ? $text =~ s/\A\[\^/\[/r
+      :                       $text =~ s/\A\[/[^/r;
+    return { replacement => $changed, description => 'complemented the character class' };
+}
+
+sub _literal_collection ($site) {
+    return if $site->kind ne 'collection';
+    my ( $open, $inside, $close ) = $site->text =~ /\A((?:qw\s*)?.)(.*)(.)\z/s or return;
+    return { replacement => $open . _blank($inside) . $close, description => 'emptied the collection literal' };
 }
 
 my @CODED = (
-    [ 'unary-minus', 'default', 'Removes a unary minus or the sign of a number', \&_unary_minus ],
+    [ 'three-way',          'default',  'Swaps the operands of a three-way comparison',  \&_three_way ],
+    [ 'early-exit',         'default',  'Removes a guarded transfer of control',         \&_early_exit ],
+    [ 'filter-negation',    'default',  'Negates the predicate of grep or first',        \&_filter_negation ],
+    [ 'regex-class',        'extended', 'Complements a character class in a pattern',    \&_regex_class ],
+    [ 'literal-collection', 'extended', 'Empties an array, hash, or word-list literal',  \&_literal_collection ],
+    [ 'unary-minus',        'default',  'Removes a unary minus or the sign of a number', \&_unary_minus ],
     [
         'condition-negation',                                         'default',
         'Negates a condition or swaps the branches of a conditional', \&_condition_negation
@@ -377,16 +487,16 @@ my @CODED = (
     [ 'negation',          'default', 'Removes a logical negation',                                   \&_negation ],
     [ 'match',             'default', 'Negates a pattern match',                                      \&_match ],
     [ 'return-value',      'default', 'Removes a return value or flips a literal 0 or 1',             \&_return_value ],
-    [ 'statement-removal', 'default',  'Removes an expression statement',          \&_statement_removal ],
-    [ 'sub-body',          'default',  'Removes the body of a subroutine',         \&_sub_body ],
-    [ 'close-removal',     'extended', 'Removes a close or closedir statement',    \&_close_removal ],
-    [ 'number-literal',    'extended', 'Changes an integer literal',               \&_number_literal ],
-    [ 'string-literal',    'extended', 'Empties a string literal',                 \&_string_literal ],
-    [ 'condition-fixed',   'extended', 'Replaces a condition with a constant',     \&_condition_fixed ],
-    [ 'range-boundary',    'extended', 'Lowers the upper bound of a range by one', \&_range_boundary ],
-    [ 'regex-anchor',      'extended', 'Removes an anchor from a pattern',         \&_regex_anchor ],
-    [ 'regex-quantifier',  'extended', 'Changes a quantifier in a pattern',        \&_regex_quantifier ],
-    [ 'regex-flag',        'extended', 'Removes the case flag from a pattern',     \&_regex_flag ],
+    [ 'statement-removal', 'default',  'Removes an expression statement',                 \&_statement_removal ],
+    [ 'sub-body',          'default',  'Removes the body of a subroutine',                \&_sub_body ],
+    [ 'close-removal',     'extended', 'Removes a close or closedir statement',           \&_close_removal ],
+    [ 'number-literal',    'extended', 'Advances a numeric literal in its original base', \&_number_literal ],
+    [ 'string-literal',    'extended', 'Empties a string literal',                        \&_string_literal ],
+    [ 'condition-fixed',   'extended', 'Replaces a condition with a constant',            \&_condition_fixed ],
+    [ 'range-boundary',    'extended', 'Lowers the upper bound of a range by one',        \&_range_boundary ],
+    [ 'regex-anchor',      'extended', 'Removes an anchor from a pattern',                \&_regex_anchor ],
+    [ 'regex-quantifier',  'extended', 'Changes a quantifier in a pattern',               \&_regex_quantifier ],
+    [ 'regex-flag',        'extended', 'Removes a matching or substitution flag',         \&_regex_flag ],
 );
 
 my @ALL = (
@@ -410,18 +520,30 @@ sub mutators () {
     return [@ALL];
 }
 
+my %GROUP = (
+    '@regex'   => [ map { $_->name } grep { $_->name =~ /\Aregex-/ } @ALL ],
+    '@literal' => [ map { $_->name } grep { $_->name =~ /(?:-literal\z|\Aliteral-)/ } @ALL ],
+    '@removal' => [qw(early-exit call-removal close-removal statement-removal sub-body return-value)],
+);
+
+sub _expanded (@names) {
+    return map { $GROUP{$_} ? $GROUP{$_}->@* : $_ } @names;
+}
+
 signature_for choose => (
     named   => [ profile => Enum [qw(default extended)], enable => ArrayRef [Str], disable => ArrayRef [Str] ],
     returns => ArrayRef [ InstanceOf ['Test::Mutation::Mutator'] ],
 );
 
 sub choose ($arg) {
+    my @enable  = _expanded( $arg->enable->@* );
+    my @disable = _expanded( $arg->disable->@* );
     my %known   = map  { $_->name => 1 } @ALL;
-    my @unknown = grep { !$known{$_} } $arg->enable->@*, $arg->disable->@*;
+    my @unknown = grep { !$known{$_} } @enable, @disable;
     Test::Mutation::Error::raise( 'mutator-unknown', names => join q{, }, @unknown ) if @unknown;
 
-    my %enabled  = map { $_ => 1 } $arg->enable->@*;
-    my %disabled = map { $_ => 1 } $arg->disable->@*;
+    my %enabled  = map { $_ => 1 } @enable;
+    my %disabled = map { $_ => 1 } @disable;
     return [
         grep {
             !$disabled{ $_->name }
@@ -450,10 +572,20 @@ Test::Mutation::Mutator::Catalog - the built-in mutators
 
 C<mutation mutators> prints the name, the profile, and the description of every mutator.
 
+C<comparison-boundary> moves the boundary of an ordered comparison and C<comparison-negation> complements its result.
+C<three-way> exchanges both operands of C<cmp> or C<< <=> >>.
+C<early-exit> removes a guarded transfer of control and C<filter-negation> negates the predicate of C<grep> or C<first>.
+C<call-removal> removes C<abs> or C<int> from its explicit argument.
+C<list-order> reverses a sort or removes C<reverse> from its argument.
+
+C<number-literal> increments the literal in its original base.
+C<literal-collection> empties an array reference, hash reference, or C<qw> list.
+C<regex-class> complements a character class and C<regex-flag> removes one matching flag or the C<g> of a substitution.
+
 The C<arithmetic> mutator leaves C<+ 0>, C<- 0>, C<* 1>, C</ 1>, and C<** 1> alone.
 The operator and its replacement give the same value there, apart from the sign of a negative zero under C<* 1> and C</ 1>.
 
-The C<comparison> mutator keeps the boundary of a comparison between C<$]> and a number, as in C<< $] < 5.010 >>.
+The C<comparison-boundary> mutator keeps the boundary of a comparison between C<$]> and a number, as in C<< $] < 5.010 >>.
 The boundary matters on the one interpreter whose version equals the number, and the tests of other interpreters cannot detect its change.
 The negation of such a comparison stays a mutant.
 
@@ -482,6 +614,8 @@ Returns every built-in mutator.
 
 Returns the mutators of a profile, plus the enabled names and minus the disabled names.
 The C<extended> profile includes the C<default> mutators.
+Use C<@regex>, C<@literal>, and C<@removal> with C<enable> or C<disable> to select related mutators together.
+A disabled name or group takes precedence over an enabled one.
 An unknown name is a fatal error.
 
 =cut

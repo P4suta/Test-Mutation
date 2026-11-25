@@ -28,16 +28,22 @@ my %CODE_BLOCK_WORD =
 my %UNDELETABLE_FIRST_WORD =
   map { $_ => 1 } qw(package class role field method use no my our local state return last next redo goto);
 my %BOUNDED_COMPARISON = map { $_ => 1 } qw(< <= > >=);
-my %LIST_BLOCK_WORD    = map { $_ => 1 } qw(map grep);
-my %DECLARATION        = map { $_ => 1 } qw(my our state);
-my %OPEN_BLOCK_HEAD    = map { $_ => 1 } qw(ADJUST if unless while until for foreach);
-my %BLOCK_FIRST_HEAD   = map { $_ => 1 } qw(finally defer try);
-my %NAMED_BLOCK_HEAD   = map { $_ => 1 } qw(class role method sub);
-my %CONTINUATION       = map { $_ => 1 } qw(elsif else continue catch finally);
-my %BODY_HEAD          = map { $_ => 1 } qw(method sub ADJUST);
-my %EXCLUDED_HEAD      = map { $_ => 1 } qw(use no package);
-my %HIDDEN_HEAD        = map { $_ => 1 } qw(field ADJUST);
-my %ROUTINE_HEAD       = map { $_ => 1 } qw(sub method);
+my %THREE_WAY          = map { $_ => 1 } qw(<=> cmp);
+my %EXIT_GUARD         = map { $_ => 1 } qw(or || // and &&);
+my %TRANSFER =
+  map { $_ => 1 } qw(return next last redo die croak confess exit CORE::die CORE::exit Carp::croak Carp::confess);
+my %REMOVABLE_CALL   = map { $_ => 1 } qw(abs int reverse CORE::abs CORE::int CORE::reverse);
+my %FILTER           = map { $_ => 1 } qw(grep CORE::grep first List::Util::first List::AllUtils::first);
+my %LIST_BLOCK_WORD  = map { $_ => 1 } qw(map grep);
+my %DECLARATION      = map { $_ => 1 } qw(my our state);
+my %OPEN_BLOCK_HEAD  = map { $_ => 1 } qw(ADJUST if unless while until for foreach);
+my %BLOCK_FIRST_HEAD = map { $_ => 1 } qw(finally defer try);
+my %NAMED_BLOCK_HEAD = map { $_ => 1 } qw(class role method sub);
+my %CONTINUATION     = map { $_ => 1 } qw(elsif else continue catch finally);
+my %BODY_HEAD        = map { $_ => 1 } qw(method sub ADJUST);
+my %EXCLUDED_HEAD    = map { $_ => 1 } qw(use no package);
+my %HIDDEN_HEAD      = map { $_ => 1 } qw(field ADJUST);
+my %ROUTINE_HEAD     = map { $_ => 1 } qw(sub method);
 my %NEVER_A_CALL =
   map { $_ => 1 }
   qw(my our local state sub package class role field method use no return do eval else elsif for foreach
@@ -543,47 +549,91 @@ sub _regex_sites ( $context, $token ) {
         my $text = $part->content;
         my $from = $offset;
         $offset += length $text;
+        if ( my $width = _regex_class_width($part) ) {
+            _add( $context, kind => 'regex', role => 'class', start => $from, end => $from + $width, scope => $scope );
+            next;
+        }
+        if (   $part->isa('PPIx::Regexp::Token::GroupType::Modifier')
+            || $part->isa('PPIx::Regexp::Token::Modifier') && $text =~ /\A\(\?/ )
+        {
+            _add( $context, kind => 'regex', role => 'modifier', start => $from, end => $offset, scope => $scope )
+              if $text =~ /[ims]/;
+            next;
+        }
         my $role = $REGEX_ROLE{ ref $part } or next;
         if ( $role eq 'flag' ) {
-            my ($before) = $text =~ /\A([[:alpha:]]*?)i[[:alpha:]]*\z/ or next;
-            ( $from, $text ) = ( $from + length $before, 'i' );
+            _regex_flags( $context, $token, $scope, $text, $from );
         }
-        next if $role eq 'anchor' && !$ANCHOR{$text};
-        my $next = $role eq 'anchor' ? $part->snext_sibling : undef;
-        _add(
-            $context,
-            kind  => 'regex',
-            start => $from,
-            end   => $from + length $text,
-            role  => $role,
-            scope => $scope,
-            $next && $next->is_quantifier ? ( facts => { quantified => 1 } ) : ()
-        );
+        else {
+            next if $role eq 'anchor' && !$ANCHOR{$text};
+            my $next = $role eq 'anchor' ? $part->snext_sibling : undef;
+            _add(
+                $context,
+                kind  => 'regex',
+                start => $from,
+                end   => $from + length $text,
+                role  => $role,
+                scope => $scope,
+                $next && $next->is_quantifier ? ( facts => { quantified => 1 } ) : ()
+            );
+        }
     }
     return;
 }
 
+sub _regex_class_width ($part) {
+    my $text = $part->content;
+    return length $text if $part->isa('PPIx::Regexp::Token::CharClass::Simple') && $text =~ /\A\\[dDsSwW]\z/;
+    return unless $text eq '[' && $part->isa('PPIx::Regexp::Token::Structure');
+    my $class = $part->parent;
+    return if !$class->isa('PPIx::Regexp::Structure::CharClass') || _interpolated_index($class);
+    return length $class->content;
+}
+
+sub _regex_flags ( $context, $token, $scope, $text, $from ) {
+    while ( $text =~ /([imsg])/g ) {
+        next if $1 eq 'g' && !$token->isa('PPI::Token::Regexp::Substitute');
+        my $at = $from + $-[0];
+        _add( $context, kind => 'regex', role => 'flag', start => $at, end => $at + 1, scope => $scope );
+    }
+    return;
+}
+
+sub _interpolated_index ($class) {
+    my $tip = $class->previous_sibling;
+    return 0 unless $tip && $tip->content eq '>';
+    my $dash = $tip->previous_sibling;
+    return 0 unless $dash && $dash->content eq '-';
+    my $value = $dash->previous_sibling;
+    return $value && $value->isa('PPIx::Regexp::Token::Interpolation') && $value->content !~ /\A[\$\@]\{/;
+}
+
 sub _token_site ( $context, $token ) {
-    return                                    if $context->{misread}{ refaddr $token };
-    return _regex_sites( $context, $token )   if grep { $token->isa($_) } @REGEX_TOKEN;
-    return _operator_site( $context, $token ) if $token->isa('PPI::Token::Operator');
-    my $kind =
-        $token->isa('PPI::Token::Word')            ? 'word'
-      : $token->isa('PPI::Token::Number::Version') ? undef
-      : $token->isa('PPI::Token::Prototype')       ? undef
-      : $token->isa('PPI::Token::Number')          ? 'number'
-      : $token->isa('PPI::Token::Quote')           ? 'string'
-      :                                              undef;
+    return                                      if $context->{misread}{ refaddr $token };
+    return _collection_site( $context, $token ) if $token->isa('PPI::Token::QuoteLike::Words') && $token->literal;
+    return _regex_sites( $context, $token )     if grep { $token->isa($_) } @REGEX_TOKEN;
+    return _operator_site( $context, $token )   if $token->isa('PPI::Token::Operator');
+    my $kind = _literal_kind($token);
     return if !defined $kind;
 
     my ( $start, $end ) = _span( $context, $token, $token ) or return;
     my $scope = _scope( $context, $token ) or return;
     my $role  = $kind eq 'word' ? _word_role( $context, $token ) : q{};
-    return                                  if $kind eq 'word' && $role eq q{};
-    _modifier_condition( $context, $token ) if $role eq 'modifier';
-    $role = 'open-mode' if $kind eq 'string' && _open_mode($token);
+    return                                   if $kind eq 'word' && $role eq q{};
+    _modifier_condition( $context, $token )  if $role eq 'modifier';
+    $role = 'open-mode'                      if $kind eq 'string' && _open_mode($token);
+    _filter_site( $context, $token, $scope ) if $role eq 'call' && $FILTER{ $token->content };
     my $facts = $role eq 'call' ? _local_calls( $context, $token ) : {};
+    $facts->{has_argument} = _has_argument( $context, $token ) if $role eq 'call' && $REMOVABLE_CALL{ $token->content };
     _add( $context, kind => $kind, start => $start, end => $end, role => $role, scope => $scope, facts => $facts );
+    return;
+}
+
+sub _literal_kind ($token) {
+    return 'word'   if $token->isa('PPI::Token::Word');
+    return          if $token->isa('PPI::Token::Prototype');
+    return 'number' if $token->isa('PPI::Token::Number');
+    return 'string' if $token->isa('PPI::Token::Quote');
     return;
 }
 
@@ -620,6 +670,44 @@ sub _open_mode ($string) {
     return _is_word( $open, \%OPEN ) && !_is_operator( scalar $open->sprevious_sibling, '->' );
 }
 
+sub _filter_site ( $context, $word, $scope ) {
+    my $first = $word->snext_sibling or return;
+    my $last  = $first;
+    my $block = $first->isa('PPI::Structure::Block');
+    unless ($block) {
+        return unless $word->content =~ /(?:\A|::)grep\z/;
+        if ( $first->isa('PPI::Structure::List') ) {
+            ($first) = map { $_->schildren } $first->schildren;
+            return unless $first;
+        }
+        $last = $first;
+        while ( my $after = $last->snext_sibling ) {
+            last   if _is_operator( $after, q{,} );
+            return if _is_semicolon($after);
+            $last = $after;
+        }
+        return unless _is_operator( scalar $last->snext_sibling, q{,} );
+    }
+    my ( $from, $end ) = _span( $context, _edge_tokens( $first, $last ) ) or return;
+    _add(
+        $context,
+        kind  => 'filter',
+        role  => $block ? 'block' : 'expression',
+        start => $from,
+        end   => $end,
+        scope => $scope,
+        facts => { _anchors( $context, $word ) }
+    );
+    return;
+}
+
+sub _has_argument ( $context, $token ) {
+    my $next = $token->snext_sibling;
+    return scalar( $next->schildren ) ? 1 : 0 if $next && $next->isa('PPI::Structure::List');
+    my $range = _place( $context, $token )->{record}{after} || [ 0, 0 ];
+    return $range->[1] > $range->[0] ? 1 : 0;
+}
+
 sub _operator_site ( $context, $token ) {
 
     # The second caret of a logical exclusive or belongs to the site of the first one.
@@ -645,7 +733,43 @@ sub _operator_site ( $context, $token ) {
         scope => $scope,
         facts => $facts,
     );
-    _branches_site( $context, $token, $place, $scope ) if $token->content eq q{?};
+    _branches_site( $context, $token, $place, $scope )     if $token->content eq q{?};
+    _comparison_site( $context, $token, $place, $scope )   if $THREE_WAY{ $token->content };
+    _guarded_exit_site( $context, $token, $place, $scope ) if $EXIT_GUARD{ $token->content };
+    return;
+}
+
+sub _comparison_site ( $context, $token, $place, $scope ) {
+    my $record = $place->{record};
+    return unless $record && $record->{before} && $record->{after};
+    my $units = $place->{units};
+    my ( $from,          $operand_end ) = _span( $context, _unit_edges( $units, $record->{before} ) ) or return;
+    my ( $operand_start, $end )         = _span( $context, _unit_edges( $units, $record->{after} ) )  or return;
+    _add(
+        $context,
+        kind  => 'comparison',
+        role  => $token->content,
+        start => $from,
+        end   => $end,
+        scope => $scope,
+        facts => { operands => [ $operand_end - $from, $operand_start - $from ], _anchors( $context, $token ) }
+    );
+    return;
+}
+
+sub _guarded_exit_site ( $context, $token, $place, $scope ) {
+    my $range = $place->{record}{after} or return;
+    my ( $head, $last ) = _unit_edges( $place->{units}, $range );
+    return unless _is_word( $head, \%TRANSFER );
+    my ( $from, $end ) = _span( $context, $token, $last ) or return;
+    _add(
+        $context,
+        kind  => 'guarded_exit',
+        start => $from,
+        end   => $end,
+        scope => $scope,
+        facts => { _anchors( $context, $token ) }
+    );
     return;
 }
 
@@ -856,6 +980,8 @@ sub _scope ( $context, $element ) {
 }
 
 sub _structure_sites ( $context, $node ) {
+    _collection_site( $context, $node )
+      if $node->isa('PPI::Structure::Constructor') && $node->schildren && $node->finish;
     if ( $node->isa('PPI::Structure::Condition') ) {
         my $keyword = $node->sprevious_sibling;
         _condition_site( $context, $keyword, $node )
@@ -868,6 +994,28 @@ sub _structure_sites ( $context, $node ) {
         _add_body( $context, $block, defined $name ? $name : q{}, $node->first_token ) if $block;
     }
     _return_site( $context, scalar _scope( $context, $node ), $node->schildren ) if $node->isa('PPI::Statement::Break');
+    return;
+}
+
+sub _collection_site ( $context, $element ) {
+    if ( $element->isa('PPI::Structure::Constructor') && $element->start->content eq '[' ) {
+        my $previous = $element->sprevious_sibling;
+        return if _ends_operand($previous);
+        if ( $previous && $previous->isa('PPI::Structure::Block') ) {
+            my $before = $previous->sprevious_sibling;
+            return if $before && $before->isa('PPI::Token::Cast');
+        }
+    }
+    my ( $from, $end ) = _span( $context, _edge_tokens( $element, $element ) ) or return;
+    my $scope = _scope( $context, $element ) or return;
+    _add(
+        $context,
+        kind  => 'collection',
+        start => $from,
+        end   => $end,
+        scope => $scope,
+        facts => { $element->isa('PPI::Token::QuoteLike::Words') ? _anchors( $context, $element ) : () }
+    );
     return;
 }
 

@@ -27,7 +27,7 @@ my $known  = Discovery::Known->new(
 );
 my $zoo      = Discovery::Zoo->new( known => $known );
 my @run      = qw(completes I2 I3 I4);
-my %settings = ( sources => Discovery::Zoo::sources(), equivalence => 0 );
+my %settings = ( sources => Discovery::Zoo::sources(), equivalence => 0, enable => ['comparison-boundary'] );
 my $plain    = 'use';
 my ( %found, %ran );
 my ( $runs,  $compared ) = ( 0, 0 );

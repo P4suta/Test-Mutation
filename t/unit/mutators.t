@@ -147,7 +147,8 @@ PERL
 };
 
 subtest 'a change that calls a function names one that the file resolves' => sub {
-    my $swap = sub ( $code, %select ) { return changes( $code, 'call-swap', %select ) };
+    my %with_swap = ( enable => ['call-swap'] );
+    my $swap      = sub ($code) { return changes( $code, 'call-swap', %with_swap ) };
     is $swap->("use List::Util qw(any);\nmy \$ok = any { \$_ } \@c;\n"), [ [ 'any', 'List::Util::all' ] ],
       'the module of the original provides the other name';
     is $swap->("use List::Util qw(any all);\nmy \$ok = any { \$_ } \@c;\n"), [ [ 'any', 'all' ] ],
@@ -156,7 +157,8 @@ subtest 'a change that calls a function names one that the file resolves' => sub
       'a qualified call keeps its package';
     is $swap->("push \@a, 1;\nmy \$s = lc \$t;\n"), [ [ 'push', 'unshift' ], [ 'lc', 'uc' ] ], 'core functions';
     is $swap->("my \$m = max(\@b);\n"),             [], 'a name of unknown origin has no swap';
-    is refused("my \$m = max(\@b);\n"), [ [ 'call-swap', 1, 'unresolved-call' ] ], 'and the refusal names the rule';
+    is refused( "my \$m = max(\@b);\n", %with_swap ), [ [ 'call-swap', 1, 'unresolved-call' ] ],
+      'and the refusal names the rule';
     is $swap->("sub max { 1 }\nmy \$m = max(\@b);\n"), [],                      'a subroutine of the file has no swap';
     is $swap->("use POSIX;\nmy \$n = ceil(\$x);\n"),   [ [ 'ceil', 'floor' ] ], 'a default export';
     is $swap->("use List::Util qw(any);\nuse List::Util qw(all);\nmy \$ok = any { \$_ } \@c;\n"),
@@ -214,7 +216,8 @@ PERL
       [], 'a lexical definition in another block cannot supply a package subroutine';
 
     my ($described) =
-      grep { $_->mutator eq 'call-swap' } mutants("use List::Util qw(any);\nmy \$ok = any { \$_ } \@c;\n")->@*;
+      grep { $_->mutator eq 'call-swap' }
+      mutants( "use List::Util qw(any);\nmy \$ok = any { \$_ } \@c;\n", %with_swap )->@*;
     is $described->description, 'replaced any with List::Util::all', 'the description names what the mutant holds';
 };
 
@@ -224,7 +227,7 @@ subtest 'a swapped call compiles' => sub {
       . "sub unshift { return 1 }\n"
       . "print 'some' if any { \$_ > 1 } \@c;\nprint max(\@c), List::Util::max(\@c);\npush \@c, 3;\n";
     my $source = Test::Mutation::Source->new( path => 'lib/X.pm', text => $code, encoding => 'UTF-8' );
-    my @swaps  = grep { $_->mutator eq 'call-swap' } mutants($code)->@*;
+    my @swaps  = grep { $_->mutator eq 'call-swap' } mutants( $code, enable => ['call-swap'] )->@*;
     is [ map { $_->replacement } @swaps ], [ 'List::Util::all', 'List::Util::min', 'List::Util::min', 'CORE::unshift' ],
       'four swaps';
     for my $mutant (@swaps) {
@@ -242,13 +245,16 @@ subtest 'operator families' => sub {
     is $in_module->( '$a + $b - $c * $d / $e % $f ** $g;', 'arithmetic' ),
       [ [ '+', '-' ], [ '-', '+' ], [ '*', '/' ], [ '/', '*' ], [ '%', '*' ], [ '**', '*' ] ], 'arithmetic';
     is $in_module->( 'f(-$a, +$b);', 'arithmetic' ), [], 'unary signs are left alone';
-    is $in_module->( '$a < $b; $a >= $b; $a == $b;', 'comparison' ),
-      [ [ '<', '<=' ], [ '<', '>=' ], [ '>=', '>' ], [ '>=', '<' ], [ '==', '!=' ] ], 'comparison';
-    is $in_module->( '$a lt $b; $a eq $b;', 'string-comparison' ), [ [ 'lt', 'le' ], [ 'lt', 'ge' ], [ 'eq', 'ne' ] ],
-      'string comparison';
+    my $comparisons = '$a < $b; $a >= $b; $a == $b; $a lt $b; $a eq $b; 1;';
+    is $in_module->( $comparisons, 'comparison-boundary', enable => ['comparison-boundary'] ),
+      [ [ '<', '<=' ], [ '>=', '>' ], [ 'lt', 'le' ] ],
+      'numeric and string comparisons change their boundary';
+    is $in_module->( $comparisons, 'comparison-negation' ),
+      [ [ '<', '>=' ], [ '>=', '<' ], [ '==', '!=' ], [ 'lt', 'ge' ], [ 'eq', 'ne' ] ],
+      'numeric and string comparisons reverse their answer';
     my $slurp = "my \$data = do {\n    local \$/;\n    open my (\$fh), '<:raw', \$path\n"
       . "      or die \"could not read file <\$path>\\n\";\n    <\$fh>;\n};\n";
-    is $in_module->( $slurp, 'comparison' ), [], 'a readline at the start of a statement is no comparison';
+    is $in_module->( $slurp, 'comparison-negation' ), [], 'a readline at the start of a statement is no comparison';
     is $in_module->( '$a && $b || $c // $d; f() or g() and h(); $e xor $f; $g ^^ $h;', 'logical' ),
       [
         [ '&&',  '||' ],
@@ -290,7 +296,7 @@ subtest 'operator families' => sub {
     is $in_module->( $postfix, 'arithmetic' ), [ [ '-', '+' ], [ '-', '+' ] ],
       'both subtractions expose their operator alone';
     is $in_module->( $postfix, 'number-literal', enable => ['number-literal'] ),
-      [ [ '0', '1' ], [ '1', '0' ], [ '2', '3' ] ], 'each subtrahend is an unsigned literal';
+      [ [ '0', '1' ], [ '1', '2' ], [ '2', '3' ] ], 'each subtrahend is an unsigned literal';
     my $subtractions = 'sub f { return $_[0]-1, g($x)-2, ($x)-3, [$x]-4, $x++-5, $x---6, 0 .. -7 }';
     is $in_module->( $subtractions, 'unary-minus' ), [ [ '-7', '7' ] ],
       'a negative range endpoint is distinct from a subtrahend after a completed operand';
@@ -327,7 +333,8 @@ subtest 'word families' => sub {
       ],
       'a test of definedness, existence, context, or a file is negated';
     my $imports = "use v5.40;\nuse List::Util qw(max min any all);\n";
-    is changes( $imports . 'push @a, max(@b); my %h = ( min => 1 ); $o->uc; any { $_ } @c;', 'call-swap' ),
+    is changes( $imports . 'push @a, max(@b); my %h = ( min => 1 ); $o->uc; any { $_ } @c;',
+        'call-swap', enable => ['call-swap'] ),
       [ [ 'push', 'unshift' ], [ 'max', 'min' ], [ 'any', 'all' ] ], 'call swaps skip hash keys and methods';
     is changes( $imports . 'return true; my $f = false;', 'boolean-literal' ),
       [ [ 'true', 'false' ], [ 'false', 'true' ] ], 'booleans';
@@ -363,19 +370,20 @@ subtest 'the computed return value of a module survives every proposed change' =
     my $header = "package Truth;\nour (\$left, \$right);\nBEGIN { (\$left,\$right) = (3, 4) }\n";
     for my $tail ( q{}, 'sub later { 2 }', 'use strict;', 'package Other;', 'END { 1 }', '__DATA__' ) {
         my $code = $header . "\$left != \$right;\n$tail\n";
-        is changes( $code, 'comparison' ), [], "the comparison returns the module value before '$tail'";
-        is [ grep { $_->[0] eq 'comparison' } refused($code)->@* ], [ [ 'comparison', 4, 'final-value' ] ],
+        is changes( $code, 'comparison-negation' ), [], "the comparison returns the module value before '$tail'";
+        is [ grep { $_->[0] eq 'comparison-negation' } refused($code)->@* ],
+          [ [ 'comparison-negation', 4, 'final-value' ] ],
           'the generator records the reason for the refusal';
     }
-    is changes( $header . "\$left != \$right;\n1;\n", 'comparison' ), [ [ '!=', '==' ] ],
+    is changes( $header . "\$left != \$right;\n1;\n", 'comparison-negation' ), [ [ '!=', '==' ] ],
       'an explicit later value leaves the comparison eligible';
-    is changes( $header . "print \$left != \$right;\n", 'comparison' ), [ [ '!=', '==' ] ],
+    is changes( $header . "print \$left != \$right;\n", 'comparison-negation' ), [ [ '!=', '==' ] ],
       'an operand of the last output operation remains eligible';
     for my $expression ( '(( $left != $right ))', '($left + 1) != $right', '$left + 1 != $right' ) {
-        is changes( "$header$expression", 'comparison' ), [], 'a computed value may be grouped or end at EOF';
+        is changes( "$header$expression", 'comparison-negation' ), [], 'a computed value may be grouped or end at EOF';
     }
     for my $after ( 'require strict;', 'package Last { 1 }' ) {
-        is changes( $header . "\$left != \$right;\n$after\n", 'comparison' ), [ [ '!=', '==' ] ],
+        is changes( $header . "\$left != \$right;\n$after\n", 'comparison-negation' ), [ [ '!=', '==' ] ],
           "the runtime value of $after follows the comparison";
     }
 };
@@ -397,7 +405,7 @@ sub output {
 1;
 PERL
     is changes( $code, 'arithmetic' ), [ [ '*', '/' ] ], 'only multiplication changes into division';
-    is changes( $code, 'comparison' ), [ [ '>', '>=' ], [ '>', '() <=' ], [ '>', '>=' ], [ '>', '<=' ] ],
+    is changes( $code, 'comparison-negation' ), [ [ '>', '() <=' ], [ '>', '<=' ] ],
       'the introduced less-than sign follows an explicit empty call when the operand used the default';
     is changes( $code, 'string-literal', enable => ['string-literal'] ),
       [ [ q{'Alias::f'}, q{''} ], [ q{'path'}, q{''} ], [ q{'>&'}, q{''} ], [ q{'other'}, q{''} ] ],
@@ -407,17 +415,63 @@ PERL
       'quantifiers keep their own atom when its anchoring requirement is removed';
 };
 
+subtest 'changes to control flow and operands respect Perl precedence' => sub {
+    is changes( 'sub cmp_args { foo($x + $y <=> g($z), "$x" cmp $hash{key}); }', 'three-way' ),
+      [ [ '$x + $y <=> g($z)', 'g($z) <=> $x + $y' ], [ '"$x" cmp $hash{key}', '$hash{key} cmp "$x"' ] ],
+      'each three-way comparison swaps both complete operands';
+    is changes( 'sub f { g() or return 3; g() && die "error"; g() // last LOOP; g() || log_it(); }', 'early-exit' ),
+      [ [ 'or return 3', q{} ], [ '&& die "error"', q{} ], [ '// last LOOP', q{} ] ],
+      'only a guarded transfer of control loses its tail';
+    is changes( 'sub f { return abs($x) + int -2; } sub g { return abs; }', 'call-removal' ),
+      [ [ 'abs', q{} ], [ 'int', q{} ] ], 'absolute value and truncation keep their explicit arguments';
+    is changes( 'sub f { my @s = reverse @x; my @t = sort @x; $obj->reverse; }', 'list-order', profile => 'extended' ),
+      [ [ 'reverse', q{} ], [ 'sort', 'reverse sort' ] ], 'list order changes at a sort or an explicit reverse';
+    is changes( 'sub f { my @a = CORE::reverse @x; my @b = CORE::sort(@x); }', 'list-order', profile => 'extended' ),
+      [ [ 'CORE::reverse', q{} ], [ 'CORE::sort', 'CORE::reverse CORE::sort' ] ],
+      'qualified builtins keep their namespace even when the project defines another reverse';
+    my $filter = 'sub f { my @a = grep { my $x = $_; $x } @x; my @b = grep($_ > 2, @x); '
+      . 'my @c = grep /abc/, @x; my $f = first { $_ } @x; $obj->grep(@x); }';
+    is changes( $filter, 'filter-negation' ),
+      [
+        [ '{ my $x = $_; $x }', '{ !do { my $x = $_; $x } }' ],
+        [ '$_ > 2',             '!($_ > 2)' ],
+        [ '/abc/',              '!(/abc/)' ],
+        [ '{ $_ }',             '{ !do { $_ } }' ],
+      ],
+      'grep and first negate their predicates while keeping their input lists';
+};
+
 subtest 'extended mutators' => sub {
     my %extended = ( profile => 'extended' );
-    is changes( 'my @a = ( 0, 1, 41, 1.5, 0x10 );', 'number-literal', %extended ),
-      [ [ '0', '1' ], [ '1', '0' ], [ '41', '42' ] ],
-      'integer literals';
+    my @numbers  = (
+        [ '0',                  '1' ],
+        [ '1',                  '2' ],
+        [ '-41',                '-40' ],
+        [ '1_099',              '1100' ],
+        [ '1.5',                '2.5' ],
+        [ '1e2',                '101' ],
+        [ '1e-3',               '1.001' ],
+        [ '0644',               '0645' ],
+        [ '0777',               '01000' ],
+        [ '0o17',               '0o20' ],
+        [ '0B1111',             '0B10000' ],
+        [ '0x10',               '0x11' ],
+        [ '-0x10',              '-0xf' ],
+        [ '0xffffffffffffffff', '0x10000000000000000' ],
+        [ 'v65',                'v66' ],
+        [ 'v1.2.3',             'v1.2.4' ],
+        [ '65.66.67',           '65.66.68' ],
+    );
+    my $literals = 'my @a = (' . join( q{, }, map { $_->[0] } @numbers ) . ');';
+    is changes( $literals, 'number-literal', %extended ), \@numbers, 'each numeric class advances in its own base';
+    is changes( 'use v5.36; package Sample v1.2.3; our $VERSION = v1.2.3; 1;', 'number-literal', %extended ), [],
+      'version declarations keep their numbers';
     is changes( q{my @s = ( 'abc', "", q{def}, qq<g$h> );}, 'string-literal', %extended ),
       [ [ q{'abc'}, q{''} ], [ q{""}, q{"mutant"} ], [ 'q{def}', 'q{}' ], [ 'qq<g$h>', 'qq<>' ] ],
       'string literals in quotes and under a quote operator';
     is changes( 'if ($a) { f() } while ($b) { g() } until ($c) { h() }', 'condition-fixed', %extended ),
       [ [ '$a', '1' ], [ '$a', '0' ], [ '$b', '0' ], [ '$c', '1' ] ], 'fixed conditions avoid endless loops';
-    is changes( 'my @s = sort { $a <=> $b } @n; my %h = ( sort => 1 ); $o->sort;', 'sort-order', %extended ),
+    is changes( 'my @s = sort { $a <=> $b } @n; my %h = ( sort => 1 ); $o->sort;', 'list-order', %extended ),
       [ [ 'sort', 'reverse sort' ] ], 'a sort call is reversed, and a key or a method is left alone';
     is changes( 'for my $i ( 1 .. $n ) { f($i) } my $s = $a . $b;', 'range-boundary', %extended ),
       [ [ '..', '.. -1 +' ] ], 'the upper bound of a range moves down by one';
@@ -426,15 +480,49 @@ subtest 'extended mutators' => sub {
       'anchors are removed, and an escaped or bracketed character is left alone';
     is changes( $patterns, 'regex-quantifier', %extended ), [ [ '+', '*' ], [ '*', '+' ], [ '?', q{} ], [ '+', '*' ] ],
       'quantifiers change, and a replacement or a repetition count is left alone';
-    is changes( $patterns, 'regex-flag', %extended ), [ [ 'i', q{} ], [ 'i', q{} ] ],
-      'the case flag is removed from the trailing flags';
+    is changes( $patterns, 'regex-flag', %extended ),
+      [ [ 'i', q{} ], [ 'g', q{} ], [ '(?i)', '(?:)' ], map { [ $_, q{} ] } qw(m s i) ],
+      'each matching flag can be removed and substitution can also lose g';
+    is changes( 'sub grouped { qr/(?im:x)(?-i:y)/ }', 'regex-flag', %extended ),
+      [ [ '?im:', '?m:' ], [ '?im:', '?i:' ], [ '?-i:', '?:' ] ],
+      'a scoped modifier keeps its group and drops an empty negative flag list';
+    is changes( 'sub f { return /[\w][^^]\d\W\s\S/g }', 'regex-class', %extended ),
+      [
+        [ '[\w]', '[^\w]' ],
+        [ '\w',   '\W' ],
+        [ '[^^]', '[\^]' ],
+        [ '\d',   '\D' ],
+        [ '\W',   '\w' ],
+        [ '\s',   '\S' ],
+        [ '\S',   '\s' ],
+      ],
+      'bracket expressions and Perl character classes switch to their complements';
+    my $indices = 'use constant INDEX => 1; sub f { my ($self, $word) = @_; '
+      . 'return (qr/^$self->[ INDEX ][a-z]/, qr/a->[xy]/, qr/${word}->[ab]/) }';
+    is changes( $indices, 'regex-class', %extended ),
+      [ [ '[a-z]', '[^a-z]' ], [ '[xy]', '[^xy]' ], [ '[ab]', '[^ab]' ] ],
+      'a subscript interpolated by Perl stays intact and adjacent character classes remain mutable';
+    is changes( 'sub f { my $a = [1,2]; my $h = { x => 3 }; my @q = qw<one two>; $h->{x}; [ ]; }',
+        'literal-collection', %extended ),
+      [ [ '[1,2]', '[]' ], [ '{ x => 3 }', '{}' ], [ 'qw<one two>', 'qw<>' ] ],
+      'nonempty anonymous arrays, hashes, and lists of words become empty';
+    is changes(
+        'sub f { my $v = (stat $_)[9]; my @t = (localtime)[5,4,3]; '
+          . 'return ([7]->[0], f([8]), (split /:/, $_)[1]) }',
+        'literal-collection',
+        %extended
+      ),
+      [ [ '[7]', '[]' ], [ '[8]', '[]' ] ], 'indices of a list slice and dereference keep their expressions';
+    is changes( 'sub f { my ($ref) = @_; my $item = ${$ref}[0][1]; ' . 'return map { $_ + 1 } [2, 3] }',
+        'literal-collection', %extended ),
+      [ [ '[2, 3]', '[]' ] ], 'a symbolic dereference keeps each index and a map block accepts an array literal';
     is changes( 'my $n = 41;', 'number-literal' ), [], 'extended mutators are off in the default profile';
 };
 
 subtest 'mutants carry positions, identities, and suppression' => sub {
     my $code = join "\n", 'my $a = 1 + 2;', 'my $b = 3 + 4;    ## no mutate',
-      'my $c = 5 - 6;    ## no mutate (comparison)',
-      'my $d = 7 * 8;    ## no mutate (comparison, arithmetic)', q{};
+      'my $c = 5 - 6;    ## no mutate (comparison-boundary)',
+      'my $d = 7 * 8;    ## no mutate (comparison-boundary, arithmetic)', q{};
     my @mutants = mutants($code)->@*;
     is [ map { [ $_->from, $_->to, $_->suppressed ] } @mutants ],
       [
@@ -448,15 +536,16 @@ subtest 'mutants carry positions, identities, and suppression' => sub {
     is scalar( keys %ids ),                   4,                           'identifiers are distinct';
     is [ map { $_->id } mutants($code)->@* ], [ map { $_->id } @mutants ], 'identifiers are stable across runs';
 
-    my $reasons = join "\n", 'my $e = 1 - 2 > 0;    ## no mutate (comparison): the bound is fixed',
+    my $reasons = join "\n", 'my $e = 1 - 2 > 0;    ## no mutate (comparison-boundary): the bound is fixed',
       '## no mutate: a block', 'my $f = 3 + 4;    ## no mutate (arithmetic)', 'my $g = 5 * 6;', '## use mutate', q{};
-    is [ map { [ $_->from->[0], $_->mutator, $_->suppressed, $_->suppression_reason ] } mutants($reasons)->@* ],
+    is [ map { [ $_->from->[0], $_->mutator, $_->suppressed, $_->suppression_reason ] }
+          mutants( $reasons, enable => ['comparison-boundary'] )->@* ],
       [
-        [ 1, 'arithmetic', 0, undef ],
-        [ 1, 'comparison', 1, 'the bound is fixed' ],
-        [ 1, 'comparison', 1, 'the bound is fixed' ],
-        [ 3, 'arithmetic', 1, undef ],
-        [ 4, 'arithmetic', 1, 'a block' ],
+        [ 1, 'arithmetic',          0, undef ],
+        [ 1, 'comparison-boundary', 1, 'the bound is fixed' ],
+        [ 1, 'comparison-negation', 0, undef ],
+        [ 3, 'arithmetic',          1, undef ],
+        [ 4, 'arithmetic',          1, 'a block' ],
       ],
       'a mutant keeps the reason of the last comment that covers it';
 };
@@ -476,23 +565,24 @@ subtest 'an arithmetic change without effect yields no mutant' => sub {
 };
 
 subtest 'a comparison with the version of Perl keeps its boundary on another version' => sub {
-    my $code = 'f() if $] < 5.010; g() if "$]" >= 5.036; h() if 5.008 > $]; i() if $] <= 5.012001;';
-    is changes( $code, 'comparison', perl => 5.044 ),
+    my $code          = 'f() if $] < 5.010; g() if "$]" >= 5.036; h() if 5.008 > $]; i() if $] <= 5.012001;';
+    my %with_boundary = ( enable => ['comparison-boundary'] );
+    is changes( $code, 'comparison-negation', perl => 5.044 ),
       [ [ '<', '>=' ], [ '>=', '<' ], [ '>', '<=' ], [ '<=', '>' ] ],
       'the tests run on another version, so the boundary changes nothing and the negation stays';
-    is changes( $code, 'comparison', perl => 5.036 ),
-      [ [ '<', '>=' ], [ '>=', '>' ], [ '>=', '<' ], [ '>', '<=' ], [ '<=', '>' ] ],
+    is changes( $code, 'comparison-boundary', %with_boundary, perl => 5.036 ), [ [ '>=', '>' ] ],
       'the tests run on the named version, so the boundary of that comparison decides';
-    is scalar( changes( $code, 'comparison' )->@* ), 8, 'without the version of the tests every change stays';
-    is changes( 'f() if $n < 5.010; g() if $] < $least;', 'comparison', perl => 5.044 ),
-      [ [ '<', '<=' ], [ '<', '>=' ], [ '<', '<=' ], [ '<', '>=' ] ],
+    is scalar( changes( $code, 'comparison-boundary', %with_boundary )->@* ), 4,
+      'without the version of the tests every boundary stays';
+    is changes( 'f() if $n < 5.010; g() if $] < $least;', 'comparison-boundary', %with_boundary, perl => 5.044 ),
+      [ [ '<', '<=' ], [ '<', '<=' ] ],
       'another variable or no literal leaves the comparison as it is';
 };
 
 subtest 'two mutators with the same replacement yield one mutant' => sub {
-    my @mutants = mutants( 'sub f { return 1 }', profile => 'extended' )->@*;
-    is [ map { [ $_->mutator, $_->original, $_->replacement ] } grep { $_->original eq '1' } @mutants ],
-      [ [ 'return-value', '1', '0' ] ], 'the first mutator is credited';
+    my @mutants = mutants( 'sub f { return 0 }', profile => 'extended' )->@*;
+    is [ map { [ $_->mutator, $_->original, $_->replacement ] } grep { $_->original eq '0' } @mutants ],
+      [ [ 'return-value', '0', '1' ] ], 'the first mutator is credited';
 
     my $source = Test::Mutation::Source->new( path => 'lib/X.pm', text => '$a + $b; 1;', encoding => 'UTF-8' );
     my @proposed =
@@ -522,6 +612,16 @@ subtest 'two mutators with the same replacement yield one mutant' => sub {
 };
 
 subtest 'selection' => sub {
+    my $groups = Test::Mutation::Mutator::Catalog::choose(
+        profile => 'default',
+        enable  => [ '@regex',   '@literal' ],
+        disable => [ '@removal', 'regex-flag' ]
+    );
+    my %selected = map { $_->name => 1 } $groups->@*;
+    ok $selected{$_}, "$_ belongs to an enabled group"
+      for qw(regex-anchor regex-class literal-collection number-literal string-literal);
+    ok !$selected{$_}, "$_ was disabled"
+      for qw(early-exit call-removal close-removal statement-removal sub-body regex-flag);
     my @default =
       map { $_->name }
       Test::Mutation::Mutator::Catalog::choose( profile => 'default', enable => [], disable => [] )->@*;
@@ -531,6 +631,8 @@ subtest 'selection' => sub {
     is scalar(@extended), scalar( Test::Mutation::Mutator::Catalog::mutators()->@* ),
       'the extended profile holds every mutator';
     ok scalar(@default) < scalar(@extended), 'the default profile is a subset';
+    is [ grep { $_ eq 'comparison-boundary' || $_ eq 'call-swap' } @default ], [],
+      'mutators above the measured structural equivalence limit require an explicit selection';
     is [
         grep { $_ eq 'arithmetic' }
         map  { $_->name }

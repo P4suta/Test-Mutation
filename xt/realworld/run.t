@@ -3,6 +3,7 @@ use Test2::V0;
 use lib 't/lib', 'xt/lib';
 use Gate;
 use RealWorld;
+use Test::Mutation::Mutator::Catalog;
 
 # The release gate reads the records of a run of the tool on real distributions.
 # `mise run realworld` writes the records inside a container and then runs this file.
@@ -69,6 +70,10 @@ for my $run ( $runs->@* ) {
     note "$run->{run}: $_" for RealWorld::notes( $run, $record )->@*;
 }
 Gate::findings( 'realworld', RealWorld::judged( $runs, $records ) );
+my $loads = RealWorld::load_counts( $runs, $records );
+note "$_: $loads->{$_}[0] failed loads in $loads->{$_}[1] probes" for sort keys $loads->%*;
+my @defaults = map { $_->name } grep { $_->profile eq 'default' } Test::Mutation::Mutator::Catalog::mutators()->@*;
+is RealWorld::load_findings( $loads, \@defaults ), [], 'the default mutators load in at least 90 percent of probes';
 Gate::checked( 'runs with a record', scalar( grep { $records->{ $_->{run} } } $runs->@* ), at_least => 11 );
 
 done_testing;

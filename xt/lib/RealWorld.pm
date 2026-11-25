@@ -230,6 +230,40 @@ sub records ($text) {
     return \%records;
 }
 
+sub load_counts ( $runs, $records ) {
+    my %archives = map { $_->{name} => 1 } $runs->@*;
+    my %counts;
+    for my $name ( sort keys %archives ) {
+        my $samples = $records->{$name} && $records->{$name}{loads};
+        die "$name has no real distribution load sample\n" unless ref $samples eq 'HASH' && keys $samples->%*;
+        for my $mutator ( sort keys $samples->%* ) {
+            my $pair = $samples->{$mutator};
+            die "$name has invalid load counts for $mutator\n"
+              if ref $pair ne 'ARRAY'
+              || $pair->@* != 2
+              || grep( { !defined || ref || !/\A[0-9]+\z/ } $pair->@* )
+              || !$pair->[1]
+              || $pair->[0] > $pair->[1];
+            $counts{$mutator}[$_] += $pair->[$_] for 0, 1;
+        }
+    }
+    return \%counts;
+}
+
+sub load_findings ( $counts, $defaults ) {
+    my @found;
+    for my $mutator ( sort $defaults->@* ) {
+        my $pair = $counts->{$mutator};
+        if ( !$pair ) {
+            push @found, "$mutator has no real distribution load sample";
+        }
+        elsif ( $pair->[0] * 10 > $pair->[1] ) {
+            push @found, "$mutator failed to load in $pair->[0] of $pair->[1] real distribution probes";
+        }
+    }
+    return \@found;
+}
+
 sub _inside ( $band, $value ) {
     return defined $value && $band->[0] <= $value && $value <= $band->[1] ? 1 : 0;
 }

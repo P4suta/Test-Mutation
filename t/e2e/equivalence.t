@@ -40,7 +40,7 @@ subtest 'a file that does not compile on its own keeps its survivors and warns' 
     write_file( "$project/t/bound.t",
         "use Test::More tests => 1;\nBEGIN { \$main::APPLICATION = 1 }\nuse Bound;\nis Bound::size(), 'big', 'a size';\n"
     );
-    my ($result) = run_fixture($project);
+    my ($result) = run_fixture( $project, enable => ['comparison-boundary'] );
     is statuses($result)->{'lib/Bound.pm:5 replaced > with >='}, 'Survived', 'the mutant survives';
     is [ grep { /compiled code/ } $result->warnings->@* ],
       ['lib/Bound.pm: Perl decompiles the file to no stable text, so the run compares no compiled code of the file'],
@@ -70,7 +70,7 @@ subtest 'a mutant that no test reaches is compared too' => sub {
         q{},
     );
     write_file( "$project/t/idle.t", "use Test::More tests => 1;\nuse Idle;\nis Idle::used(7), 7, 'used';\n" );
-    my ($result) = run_fixture($project);
+    my ($result) = run_fixture( $project, enable => ['comparison-boundary'] );
     is statuses($result),
       {
         'lib/Idle.pm:4 removed the body of size'                => 'NoCoverage',

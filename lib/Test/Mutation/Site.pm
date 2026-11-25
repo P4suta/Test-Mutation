@@ -9,8 +9,10 @@ our $VERSION = '0.001';
 with 'Test::Mutation::Value';
 
 has kind => (
-    is       => 'ro',
-    isa      => Enum [qw(operator word number string regex statement condition sub_body return branches)],
+    is  => 'ro',
+    isa => Enum [
+        qw(operator word number string regex statement condition sub_body return branches comparison guarded_exit filter collection)
+    ],
     required => 1,
 );
 has text       => ( is => 'ro', isa => Str, required => 1 );
@@ -38,8 +40,11 @@ Mutators receive sites and return replacement text.
 
 =head2 kind
 
-One of C<operator>, C<word>, C<number>, C<string>, C<regex>, C<statement>, C<condition>, C<sub_body>, C<return>, and C<branches>.
+Token sites have kind C<operator>, C<word>, C<number>, C<string>, or C<regex>.
+Larger spans have kind C<statement>, C<condition>, C<sub_body>, C<return>, C<branches>, C<comparison>, C<guarded_exit>, C<filter>, or C<collection>.
 A C<branches> site spans the two branches of a conditional operator, from the start of the first to the end of the second.
+A C<comparison> spans its two operands and a C<guarded_exit> spans the guarding operator and the exit.
+A C<filter> spans the predicate and a C<collection> spans the delimited literal.
 
 =head2 text
 
@@ -58,7 +63,7 @@ The character offset after the last character of the span.
 How the text is used.
 An operator is C<binary>, C<unary>, or C<update>.
 A word is C<compound>, C<modifier>, C<control>, or C<call>.
-A part of a pattern is C<anchor>, C<quantifier>, or C<flag>.
+A part of a pattern is an C<anchor>, C<quantifier>, C<class>, trailing C<flag>, or inline C<modifier>.
 
 =head2 scope
 
@@ -71,6 +76,8 @@ What the analysis learned about the span beyond its text, in the shape of L<Test
 C<right> holds the number that is the whole right operand of an arithmetic operator, as L<Test::Mutation::Syntax::Precedence> bounds the operand.
 C<operand> names the kind of the operand after a binding operator.
 C<branches> holds where the two branches of a conditional stand inside the span, and C<anchors> the places of the tokens that name a wider construct.
+C<operands> gives the end of the left operand and the start of the right operand in a three-way comparison.
+C<has_argument> marks a call with an explicit operand.
 A key outside that shape is a fatal error, so a mutator reads no fact that the analysis never writes.
 
 =head2 comparable

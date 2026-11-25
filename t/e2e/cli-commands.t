@@ -171,7 +171,7 @@ subtest 'show prints a mutant as a patch' => sub {
     my $run = ran( 0, $root, 'show', $id );
     is [ split /\n/, $run->{stdout} ],
       [
-        "$id  lib/Calc.pm:12:15  comparison  replaced > with >=",
+        "$id  lib/Calc.pm:12:15  comparison-boundary  replaced > with >=",
         '--- lib/Calc.pm',
         '+++ lib/Calc.pm',
         '@@ -10,5 +10,5 @@',
@@ -214,7 +214,8 @@ subtest 'exec runs a command with one mutant active' => sub {
     like $detected->{stdout}, qr/^not ok 1 - adds$/m, 'the output of the command passes through';
 
     my ($survivor) =
-      ran( 0, $root, 'list' )->{stdout} =~ /^([0-9a-f]{12})  lib\/Calc\.pm:12:\d+  comparison  replaced > with >=$/m;
+      ran( 0, $root, 'list' )->{stdout} =~
+      /^([0-9a-f]{12})  lib\/Calc\.pm:12:\d+  comparison-boundary  replaced > with >=$/m;
     ran( 0, $root, 'exec', $survivor, '--', $^X, '-Ilib', 't/sign.t' );
 
     ran( 7,   $root, 'exec', identifier('replaced + with -'), '--', $^X, '-e', 'exit 7' );
@@ -269,7 +270,7 @@ subtest 'mutators names every mutator with its profile and its description' => s
     like $run->{stdout}, qr/^regex-anchor +extended +Removes an anchor from a pattern$/m,
       'a mutator of the extended profile';
     my %columns = map { /\A(\S+ +)(\S+ +)/ ? ( length($1) . q{ } . length $2 => 1 ) : ( none => 1 ) } @lines;
-    is [ keys %columns ], ['20 10'], 'the columns line up two spaces after the longest name and profile';
+    is [ keys %columns ], ['21 10'], 'the columns line up two spaces after the longest name and profile';
 };
 
 subtest 'version, help, and stray arguments' => sub {
