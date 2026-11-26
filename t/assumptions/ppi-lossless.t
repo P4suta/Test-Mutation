@@ -23,7 +23,12 @@ sub line_starts ($text) {
 }
 
 my @files = Library::modules('t/corpus')->@*;
-is scalar(@files), 8, 'the corpus holds its eight files';
+is \@files,
+  [
+    't/corpus/findings/CompileDuringLoad.pm',
+    map { "t/corpus/modern/$_.pm" } qw(Class Heredoc PodData Postfix Regex Signatures TryCatch Unicode)
+  ],
+  'the source corpus includes the compile-time exception and every supported syntax fixture';
 
 for my $path (@files) {
     my $text     = slurp_text($path);

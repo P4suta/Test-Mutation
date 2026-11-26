@@ -9,9 +9,10 @@
 # `options` holds the options of `mutation run`, and `config` holds the text of a mutation.toml for the run.
 # `expect.mutants` is the band of the number of mutants that the run announces.
 # `expect.score` is the band of the score, and a run that gives no score leaves it out.
-# `expect.warnings` lists the kinds of warnings that the run may give: around-the-hook, no-stable-output, other.
+# `expect.warnings` lists the diagnostic kinds accepted for the case.
 # `expect.seconds` is the wall time that the run may take, which the gate reports and never judges.
-# The bands come from the first run of the harness, ten percent around the mutants and seven points around the score.
+# Two independent runs on the pinned archives produced the same inventory and verdict for every measured identifier.
+# The count is exact, and the score interval encloses the measured fraction to one decimal place.
 
 [TOML-Tiny]
 name = "TOML-Tiny"
@@ -24,8 +25,8 @@ tests = ["prove", "-lr", "t"]
 options = ["--shard", "1/4"]
 
 [TOML-Tiny.expect]
-mutants = [133, 163]
-score = [70, 85]
+mutants = [153, 153]
+score = [79.4, 79.5]
 warnings = []
 seconds = 300
 
@@ -40,8 +41,8 @@ tests = ["prove", "-lr", "t"]
 options = []
 
 [Readonly.expect]
-mutants = [202, 246]
-score = [64, 78]
+mutants = [235, 235]
+score = [74.3, 74.4]
 warnings = []
 seconds = 30
 
@@ -56,8 +57,8 @@ tests = ["make", "test"]
 options = []
 
 [Params-Util.expect]
-mutants = [164, 200]
-score = [75, 89]
+mutants = [230, 230]
+score = [84.7, 84.8]
 warnings = []
 seconds = 30
 
@@ -75,8 +76,8 @@ switch = ["-Iblib/lib", "-Iblib/arch"]
 '''
 
 ["Params-Util with blib".expect]
-mutants = [164, 200]
-score = [75, 89]
+mutants = [230, 230]
+score = [84.7, 84.8]
 warnings = []
 seconds = 30
 
@@ -92,8 +93,8 @@ options = []
 
 [Variable-Magic.expect]
 compile = { "5ebd8caa0236" = "compile-phase" }
-mutants = [16, 20]
-score = [87, 100]
+mutants = [16, 16]
+score = [93.3, 93.4]
 warnings = []
 seconds = 30
 
@@ -112,8 +113,8 @@ switch = ["-Iblib/lib", "-Iblib/arch"]
 
 ["Variable-Magic with blib".expect]
 compile = { "5ebd8caa0236" = "compile-phase" }
-mutants = [16, 20]
-score = [87, 100]
+mutants = [16, 16]
+score = [93.3, 93.4]
 warnings = []
 seconds = 30
 
@@ -128,8 +129,8 @@ tests = ["prove", "-lr", "t"]
 options = ["--shard", "1/4"]
 
 [Moo.expect]
-mutants = [240, 294]
-score = [56, 71]
+mutants = [306, 306]
+score = [67.5, 67.6]
 warnings = []
 seconds = 120
 
@@ -144,8 +145,8 @@ tests = ["prove", "-lr", "t"]
 options = ["--shard", "1/8"]
 
 [URI.expect]
-mutants = [271, 331]
-score = [69, 84]
+mutants = [328, 328]
+score = [78.2, 78.3]
 warnings = ["standalone"]
 seconds = 120
 
@@ -160,7 +161,8 @@ tests = ["make", "test"]
 options = []
 
 [CPAN-Audit.expect]
-mutants = [405, 495]
+baseline_failures = ["t/cli/dist.t"]
+mutants = [450, 450]
 warnings = []
 seconds = 60
 
@@ -179,8 +181,8 @@ test-exclude = ["t/cli/dist.t"]
 '''
 
 ["CPAN-Audit without the test outside its list".expect]
-mutants = [101, 125]
-score = [56, 71]
+mutants = [113, 113]
+score = [64.6, 64.7]
 warnings = []
 seconds = 120
 
@@ -195,7 +197,7 @@ tests = ["prove", "-lr", "t"]
 options = []
 
 [Module-Runtime.expect]
-mutants = [72, 88]
-score = [70, 85]
+mutants = [86, 86]
+score = [76.8, 76.9]
 warnings = []
 seconds = 30

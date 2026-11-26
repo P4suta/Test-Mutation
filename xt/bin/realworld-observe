@@ -131,13 +131,14 @@ sub truth ( $run, $place, $command ) {
     my @lines   = lines($printed)->@*;
     splice @lines, 0, @lines - $TAIL if @lines > $TAIL;
     return {
-        command    => $result->{command},
-        exit       => $result->{exit},
-        seconds    => $result->{seconds},
-        limit      => $result->{limit},
-        files      => $summary->{files},
-        assertions => $summary->{tests},
-        tail       => \@lines,
+        command       => $result->{command},
+        exit          => $result->{exit},
+        seconds       => $result->{seconds},
+        limit         => $result->{limit},
+        failing_files => RealWorld::failing_files($printed),
+        files         => $summary->{files},
+        assertions    => $summary->{tests},
+        tail          => \@lines,
     };
 }
 

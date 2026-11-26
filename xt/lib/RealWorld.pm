@@ -11,7 +11,7 @@ use TOML::Tiny ();
 my @WARNING_KINDS = qw(around-the-hook no-stable-output standalone other);
 my @TEXTS         = qw(name version pathname sha256 shape);
 my %FIELD         = map { $_ => 1 } @TEXTS, qw(build tests options config expect hash_seed);
-my %EXPECTED      = map { $_ => 1 } qw(mutants score warnings seconds compile);
+my %EXPECTED      = map { $_ => 1 } qw(mutants score warnings seconds compile baseline_failures);
 my $NUMBER        = qr/\A[0-9]+(?:[.][0-9]+)?\z/;
 
 sub _words ($value) {
@@ -21,6 +21,23 @@ sub _words ($value) {
 sub _band ($value) {
     return 0 if ref $value ne 'ARRAY' || $value->@* != 2 || grep { ref || $_ !~ $NUMBER } $value->@*;
     return $value->[0] <= $value->[1] ? 1 : 0;
+}
+
+sub _observed_expectations ( $run, $expect ) {
+    my %observed;
+    if ( exists $expect->{baseline_failures} ) {
+        my $failures = $expect->{baseline_failures};
+        die "$run: baseline_failures needs a list of failing test programs\n" unless _words($failures) && @$failures;
+        $observed{baseline_failures} = [ sort @$failures ];
+    }
+    if ( exists $expect->{compile} ) {
+        my $compile = $expect->{compile};
+        die "$run: compile needs mutant IDs and observed causes\n"
+          if ref $compile ne 'HASH'
+          || grep { $_ !~ /\A[0-9a-f]{12}\z/ || $compile->{$_} !~ /\A(?:compile-phase|standalone)\z/ } keys %$compile;
+        $observed{compile} = $compile;
+    }
+    return %observed;
 }
 
 sub _expectation ( $run, $expect ) {
@@ -38,14 +55,8 @@ sub _expectation ( $run, $expect ) {
     my @unnamed = grep { !$kind{$_} } $expect->{warnings}->@*;
     die "$run: no kind of warning is named $unnamed[0]\n" if @unnamed;
     die "$run: seconds is no time\n" if ref $expect->{seconds} || $expect->{seconds} !~ /\A[1-9][0-9]*\z/;
-    if ( exists $expect->{compile} ) {
-        my $compile = $expect->{compile};
-        die "$run: compile needs mutant IDs and observed causes\n"
-          if ref $compile ne 'HASH'
-          || grep { $_ !~ /\A[0-9a-f]{12}\z/ || $compile->{$_} !~ /\A(?:compile-phase|standalone)\z/ } keys %$compile;
-    }
     return {
-        ( exists $expect->{compile} ? ( compile => $expect->{compile} ) : () ),
+        _observed_expectations( $run, $expect ),
         mutants  => [ map { 0 + $_ } $expect->{mutants}->@* ],
         score    => defined $expect->{score} ? [ map { 0 + $_ } $expect->{score}->@* ] : undef,
         warnings => [ $expect->{warnings}->@* ],
@@ -116,6 +127,19 @@ sub announced ($lines) {
 sub harness ($output) {
     my @summaries = $output =~ /^Files=(\d+), Tests=(\d+)/mg;
     return @summaries ? { files => 0 + $summaries[-2], tests => 0 + $summaries[-1] } : undef;
+}
+
+sub failing_files ($output) {
+    my ($summary) = $output =~ /^Test Summary Report\r?\n-+\r?\n(.*?)^Files=/ms;
+    return [] unless defined $summary;
+    my @failed;
+    while (
+        $summary =~ /^(\S[^\n]*?)[ \t]+[(]Wstat:\s*(\d+)[^\n]*?\bFailed:\s*(\d+)[)][^\n]*\n((?:[ \t]+[^\n]*\n)*)/mg )
+    {
+        my ( $file, $status, $count, $details ) = ( $1, $2, $3, $4 );
+        push @failed, $file if $status || $count || $details =~ /^\s*Parse errors?:/m;
+    }
+    return [ sort @failed ];
 }
 
 sub warning_kind ($text) {
@@ -287,6 +311,16 @@ sub _promised_exit ( $report, $tally ) {
     return 0;
 }
 
+sub _other_baseline ( $expected, $record ) {
+    return 0 unless $expected;
+    return 1 unless $record->{prove}{exit} && $record->{report};
+    my $listed = join "\n", @$expected;
+    for my $failures ( $record->{prove}{failing_files}, $record->{report}{baseline_failures} ) {
+        return 1 unless ref $failures eq 'ARRAY' && $listed eq join "\n", sort @$failures;
+    }
+    return 0;
+}
+
 sub _unexpected_compile ( $expected, $mutants ) {
     my %unseen = %{ $expected || {} };
     for my $mutant ( grep { $_->{status} eq 'CompileError' } @$mutants ) {
@@ -335,11 +369,15 @@ my @INVARIANTS = (
     [ 'the tests of the distribution fail without the tool', sub ( $run, $record, $seen ) { !$seen->{passes} } ],
     [
         'the unmodified run fails where the tests of the distribution pass',
-        sub ( $run, $record, $seen ) { $seen->{passes} && $seen->{stopped} }
+        sub ( $run, $record, $seen ) { !$run->{expect}{baseline_failures} && $seen->{passes} && $seen->{stopped} }
     ],
     [
         'the unmodified run passes where the tests of the distribution fail',
         sub ( $run, $record, $seen ) { !$seen->{passes} && $seen->{report} && !$seen->{stopped} }
+    ],
+    [
+        'the unmodified run differs from recursive prove on the declared failing tests',
+        sub ( $run, $record, $seen ) { _other_baseline( $run->{expect}{baseline_failures}, $record ) }
     ],
     [ 'the run ends at the time limit of the harness', sub ( $run, $record, $seen ) { $record->{mutation}{limit} } ],
     [ 'the run leaves no report',                      sub ( $run, $record, $seen ) { !$seen->{report} } ],

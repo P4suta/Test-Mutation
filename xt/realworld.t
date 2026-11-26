@@ -375,8 +375,49 @@ sub stopped ($record) {
     return;
 }
 
+my $DIFFERENT_SUITE = { %$BANDLESS, expect => { $BANDLESS->{expect}->%*, baseline_failures => ['t/a.t'] } };
+
+sub original_failure () {
+    my $r = record();
+    stopped($r);
+    $r->{prove}{exit}          = 1;
+    $r->{prove}{failing_files} = ['t/a.t'];
+    return $r;
+}
+
+subtest 'an explicitly different reference suite identifies each failing file' => sub {
+    my $log =
+      "t/message.t .. ok\n# not/a/test.t (Wstat: 666)\nTest Summary Report\n-------------------\nt/a.t  (Wstat: 256 (exited 1) Tests: 1 Failed: 1)\n  Failed test: 1\nt/path with spaces.t (Wstat: 0 Tests: 1 Failed: 0)\n  Parse errors: Bad plan.\nt/todo.t (Wstat: 0 Tests: 1 Failed: 0)\n  TODO passed: 1\nFiles=4, Tests=5, 1 wallclock secs\n";
+    is RealWorld::failing_files($log), [ 't/a.t', 't/path with spaces.t' ],
+      'only the TAP harness summary names failing test programs';
+    is RealWorld::failing_files("t/a.t .. ok\nAll tests successful.\n"), [], 'a passing harness has no failing files';
+    is RealWorld::findings( $DIFFERENT_SUITE, original_failure() ), [],
+      'the recursive reference and measured suite identify the same failing file';
+    for my $changed (
+        sub ($r) { $r->{prove}{failing_files}      = ['t/b.t'] },
+        sub ($r) { $r->{prove}{exit}               = 0 },
+        sub ($r) { $r->{report}{baseline_failures} = ['t/b.t'] },
+        sub ($r) { $r->{report}{baseline_failures} = [] },
+      )
+    {
+        my $record = original_failure();
+        $changed->($record);
+        like RealWorld::findings( $DIFFERENT_SUITE, $record ), bag { item qr/recursive prove/; etc },
+          'a changed reference or measured failure is rejected';
+    }
+    my $failed_reference = original_failure();
+    $failed_reference->{tests}{exit} = 1;
+    like RealWorld::findings( $DIFFERENT_SUITE, $failed_reference ),
+      bag { item qr/tests of the distribution fail/; etc },
+      'the test target of the distribution must still pass';
+};
+
 my $PINNED   = { $RUN->%*, hash_seed => '01' };
 my @REJECTED = (
+    [
+        $DIFFERENT_SUITE, sub ($r) { stopped($r) },
+        ['the unmodified run differs from recursive prove on the declared failing tests']
+    ],
     [ $RUN, sub ($r) { $r->{sha256} = 'b' x 64 }, ['the record belongs to another archive'] ],
     [
         $PINNED,

@@ -1,7 +1,3 @@
-realworld	CPAN-Audit: the unmodified run fails where the tests of the distribution pass	the expectations of the real distributions, where a run of every test file as prove does fails with the name of the test
-realworld	Moo: the number of mutants lies outside its band	the expectations of the real distributions after the mutator catalog changes
-realworld	Params-Util with blib: the number of mutants lies outside its band	the expectations of the real distributions after the mutator catalog changes
-realworld	Params-Util: the number of mutants lies outside its band	the expectations of the real distributions after the mutator catalog changes
 contract-env-source	no table and no manual lists the variable; variables a-computed-name; files lib/Test/Mutation/Runner.pm lib/Test/Mutation/Shim.pm lib/Test/Mutation/Witness.pm	the manual that the tables generate
 contract-examples-manual	code that does not compile; kinds perl; files lib/Test/Mutation/Tree.pm	the manual that the tables generate
 contract-manual-manual	the manual names no row of the table; rows --baseline-timeout --cache-dir --coverage --disable --enable --equivalence --format --jobs --keep-work --link --mutant --perl --report-dir --source --source-exclude --switch --test --test-exclude --threshold-high --threshold-low --timeout-factor --timeout-floor; tables flags	the manual that the tables generate
