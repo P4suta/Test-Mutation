@@ -3,6 +3,7 @@ use Test2::V0;
 use IO::Select  ();
 use POSIX       ();
 use Time::HiRes ();
+use Test::Mutation::Event;
 use Test::Mutation::Signals;
 use Test::Mutation::Try;
 
@@ -212,7 +213,22 @@ subtest 'a deferral holds a signal back until its code has ended' => sub {
         }
       ),
       7, 'a deferral without a signal gives the value of its code';
-    is Test::Mutation::Signals::deferred( sub { 7 } ), 7, 'and so does a deferral without a watch';
+};
+
+subtest 'a deferral outside a signal watch returns before the next progress check' => sub {
+    my $now = 0;
+    my @events;
+    Test::Mutation::Event::during(
+        sub ( $event, $facts ) { push @events, $event },
+        sub {
+            my $value = Test::Mutation::Signals::deferred( sub { $now = 60; return 'released' } );
+            push @events, $value;
+            Test::Mutation::Signals::check();
+            return 1;
+        },
+        sub { return $now }
+    );
+    is \@events, [qw(released tick)], 'the explicit checkpoint reports progress after the callback returns its value';
 };
 
 subtest 'a signal that waits survives an error of the deferred code' => sub {

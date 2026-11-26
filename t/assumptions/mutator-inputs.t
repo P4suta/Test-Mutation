@@ -25,6 +25,7 @@ sub sites ( $code, $kind ) {
     my $source = Test::Mutation::Source->new( path => 'Sample.pm', text => $code, encoding => 'UTF-8' );
     my ( $ended, $analysis ) = Bounded::ended( 2, sub { Test::Mutation::Syntax::PPI::analyze($source) } );
     die "analysis did not finish for $code\n" unless $ended;
+    die $analysis->{problem} if defined $analysis->{problem};
     return grep { $_->kind eq $kind } $analysis->{sites}->@*;
 }
 
@@ -34,6 +35,17 @@ sub spans ( $code, $kind ) {
 
 is $mutator{arithmetic} ? replacements( 'arithmetic', 'operator', 'binary', '+' ) : [], ['-'],
   'the catalog constructs the binary addition mutator';
+{
+    my ( $text, $facts ) = ( \&Test::Mutation::Site::text, \&Test::Mutation::Site::facts );
+    my @read;
+    no warnings 'redefine';
+    local *Test::Mutation::Site::text  = sub ($site) { push @read, 'text';  return $text->($site) };
+    local *Test::Mutation::Site::facts = sub ($site) { push @read, 'facts'; return $facts->($site) };
+    is replacements( 'arithmetic', 'operator', 'update', '++' ), [], 'an update has no arithmetic replacement';
+    is \@read, [], 'rejecting an update needs neither the token text nor its operand facts';
+    is replacements( 'arithmetic', 'operator', 'binary', 'xor' ), [], 'xor has no arithmetic replacement';
+    is \@read, ['text'], 'an unlisted binary operator needs no operand facts';
+}
 is replacements( 'early-exit', 'guarded_exit', q{}, "or\nreturn" ),   ["\n"], 'removing an exit keeps line boundaries';
 is replacements( 'number-literal', 'number',   q{}, '0.25' ),         ['1.25'], 'a decimal fraction advances by one';
 is replacements( 'regex-flag',     'regex',    'modifier', '(?im:' ), [ '(?m:', '(?i:' ], 'each flag can be removed';
@@ -100,13 +112,60 @@ for my $case (
     is spans( $code, $kind ), [], "a $kind with an unverified $misplaced span is dropped";
 }
 
+my $statement = \&PPI::Element::statement;
+for my $case (
+    [ 'PPI::Structure::Constructor', 'my $a = [1];',        'collection' ],
+    [ 'PPI::Token::Regexp::Match',   'my $ok = /[ab]/i;',   'regex' ],
+    [ 'PPI::Structure::Condition',   'if ($ok) { work() }', 'condition' ],
+    [ 'PPI::Token::Operator',        'sub total { 1 + 2 }', 'operator' ],
+  )
 {
-    my $statement = \&PPI::Element::statement;
+    my ( $class, $code, $kind ) = $case->@*;
     no warnings 'redefine';
     local *PPI::Element::statement = sub ($element) {
-        return if $element->isa('PPI::Structure::Constructor');
+        return if $element->isa($class);
         return $statement->($element);
     };
-    is spans( 'my $a = [1];', 'collection' ), [], 'a collection without a running statement cannot supply coverage';
+    is spans( $code, $kind ), [], "a $kind without a running statement cannot supply coverage";
 }
+{
+    no warnings 'redefine';
+    local *PPI::Element::statement = sub ($element) {
+        my $found = $statement->($element);
+        return $element->isa('PPI::Token::Operator') && $element->content eq q{+} ? $found->clone : $found;
+    };
+    is [ map { $_->scope } grep { $_->text eq q{+} } sites( "my \$v = (\n2 +\n3\n);\n", 'operator' ) ],
+      [ [ 2, 3 ] ], 'a detached expression keeps its own source lines as its coverage scope';
+}
+
+is spans( 'if ($ready', 'condition' ), [], 'an unterminated condition has no verified right delimiter';
+{
+    my $code  = 'if ($ready) { work() }';
+    my $tree  = PPI::Document->new( \$code );
+    my $start = \&PPI::Structure::start;
+    no warnings 'redefine';
+    local *PPI::Document::new    = sub { return $tree };
+    local *PPI::Structure::start = sub ($structure) {
+        return if $structure->isa('PPI::Structure::Condition');
+        return $start->($structure);
+    };
+    is spans( $code, 'condition' ), [], 'a condition needs the opening delimiter from the parser';
+}
+for my $case (
+    [ 'my $total = 2 + 3;', 'operator', 'my' ],
+    [ 'my $total = 2 + 3;', 'operator', ';' ],
+    [ 'sub measure { 3 }',  'sub_body', 'sub' ],
+    [ 'sub measure { 3 }',  'sub_body', '}' ],
+  )
+{
+    my ( $code, $kind, $missing ) = $case->@*;
+    no warnings 'redefine';
+    local *PPI::Element::location = sub ($token) {
+        return if $token->content eq $missing;
+        return $location->($token);
+    };
+    is spans( $code, $kind ), [], "the scope of a $kind needs the source line for its $missing token";
+}
+is spans( "sub measure { return \"a\r\nb\"; }\r\n", 'return' ), [],
+  'a return value with unverified source bytes is left intact';
 done_testing;

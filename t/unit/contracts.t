@@ -4,7 +4,7 @@ use lib 't/lib';
 use Library;
 
 # Every public subroutine checks its arguments before its body runs.
-# A lone scalar reference fits no declared signature, so each call must end in a type error.
+# The function definitions also describe the public surface when a type declaration is missing.
 
 my @files = grep { $_ ne 'lib/Test/Mutation/Shim.pm' } Library::modules()->@*;
 my $count = 0;
@@ -14,21 +14,22 @@ for my $file (@files) {
     my $code = do { local $/ = undef; readline $handle };
     close $handle or die "close $file: $!";
 
-    my $package = $file =~ s{\Alib/}{}r =~ s{[.]pm\z}{}r =~ s{/}{::}gr;
+    my $package = Library::package_of($file);
     require $file =~ s{\Alib/}{}r;
 
-    while ( $code =~ /^signature_for (\w+) => (.*?)^sub \1\b/msg ) {
-        my ( $name, $declaration ) = ( $1, $2 );
+    while ( $code =~ /^sub ([a-z]\w*) \(\s*(\$(?:class|self)\b)?/mg ) {
+        my ( $name, $method ) = ( $1, $2 );
         my $subroutine = $package->can($name) or die "$package has no subroutine $name";
         my $wrong      = \my $value;
-        my $error =
-          dies { $declaration =~ /\bmethod\s*=>\s*1/ ? $package->$subroutine($wrong) : $subroutine->($wrong) };
-        ok( ref $error && $error->isa('Error::TypeTiny'), "$package\::$name refuses a wrong argument" )
-          || diag defined $error ? "$error" : 'the call returned';
+        my $error      = dies { $method ? $package->$subroutine($wrong) : $subroutine->($wrong) };
+        my $typed      = ref $error && $error->isa('Error::TypeTiny');
+        ok $typed, "$package\::$name refuses a wrong argument" or diag defined $error ? "$error" : 'the call returned';
+        is $error->context->{file}, __FILE__, "$package\::$name identifies the call that supplied the invalid argument"
+          if $typed;
         $count++;
     }
 }
 
-ok $count >= 50, "the files declare signatures ($count)";
+ok $count >= 50, "the public functions reject invalid arguments ($count)";
 
 done_testing;

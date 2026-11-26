@@ -151,6 +151,27 @@ subtest 'the server rejects no request after a module that reads, prints, or han
     is Judge::stop($stuck), 0, 'and the caller ends the server that hangs';
 };
 
+subtest 'ending the compiler server leaves the exit handlers of preloaded dependencies unexecuted' => sub {
+    my $directory = File::Temp->newdir;
+    my $path      = "$directory/AtShutdown.pm";
+    open my $module, '>', $path or die "write $path: $!";
+    print {$module} <<'MODULE' or die "write $path: $!";
+package AtShutdown;
+END {
+    open my $file, '>', __FILE__ . '.ended' or die $!;
+    close $file or die $!;
+    $? = 19;
+}
+1;
+MODULE
+    close $module or die "close $path: $!";
+    my $judge = Judge::start( include => ["$directory"] );
+    is Judge::preload( $judge, 'AtShutdown.pm' ),              1, 'a dependency can register its own exit handler';
+    is judged( $judge, "sub value { 42 }\n1;\n" )->{compiled}, 1, 'the server returns the compilation observation';
+    is Judge::stop($judge),                                    1, 'the server returns its own shutdown status';
+    ok !-e "$path.ended", 'ending the server leaves dependency-owned files untouched';
+};
+
 subtest 'the judge rejects a unit that fails to load' => sub {
     my $judge  = Judge::start();
     my $brief  = Judge::start( timeout => 1 );

@@ -169,7 +169,7 @@ my @records = glob '*.rec';
 my $epoch = sub { time };
 my $encode = sub { pack 'H*', $_[0] };
 my $order = $x cmp 'limit';
-my @declined = ( 0b11, 1e3, +$x, `true`, chown( 0, 0, $x ), ioctl( $x, 0, $x ), each %$x, gethostbyname $x );
+my @declined = ( 0b11, 1e3, +$x, `true`, qx{true}, getpgrp($x), chown( 0, 0, $x ), ioctl( $x, 0, $x ), each %$x, gethostbyname $x );
 my @valued = ( gmtime $x, localtime $x, log $x, lstat $x, ord $x, prototype $x, tell $x, telldir $x, tied $x, fc $x );
 foreach my $item (@list) { } continue { }
 sub counted { state $count; goto &code }

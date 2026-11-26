@@ -1,0 +1,35 @@
+#!perl
+use v5.36;
+use Cwd ();
+use Devel::Cover::DB;
+use File::Temp ();
+use lib 't/lib', 'xt/lib';
+use Library;
+use LibraryCoverage;
+
+my $scratch   = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+my $directory = "$scratch/cover_db";
+{
+    # Loading the encoding layer before instrumentation keeps its generated BEGIN out of the calling CLI source.
+    local $ENV{HARNESS_PERL_SWITCHES} = '-MPerlIO::encoding -MDevel::Cover';
+    local $ENV{DEVEL_COVER_OPTIONS}   = join ',', '-db', $directory, '-coverage', 'statement', 'branch',
+      '-ignore', '.', '+select', '(?:^|/)lib/Test/Mutation(?:/|[.]pm$)', '-silent', 1;
+    system( 'prove', '-lr', '-j3', qw(t/unit t/shim t/assumptions t/contract t/discovery t/e2e) ) == 0
+      or die "the instrumented test suite failed\n";
+}
+
+my $db    = Devel::Cover::DB->new( db => $directory )->merge_runs;
+my $files = LibraryCoverage::sources( Library::modules(), [ $db->cover->items ], Cwd::abs_path(q{.}) );
+$db->calculate_summary( files => $files, statement => 1, branch => 1 );
+open my $table, '<', 'xt/release/coverage.tsv' or die "read the coverage floors: $!\n";
+my $floors = LibraryCoverage::floors( [ readline $table ] );
+close $table or die "close the coverage floors: $!\n";
+my %counts;
+for my $criterion (qw(statement branch)) {
+    my $row = $db->summary( 'Total', $criterion );
+    $counts{$criterion} = [ $row->@{qw(covered total)} ];
+    printf "%s coverage across %d modules: %d/%d (%.2f%%)\n", $criterion, scalar @$files,
+      $row->@{qw(covered total percentage)};
+}
+my $findings = LibraryCoverage::findings( \%counts, $floors );
+die join( "\n", @$findings ), "\n" if @$findings;

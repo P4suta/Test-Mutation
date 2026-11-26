@@ -75,6 +75,25 @@ ok -d $kept,              'a kept workspace survives a later start';
 ok -f "$unrelated/owner", 'another application can use the same directory prefix safely';
 $next->release(0);
 
+subtest 'an incomplete release preserves the requested recovery tree across the next measurement' => sub {
+    my $workspace = Test::Mutation::Workspace::acquire($project);
+    my $directory = $workspace->directory;
+    open my $backup, '>', "$directory/tree/original" or die "open backup: $!";
+    print {$backup} "original\n" or die "write backup: $!";
+    close $backup                or die "close backup: $!";
+    {
+        no warnings 'redefine';
+        local *Test::Mutation::Workspace::Processes::finish = sub { return 0 };
+        ok !$workspace->release(1), 'a live descendant leaves process cleanup incomplete';
+        ok -f "$directory/kept",    'the backup is retained as soon as recovery is requested';
+        ok !$workspace->release(1), 'a retry while the descendant lives still reports incomplete cleanup';
+    }
+    undef $workspace;
+    my $later = Test::Mutation::Workspace::acquire($project);
+    ok -f "$directory/tree/original", 'a subsequent run cannot reclaim a backup marked for recovery';
+    ok $later->release(0),            'the following measurement releases its own workspace';
+};
+
 local $ENV{TMPDIR} = $project;
 my $outside = Test::Mutation::Workspace::acquire($project);
 unlike $outside->directory, qr{\A\Q$project\E(?:/|\z)}, 'a temporary parent inside the checkout falls back outside';

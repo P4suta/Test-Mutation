@@ -73,7 +73,34 @@ run = "prove -l xt/mutants"
 
 [tasks.mutation-gate]
 description = "Measure Test::Mutation with itself and check the release conditions"
-run = ["perl -Ilib bin/mutation", "prove -l xt/release", "prove -l xt/mutants"]
+run = [
+  "perl -Ilib bin/mutation --no-cache --format terminal --format json --min-score 100",
+  "prove -l xt/release",
+  "prove -l xt/mutants",
+]
+
+[tasks.shim-mutation]
+description = "Measure the installed shim with Perl 5.10, 5.14, and 5.18"
+run = [
+  "docker build --quiet --target tool --file xt/realworld/Dockerfile --tag test-mutation-release-driver:perl-5.44 .",
+  "docker build --quiet --file xt/release/Dockerfile.shim --tag test-mutation-shim-release .",
+  "docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 256 --cpus 2 --memory 1g --tmpfs /work:exec,size=512m,uid=1000,gid=1000,mode=0755 --tmpfs /tmp:exec,size=128m,mode=1777 --volume {{config_root}}:/repo:ro test-mutation-shim-release",
+]
+
+[tasks.release-gate]
+description = "Verify the complete self measurement, coverage, discovery, and pinned distributions"
+run = [
+  "mise run check",
+  "mise run mutation-gate",
+  "mise run shim-mutation",
+  "mise run coverage",
+  "mise run discover",
+  "mise run realworld",
+]
+
+[tasks.coverage]
+description = "Measure statement and branch coverage against the release floors"
+run = "perl xt/bin/measure-coverage"
 
 [tasks.realworld]
 description = "Run the tool on real distributions inside a container and judge every record"

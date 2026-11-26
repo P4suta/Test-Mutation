@@ -21,7 +21,9 @@ sub line ( $done, $total, $counts ) {
 signature_for due => ( positional => [ Int, Int ], returns => Bool );
 
 sub due ( $done, $total ) {
-    my $step = max( 1, int $total / $LOG_LINES );
+
+    # The remainder operator takes the whole-number part of the interval.
+    my $step = max( 1, $total / $LOG_LINES );
     return $done == $total || $done % $step == 0 ? 1 : 0;
 }
 

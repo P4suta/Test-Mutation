@@ -263,6 +263,8 @@ $prefix{ substr( $_->id, 0, 1 ) }++ for $mutants->@*;
 my ($ambiguous) = sort grep { $prefix{$_} > 1 } keys %prefix;
 raised( sub { Test::Mutation::Select::by_id( $mutants, $ambiguous ) } );
 
+isa_ok dies { Test::Mutation::Runner::analyze() }, ['Error::TypeTiny'], 'analysis requires a project configuration';
+
 # The comments that suppress mutants: every refusal of the grammar in one file, and the two settings that ask for more.
 my $noted = join "\n", 'package Noted;', '## use mutate', 'sub one { return $_[0] + 1 }    ## no mutate (nonesuch)',
   'sub two { return $_[0] - 1 }    ##no mutate', '## no mutate sub', 'my $three = 3 * 3;',

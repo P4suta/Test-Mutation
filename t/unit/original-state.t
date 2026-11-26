@@ -8,6 +8,7 @@ use Raised;
 use Capability;
 use POSIX ();
 use Test::Mutation::Message;
+use Test::Mutation::Record;
 use Test::Mutation::Runner;
 use Test::Mutation::Select;
 use Test::Mutation::Settings;
@@ -371,8 +372,8 @@ subtest 'a known original compilation determines the next check and the reported
     my $path   = $fixture_mutant->path;
     my $parent = File::Temp::tempdir( CLEANUP => 1 );
     for my $passed ( 0, 1 ) {
-        my $run      = { config => $fixture_config, copies     => 'slots', root => 'original',  stats   => {} };
-        my $original = { mutant => $fixture_mutant, check_read => 1,       file => 'mutant.pm', outcome => {} };
+        my $run = { config => $fixture_config, copies => 'slots', root => 'original', stats => {}, warnings => {} };
+        my $original = { mutant => $fixture_mutant, check_read => 1, file => 'mutant.pm', outcome => {} };
         my $result   = {
             exit       => $passed ? 0 : 1,
             duration   => 0.1,
@@ -408,6 +409,9 @@ subtest 'a known original compilation determines the next check and the reported
         is Test::Mutation::Runner::_after_syntax( $run, {},
             { payload => { job => $served, kind => 'syntax-original' } }, $result ),
           $passed ? $compile : undef, 'a served target proceeds to the mutant only after a successful original check';
+        is [ sort keys $run->{warnings}->%* ],
+          $passed ? [] : [ Test::Mutation::Message::warning( 'syntax-check-failed', path => $path ) ],
+          'a failed standalone syntax check warns about the source whose mutations it cannot classify by parsing';
         for my $succeeded ( 0, 1 ) {
             my $job  = { mutant => $fixture_mutant, file => 'mutant.pm', check_read => 1, outcome => {} };
             my $next = Test::Mutation::Runner::_after_syntax(
@@ -453,6 +457,30 @@ subtest 'confirming a direct source read uses a restored copy and records the se
         is $run->{stats}{verifications}, $decision eq 'repeat' ? 1 : 0, 'only a scheduled observation counts';
         is $job->{outcome}{read_check}, $decision eq 'compile-error' ? 'compile-error' : undef,
           'a known compile failure provides the terminal result';
+    }
+};
+
+subtest 'a failed test retries once on a different verified reference' => sub {
+    my $path   = 'working/' . $fixture_mutant->path;
+    my $record = Test::Mutation::Record::parse( ["begin\t1\nseen\t0\nend\t1\n"], [$path] );
+    for my $case (
+        [ 'working', { same => 1 },       undef,   'working' ],
+        [ undef,     { root => 'clean' }, 'retry', 'clean' ],
+        [ 'working', { root => 'clean' }, 'retry', 'clean' ],
+        [ 'clean',   { root => 'clean' }, undef,   'clean' ],
+      )
+    {
+        my ( $previous, $proof, $expected, $reference ) = $case->@*;
+        my $run  = { root => 'working', baseline_changed => 1, controls => { 'test.t' => $proof }, stats => {} };
+        my $job  = { mutant => $fixture_mutant, starting_tree => $previous, duration => 0 };
+        my $task = { payload => { job => $job, test => 'test.t' } };
+        no warnings 'redefine';
+        local *Test::Mutation::Runner::_collect   = sub { return $record };
+        local *Test::Mutation::Runner::_next_test = sub { return 'retry' };
+        my $next = Test::Mutation::Runner::_after_test( $run, {}, $task, { passed => 0, duration => 1 } );
+        is $next,                             $expected,  'only a change of verified reference schedules another test';
+        is $job->{starting_tree},             $reference, 'the reference records where the test will run';
+        is $run->{stats}{verifications} || 0, defined $expected ? 1 : 0, 'only a scheduled retry counts';
     }
 };
 

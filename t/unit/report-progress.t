@@ -17,8 +17,10 @@ subtest 'line shows the position and the counts that matter' => sub {
 
 subtest 'due tells when a line belongs in a log' => sub {
     my @due = grep { Test::Mutation::Report::Progress::due( $_, 200 ) } 1 .. 200;
-    is \@due, [ map { $_ * 20 } 1 .. 10 ],                                             'every tenth of a large run';
+    is \@due, [ map { $_ * 20 } 1 .. 10 ], 'every tenth of a large run';
     is [ grep { Test::Mutation::Report::Progress::due( $_, 7 ) } 1 .. 7 ], [ 1 .. 7 ], 'every mutant of a small run';
+    is [ grep { Test::Mutation::Report::Progress::due( $_, 27 ) } 1 .. 27 ], [ ( map { 2 * $_ } 1 .. 13 ), 27 ],
+      'a partial tenth uses the lower whole interval and still reports the final mutant';
     ok Test::Mutation::Report::Progress::due( 1234, 1234 ), 'the last mutant';
 };
 

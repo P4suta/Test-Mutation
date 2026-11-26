@@ -1,6 +1,7 @@
 use strict;
 use warnings;
 use Test::More;
+use Scalar::Util qw(dualvar);
 use lib 't/shim/lib';
 use ShimHarness          qw(all_records lib_dir project run_perl write_file);
 use Test::Mutation::Shim ();
@@ -63,6 +64,32 @@ PERL
     }
 };
 
+subtest 'binary source reads keep byte identity and a failed close supplies no text' => sub {
+    my $root = project();
+    write_file( "$root/raw",     "\xC3\xA9\xFF\n" );
+    write_file( "$root/read.pl", <<'PERL' );
+use strict;
+use warnings;
+our $failed;
+BEGIN {
+    *CORE::GLOBAL::close = sub (;*) {
+        my $ok = CORE::close($_[0]);
+        return $failed ? 0 : $ok;
+    };
+}
+use Test::Mutation::Shim ();
+my $read = \&Test::Mutation::Shim::_slurp;
+print 'raw=', unpack('H*', $read->('raw')), "\n";
+$failed = 1;
+print 'failed=', length($read->('raw')), "\n";
+print 'missing=', length($read->('absent')), "\n";
+PERL
+    my $run = run_perl( root => $root, args => [ '-I' . lib_dir(), '-Cio', 'read.pl' ] );
+    is $run->{status}, 0, 'binary comparison handles the missing and unclosed file' or diag $run->{stderr};
+    is $run->{stdout}, "raw=c3a9ff0a\nfailed=0\nmissing=0\n", 'raw bytes and failed observations are distinct';
+    is $run->{stderr}, q{},                                   'failed reads do not leak warnings to the measured test';
+};
+
 subtest 'an unquotable load path keeps its on-disk behavior in a placed run' => sub {
     for my $placed ( 0, 1 ) {
         my $root   = project();
@@ -79,6 +106,14 @@ subtest 'an unquotable load path keeps its on-disk behavior in a placed run' => 
         is $run->{status}, 0, 'an unquotable include path remains loadable' or diag $run->{stderr};
         is $run->{stdout}, $placed ? "11\n" : "22\n", 'only in-place interception serves alternate bytes';
     }
+};
+
+subtest 'debugger line entries compare their integer flags with the source text' => sub {
+    my $path  = 'example::with::colons';
+    my $lines = Test::Mutation::Shim::_source_lines($path);              ## no critic (Subroutines::ProtectPrivateSubs)
+    @$lines = ( undef, dualvar( 1.8, '1.3' ), dualvar( 2, '1.0' ), undef );
+    is_deeply [ Test::Mutation::Shim::_breakable_lines($path) ], [2],    ## no critic (Subroutines::ProtectPrivateSubs)
+      'only the numeric flag of a breakable statement differs';
 };
 
 subtest 'the source filters switch debugger compilation at code, data, and end of input' => sub {
@@ -153,6 +188,24 @@ PERL
     is_deeply \@targets, [qw(B.pm A.pm A.pm B.pm)], 'finishing the first witnessed source still visits every target';
 };
 
+subtest 'the debugger is initialized before a measured test loads its first target' => sub {
+    my $root = project();
+    write_file( "$root/debugger.pl", <<'PERL' );
+use strict;
+use warnings;
+use Test::Mutation::Shim ();
+Test::Mutation::Shim::activate({trace => 1, observe => 1, targets => []}, 'records');
+print 'ready=', defined $DB::single ? $DB::single : 'uninitialized', "\n";
+print 'idle=', $^P & 6, "\n";
+Test::Mutation::Shim::trace_source(0, 'A.pm', 'physical-A', 'records', 0);
+print 'tracing=', $DB::trace, "\n";
+PERL
+    my $run = ShimHarness::run_bare( root => $root, args => [ '-I' . lib_dir(), 'debugger.pl' ] );
+    is $run->{status}, 0, 'a fresh interpreter can install the tracer before loading any source' or diag $run->{stderr};
+    is $run->{stdout}, "ready=0\nidle=0\ntracing=1\n",
+      'debugger controls are ready while idle and tracing stays enabled for the first source';
+};
+
 subtest 'eval tracing sets both filename flags in the test interpreter' => sub {
     for my $eval ( 0, 1 ) {
         my $root = project();
@@ -166,6 +219,22 @@ PERL
         my $run = ShimHarness::run_bare( root => $root, args => [ '-I' . lib_dir(), 'eval.pl', $eval ] );
         is $run->{stdout}, ( $eval ? 0xc00 : 0 ) . "\n", 'the eval flags follow the spec';
     }
+};
+
+subtest 'a disappearing target or installed module supplies no file identity' => sub {
+    my $root    = project();
+    my $source  = write_file( "$root/empty.pm", q{} );
+    my $missing = "$root/lost/empty.pm";
+    my ( $device, $inode ) = ( stat $source )[ 0, 1 ];
+    my $target = { original => $source, device => $device, inode => $inode };
+    my @warnings;
+    local $SIG{__WARN__} = sub { push @warnings, @_ };
+    is Test::Mutation::Shim::_target_at( $missing, 'empty.pm', [$target] ), undef,    ## no critic (Subroutines::ProtectPrivateSubs)
+      'an absent path cannot match a source containing zero bytes';
+    local $INC{'previously-loaded.pm'} = $missing;
+    ok !Test::Mutation::Shim::_loaded_from_disk( $target, $device, $inode ),          ## no critic (Subroutines::ProtectPrivateSubs)
+      'a stale module table entry proves no load';
+    is_deeply \@warnings, [], 'a missing identity does not leak comparison warnings to the measured program';
 };
 
 subtest 'the command selector stops before looking up aliases for a missing main program' => sub {
@@ -252,6 +321,20 @@ PERL
     is scalar( grep { $_->[0] eq 'blind' && $_->[1] eq $later } @$records ), 1,
       'the ordinary require has only on-disk evidence';
     is scalar( grep { $_->[0] eq 'hit' && $_->[1] ne $main } @$records ), 0, 'only the selected main has hit records';
+};
+
+subtest 'finishing a record preserves the measured program exit status' => sub {
+    my $root = project();
+    write_file( "$root/exit.pl", <<'PERL' );
+use strict;
+use warnings;
+use Test::Mutation::Shim ();
+no warnings 'redefine';
+*Test::Mutation::Shim::finish = sub { system {$^X} $^X, '-e', 'exit 23' };
+exit 7;
+PERL
+    my $run = run_perl( root => $root, args => [ '-I' . lib_dir(), 'exit.pl' ] );
+    is $run->{status}, 7, 'a child waited for during cleanup cannot replace the measured exit';
 };
 
 done_testing;

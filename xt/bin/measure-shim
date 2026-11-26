@@ -1,0 +1,43 @@
+#!perl
+use v5.36;
+use Cwd        ();
+use File::Copy ();
+use File::Path ();
+use File::Temp ();
+use lib 'lib', 'xt/lib';
+use SelfMeasurement;
+use Test::Mutation::CLI;
+use Test::Mutation::Select;
+use Test::Mutation::Settings;
+
+my ( $family, $perl ) = @ARGV;
+die "usage: measure-shim 5.10|5.14|5.18 PERL\n" unless @ARGV == 2 && $family =~ /\A5[.](?:10|14|18)\z/;
+open my $probe, '-|', $perl, '-e', 'printf "%vd", $^V' or die "start $perl: $!\n";
+my $version = join q{}, readline $probe;
+close $probe or die "version probe for $perl failed\n";
+die "$perl reports $version, expected Perl $family\n" unless $version =~ /\A\Q$family\E[.]\d+\z/;
+
+my $root   = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+my $source = 'lib/Test/Mutation/Shim.pm';
+File::Path::make_path( "$root/lib/Test/Mutation", "$root/t" );
+File::Copy::copy( $source, "$root/$source" )        or die "copy $source: $!\n";
+system( 'cp', '-R', 't/shim', "$root/t/shim" ) == 0 or die "copy the shim tests: $?\n";
+
+my $config = Test::Mutation::Settings::of_call( { root => q{.} } );
+open my $settings, '>', "$root/mutation.toml" or die "write shim settings: $!\n";
+print {$settings} "source = [\"$source\"]\ntest = [\"t/shim/*.t\"]\ncache = false\n";
+print {$settings} "profile = \"", $config->profile, "\"\n";
+for my $name (qw(enable disable)) {
+    print {$settings} "$name = [", join( ', ', map { qq{"$_"} } $config->$name->@* ), "]\n";
+}
+print {$settings} "suppress-require-names = true\nsuppress-require-reason = true\n";
+close $settings or die "close shim settings: $!\n";
+
+say "Measuring the shim with Perl $version";
+my $exit = Test::Mutation::CLI::main( '-C', $root, '--perl', $perl, '--format', 'terminal', '--format', 'json' );
+my $selection =
+  Test::Mutation::Select::resolve( config => Test::Mutation::Settings::of_call( { root => $root, perl => $perl } ) );
+my $result   = SelfMeasurement::read_report("$root/mutation-report/mutation.json");
+my $findings = SelfMeasurement::findings( $result, $selection );
+die join( "\n", @$findings ), "\n" if @$findings;
+exit $exit;

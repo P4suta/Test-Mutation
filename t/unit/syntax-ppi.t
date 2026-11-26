@@ -1,11 +1,15 @@
 use v5.36;
 use Test2::V0;
+use lib 't/lib';
+use Bounded;
 use Test::Mutation::Source;
 use Test::Mutation::Syntax::PPI;
 
 sub analyze ($code) {
     my $source = Test::Mutation::Source->new( path => 'lib/X.pm', text => $code, encoding => 'UTF-8' );
-    return Test::Mutation::Syntax::PPI::analyze($source);
+    my ( $ended, $analysis ) = Bounded::ended( 2, sub { return Test::Mutation::Syntax::PPI::analyze($source) } );
+    die "analysis did not finish for $code\n" unless $ended;
+    return $analysis;
 }
 
 sub sites_of ( $code, $kind ) {
@@ -275,6 +279,14 @@ subtest 'the branches of a conditional operator' => sub {
       'a first branch with an assignment at its top binds looser than the conditional, and one with a conditional at its top does not';
     is [ map { $_->facts->{loose} } sites_of( 'my $r = $c ? $obj->{key} = 1 : 0;', 'branches' )->@* ], [1],
       'the assignment spans the first branch even when its target contains a tighter operator';
+    my $grouped = "(\r\n3\r\n)";
+    is [ map { $_->text } sites_of( "my \$v = \$ok ? $grouped : $grouped;\r\n", 'branches' )->@* ],
+      ["$grouped : $grouped"], 'grouped branches keep the line endings between their boundary tokens';
+    my $quoted = "\"a\r\nb\"";
+    for my $branches ( "$quoted : 2", "1 : $quoted" ) {
+        is sites_of( "my \$v = \$ok ? $branches;\r\n", 'branches' ), [],
+          'exchanging two branches requires verified source offsets for both';
+    }
     my ($first) = sites_of( $code, 'branches' )->@*;
     is [ map { substr $code, $_->[0], $_->[1] - $_->[0] } $first->facts->{anchors}->@* ], [ q{?}, q{:} ],
       'and the places of its question mark and its colon';
@@ -754,6 +766,13 @@ subtest 'a file with a carriage return before each line feed is analyzed' => sub
       'a string over two lines has another text than its token, and the analysis says so';
     is [ map { $_->text } grep { $_->role eq 'binary' && $_->text ne q{=} } $string->{sites}->@* ], [ q{.}, q{+} ],
       'the sites around it stay';
+
+    my $patterns = analyze("my \$match = /^a\r\nb\$/i;\r\nmy \$other = /[ab]/;\r\n");
+    is $patterns->{dropped},
+      [ { line => 1, kind => 'span', reason => 'the text at the place differs from the token' } ],
+      'a multiline pattern with different source bytes is reported once';
+    is [ map { [ $_->text, $_->scope ] } grep { $_->kind eq 'regex' } $patterns->{sites}->@* ],
+      [ [ '[ab]', [ 3, 3 ] ] ], 'only the pattern with verified source offsets supplies mutation sites';
 };
 
 subtest 'the analysis lists every place it leaves out' => sub {
@@ -958,6 +977,10 @@ subtest 'the analysis marks what a change must keep' => sub {
       [ {}, { final_value => 1 } ], 'the documentation after the end mark moves nothing';
     is [ map { $_->facts->{final_value} } analyze("package A;\nA->setup( 1 + 2 );\n")->{sites}->@* ], [ (undef) x 5 ],
       'a last statement that does work is no mere value';
+    is [ map { $_->facts->{final_value} } sites_of( "package A;\n(3 < 4);\n", 'operator' )->@* ], [1],
+      'a grouped comparison supplies the module return value';
+    is [ map { $_->facts->{final_value} } sites_of( "package A;\n(print 3 < 4);\n", 'operator' )->@* ], [undef],
+      'grouping the output operation leaves its comparison eligible for mutation';
     is [ map { [ $_->text, $_->facts->{final_value} ] } analyze("package A;\n!!1;\n")->{sites}->@* ],
       [ [ q{!}, 1 ], [ '!!1;', 1 ], [ q{!}, 1 ], [ '1', 1 ] ], 'a value under operators in that place';
     is [ map { $_->facts->{final_value} } sites_of( "use v5.40;\npackage A;\ntrue;\n", 'word' )->@* ], [1],

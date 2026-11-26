@@ -75,6 +75,18 @@ subtest 'a pipe that does not close stops the pool' => sub {
     }
 };
 
+subtest 'only complete process rows identify descendants' => sub {
+    my $listing = script( 'ps', "#!$^X\n" . <<'PERL' );
+print "PID PPID\nbad 43 40\n44 40 trailing\n 41\t40 \n42   41";
+PERL
+    chmod 0755, $listing or die "chmod $listing: $!";
+    local $ENV{PATH} = $dir;
+    my $scan = Test::Mutation::Pool->can('_descendants');
+    my @children;
+    is warnings { @children = $scan->( { work => {} }, 40 ) }, [], 'a listing header and malformed rows stay quiet';
+    is [ sort { $a <=> $b } @children ], [ 41, 42 ], 'only the child and grandchild from complete rows are eligible';
+};
+
 subtest 'a process listing that does not close names no process to end' => sub {
     my $path = script( 'grand.t', <<'PERL' );
 $| = 1;

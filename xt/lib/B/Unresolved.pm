@@ -73,7 +73,11 @@ sub _serve ( $directory, $seconds ) {
         }
         _reply( $replies, _waited( $pid, $seconds ) );
     }
-    exit 0;
+
+    # Dependencies can install END blocks for their own program while the server preloads them.
+    require POSIX;
+    POSIX::_exit(0);
+    return;
 }
 
 # The child loads the unit as a test loads a module, and the result holds one word for the outcome.

@@ -30,6 +30,11 @@ subtest 'a mutant that compiles to the code of the original is ignored' => sub {
     is $reason{'removed !'}, [ 'same-code-as-mutant', 'compiles to the same code as mutant ' . $kept->{mutant}->id ],
       'a later mutant with the code of an earlier survivor names it';
     is $result->tally->{score}, 6 / 8 * 100, 'ignored mutants leave the score';
+    my ($cached) = run_fixture($root);
+    ok $cached->reused > 0, 'the second measurement reuses stored verdicts';
+    is [ map { [ $_->{mutant}->id, $_->@{qw(status reason detail)} ] } $cached->entries->@* ],
+      [ map { [ $_->{mutant}->id, $_->@{qw(status reason detail)} ] } $result->entries->@* ],
+      'cached compiler results identify the same original and duplicate mutants as a fresh run';
 };
 
 subtest 'a file that does not compile on its own keeps its survivors and warns' => sub {

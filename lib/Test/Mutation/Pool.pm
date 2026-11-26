@@ -353,7 +353,7 @@ sub _descendants ( $pool, @roots ) {
     $pool->{work}{listings}++;
     my %children;
     while ( my $line = readline $listing ) {
-        my ( $pid, $parent ) = $line =~ /(\d+)\s+(\d+)/ or next;
+        my ( $pid, $parent ) = $line =~ /\A\s*(\d+)\s+(\d+)\s*\z/ or next;
         $children{$parent}{$pid} = 1;
     }
     close $listing or return;

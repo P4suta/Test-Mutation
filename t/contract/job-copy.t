@@ -324,6 +324,24 @@ subtest 'the test command uses the disk specification for a trial or an agreed d
     ok $workspace->release(0), 'the test commands release their private files';
 };
 
+subtest 'a failed record cleanup leaves the observation usable and removes the temporary files' => sub {
+    my $project = ShimHarness::project();
+    my $records = "$project/records";
+    my $tmp     = "$project/tmp";
+    write_file( "$records/first.rec", "begin\t1\nend\t1\n" );
+    write_file( "$tmp/output",        "temporary\n" );
+    my $expected = Test::Mutation::Record::read_directory($records);
+    my $remove   = Test::Mutation::Tree->can('remove');
+    no warnings 'redefine';
+    local *Test::Mutation::Tree::remove = sub ($path) {
+        die "record directory busy\n" if $path eq $records;
+        return $remove->($path);
+    };
+    my $record = Test::Mutation::Runner::_collect( { payload => { record => $records, tmp => $tmp, targets => [] } } );
+    is $record, $expected, 'the caller receives the observation despite the cleanup error';
+    ok -d $records && !-e $tmp, 'cleanup continues with the other directory';
+};
+
 subtest 'finishing a mutant removes its source and both specifications before reporting the verdict' => sub {
     my $directory = File::Temp::tempdir( CLEANUP => 1 );
     my ( $file, $spec ) = ( "$directory/mutant.pm", "$directory/test.spec" );
@@ -372,5 +390,37 @@ subtest 'the original run records whether its tests changed the job copy' => sub
     }
 };
 ## use critic
+
+subtest 'reproducing a mutant preserves inherited Perl options and library paths' => sub {
+    my $project       = Fixture::copy_of('calc');
+    my $library_dir   = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    my $config        = Test::Mutation::Settings::of_call( { root => $project, in_place => 1 } );
+    my $selection     = Test::Mutation::Select::resolve( config => $config );
+    my ($subtraction) = grep { $_->description eq 'replaced + with -' } $selection->mutants->@*;
+    my $program       = write_file( "$library_dir/observe.pl", <<'PERL' );
+use Calc;
+open my $out, '>', $ARGV[0] or die "write: $!";
+print {$out} join "\n", Calc::add(6, 4), $ENV{PERL5OPT} // q{}, $ENV{PERL5LIB} // q{};
+close $out or die "close: $!";
+PERL
+    for my $case ( [ 'unset', undef, undef ], [ 'empty', q{}, q{} ], [ 'configured', '-Mstrict', $library_dir ] ) {
+        my ( $label, $options, $libraries ) = @$case;
+        local @ENV{qw(PERL5OPT PERL5LIB)} = ( $options, $libraries );
+        delete @ENV{qw(PERL5OPT PERL5LIB)} unless defined $options;
+        my $output = "$library_dir/$label.txt";
+        my $status = Test::Mutation::Runner::run_command( $config, $selection->sources->{ $subtraction->path },
+            $subtraction, [ $^X, '-Ilib', $program, $output ] );
+        is $status, 0, "$label options allow the command to run";
+        my ( $value, $flags, $paths ) = split /\n/, Test::Mutation::Source::read_bytes($output), -1;
+        is $value, 2, 'the child loads the specified subtraction mutant';
+        unlike $flags, qr/\A\s|\s\z/,     'absent options introduce no empty switch';
+        unlike $paths, qr/(?:\A|:):|:\z/, 'absent library paths introduce no implicit working directory';
+
+        if ( length( $options // q{} ) ) {
+            ok scalar( grep { $_ eq $options } split /\s+/, $flags ), 'the child inherits the requested switch';
+            ok scalar( grep { $_ eq $libraries } split /:/, $paths ), 'the child inherits the requested library';
+        }
+    }
+};
 
 done_testing;

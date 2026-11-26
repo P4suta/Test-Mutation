@@ -102,16 +102,20 @@ sub release ( $self, $keep ) {
     my $lock = $self->_lock;
     return 1 if !defined fileno $lock;
     my $directory = $self->directory;
-    return 0 unless Test::Mutation::Workspace::Processes::finish("$directory/processes");
-    my $attempt = Test::Mutation::Try::attempt(
+    my $attempt   = Test::Mutation::Try::attempt(
         sub {
-            return Test::Mutation::Tree::remove($directory) unless $keep;
-            return rename( "$directory/owner", "$directory/kept" )
-              || Test::Mutation::Error::raise( 'file-unrenamable', path => "$directory/owner", reason => "$!" );
+            if ( $keep && -e "$directory/owner" ) {
+                rename "$directory/owner", "$directory/kept"
+                  or Test::Mutation::Error::raise( 'file-unrenamable', path => "$directory/owner", reason => "$!" );
+            }
+            return 0 unless Test::Mutation::Workspace::Processes::finish("$directory/processes");
+            Test::Mutation::Tree::remove($directory) unless $keep;
+            return 1;
         }
     );
+    return 0 unless $attempt->{value};
     close $lock or Test::Mutation::Error::raise( 'file-unclosable', path => "$directory/owner", reason => "$!" );
-    return exists $attempt->{value} ? 1 : 0;
+    return 1;
 }
 
 1;

@@ -1,2 +1,10 @@
 enable = ["close-removal"]
 test-exclude = ["t/fixtures/**"]
+source = [
+  "lib/**/*.pm",
+  "bin/mutation",
+  "xt/lib/SelfMeasurement.pm",
+  "xt/lib/LibraryCoverage.pm",
+]
+suppress-require-names = true
+suppress-require-reason = true

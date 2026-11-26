@@ -319,10 +319,10 @@ sub _release ( $run, $job ) {
 
 # A test may leave a directory without any right, and such a leftover must not end the run.
 sub _discard (@paths) {
-    return scalar grep {
-        my $path = $_;
-        exists Test::Mutation::Try::attempt( sub { Test::Mutation::Tree::remove($path) } )->{error}
-    } @paths;
+    for my $path (@paths) {
+        Test::Mutation::Try::attempt( sub { Test::Mutation::Tree::remove($path) } );
+    }
+    return;
 }
 
 sub _measure ( $run, $started ) {

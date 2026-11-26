@@ -111,6 +111,38 @@ subtest 'in-place checks inspect every selected library and preserve non-library
     is Test::Mutation::Build::prepare(%options), [], 'equally current products pass without a command';
 };
 
+subtest 'an in-place XS check matches the source to its native product' => sub {
+    my $root = directory();
+    write_file( "$root/Makefile.PL", '1;' );
+    my $source = 'src/Value.xs';
+    my $named  = "blib/arch/auto/Value/Value.$Config{dlext}";
+    my $other  = "blib/arch/auto/Bundle/Bundle.$Config{dlext}";
+    write_file( "$root/$_", q{} ) for $source, $named, $other;
+    stamp( "$root/$source", 2000.5 );
+    stamp( "$root/$named",  2000.25 );
+    stamp( "$root/$other",  2000.75 );
+    my $inspect = sub {
+        return Test::Mutation::Build::prepare(
+            root      => $root,
+            perl      => $^X,
+            native    => Test::Mutation::Build::native($root),
+            libraries => [],
+            targets   => [],
+            in_place  => 1,
+            run       => sub { die "the checkout started a build\n" }
+        );
+    };
+    my $error = Raised::error($inspect);
+    is $error->[1], 'build-product-stale', 'a newer unrelated object cannot stand in for a stale matching object';
+    like $error->[2], qr/\Q$source\E/, 'the diagnostic identifies the XS source';
+    stamp( "$root/$named", 2000.5 );
+    is $inspect->(), [], 'an object with the exact source timestamp is current';
+    unlink "$root/$named" or die "remove the separately named product: $!";
+    is $inspect->(), [], 'a separately named distribution object can contain the XS implementation';
+    stamp( "$root/$other", 2000.25 );
+    is Raised::error($inspect)->[1], 'build-product-stale', 'a stale distribution object cannot supply the source';
+};
+
 subtest 'build failures report the process result and the end of its diagnostic' => sub {
     my $root      = directory();
     my $workspace = Test::Mutation::Workspace::acquire($root);

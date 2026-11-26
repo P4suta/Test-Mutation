@@ -535,8 +535,13 @@ sub _segment_of ( $context, $statement, $element ) {
 }
 
 sub _segment_scope ($segment) {
-    $segment->{scope} ||= [ map { $_->location->[0] } _edge_tokens( $segment->{children}->@[ 0, -1 ] ) ];
-    return $segment->{scope};
+    return $segment->{scope} ||= _scope_lines( _edge_tokens( $segment->{children}->@[ 0, -1 ] ) );
+}
+
+sub _scope_lines ( $first, $last ) {
+    my $from = $first->location or return;
+    my $to   = $last->location  or return;
+    return [ $from->[0], $to->[0] ];
 }
 
 sub _edge_tokens ( $first, $last ) {
@@ -1022,7 +1027,7 @@ sub _running_statement ( $context, $element ) {
           if ref $statement ne 'PPI::Statement::Expression'
           && $parent->isa('PPI::Structure::Block')
           && _is_code_block( $context, $parent );
-        $statement = $parent->statement or return;
+        $statement = $parent->statement;
     }
     return;
 }
@@ -1032,8 +1037,7 @@ sub _scope ( $context, $element ) {
     my $segment   = ref $statement eq 'PPI::Statement' ? _segment_of( $context, $statement, $element ) : undef;
     return _segment_scope($segment) if $segment;
     my $key = refaddr $statement;
-    $context->{scopes}{$key} ||= [ map { $_->location->[0] } $statement->first_token, $statement->last_token ];
-    return $context->{scopes}{$key};
+    return $context->{scopes}{$key} ||= _scope_lines( $statement->first_token, $statement->last_token );
 }
 
 sub _structure_sites ( $context, $node ) {
@@ -1120,14 +1124,13 @@ sub _body_site ( $context, $segment ) {
 
 sub _add_body ( $context, $block, $name, $head ) {
     my ( $start, $end ) = _inner_span( $context, $block ) or return;
-    my $first = $head->location          or return;
-    my $last  = $block->finish->location or return;
+    my $scope = _scope_lines( $head, $block->finish ) or return;
     _add(
         $context,
         kind  => 'sub_body',
         start => $start,
         end   => $end,
-        scope => [ $first->[0], $last->[0] ],
+        scope => $scope,
         facts => { name => $name, _anchors( $context, $head ) },
     );
     return;
@@ -1169,7 +1172,7 @@ sub _statement_site ( $context, $segment ) {
     return if _is_whole_list_block( $children[0]->parent );
 
     my ( $start, $end ) = _span( $context, _edge_tokens( @children[ 0, -1 ] ) ) or return;
-    my $scope    = _segment_scope($segment) or return;
+    my $scope    = _segment_scope($segment);
     my @tokens   = map { $_->isa('PPI::Token') ? $_ : $_->tokens } @children;
     my $declares = _declares_for_later( $children[0]->parent, \@tokens );
     _add(

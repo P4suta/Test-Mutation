@@ -1,5 +1,3 @@
-gates	xt/release/self-mutation.t has no rejecting subtest	the release gate for the run of the tool on itself
-gates	xt/release/self-mutation.t states no count	the release gate for the run of the tool on itself
 realworld	CPAN-Audit: the unmodified run fails where the tests of the distribution pass	the expectations of the real distributions, where a run of every test file as prove does fails with the name of the test
 realworld	Moo: the number of mutants lies outside its band	the expectations of the real distributions after the mutator catalog changes
 realworld	Params-Util with blib: the number of mutants lies outside its band	the expectations of the real distributions after the mutator catalog changes

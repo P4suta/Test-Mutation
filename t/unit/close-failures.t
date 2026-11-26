@@ -24,6 +24,8 @@ BEGIN {
     };
 }
 
+use lib 'xt/lib';
+use SelfMeasurement;
 use Test::Mutation::Store;
 use Test::Mutation::Store::Key;
 use Test::Mutation::Settings;
@@ -129,5 +131,10 @@ like dies {
     )
 }, qr/\Acannot close \Q$target\E: /, 'a failed close refuses to install incomplete bytes';
 is Test::Mutation::Source::read_bytes($target), "1;\n", 'a failed staging-file close keeps the source unchanged';
+
+my $report = write_file( 'unclosed-report.json', '{}' );
+like dies {
+    failing_in( qr/\ASelfMeasurement::read_report\z/, sub { SelfMeasurement::read_report($report) } )
+}, qr/\Aclose \Q$report\E: /, 'the release refuses a saved report whose read handle failed to close';
 
 done_testing;

@@ -157,7 +157,7 @@ subtest 'the driver may hold its standard handles in memory' => sub {
 
 subtest 'a command that cannot start leaves its reason in standard error' => sub {
     my $missing = "$dir/no-such-program";
-    my $result  = run_all( 1, { task('absent')->%*, command => [$missing] } )->{$missing};
+    my $result  = run_all( 1, { task($missing)->%*, command => [$missing] } )->{$missing};
     is $result->{exit}, 127, 'the exit status of a command that was not found';
     like $result->{errors}, qr/\Amutation: cannot start \Q$missing\E: [^\n]+\n\z/,
       'the message names the command and the reason';
@@ -174,6 +174,27 @@ subtest 'a line that arrives in two pieces is one line' => sub {
     my $stopped = run_all( 1, task( $failing, stop_on_failure => 1 ) )->{$failing};
     is $stopped->{stopped}, 1, 'a failure that arrives in two pieces stops the test';
     ok Time::HiRes::time() - $started < 4, 'at once';
+};
+
+subtest 'ending an escaped group reaches a member absent from the process listing' => sub {
+    my @children;
+    for ( 1 .. 2 ) {
+        my $child = fork;
+        die "fork: $!" unless defined $child;
+        if ( !$child ) {
+            sleep 20;
+            POSIX::_exit(0);
+        }
+        push @children, $child;
+        setpgrp $child, $children[0] or die "setpgrp: $!";
+    }
+    my ( $leader, $member ) = @children;
+    my $end = Test::Mutation::Pool->can('_end_escaped');
+    $end->($leader);
+    my $ended = gone($member);
+    kill 'KILL', @children;
+    waitpid $_, 0 for @children;
+    ok $ended, 'the unlisted member of the escaped group ended with its leader';
 };
 
 subtest 'a grandchild that left the process group is ended at the time limit' => sub {

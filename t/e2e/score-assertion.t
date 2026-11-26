@@ -90,8 +90,11 @@ subtest 'the assertion is skipped inside a mutation run of the same project' => 
     }
 
     my $project = copy_of('calc');
-    write_file( "$project/t/score.t",
-        "use Test::More tests => 1;\nuse Test::Mutation;\nmutation_score_ok( min => 100, jobs => 2 );\n" );
+    write_file( "$project/t/score.t", <<'PERL' );
+use Test::More tests => 1;
+use Test::Mutation;
+mutation_score_ok( min => 100, jobs => 2, on_event => sub { die "unexpected nested measurement\n" } );
+PERL
     my ($result) = run_fixture( $project, switch => [ '-Ilib', "-I$library" ] );
     is $result->baseline_failures,       [], 'a copy among the tests of a run passes as a skip';
     is $result->tally->{counts}{Killed}, 15, 'and the run measures the project';

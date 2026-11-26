@@ -1,8 +1,18 @@
 ---
 par:
+  - 't/unit/source.t'
+  - 't/unit/report-patch.t'
+  - 't/unit/precedence.t'
+  - 't/unit/pool-termination.t'
+  - 't/unit/tree.t'
+  - 't/assumptions/mutator-inputs.t'
+  - 't/unit/syntax-ppi.t'
+  - 't/contract/target-witness.t'
+  - 't/contract/command-sources.t'
   - 't/unit/*.t'
   - 't/shim/*.t'
   - 't/assumptions/*.t'
+  - 't/e2e/termination.t'
   - 't/contract/*.t'
   - 't/discovery/*.t'
   - 't/e2e/*.t'

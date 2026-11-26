@@ -1,5 +1,7 @@
 use v5.36;
 use Test2::V0;
+use lib 't/lib';
+use Bounded;
 use Test::Mutation::Mutant;
 use Test::Mutation::Report::Patch;
 
@@ -20,7 +22,15 @@ sub patch ( $source, $original, $replacement ) {
         to          => [ 1, 2 ],
         scope       => [ 1, 1 ],
     );
-    return Test::Mutation::Report::Patch::render( mutant => $mutant, text => $source );
+    my ( $ended, $patch ) = Bounded::ended(
+        2,
+        sub {
+            local $SIG{__WARN__} = sub ($warning) { die $warning };
+            return Test::Mutation::Report::Patch::render( mutant => $mutant, text => $source );
+        }
+    );
+    bail_out('the search for common diff context did not terminate') unless $ended;
+    return $patch;
 }
 
 sub hunk ( $header, @lines ) {

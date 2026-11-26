@@ -5,6 +5,7 @@ use File::Temp  ();
 use List::Util  ();
 use Time::HiRes ();
 use lib 't/lib';
+use Bounded;
 use Capability;
 use Raised;
 use Test::Mutation::Signals;
@@ -29,6 +30,12 @@ sub snapshot ( $root, @skip ) {
     return Test::Mutation::Tree::snapshot( root => $root, skip => \@skip );
 }
 
+sub restore (%arguments) {
+    my ( $ended, $count ) = Bounded::ended( 3, sub { return Test::Mutation::Tree::restore(%arguments) } );
+    die "restoration did not finish walking the changed paths\n" unless $ended;
+    return $count;
+}
+
 subtest 'the state names every file, directory, and link below the root' => sub {
     my $root = tree( 'lib/A.pm' => "1;\n", 't/a.t' => 'ok', '.mutation/run/x' => 'work', '.git/HEAD' => 'ref' );
     mkdir "$root/empty" or die "mkdir: $!";
@@ -44,6 +51,19 @@ subtest 'the state names every file, directory, and link below the root' => sub 
     is [ sort keys snapshot( $root, 'lib/A.pm', 't' )->%* ],
       [ '.git', '.git/HEAD', '.mutation', '.mutation/run', '.mutation/run/x', 'empty', 'lib', 'link' ],
       'a skipped path may lie below the top';
+};
+
+subtest 'a snapshot records a file that disappears during traversal' => sub {
+    my $root  = tree( vanished => 'temporary' );
+    my $lstat = \&Time::HiRes::lstat;
+    no warnings 'redefine';
+    local *Time::HiRes::lstat = sub ($path) {
+        if ( $path eq "$root/vanished" && -e $path ) {
+            unlink $path or die "remove $path: $!";
+        }
+        return $lstat->($path);
+    };
+    is snapshot($root), { vanished => 'gone' }, 'the directory entry remains visible with its missing-file signature';
 };
 
 subtest 'changes names what was created, removed, and changed' => sub {
@@ -272,14 +292,13 @@ subtest 'restore undoes what was created, removed, and changed' => sub {
     symlink 'elsewhere', "$slot/link" or die "symlink: $!";
 
     my $changes = Test::Mutation::Tree::changes( $before, snapshot($slot) );
-    is scalar $changes->@*, 23, 'the changes of the trial';
-    is Test::Mutation::Tree::restore( from => $master, to => $slot, changes => $changes ), 23,
-      'one restored path for each';
-    is content($slot), $wanted, 'the tree is as it was';
+    is scalar $changes->@*,                                          23,      'the changes of the trial';
+    is restore( from => $master, to => $slot, changes => $changes ), 23,      'one restored path for each';
+    is content($slot),                                               $wanted, 'the tree is as it was';
     is [ grep { !/\Achanged / } Test::Mutation::Tree::changes( $before, snapshot($slot) )->@* ], [],
       'and no path is missing or left over';
-    is Test::Mutation::Tree::restore( from => $master, to => $slot, changes => [] ), 0, 'no change, no work';
-    is content($project), $original, 'and the tree behind the link keeps every file';
+    is restore( from => $master, to => $slot, changes => [] ), 0, 'no change, no work';
+    is content($project), $original,                              'and the tree behind the link keeps every file';
 };
 
 subtest 'remove takes a tree away, whatever rights its directories give' => sub {
@@ -302,8 +321,7 @@ subtest 'remove takes a tree away, whatever rights its directories give' => sub 
 
 like dies { Test::Mutation::Tree::remove() },          qr/Wrong number of parameters/, 'remove checks its arguments';
 like dies { Test::Mutation::Tree::copy( from => 1 ) }, qr/Wrong number of parameters/, 'copy checks its arguments';
-like dies { Test::Mutation::Tree::restore( from => 1 ) }, qr/Wrong number of parameters/,
-  'restore checks its arguments';
+like dies { restore( from => 1 ) },                    qr/Wrong number of parameters/, 'restore checks its arguments';
 subtest 'make creates a directory with every parent that it lacks' => sub {
     my $root = tree( 'plain.txt' => 'a file' );
     is Test::Mutation::Tree::make( "$root/a/b/c", "$root/a/d" ), 4, 'the number of new directories';
@@ -322,12 +340,18 @@ subtest 'temporary creates a new directory for its caller alone' => sub {
     is [ List::Util::uniq(@paths) ], \@paths, 'each call gives another name';
     is [ map { sprintf '%04o', ( stat $_ )[2] & oct '7777' } @paths ], [ ('0700') x 3 ],
       'the directory is open to its owner alone';
-    like Raised::error( sub { Test::Mutation::Tree::temporary( "$root/absent", 'run-' ) } ),
-      [
-        'environment', 'directory-uncreatable',
-        qr{\Acannot create \Q$root\E/absent/run-[[:alnum:]]{6}: No such file or directory\z}
-      ],
-      'a parent that is absent is named with the reason of the system';
+    my $last_path;
+    my $error = do {
+        my $first = \&List::Util::first;
+        no warnings 'redefine';
+        local *List::Util::first = sub : prototype(&@) ( $try, @paths ) {
+            return $first->( sub { $last_path = $_; return $try->() }, @paths );
+        };
+        Raised::error( sub { Test::Mutation::Tree::temporary( "$root/absent", 'run-' ) } );
+    };
+    like $last_path, qr{\A\Q$root\E/absent/run-[[:alnum:]]{6}\z}, 'the last attempted name uses the requested parent';
+    is $error, [ 'environment', 'directory-uncreatable', "cannot create $last_path: No such file or directory" ],
+      'the error names the directory whose creation produced the reported system error';
 };
 
 subtest 'a failure of the system is an error of the environment with the path' => sub {
@@ -404,7 +428,7 @@ subtest 'the copy records the same state as an independent snapshot and retains 
     tree_file( "$copy/transient", "new\n" );
     my $changes = Test::Mutation::Tree::changes( $state, snapshot($copy) );
     is $changes, [ 'changed lib/A.pm', 'created transient' ], 'a file replacement and a new file are distinguished';
-    Test::Mutation::Tree::restore( from => $source, to => $copy, changes => $changes, state => $state );
+    restore( from => $source, to => $copy, changes => $changes, state => $state );
     is $state, snapshot($copy), 'the restored inode and metadata become the reference for reuse';
     ok !exists $state->{transient}, 'a temporary file is absent from the restored reference';
     tree_file( $working, "another\n" );

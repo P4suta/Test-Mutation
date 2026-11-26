@@ -204,8 +204,7 @@ sub _target_at {
 
 sub _slurp {
     my ($path) = @_;
-    open my $handle, '<', $path or return q{};
-    binmode $handle;
+    open my $handle, '<:raw', $path or return q{};
     local $/ = undef;
     my $content = <$handle>;
     close $handle or return q{};
@@ -341,7 +340,7 @@ sub _install_tracer {
         };
     }
 
-    # The first nonzero value of $^P starts the debugger, and Perl before 5.20 resets $DB::trace at that moment.
+    # Initializing the debugger creates its control variables and can reset $DB::trace on older interpreters.
     _trace_compile(1);
     _trace_compile(0);
     $DB::trace = 1;    ## no critic (Variables::ProhibitPackageVars)
@@ -447,9 +446,8 @@ sub finish {
 }
 
 END {
-    my $status = $?;
+    local $?;    ## no critic (Variables::RequireInitializationForLocalVars)
     finish();
-    $? = $status;    ## no critic (Variables::RequireLocalizedPunctuationVars)
 }
 
 1;
