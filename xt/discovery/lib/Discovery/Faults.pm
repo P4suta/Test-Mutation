@@ -213,7 +213,8 @@ sub unwritable_cache ( $engine, $bench ) {
 sub read_only_project ( $engine, $bench ) {
     my $project = $bench->{project};
     chmod oct '555', $project->root or die 'chmod ' . $project->root . ": $!";
-    my $run = $engine->run( $project, report => $project->scratch . '/report' );
+    my $run =
+      $engine->run( $project, report => $project->scratch . '/report', cache_dir => $project->scratch . '/cache' );
     chmod oct '755', $project->root or die 'chmod ' . $project->root . ": $!";
     my %seen = map { ( "fault=a project without the right to write: $_" => 1 ) }
       Discovery::Check::findings( [ 'completes', @AFTER ], run => $run );

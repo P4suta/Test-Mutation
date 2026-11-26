@@ -44,7 +44,7 @@ print {$out} "# generated\n", <$in>;
 close $out or die $!;
 GENERATOR
     my $before = tree_digest($root);
-    my ($report) = run_fixture( $root, jobs => 1, equivalence => 0 );
+    my ($report) = run_fixture( $root, cache => 0, jobs => 1, equivalence => 0 );
     is $report->baseline_failures,  [],       'the original compiles after configuration and build';
     is addition($report)->{status}, 'Killed', 'the test loaded the regenerated addition';
     my $exec = ran( 0, $root, 'exec', addition($report)->{mutant}->id,
@@ -109,7 +109,7 @@ XS
     write_file( "$root/t/built.t",
         "use Test::More tests => 2;\nuse Built;\nis Built::native_value(), 2;\nis Built::value(3), 5;\n" );
     my $before = tree_digest($root);
-    my ($report) = run_fixture( $root, jobs => 1, equivalence => 0 );
+    my ($report) = run_fixture( $root, cache => 0, jobs => 1, equivalence => 0 );
     is $report->baseline_failures,  [],       'the compiled XS function runs without a prebuilt shared object';
     is addition($report)->{status}, 'Killed', 'the Perl addition uses the native function in its own job';
     my $stats    = $report->stats;

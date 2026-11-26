@@ -447,7 +447,7 @@ subtest 'a directory without any right in the temporary directory of a test goes
     my ($result) = run_fixture( $root, jobs => 1 );
     is [ sort values statuses($result)->%* ], [ ('Killed') x 3 ], 'the mutants are measured';
     is $result->warnings,                     [],                 'without a warning';
-    is [ glob "$root/.mutation/*" ],          [],                 'and the work directory is gone';
+    is [ glob "$root/.mutation/run-*" ],      [],                 'and the work directory is gone';
 };
 
 subtest 'a work directory that resists removal stays, and a warning names it' => sub {
@@ -467,15 +467,15 @@ subtest 'a work directory that resists removal stays, and a warning names it' =>
 
 subtest 'the work directory leaves the project with its last file' => sub {
     my $root = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $TEST );
-    run_fixture( $root, jobs => 1 );
+    run_fixture( $root, jobs => 1, cache => 0 );
     ok !-e "$root/.mutation", 'a run leaves no work directory';
-    run_fixture( $root, jobs => 1, in_place => 1 );
+    run_fixture( $root, jobs => 1, in_place => 1, cache => 0 );
     ok !-e "$root/.mutation", 'nor does a run in the project itself';
     run_fixture( $root, jobs => 1, cache => 1 );
-    is [ map { s{\A\Q$root\E/}{}r } glob "$root/.mutation/*" ], ['.mutation/cache.json'],
-      'a cache stays, in its directory';
-    run_fixture( $root, jobs => 1 );
-    is [ map { s{\A\Q$root\E/}{}r } glob "$root/.mutation/*" ], ['.mutation/cache.json'],
+    is [ map { s{\A\Q$root\E/}{}r } glob "$root/.mutation/*" ], [qw(.mutation/cache.json .mutation/cache.json.lock)],
+      'the cache and its writer lock remain in the cache directory';
+    run_fixture( $root, jobs => 1, cache => 0 );
+    is [ map { s{\A\Q$root\E/}{}r } glob "$root/.mutation/*" ], [qw(.mutation/cache.json .mutation/cache.json.lock)],
       'and a later run without a cache keeps it';
 };
 

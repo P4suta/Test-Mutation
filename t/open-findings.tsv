@@ -4,7 +4,6 @@ realworld	CPAN-Audit: the unmodified run fails where the tests of the distributi
 realworld	Moo: the number of mutants lies outside its band	the expectations of the real distributions after the mutator catalog changes
 realworld	Params-Util with blib: the number of mutants lies outside its band	the expectations of the real distributions after the mutator catalog changes
 realworld	Params-Util: the number of mutants lies outside its band	the expectations of the real distributions after the mutator catalog changes
-contract-plan-settings	the default of cache differs from the contract	the cache key over every input of a result
 contract-plan-settings	the default of format differs from the contract	the terminal report and the summary of GitHub
 contract-plan-settings	the table lacks the setting color of the contract	the progress display
 contract-plan-settings	the table lacks the setting github of the contract	the terminal report and the summary of GitHub
@@ -20,16 +19,6 @@ contract-three-deciders-outcomes	pass: run; fail: assertion; gates 0 100; parts 
 contract-three-deciders-outcomes	the gate of the file: pass: run; fail: assertion; gates 50; parts whole	the single outcome of a run
 contract-exit-table-process	status 0, where the table calls for 4; cases no-source-and-a-gate; part outcome	the single outcome of a run
 contract-no-leak-process	a place in the source; cases letters-in-a-patch; part report	the encoding of the output
-engine-differential	cache perturbation=data-file: the run reuses a result that depends on the changed input	the cache key over every input of a result
-engine-differential	cache perturbation=data-file: the run with the cache gives Survived where the truth gives Killed	the cache key over every input of a result
-engine-differential	cache perturbation=environment: the run reuses a result that depends on the changed input	the cache key over every input of a result
-engine-differential	cache perturbation=environment: the run with the cache gives Survived where the truth gives Killed	the cache key over every input of a result
-engine-differential	cache perturbation=outside-inc: the run reuses a result that depends on the changed input	the cache key over every input of a result
-engine-differential	cache perturbation=outside-inc: the run with the cache gives Survived where the truth gives Killed	the cache key over every input of a result
-engine-differential	cache perturbation=shadow: the run reuses a result that depends on the changed input	the cache key over every input of a result
-engine-differential	cache perturbation=shadow: the run with the cache gives Survived where the truth gives Killed	the cache key over every input of a result
-engine-differential	cache perturbation=source: the cache keeps the record of a mutant that is gone	the cache key over every input of a result
-engine-differential	cache selection=since: the run measures again a result that the cache holds	the cache key over every input of a result
 contract-progress-sum-progress	the counts of a line sum to less than its position; lengths 1 2 3 4; streams log terminal	the progress display
 contract-progress-final-progress	the last line states another count than the result; statuses Ignored Pending; streams log terminal	the progress display
 contract-liveness-progress	the silence grows with the run; phases baseline; streams log terminal	the progress display

@@ -6,7 +6,7 @@ use Fixture    ();
 use Samples;
 use World;
 use Test::Mutation ();
-use Test::Mutation::Cache;
+use Test::Mutation::Store;
 use Test::Mutation::Commands;
 use Test::Mutation::Report::Json;
 use Test::Mutation::Result;
@@ -75,7 +75,7 @@ sub cache_keeps ($status) {
         duration  => 0,
         code      => undef
     );
-    return Test::Mutation::Cache::save( $file->filename, { record => \%record } );
+    return Test::Mutation::Store::save( $file->filename, { record => \%record } );
 }
 
 my $SCRATCH = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );

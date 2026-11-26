@@ -12,7 +12,7 @@ use Types::Standard qw(ArrayRef Bool CodeRef Dict HashRef InstanceOf Int Maybe O
 use Type::Params    qw(signature_for);
 use Test::Mutation::Attribution;
 use Test::Mutation::Build;
-use Test::Mutation::Cache;
+use Test::Mutation::Store;
 use Test::Mutation::Coverage;
 use Test::Mutation::Error;
 use Test::Mutation::Event;
@@ -320,8 +320,18 @@ sub _measure ( $run, $started ) {
     my @tests   = $selection->tests->@*;
     my @active  = grep { !$_->suppressed } $selection->mutants->@*;
     my %targets = map  { $_->path => 1 } @active;
-    $run->{sources} = $selection->sources;
-    $run->{perl}    = $selection->perl;
+    $run->{sources} = { $selection->sources->%* };
+
+    if ( $config->cache ) {
+        for my $path ( keys $selection->digests->%* ) {
+            $run->{sources}{$path} ||= Test::Mutation::Source->from_bytes(
+                path  => $path,
+                bytes => Test::Mutation::Source::read_bytes("$root/$path")
+            );
+        }
+    }
+    $run->{narrowed} = $selection->narrowed;
+    $run->{perl}     = $selection->perl;
 
     for my $path ( sort keys $selection->left_out->%* ) {
         my $count = $selection->left_out->{$path};
@@ -346,7 +356,8 @@ sub _measure ( $run, $started ) {
         started           => $started,
     );
 
-    if ( ( @active || $run->{options}{baseline_only} ) && @tests ) {
+    my $needs_tests = @active || $run->{options}{baseline_only};
+    if ( $needs_tests && @tests ) {
         $run->{rules} = Test::Mutation::Schedule::rules($root);
         Test::Mutation::Event::phase( $listener, 'acquire' );
         $run->{workspace} = Test::Mutation::Workspace::acquire( $run->{project} );
@@ -354,7 +365,7 @@ sub _measure ( $run, $started ) {
         _prepare_project( $run, $selection );
         my $measure = sub {
             _prepare_work($run);
-            $run->{targets} = [ sort keys $selection->sources->%* ];
+            $run->{targets} = [ sort keys $run->{sources}->%* ];
             Test::Mutation::Event::phase( $listener, 'baseline' );
             _prepare_witnesses($run) if defined $run->{copies};
             my $baseline = _observed_baseline( $run, \@tests );
@@ -379,22 +390,29 @@ sub _measure ( $run, $started ) {
         %result = ( %result, $measure->()->%* );
     }
     else {
-        _warn( $run, Test::Mutation::Message::warning('tests-unmatched') )
-          if ( @active || $run->{options}{baseline_only} ) && !@tests;
-        $result{entries} =
-          [ map { $_->suppressed ? _suppressed($_) : _entry( $_, 'NoCoverage', 'unreached', undef, undef, [], 0, 0 ) }
-              $selection->mutants->@* ];
+        $result{entries} = _empty_entries( $run, $selection, $needs_tests );
     }
 
     Test::Mutation::Event::phase( $listener, 'conclude' );
     return {
         %result,
-        jobs        => $run->{jobs},
-        interrupted => $run->{interrupted},
-        reused      => $run->{reused} || 0,
-        in_copies   => $config->in_place ? 0 : 1,
-        stats       => $run->{stats},
+        jobs           => $run->{jobs},
+        interrupted    => $run->{interrupted},
+        cache_mismatch => $run->{cache_mismatch} || 0,
+        reused         => $run->{reused}         || 0,
+        in_copies      => $config->in_place ? 0 : 1,
+        stats          => $run->{stats},
     };
+}
+
+sub _empty_entries ( $run, $selection, $needs_tests ) {
+    _warn( $run, Test::Mutation::Message::warning('tests-unmatched') ) if $needs_tests;
+    if ( $run->{config}->cache && !$selection->narrowed && !$run->{options}{baseline_only} ) {
+        my $path = _cache_path($run);
+        Test::Mutation::Store::save( $path, {}, [] ) if -f $path;
+    }
+    return [ map { $_->suppressed ? _suppressed($_) : _entry( $_, 'NoCoverage', 'unreached', undef, undef, [], 0, 0 ) }
+          $selection->mutants->@* ];
 }
 
 sub _spew ( $path, $content ) {
@@ -539,6 +557,7 @@ sub _remove_disk_spec ($spec) {
 sub _spec ( $run, $root, $name, $trace, $targets ) {
     my $path  = "$run->{work}/$name.spec";
     my @lines = ( "trace\t" . ( $trace ? 1 : 0 ) );
+    push @lines, "includes\t1"   if $run->{config}->cache && $name !~ m{\Amutants/};
     push @lines, "placed\t1"     if defined $run->{copies};
     push @lines, "trace_eval\t1" if $run->{trace_eval};
     _remove_disk_spec($path);
@@ -963,6 +982,15 @@ sub _observe_in_place_loads ( $run, $tests, $targets, $outcome ) {
     return;
 }
 
+sub _reusable_baseline ( $run, $test, $result, $record, $anomalies ) {
+    return
+         $result->{passed}
+      && !$result->{stopped}
+      && !$result->{early}
+      && !keys %$anomalies
+      && !keys $record->{bypassed}->%*;
+}
+
 sub _baseline_records ( $run, $tests, $targets, $outcome ) {
     my ( %tests, %breakable );
     for my $test ( $tests->@* ) {
@@ -983,8 +1011,17 @@ sub _baseline_records ( $run, $tests, $targets, $outcome ) {
             $anomalies{$path} = $anomaly;
             $files{$path}     = { traced => 0, hits => {} };
         }
-        $tests{$test} =
-          { duration => $result->{duration}, files => \%files, early => $result->{early}, anomalies => \%anomalies };
+        my $workspace = $run->{workspace}->directory;
+        my @includes  = grep { index( "$_/", "$workspace/" ) != 0 && index( "$_/", "$run->{project}/" ) != 0 }
+          map { Cwd::abs_path($_) || $_ } @{ $record->{includes} || [] };
+        $tests{$test} = {
+            includes  => \@includes,
+            duration  => $result->{duration},
+            files     => \%files,
+            early     => $result->{early},
+            anomalies => \%anomalies,
+            reusable  => _reusable_baseline( $run, $test, $result, $record, \%anomalies )
+        };
     }
     return ( \%tests, \%breakable );
 }
@@ -1096,6 +1133,8 @@ sub _measurement_jobs ( $run, $mutants, $baseline, $cache, $entries ) {
         $tests = [ sort keys $baseline->{tests}->%* ] if !$tests->@* && exists $run->{stale}{ $mutant->path };
         $tests = [ map { $_->filename } Test::Mutation::Schedule::queue( $run->{rules}, $tests )->get_all ]
           if $run->{rules};
+        my $killer = $run->{sample_killers}{ $mutant->id };
+        $tests = [$killer] if defined $killer;
         my $job = {
             mutant   => $mutant,
             tests    => $tests,
@@ -1104,22 +1143,75 @@ sub _measurement_jobs ( $run, $mutants, $baseline, $cache, $entries ) {
             duration => 0
         };
         $entries->{ $mutant->id } = _reused_entry( $run, $cache, $job ) if $cache;
-        push @jobs, $job if !$entries->{ $mutant->id };
+        push @jobs, $job unless $entries->{ $mutant->id };
     }
 
     return @jobs;
 }
 
-sub _mutants ( $run, $mutants, $baseline ) {
-    my $cache = $run->{config}->cache ? _open_cache( $run, $baseline ) : undef;
+sub _check_reused ( $run, $cache, $baseline, $entries ) {
+    my @hits   = grep { defined $entries->{$_} && !$entries->{$_}{mutant}->suppressed } sort keys %$entries;
+    my $sample = Test::Mutation::Store::sample( \@hits, join q{/}, $$, Time::HiRes::time() );
+    my $observations;
+    {
+        local $run->{listener} = sub { return };
+        local $run->{sample_killers} =
+          { map { $_ => $entries->{$_}{by} } grep { $entries->{$_}{status} eq 'Killed' } @$sample };
+        $observations = _mutants( $run, [ map { $entries->{$_}{mutant} } @$sample ], $baseline, 1 );
+    }
+    $run->{stats}{verifications} += scalar @$observations;
+    return $observations if $run->{interrupted};
+    for my $fresh (@$observations) {
+        my $id      = $fresh->{mutant}->id;
+        my $cached  = $entries->{$id};
+        my $changed = grep {
+            my ( $before, $after ) = ( $cached->{$_}, $fresh->{$_} );
+            defined $before ? !defined $after || $before ne $after : defined $after;
+        } qw(status reason by);
+        next unless $changed;
+        Test::Mutation::Store::save( $cache->{path}, {}, [] );
+        $run->{cache_mismatch} = 1;
+        $run->{reused}         = 0;
+        $run->{code_of_mutant} = {};
+        _warn( $run, Test::Mutation::Message::warning( 'cache-verdict-changed', id => $id ) );
+        return;
+    }
+    $run->{listener}->( 'mutant', $entries->{$_} ) for @hits;
+    return;
+}
+
+sub _mutants ( $run, $mutants, $baseline, $sample_only = 0 ) {
+    my $cache = !$sample_only && $run->{config}->cache ? _open_cache( $run, $baseline ) : undef;
     my %entry_of;
-    my @jobs     = _measurement_jobs( $run, $mutants, $baseline, $cache, \%entry_of );
-    my @waiting  = @jobs;
+    my @jobs = _measurement_jobs( $run, $mutants, $baseline, $cache, \%entry_of );
+    if ( $cache && $run->{reused} ) {
+        my $interrupted = _check_reused( $run, $cache, $baseline, \%entry_of );
+        if ( $run->{cache_mismatch} || $interrupted ) {
+            %entry_of = ();
+            @jobs     = _measurement_jobs( $run, $mutants, $baseline, undef, \%entry_of );
+        }
+        if ($interrupted) {
+            $run->{reused} = 0;
+            $entry_of{ $_->{mutant}->id } = $_ for @$interrupted;
+            _pending_jobs( \@jobs, \%entry_of );
+            return [ map { $entry_of{ $_->id } } @$mutants ];
+        }
+    }
+    _execute_jobs( $run, $baseline, \@jobs, \%entry_of );
+
+    my @entries = map { $entry_of{ $_->id } } $mutants->@*;
+    _save_cache( $run, $cache, \@entries ) if $cache;
+    _ignore_repeated_code( $run, \@entries ) unless $sample_only;
+    return \@entries;
+}
+
+sub _execute_jobs ( $run, $baseline, $jobs, $entries ) {
+    my @waiting  = @$jobs;
     my $schedule = { ready => [], active => {}, retrying => {}, locked => {}, compatible => {} };
     my $occupied = 0;
     my $finish   = sub ($job) {
         _release( $run, $job );
-        $entry_of{ $job->{mutant}->id } = _finish( $run, $job );
+        $entries->{ $job->{mutant}->id } = _finish( $run, $job );
         $occupied--;
         return;
     };
@@ -1159,19 +1251,13 @@ sub _mutants ( $run, $mutants, $baseline ) {
     };
 
     # A signal ends the measurement, and the mutants that it measured keep their results.
-    my $attempt   = Test::Mutation::Try::attempt( $measure, 'interruption' );
-    my $completed = exists $attempt->{value};
-    if ( !$completed ) {
-        my $error = $attempt->{error};
-        die $error if !$INTERRUPTION->check($error);    ## no critic (ErrorHandling::RequireCarping)
-        $run->{interrupted} = $error->signal;
-        _pending_jobs( \@jobs, \%entry_of );
-    }
-
-    my @entries = map { $entry_of{ $_->id } } $mutants->@*;
-    _save_cache( $run, $cache, \@entries ) if $cache;
-    _ignore_repeated_code( $run, \@entries );
-    return \@entries;
+    my $attempt = Test::Mutation::Try::attempt( $measure, 'interruption' );
+    return if exists $attempt->{value};
+    my $error = $attempt->{error};
+    die $error if !$INTERRUPTION->check($error);    ## no critic (ErrorHandling::RequireCarping)
+    $run->{interrupted} = $error->signal;
+    _pending_jobs( $jobs, $entries );
+    return;
 }
 
 sub _pending_jobs ( $jobs, $entries ) {
@@ -1337,97 +1423,118 @@ sub _after_task ( $run, $baseline, $task, $result ) {
     return _next_code( $run, $job );
 }
 
-sub _support_files ( $run, $tracked ) {
-    my %tracked = map { $_ => 1 } $tracked->@*;
-    my %directory;
-    for my $path ( $tracked->@* ) {
-        my ($top) = split m{/}, $path;
-        $directory{$top} = 1 if $top ne $path;
-    }
-    my %found;
-    for my $directory ( sort keys %directory ) {
-        File::Find::find(
-            {
-                no_chdir => 1,
-                wanted   => sub {
-                    my $relative = substr $File::Find::name, 1 + length $run->{root};
-                    $found{$relative} = 1 if -f $File::Find::name && !$tracked{$relative};
-                },
-            },
-            "$run->{root}/$directory",
-        );
-    }
-    my @ordered = sort keys %found;
-    return @ordered;
+sub _run_inputs ( $run, $baseline ) {
+    my $found = Test::Mutation::Try::attempt( sub { _fingerprint( $run, $baseline ) } );
+    return $found->{value} if exists $found->{value};
+    my $error = $found->{error};
+    return if $TYPED->check($error) && ( $error->id eq 'file-unreadable' || $error->id eq 'directory-unopenable' );
+    die $error;    ## no critic (ErrorHandling::RequireCarping)
+}
+
+sub _fingerprint ( $run, $baseline ) {
+    my $config    = $run->{config};
+    my @targets   = sort keys $run->{sources}->%*;
+    my @tests     = sort keys $baseline->{tests}->%*;
+    my @skip      = ( '.git', map { _inside( $run->{project}, $_ ) } $config->cache_dir, $config->report_dir );
+    my %include   = map { $_ => 1 } map { @{ $baseline->{tests}{$_}{includes} || [] } } @tests;
+    my @libraries = map { ( $_, Test::Mutation::Store::Key::tree( $_, [] ) ) } sort keys %include;
+    my @launch    = (
+        $config->in_place,
+        $config->coverage,
+        $config->equivalence,
+        $config->timeout_floor,
+        $config->timeout_factor,
+        $config->baseline_timeout,
+        $config->jobs,
+        (
+            map { Test::Mutation::Store::Key::digest(@$_) } $config->lib,
+            $config->switch, $config->link, $run->{build} || []
+        ),
+        @targets
+    );
+    return Test::Mutation::Store::Key::digest(
+        $VERSION,
+        Test::Mutation::Store::format_version(),
+        _module_text($SHIM_FILE),
+        _module_text('Test/Mutation/Witness.pm'),
+        Test::Mutation::Store::Key::interpreter( $run->{perl} ),
+        Test::Mutation::Store::Key::digest(@libraries),
+        Test::Mutation::Store::Key::digest(@launch),
+        Test::Mutation::Store::Key::environment( \%ENV ),
+        Test::Mutation::Store::Key::tree( $run->{project}, [ @skip, @targets, @tests ] ),
+    );
+}
+
+sub _cache_path ($run) {
+    return File::Spec->catfile( File::Spec->rel2abs( $run->{config}->cache_dir, $run->{project} ), 'cache.json' );
 }
 
 sub _open_cache ( $run, $baseline ) {
-    my $config = $run->{config};
-    my $root   = $run->{root};
-    my $file   = join q{/}, $run->{project}, $config->cache_dir, 'cache.json';
-    my %digest;
-    my $digest_of = sub ($path) {
-        $digest{$path} = Digest::SHA::sha256_hex( Test::Mutation::Source::read_bytes("$root/$path") )
-          if !defined $digest{$path};
-        return $digest{$path};
-    };
-    my @tests       = sort keys $baseline->{tests}->%*;
-    my @interpreter = map { defined ? $_ : q{} } ( stat $run->{perl} )[ 7, 9 ];
-    my @shared      = (
-        $VERSION,
-        $run->{perl},
-        @interpreter,
-        scalar $config->lib->@*,
-        $config->lib->@*,
-        scalar $config->switch->@*,
-        $config->switch->@*,
-        $config->coverage,
-        $config->equivalence,
-        ( map { defined $ENV{$_} ? ( 'set', $ENV{$_} ) : ('unset') } qw(PERL_HASH_SEED PERL_PERTURB_KEYS) ),
-        map { ( $_, $digest_of->($_) ) } _support_files( $run, [ @tests, keys $run->{sources}->%* ] ),
-    );
+    my $shared = _run_inputs( $run, $baseline );
+    return unless defined $shared;
+    my $path   = _cache_path($run);
+    my %target = map { $_ => Test::Mutation::Store::Key::file("$run->{root}/$_") } keys $run->{sources}->%*;
+    my %facts;
+    for my $test ( sort keys $baseline->{tests}->%* ) {
+        my $record = $baseline->{tests}{$test};
+        next unless $record->{reusable};
+        $facts{$test} = Test::Mutation::Store::Key::digest(
+            $shared, $test,
+            Test::Mutation::Store::Key::file("$run->{root}/$test"),
+            map { ( $_, $target{$_} ) } sort keys $record->{files}->%*
+        );
+    }
     return {
-        path    => $file,
-        records => Test::Mutation::Cache::load($file),
-        keys    => {},
-        key_of  => sub ($job) {
-            my $mutant = $job->{mutant};
-            my @reach  = sort $job->{tests}->@*;
-            my %loaded = map { $_ => 1 } $mutant->path, map { keys $baseline->{tests}{$_}{files}->%* } @reach;
-            return Test::Mutation::Cache::key(
-                @shared, $mutant->id, $mutant->replacement,
-                ( map { ( 'test',   $_, $digest_of->($_) ) } @reach ),
-                ( map { ( 'source', $_, $digest_of->($_) ) } sort keys %loaded ),
-            );
-        },
+        path    => $path,
+        shared  => $shared,
+        targets => \%target,
+        facts   => \%facts,
+        records => Test::Mutation::Store::load($path)
     };
+}
+
+sub _verdict_key ( $cache, $mutant, $tests, $status, $killer ) {
+    my $mutation =
+      Test::Mutation::Store::Key::digest( $mutant->id, $mutant->replacement, $cache->{targets}{ $mutant->path } );
+    return Test::Mutation::Store::Key::digest( $cache->{shared}, $mutation, 'none' ) if $status eq 'NoCoverage';
+    my @needed = sort @$tests;
+    if ( $status eq 'Killed' ) {
+        return unless defined $killer && exists $cache->{facts}{$killer} && grep { $_ eq $killer } @needed;
+        return Test::Mutation::Store::Key::digest( $cache->{facts}{$killer}, $mutation );
+    }
+    return if grep { !exists $cache->{facts}{$_} } @needed;
+    return Test::Mutation::Store::Key::digest( $mutation, map { ( $_, $cache->{facts}{$_} ) } @needed );
 }
 
 sub _reused_entry ( $run, $cache, $job ) {
-    my $mutant = $job->{mutant};
-    my $key    = $cache->{keys}{ $mutant->id } = $cache->{key_of}->($job);
     return if $run->{config}->mutant->@*;
-    my $record = $cache->{records}{ $mutant->id };
-    return                                                  if !$record || $record->{inputs} ne $key;
+    my $mutant = $job->{mutant};
+    my $record = $cache->{records}{ $mutant->id } or return;
+    return if $record->{status} eq 'NoCoverage' && $job->{tests}->@*;
+    my $key = _verdict_key( $cache, $mutant, $job->{tests}, $record->{status}, $record->{by} );
+    return unless defined $key && $key eq $record->{inputs};
     $run->{code_of_mutant}{ $mutant->id } = $record->{code} if defined $record->{code};
     $run->{reused}++;
-    my $entry =
-      _entry( $mutant, $record->@{qw(status reason detail by)}, $job->{tests}, $record->@{qw(tests_run duration)} );
-    $run->{listener}->( 'mutant', $entry );
-    return $entry;
+    return _entry( $mutant, $record->@{qw(status reason detail by)}, $job->{tests},
+        $record->@{qw(tests_run duration)} );
 }
 
 sub _save_cache ( $run, $cache, $entries ) {
-    my %records = $cache->{records}->%*;
-    for my $entry ( $entries->@* ) {
-        my $id  = $entry->{mutant}->id;
-        my $key = $cache->{keys}{$id} or next;
-        $records{$id} = {
+    my %updates;
+    for my $entry (@$entries) {
+        my $mutant = $entry->{mutant};
+        next if $mutant->suppressed;
+        my $key = _verdict_key( $cache, $mutant, $entry->{covered_by}, $entry->{status}, $entry->{by} );
+        next unless defined $key;
+        $updates{ $mutant->id } = {
             inputs => $key,
-            $entry->%{qw(status reason detail by tests_run duration)}, code => $run->{code_of_mutant}{$id}
+            path   => $mutant->path,
+            source => $cache->{targets}{ $mutant->path },
+            $entry->%{qw(status reason detail by tests_run duration)}, code => $run->{code_of_mutant}{ $mutant->id }
         };
     }
-    Test::Mutation::Cache::save( $cache->{path}, \%records );
+    my $inventory = $run->{narrowed} ? undef : [ map { $_->{mutant}->id } @$entries ];
+    Test::Mutation::Store::save( $cache->{path}, \%updates, $inventory, $cache->{targets} );
     return;
 }
 

@@ -31,12 +31,13 @@ has baseline_failures => (
     ],
     required => 1
 );
-has jobs          => ( is => 'ro', isa => PositiveInt, required => 1 );
-has parallel_safe => ( is => 'ro', isa => Bool,        required => 1 );
-has interrupted   => ( is => 'ro', isa => Maybe [ Enum [ Test::Mutation::Exit::signals()->@* ] ], default => undef );
-has reused        => ( is => 'ro', isa => Int,  default => 0 );
-has in_copies     => ( is => 'ro', isa => Bool, default => 0 );
-has shard         => ( is => 'ro', isa => Maybe [ StrMatch [qr{\A[1-9][0-9]*/[1-9][0-9]*\z}] ], default => undef );
+has jobs           => ( is => 'ro', isa => PositiveInt, required => 1 );
+has parallel_safe  => ( is => 'ro', isa => Bool,        required => 1 );
+has interrupted    => ( is => 'ro', isa => Maybe [ Enum [ Test::Mutation::Exit::signals()->@* ] ], default => undef );
+has reused         => ( is => 'ro', isa => Int,  default => 0 );
+has cache_mismatch => ( is => 'ro', isa => Bool, default => 0 );
+has in_copies      => ( is => 'ro', isa => Bool, default => 0 );
+has shard          => ( is => 'ro', isa => Maybe [ StrMatch [qr{\A[1-9][0-9]*/[1-9][0-9]*\z}] ], default => undef );
 has inventory =>
   ( is => 'ro', isa => Maybe [ Dict [ mutants => Int, digest => StrMatch [qr/\A[0-9a-f]{64}\z/] ] ], default => undef );
 has started  => ( is => 'ro', isa => Num, required => 1 );
@@ -73,7 +74,7 @@ signature_for conclusive => ( method => 1, positional => [], returns => Bool );
 sub conclusive ($self) {
     my $tally = $self->tally;
     return 0 if $self->baseline_failures->@* || defined $self->interrupted;
-    return 0 if $self->invalid_entry         || $tally->{counts}{NoVerdict};
+    return 0 if $self->cache_mismatch || $self->invalid_entry || $tally->{counts}{NoVerdict};
     return 0 if $tally->{total} - $tally->{counts}{Ignored} > 0 && !$tally->{valid};
     return 1;
 }
@@ -134,6 +135,10 @@ The mutants that did not finish have the status C<Pending>.
 =head2 reused
 
 The number of entries that came from the cache of an earlier run.
+
+=head2 cache_mismatch
+
+True when a fresh measurement disagreed with a stored verdict during the run.
 
 =head2 in_copies
 

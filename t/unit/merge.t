@@ -118,6 +118,18 @@ subtest 'a part that is unsafe side by side or interrupted marks the whole' => s
     is [ $whole->parallel_safe, $whole->interrupted ], [ 0, 'TERM' ], 'the weaker fact wins';
 };
 
+subtest 'a cache disagreement in either shard propagates to the whole run' => sub {
+    for my $case ( [ 0, 0, 0 ], [ 1, 0, 1 ], [ 0, 1, 1 ], [ 1, 1, 1 ] ) {
+        my ( $first_shard, $second_shard, $mismatch ) = @$case;
+        my $whole = merged(
+            part( '1/2', \@first, cache_mismatch => $first_shard ),
+            part( '2/2', \@rest,  cache_mismatch => $second_shard )
+        );
+        is $whole->cache_mismatch, $mismatch,
+          "cache disagreement travels from either shard ($first_shard, $second_shard)";
+    }
+};
+
 subtest 'a set that is not one complete run is refused' => sub {
     my $one = part( '1/2', \@first );
     my $two = part( '2/2', \@rest );

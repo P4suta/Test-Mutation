@@ -259,11 +259,12 @@ sub _analysis ( $config, $files, $mutators, $options ) {
     my $others = [ grep { !$chosen{ $_->name } } Test::Mutation::Mutator::Catalog::mutators()->@* ];
     my ( %sources, %digests, %left_out, @mutants, @problems, @rejected, @refusals );
     for my $path ( $files->@* ) {
-        next if $changed && !$changed->{$path};
-        next if $paths   && !exists $paths->{$path};
+        my $selected = ( !$changed || $changed->{$path} ) && ( !$paths || exists $paths->{$path} );
+        next unless $selected || $config->cache;
         my $bytes  = Test::Mutation::Source::read_bytes("$root/$path");
         my $source = Test::Mutation::Source->from_bytes( path => $path, bytes => $bytes );
         $digests{$path} = Digest::SHA::sha256_hex($bytes);
+        next unless $selected;
         if ( $options->{baseline_only} ) {
             $sources{$path} = $source;
             next;

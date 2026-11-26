@@ -78,6 +78,7 @@ sub activate {
 
     %STATE = (
         active      => 1,
+        includes    => $spec->{includes},
         trace       => 0,
         debug_flags => $^P,
         trace_eval  => $spec->{trace_eval},
@@ -88,6 +89,10 @@ sub activate {
         record_dir  => scalar _untainted($record_dir),
     );
 
+    if ( $spec->{includes} ) {
+        require Cwd;
+        _include_directories();
+    }
     unless ( $spec->{observe} ) {
         my $hook = sub { return _serve(@_) };
         unshift @INC, $hook;
@@ -155,6 +160,24 @@ sub _keep_hook_first {
     return;
 }
 
+sub _include_directories {
+    my $dir = $STATE{record_dir};
+    return unless defined $dir;
+    my @new;
+    for my $entry (@INC) {
+        next if ref $entry;
+        my $path = $entry =~ m{\A/} ? $entry : Cwd::getcwd() . "/$entry";
+        next if exists $STATE{include_seen}{$path};
+        $STATE{include_seen}{$path} = 1;
+        push @new, unpack 'H*', $path;
+    }
+    return unless @new;
+    open my $list, '>>:raw', "$dir/$$.inc" or do { _record( 'error', $dir, "cannot record includes: $!" ); return };
+    print {$list} join( "\n", @new ) . "\n" or _record( 'error', $dir, "cannot write includes: $!" );
+    close $list                             or _record( 'error', $dir, "cannot close includes: $!" );
+    return;
+}
+
 sub _resolve {
     my ($file) = @_;
     for my $entry (@INC) {
@@ -191,7 +214,8 @@ sub _slurp {
 
 sub _serve {
     my ( undef, $file ) = @_;
-    _trace_compile(0) if $STATE{trace};
+    _trace_compile(0)      if $STATE{trace};
+    _include_directories() if $STATE{includes};
 
     my $candidates = $STATE{by_base}{ _basename($file) } or return;
     my $path       = _resolve($file)                     or return;

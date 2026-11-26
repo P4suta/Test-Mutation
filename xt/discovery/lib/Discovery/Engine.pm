@@ -29,12 +29,13 @@ my %FLAG = (
     timeout_factor => sub ($value) { return ( '--timeout-factor', $value ) },
     perl           => sub ($value) { return ( '--perl',           $value ) },
     report         => sub ($value) { return ( '--report-dir',     $value ) },
+    cache_dir      => sub ($value) { return ( '--cache-dir',      $value ) },
     configuration  => sub ($value) { return ( '--config',         $value ) },
     enable         => sub ($value) {
         return map { ( '--enable', $_ ) } $value->@*;
     },
     in_place    => sub ($value) { return $value ? '--in-place' : () },
-    cache       => sub ($value) { return $value ? '--cache'    : () },
+    cache       => sub ($value) { return $value ? '--cache'    : '--no-cache' },
     equivalence => sub ($value) { return $value ? ()           : '--no-equivalence' },
     mutants     => sub ($value) {
         return map { ( '--mutant', $_ ) } $value->@*;

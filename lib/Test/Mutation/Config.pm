@@ -172,9 +172,9 @@ N runs with K from 1 to N cover every mutant once.
 =head2 cache
 
 Whether the run reuses results from C<cache.json> in the cache directory and writes its own.
-The key of a result covers the mutated file, the tests that reach the mutant, and the analyzed source files those tests load.
-The key also covers every other file under the top-level directories of the sources and the tests, so a change there measures every mutant again.
-A change outside those directories, such as a new version of a dependency, needs a run without the cache.
+The store fingerprints the selected interpreter, libraries, configuration, environment, observers, and project files.
+Each test contributes its source and the targets it compiled.
+A run repeats a sample of the reused verdicts and discards the store when the fresh measurement disagrees.
 
 =head2 cache_dir
 

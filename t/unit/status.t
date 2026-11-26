@@ -8,7 +8,7 @@ my @EXPECTED = (
     [ 'Killed',   'Killed',   'killed',   undef,      'detected',   1, undef,     1, [] ],
     [ 'Survived', 'Survived', 'survived', 'Survived', 'undetected', 1, 'warning', 1, [] ],
     [
-        'NoCoverage', 'NoCoverage', 'no coverage', 'No coverage', 'undetected', 1, 'warning', 0,
+        'NoCoverage', 'NoCoverage', 'no coverage', 'No coverage', 'undetected', 1, 'warning', 1,
         [qw(unreached not-loaded)]
     ],
     [ 'Timeout', 'Ignored', 'timeout', 'Timeout', 'outside', 1, 'notice', 0, [qw(time-limit output-limit)] ],

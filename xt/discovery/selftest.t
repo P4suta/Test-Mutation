@@ -27,7 +27,7 @@ $known->write($project);
 # The bench of a check drives an adapter the way the harness of the check does.
 sub single ($name) {
     return sub ($engine) {
-        my $run = $engine->run($project);
+        my $run = $engine->run( $project, cache => 0 );
         return [ Discovery::Check::findings( [$name], run => $run, known => $known, coverage => 'line' ) ];
     };
 }

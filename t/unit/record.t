@@ -126,6 +126,21 @@ subtest 'read_directory reads every record file' => sub {
     is $record->{errors}, [ '/p/A.pm: first', '/p/B.pm: second' ], 'the errors follow the names of the files';
 };
 
+subtest 'library directories from child processes keep their filename bytes' => sub {
+    my $directory = File::Temp::tempdir( CLEANUP => 1 );
+    my @paths     = ( '/a dir', "/lib\tone", "/raw/\xff" );
+    my @hex       = map { unpack 'H*', $_ } @paths;
+    for my $file ( [ 'one.inc', [ @hex[ 2, 0 ], 'bad', 'not-hex' ] ], [ 'two.inc', [ @hex[ 1, 0 ] ] ],
+        [ 'empty.inc', [] ] )
+    {
+        open my $handle, '>:raw', "$directory/$file->[0]" or die "open: $!";
+        print {$handle} "$_\n" for $file->[1]->@*;
+        close $handle or die "close: $!";
+    }
+    my $record = Test::Mutation::Record::read_directory($directory);
+    is $record->{includes}, \@paths, 'complete hexadecimal paths are decoded, deduplicated, and sorted';
+};
+
 subtest 'records account for process boundaries and reject unknown kinds' => sub {
     my $record = Test::Mutation::Record::parse( [ "begin\t1\nseen\t/p/A.pm\nend\t24\n", "begin\t0\n" ] );
     is [ $record->{begun}, $record->{ended} ], [ 2, 1 ], 'a process can end before the END block';

@@ -407,6 +407,12 @@ my @ROWS = (
         'the work directory {path} stays, because a file in it resists removal',
         'A test left a file in the work directory that the run cannot remove.'
     ],
+    [
+        'cache-verdict-changed',
+        'warning',
+        'the cached verdict for {id} differs from a fresh measurement, so every selected mutant was measured again',
+        'The stored verdicts were discarded after a verification sample disagreed.'
+    ],
     [ 'tests-unmatched', 'warning', 'no test files match', 'The project has mutants and no test file to run.' ],
     [
         'tests-conflict', 'warning',

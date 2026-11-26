@@ -24,7 +24,8 @@ BEGIN {
     };
 }
 
-use Test::Mutation::Cache;
+use Test::Mutation::Store;
+use Test::Mutation::Store::Key;
 use Test::Mutation::Settings;
 use Test::Mutation::Host;
 use Test::Mutation::Project;
@@ -53,6 +54,14 @@ like dies {
     failing_in( qr/::Tree::_signature\z/, sub { Test::Mutation::Tree::snapshot( root => $directory, skip => [] ) } )
 }, qr/cannot close \Q$recent\E/, 'a failed close invalidates the measured file signature';
 
+like dies {
+    failing_in( qr/::Key::file\z/, sub { Test::Mutation::Store::Key::file($recent) } )
+}, qr/\Acannot close \Q$recent\E: /, 'a file that failed to close cannot supply a cache key';
+$fail_directory_close = 1;
+like dies { Test::Mutation::Store::Key::tree( $directory, [] ) }, qr/\Acannot close \Q$directory\E: /,
+  'a directory that failed to close cannot supply a project key';
+$fail_directory_close = 0;
+
 my $command = write_file( 'tool', "#!perl\n1;\n" );
 like dies {
     failing_in( qr/::Project::perl_script\z/, sub { Test::Mutation::Project::perl_script($command) } )
@@ -69,13 +78,17 @@ my $record = {
     code      => undef
 };
 my $cache = "$directory/cache.json";
-is Test::Mutation::Cache::save( $cache, { abc => $record } ), 1,       'the cache is written';
-is [ keys Test::Mutation::Cache::load($cache)->%* ],          ['abc'], 'and read back';
-is failing_in( qr/::Cache::load\z/, sub { Test::Mutation::Cache::load($cache) } ), {},
+is Test::Mutation::Store::save( $cache, { abc => $record } ), 1,       'the cache is written';
+is [ keys Test::Mutation::Store::load($cache)->%* ],          ['abc'], 'and read back';
+is failing_in( qr/::Store::load\z/, sub { Test::Mutation::Store::load($cache) } ), {},
   'a cache that does not close counts as no cache';
 like dies {
-    failing_in( qr/::Cache::save\z/, sub { Test::Mutation::Cache::save( $cache, { abc => $record } ) } )
+    failing_in( qr/::Store::_merge_records\z/, sub { Test::Mutation::Store::save( $cache, { abc => $record } ) } )
 }, qr/\Acannot close \Q$cache\E[.]\d+: /, 'a cache that does not close after the write stops the run';
+
+like dies {
+    failing_in( qr/::Store::save\z/, sub { Test::Mutation::Store::save( $cache, { abc => $record } ) } )
+}, qr/\Acannot close \Q$cache.lock\E: /, 'a failed close of the cache writer lock is reported to the caller';
 
 write_file( 'mutation.toml', "jobs = 2\n" );
 my %plain = (

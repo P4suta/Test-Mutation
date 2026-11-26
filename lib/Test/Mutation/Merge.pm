@@ -1,6 +1,6 @@
 package Test::Mutation::Merge;
 use v5.36;
-use List::Util      qw(all first max min sum0 uniq);
+use List::Util      qw(all any first max min sum0 uniq);
 use Types::Standard qw(ArrayRef Dict InstanceOf Str);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Error;
@@ -57,6 +57,7 @@ sub merge ($reports) {
         jobs              => max( map { $_->jobs } @results ),
         parallel_safe     => ( all { $_->parallel_safe } @results ) ? 1 : 0,
         interrupted       => ( first { defined } map { $_->interrupted } @results ),
+        cache_mismatch    => ( any { $_->cache_mismatch } @results ) ? 1 : 0,
         reused            => sum0( map { $_->reused } @results ),
         inventory         => $results[0]->inventory,
         started           => min( map { $_->started } @results ),

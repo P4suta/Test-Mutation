@@ -256,8 +256,8 @@ my @ROWS = (
     [
         'cache', undef, 'flag', $BOOLEAN, undef,
         'true or false',
-        sub { 0 },
-        'off', 'cache', 'Reuse the results of an earlier run where the inputs are unchanged'
+        sub { 1 },
+        'on', 'cache', 'Reuse the results of an earlier run where the inputs are unchanged'
     ],
     [
         'cache-dir', undef,   'value', $DIRECTORY, 'DIR', 'a directory', sub { '.mutation' },

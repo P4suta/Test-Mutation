@@ -7,8 +7,8 @@ use Fixture qw(copy_of run_fixture statuses write_file);
 use Test::Mutation::Report::Terminal;
 
 my $root     = copy_of('calc');
-my ($first)  = run_fixture( $root, cache => 1 );
-my $measured = grep { $_->{status} =~ /\A(?:Killed|Survived)\z/ } $first->entries->@*;
+my ($first)  = run_fixture($root);
+my $measured = grep { $_->{status} =~ /\A(?:Killed|Survived|NoCoverage)\z/ } $first->entries->@*;
 my $boundary = 'lib/Calc.pm:12 replaced > with >=';
 
 sub append ( $path, $text ) {
@@ -36,8 +36,8 @@ subtest 'a second run reuses every measured result' => sub {
       'and stays silent without them';
 };
 
-subtest 'a run without the setting measures again' => sub {
-    my ($plain) = run_fixture($root);
+subtest 'a run with caching disabled measures again' => sub {
+    my ($plain) = run_fixture( $root, cache => 0 );
     is $plain->reused, 0, 'no result comes from the cache';
 };
 

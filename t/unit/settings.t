@@ -115,7 +115,7 @@ subtest 'the default of every setting and its text' => sub {
         mutant             => [],
         since              => undef,
         shard              => undef,
-        cache              => 0,
+        cache              => 1,
         'cache-dir'        => '.mutation',
 
         'suppress-require-names'  => 0,

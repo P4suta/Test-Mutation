@@ -144,13 +144,15 @@ subtest 'the scheduler remembers both allowed and blocked pairs of test paths' =
 };
 
 subtest 'a passing isolated baseline supplies its own file and line evidence' => sub {
-    my $root  = copy_of('calc');
-    my $path  = 'lib/Calc.pm';
-    my @tests = qw(a.t b.t);
+    my $root      = copy_of('calc');
+    my $workspace = Test::Mutation::Workspace::acquire($root);
+    my $path      = 'lib/Calc.pm';
+    my @tests     = qw(a.t b.t);
     for my $coverage (qw(file line)) {
         for my $passes ( 0, 1 ) {
             my $config = Test::Mutation::Settings::of_call( { root => $root, coverage => $coverage } );
-            my $run    = { root => $root, project => $root, config => $config, jobs => 2, copies => [] };
+            my $run =
+              { root => $root, project => $root, config => $config, jobs => 2, copies => [], workspace => $workspace };
             my @calls;
             no warnings 'redefine';
             local *Test::Mutation::Runner::_unmodified =
@@ -193,6 +195,7 @@ subtest 'a passing isolated baseline supplies its own file and line evidence' =>
               'breakable lines come from all accepted baselines';
         }
     }
+    ok $workspace->release(0), 'all baseline observations release their workspace';
 };
 
 subtest 'a completed baseline discards each private test tree after collecting its record' => sub {

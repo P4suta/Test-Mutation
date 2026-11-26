@@ -48,7 +48,7 @@ use Sources;
 use Space;
 use World;
 use Test::Mutation ();
-use Test::Mutation::Cache;
+use Test::Mutation::Store;
 use Test::Mutation::CLI;
 use Test::Mutation::Settings;
 use Test::Mutation::Source;
@@ -338,7 +338,7 @@ unlink "$scratch/gone.rec" or die "unlink: $!";
     );
 }
 mkdir "$scratch/cache.json" or die "mkdir: $!";
-raised( sub { Test::Mutation::Cache::save( "$scratch/cache.json", {} ) } );
+raised( sub { Test::Mutation::Store::save( "$scratch/cache.json", {} ) } );
 
 # The copy of a tree: each step that the system may refuse.
 my $from = directory( 'dir/file.txt' => 'x', 'linked/file.txt' => 'y' );
@@ -455,6 +455,28 @@ heard( 'spec-unclosable', shim_says( "$tree/ci.toml",        'BEGIN { *CORE::GLO
 my $module = "package Small;\nuse strict;\nuse warnings;\nsub next_one { return \$_[0] + 1 }\n"
   . "sub size { return \$_[0] > 5 ? 'big' : 'small' }\n1;\n";
 my $test = "use Test::More tests => 1;\nuse Small;\nis Small::next_one(2), 3, 'the next one';\n";
+
+subtest 'the CLI reports an inconsistent cached verdict and returns status four' => sub {
+    local $ENV{MUTATION_CHECK_SUM} = "$scratch/check-sum";
+    my $root = directory(
+        'lib/Small.pm' => "package Small;\nsub plus { return \$_[0] + 1 }\n1;\n",
+        't/small.t'    => <<'PERL',
+use Test::More tests => 1;
+use Small;
+my $sum = Small::plus(2);
+if ( -f $ENV{MUTATION_CHECK_SUM} ) { is $sum, 3, 'the sum' }
+else { pass 'the addition ran' }
+PERL
+    );
+    my @command = qw(run --jobs 1 --no-equivalence --format terminal);
+    is World::observe( \@command, cwd => $root )->{exit}, 0, 'the first measurement passes';
+    open my $check, '>', $ENV{MUTATION_CHECK_SUM} or die $!;
+    CORE::close($check) or die $!;
+    my $changed = World::observe( \@command, cwd => $root );
+    is $changed->{exit}, 4, 'a discrepancy prevents a successful gate';
+    like $changed->{stdout} . $changed->{stderr}, qr/cached verdict for [0-9a-f]{12} differs from a fresh measurement/,
+      'the warning identifies a measured mutant';
+};
 
 # Places that the analysis leaves out, in a project without a test.
 my $crlf =

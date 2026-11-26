@@ -32,7 +32,7 @@ my @ROWS = (
         'every test that loaded the mutant passed'
     ],
     [
-        'NoCoverage', 'NoCoverage', 'no coverage', 'No coverage', 'undetected', 1, 'warning', 0,
+        'NoCoverage', 'NoCoverage', 'no coverage', 'No coverage', 'undetected', 1, 'warning', 1,
         [qw(unreached not-loaded)],
         'no test loaded the mutant'
     ],

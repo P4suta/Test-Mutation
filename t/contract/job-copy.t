@@ -204,6 +204,27 @@ subtest 'the shim distinguishes a placed source on disk from a load outside the 
     }
 };
 
+subtest 'only a cacheable original run records the Perl include directories' => sub {
+    for my $case ( [ 0, 'baseline', 0 ], [ 0, 'mutants/aa', 0 ], [ 1, 'baseline', 1 ], [ 1, 'mutants/aa', 0 ] ) {
+        my ( $cache, $name, $expected ) = @$case;
+        my $project = ShimHarness::project();
+        mkdir "$project/mutants" or die "mkdir: $!";
+        write_file( "$project/support/LocalDependency.pm", "package LocalDependency; 1;\n" );
+        my $config = Test::Mutation::Settings::of_call( { root => $project, cache => $cache } );
+        my $run    = { config => $config, project => $project, work => $project };
+        my $spec   = Test::Mutation::Runner::_spec( $run, $project, $name, 0, [] );                ## no critic (Subroutines::ProtectPrivateSubs)
+        my $child  = ShimHarness::run_perl(
+            root => $project,
+            env  => { TEST_MUTATION_SPEC => $spec, TEST_MUTATION_RECORD => "$project/records" },
+            args =>
+              [ '-I' . ShimHarness::lib_dir(), '-Isupport', '-MTest::Mutation::Shim', '-MLocalDependency', '-e', '1' ]
+        );
+        my $record  = Test::Mutation::Record::read_directory("$project/records");
+        my @support = grep { $_ eq "$project/support" } ( $record->{includes} || [] )->@*;
+        is [ $child->{status}, scalar @support ], [ 0, $expected ], "include path observed for $name with cache $cache";
+    }
+};
+
 # A failed job can move to a verified original tree once for the same test.
 ## no critic (Subroutines::ProtectPrivateSubs Variables::ProtectPrivateVars)
 subtest 'a failed test runs again only when the original passes in a different tree' => sub {

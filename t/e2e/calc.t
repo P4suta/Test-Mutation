@@ -5,7 +5,7 @@ use Fixture qw(copy_of run_fixture tree_digest statuses);
 
 my $root   = copy_of('calc');
 my $before = tree_digest($root);
-my ( $result, $events ) = run_fixture($root);
+my ( $result, $events ) = run_fixture( $root, cache => 0 );
 
 is $result->baseline_failures, [],      'the unmodified run passes';
 is $result->problems,          [],      'every source file is analyzed';

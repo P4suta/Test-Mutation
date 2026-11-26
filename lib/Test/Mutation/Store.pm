@@ -1,12 +1,14 @@
-package Test::Mutation::Cache;
+package Test::Mutation::Store;
 use v5.36;
-use Digest::SHA     ();
-use Encode          ();
+use Fcntl           qw(:flock);
+use List::Util      ();
+use POSIX           ();
 use File::Basename  ();
 use JSON::PP        ();
-use Types::Standard qw(Dict HashRef Int Maybe Num Slurpy Str ArrayRef);
+use Types::Standard qw(ArrayRef Dict HashRef Int Maybe Num Optional Str);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Error;
+use Test::Mutation::Store::Key;
 use Test::Mutation::Status;
 use Test::Mutation::Tree;
 use Test::Mutation::Try;
@@ -14,11 +16,12 @@ use Test::Mutation::Types qw(Reason StatusName);
 
 our $VERSION = '0.001';
 
-# The third format holds the reason of a status from the catalog and the sentence about the case apart.
-my $FORMAT = 3;
+my $FORMAT = 4;
 my $RECORD = (
     Dict [
         inputs    => Str,
+        path      => Optional [Str],
+        source    => Optional [Str],
         status    => StatusName,
         reason    => Maybe [Reason],
         detail    => Maybe [Str],
@@ -27,17 +30,26 @@ my $RECORD = (
         duration  => Num,
         code      => Maybe [Str],
     ]
-)->where( sub { Test::Mutation::Status::fits( $_->{status}, $_->{reason} ) } );
-
-signature_for key => ( positional => [ Slurpy [ ArrayRef [Str] ] ], returns => Str );
-
-sub key ($parts) {
-    my $digest = Digest::SHA->new(256);
-    for my $part ( $parts->@* ) {
-        my $bytes = Encode::encode( 'UTF-8', $part );
-        $digest->add( length($bytes) . q{:} . $bytes );
+)->where(
+    sub {
+        Test::Mutation::Status::fits( $_->{status}, $_->{reason} ) && defined( $_->{path} ) == defined( $_->{source} );
     }
-    return $digest->hexdigest;
+);
+
+signature_for format_version => ( positional => [], returns => Int );
+
+sub format_version () {
+    return $FORMAT;
+}
+
+signature_for sample => ( positional => [ ArrayRef [Str], Str ], returns => ArrayRef [Str] );
+
+sub sample ( $ids, $seed ) {
+    my $count   = scalar @$ids;
+    my $take    = List::Util::min( $count, List::Util::max( 3, POSIX::ceil( $count / 50 ) ) );
+    my %rank    = map  { $_ => Test::Mutation::Store::Key::digest( $seed, $_ ) } @$ids;
+    my @ordered = sort { $rank{$a} cmp $rank{$b} || $a cmp $b } @$ids;
+    return [ @ordered[ 0 .. $take - 1 ] ];
 }
 
 signature_for load => ( positional => [Str], returns => HashRef [$RECORD] );
@@ -54,12 +66,39 @@ sub load ($path) {
     return \%records;
 }
 
-signature_for save => ( positional => [ Str, HashRef [$RECORD] ], returns => Int );
+signature_for save => (
+    positional => [
+        Str,
+        HashRef [$RECORD],
+        Maybe [ ArrayRef [Str] ],
+        { default => undef },
+        HashRef [Str],
+        { default => sub { {} } }
+    ],
+    returns => Int
+);
 
-sub save ( $path, $records ) {
-    my %kept = map { $_ => $records->{$_} }
-      grep { Test::Mutation::Status::of( $records->{$_}{status} )->cached } keys $records->%*;
+sub save ( $path, $updates, $inventory, $sources ) {
     Test::Mutation::Tree::make( File::Basename::dirname($path) );
+    open my $lock, '>>', "$path.lock"
+      or Test::Mutation::Error::raise( 'file-unwritable', path => "$path.lock", reason => "$!" );
+    flock $lock, LOCK_EX or Test::Mutation::Error::raise( 'file-unwritable', path => "$path.lock", reason => "$!" );
+    my $count = _merge_records( $path, $updates, $inventory, $sources );
+    close $lock or Test::Mutation::Error::raise( 'file-unclosable', path => "$path.lock", reason => "$!" );
+    return $count;
+}
+
+sub _merge_records ( $path, $updates, $inventory, $sources ) {
+    my %records  = ( load($path)->%*, %$updates );
+    my %eligible = map { $_ => 1 } @{ $inventory || [ keys %records ] };
+    my %kept     = map { $_ => $records{$_} } grep {
+        my $record = $records{$_};
+        $eligible{$_}
+          && Test::Mutation::Status::of( $record->{status} )->cached
+          && ( !exists $record->{path}
+            || !exists $sources->{ $record->{path} }
+            || $record->{source} eq $sources->{ $record->{path} } )
+    } keys %records;
     my $temporary = "$path.$$";
     open my $handle, '>:raw', $temporary
       or Test::Mutation::Error::raise( 'file-unwritable', path => $temporary, reason => "$!" );
@@ -76,12 +115,12 @@ __END__
 
 =head1 NAME
 
-Test::Mutation::Cache - results of earlier runs, keyed by what each result depends on
+Test::Mutation::Store - results of earlier runs, keyed by what each result depends on
 
 =head1 SYNOPSIS
 
-    my $records = Test::Mutation::Cache::load('.mutation/cache.json');
-    my $key     = Test::Mutation::Cache::key( $version, $source_text, @test_digests );
+    my $records = Test::Mutation::Store::load('.mutation/cache.json');
+    my $key     = Test::Mutation::Store::Key::digest( $version, $source_text, @test_digests );
     my $reuse   = $records->{$id} && $records->{$id}{inputs} eq $key;
 
 =head1 DESCRIPTION
@@ -92,10 +131,14 @@ A later run reuses the record when the key of the same mutant is unchanged.
 
 =head1 FUNCTIONS
 
-=head2 key
+=head2 format_version
 
-Returns a digest of a list of strings.
-Each part enters the digest with its length, so two lists with different boundaries give different keys.
+Returns the schema version included in the measurement fingerprint.
+
+=head2 sample
+
+Selects one reusable verdict for every fifty, rounded up, with at least three when available.
+The seed changes the selection between runs.
 
 =head2 load
 

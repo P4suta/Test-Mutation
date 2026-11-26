@@ -5,7 +5,7 @@ use File::Temp ();
 use lib 't/e2e/lib';
 use Fixture        qw(ran run_fixture write_file);
 use Test::Mutation ();
-use Test::Mutation::Cache;
+use Test::Mutation::Store;
 
 my $root = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
 write_file( "$root/lib/Adder.pm", "package Adder;\nsub add_one { return \$_[0] + 1 }\n1;\n" );
@@ -60,7 +60,7 @@ for my $order ( [qw(pass fail)], [qw(fail pass)] ) {
     is $result->tally->{valid},                       0, 'the mixed verdict contributes nothing to the score';
     is scalar( grep { $_ eq 'mutant' } $events->@* ), 1, 'one progress event for the final result';
     is $result->reused,                               0, 'both attempts run';
-    is Test::Mutation::Cache::load("$root/.mutation/cache.json"), {}, 'the cache has no entry to reuse';
+    is Test::Mutation::Store::load("$root/.mutation/cache.json"), {}, 'the cache has no entry to reuse';
 }
 
 write_file( $ENV{OBSERVATIONS}, "fail\npass\n" );
@@ -78,12 +78,21 @@ for my $case ( [ 'pass', 'Survived' ], [ 'fail', 'Killed' ] ) {
     is $warm->reused,                                    0, "a request to reproduce $status makes fresh observations";
     is [ $warm->entries->[0]->@{qw(status tests_run)} ], [ $status, 2 ], 'the warm run repeats both attempts';
     write_file( $ENV{OBSERVATIONS}, "pass\n" x 16 );
-    my ($bulk) = run_fixture( $root, %settings, mutant => [], cache_dir => $cache_dir );
-    ok $bulk->reused >= 1, 'the full run can reuse the confirmed verdict';
+    my ($bulk)     = run_fixture( $root, %settings, mutant => [], cache_dir => $cache_dir );
+    my ($observed) = grep { $_->{mutant}->id eq $id } $bulk->entries->@*;
+    is $observed->{status}, 'Survived', 'the bulk run reports the fresh passing observation';
+
+    if ( $answer eq 'pass' ) {
+        ok $bulk->reused >= 1, 'the verified passing verdict can be reused';
+    }
+    else {
+        is $bulk->reused, 0, 'the failing verdict is discarded after the sample passes';
+        ok $bulk->cache_mismatch, 'the discrepancy prevents the bulk run from passing the gate';
+    }
     write_file( $ENV{OBSERVATIONS}, "pass\nfail\n" );
     my ($mixed) = run_fixture( $root, %settings, cache_dir => $cache_dir );
     is $mixed->entries->[0]{status}, 'NoVerdict', 'new conflicting observations supersede the cached verdict';
-    ok !exists Test::Mutation::Cache::load("$root/$cache_dir/cache.json")->{$id}, 'the stale verdict is evicted';
+    ok !exists Test::Mutation::Store::load("$root/$cache_dir/cache.json")->{$id}, 'the stale verdict is evicted';
 }
 
 subtest 'an interruption in the second attempt keeps the mutant pending' => sub {
@@ -92,7 +101,7 @@ subtest 'an interruption in the second attempt keeps the mutant pending' => sub 
     my ($partial) = run_fixture( $root, %settings );
     is $partial->interrupted,                               'TERM',           'the run reports the signal';
     is [ $partial->entries->[0]->@{qw(status tests_run)} ], [ 'Pending', 1 ], 'only the completed attempt counts';
-    ok !exists Test::Mutation::Cache::load("$root/.mutation/cache.json")->{$id},
+    ok !exists Test::Mutation::Store::load("$root/.mutation/cache.json")->{$id},
       'the initial failure stays out of the cache';
 };
 

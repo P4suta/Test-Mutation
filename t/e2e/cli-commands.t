@@ -213,6 +213,7 @@ subtest 'show accepts a unique prefix and refuses an unknown or ambiguous identi
 };
 
 subtest 'exec runs a command with one mutant active' => sub {
+    my $before   = Fixture::tree_digest($root);
     my $detected = ran( 1, $root, 'exec', identifier('replaced + with -'), '--', $^X, '-Ilib', 't/add.t' );
     like $detected->{stdout}, qr/^not ok 1 - adds$/m, 'the output of the command passes through';
 
@@ -231,7 +232,7 @@ subtest 'exec runs a command with one mutant active' => sub {
 
     ran( 7,   $root, 'exec', identifier('replaced + with -'), '--', $^X, '-e', 'exit 7' );
     ran( 143, $root, 'exec', identifier('replaced + with -'), '--', $^X, '-e', 'kill TERM => $$; sleep 5' );
-    ok !-e "$root/.mutation", 'the work directory is removed';
+    is Fixture::tree_digest($root), $before, 'exec leaves the project and its previous cached results intact';
 };
 
 subtest 'exec reports its own failures with the statuses of env' => sub {

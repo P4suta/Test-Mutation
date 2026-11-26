@@ -123,10 +123,10 @@ signature_for read_directory =>
   ( positional => [ Str, ArrayRef [Str], { default => sub { [] } } ], returns => TaskRecord );
 
 sub read_directory ( $directory, $targets ) {
-    my @texts;
+    my ( @texts, %includes );
     opendir my $entries, $directory
       or Test::Mutation::Error::raise( 'directory-unopenable', path => $directory, reason => "$!" );
-    my @names = sort grep { /[.]rec\z/ } readdir $entries;
+    my @names = sort grep { /[.](?:rec|inc)\z/ } readdir $entries;
     closedir $entries or Test::Mutation::Error::raise( 'file-unclosable', path => $directory, reason => "$!" );
     for my $name (@names) {
         my $path = "$directory/$name";
@@ -134,10 +134,17 @@ sub read_directory ( $directory, $targets ) {
           or Test::Mutation::Error::raise( 'file-unreadable', path => $path, reason => "$!" );
         local $/ = undef;
         my $text = readline $handle;
-        push @texts, $text if defined $text;
         close $handle or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
+        if ( $name =~ /[.]inc\z/ ) {
+            $includes{ pack 'H*', $_ } = 1 for grep { /\A(?:[0-9a-f]{2})+\z/ } split /\n/, $text || q{};
+        }
+        elsif ( defined $text ) {
+            push @texts, $text;
+        }
     }
-    return parse( \@texts, $targets );
+    my $record = parse( \@texts, $targets );
+    $record->{includes} = [ sort keys %includes ] if keys %includes;
+    return $record;
 }
 
 1;
