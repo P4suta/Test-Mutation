@@ -117,7 +117,7 @@ sub compared ( $engine, $bench, $name = 'library' ) {
         $bench->{prove}{$name} =
           { map { $_ => { ( $under->{$_} || {} )->%*, verdict => $proved->{$_} || 'fail' } } @tests };
     }
-    my $run    = $engine->with( memo => undef )->run( $project, _settings( $bench, $name, $launch ) );
+    my $run    = $engine->with( memo => undef )->run( $project, cache => 0, _settings( $bench, $name, $launch ) );
     my $given  = _states($bench);
     my %failed = map { $_ => 1 } $run->{baseline_failures}->@*;
     my %tool   = map { $_ => { ( $given->{$_} || {} )->%*, verdict => $failed{$_} ? 'fail' : 'pass' } } @tests;

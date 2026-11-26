@@ -150,9 +150,17 @@ subtest 'a passing isolated baseline supplies its own file and line evidence' =>
     my @tests     = qw(a.t b.t);
     for my $coverage (qw(file line)) {
         for my $passes ( 0, 1 ) {
-            my $config = Test::Mutation::Settings::of_call( { root => $root, coverage => $coverage } );
-            my $run =
-              { root => $root, project => $root, config => $config, jobs => 2, copies => [], workspace => $workspace };
+            my $config = Test::Mutation::Settings::of_call( { root => $root, coverage => $coverage, cache => 0 } );
+            my $run    = {
+                root       => $root,
+                project    => $root,
+                config     => $config,
+                jobs       => 2,
+                copies     => [],
+                workspace  => $workspace,
+                test_paths => \@tests,
+                targets    => [$path],
+            };
             my @calls;
             no warnings 'redefine';
             local *Test::Mutation::Runner::_unmodified =
@@ -173,7 +181,7 @@ subtest 'a passing isolated baseline supplies its own file and line evidence' =>
                 }
                 return \%outcomes;
               };
-            my $baseline = Test::Mutation::Runner::_baseline( $run, \@tests, [$path] );
+            my $baseline = Test::Mutation::Runner::_complete_baseline( $run, { tests => {}, missing => \@tests } );
             my $trace    = $coverage eq 'line' ? 1 : 0;
             is \@calls,
               [

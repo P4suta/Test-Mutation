@@ -230,12 +230,13 @@ subtest 'a verdict depends on a complete original test and its external include 
     my $missing = "$parent/unavailable/lib";
     my $target  = "$project/lib/Value.pm";
     my $run     = {
-        root      => $project,
-        project   => $project,
-        workspace => $workspace,
-        perl      => $^X,
-        config    => Test::Mutation::Settings::of_call( { root => $project } ),
-        sources   => { 'lib/Value.pm' => 1 },
+        root       => $project,
+        project    => $project,
+        workspace  => $workspace,
+        perl       => $^X,
+        config     => Test::Mutation::Settings::of_call( { root => $project } ),
+        sources    => { 'lib/Value.pm' => 1 },
+        test_paths => ['t/value.t'],
     };
     my $passing;
 

@@ -1,6 +1,7 @@
 use v5.36;
 use Test2::V0;
 use File::Temp ();
+use JSON::PP   ();
 use lib 't/e2e/lib';
 use Fixture qw(copy_of write_file);
 use Fcntl   qw(:flock);
@@ -80,19 +81,57 @@ subtest 'the cache keeps the statuses that the catalog marks as stable' => sub {
 subtest 'an unusable file is an empty cache' => sub {
     is Test::Mutation::Store::load("$dir/missing.json"),                         {}, 'a missing file';
     is Test::Mutation::Store::load( write_text( 'broken.json', '{ not json' ) ), {}, 'a file that is not JSON';
-    my $valid = '{"inputs":"k","status":"Killed","reason":null,"detail":null,"by":null,"tests_run":1,"duration":1,'
+    my $format = Test::Mutation::Store::format_version();
+    my $valid  = '{"inputs":"k","status":"Killed","reason":null,"detail":null,"by":null,"tests_run":1,"duration":1,'
       . '"code":null}';
     my $reasonless = $valid =~ s/"Killed"/"Timeout"/r;
     my $old        = '{"inputs":"k","status":"Killed","reason":null,"by":null,"tests_run":1,"duration":1,"code":null}';
     is Test::Mutation::Store::load( write_text( 'version.json', qq({"version":2,"mutants":{"aaaaaaaaaaaa":$old}}) ) ),
       {}, 'a file of the earlier format, whose reasons are sentences';
-    is Test::Mutation::Store::load( write_text( 'list.json', '{"version":4,"mutants":[]}' ) ), {},
+    is Test::Mutation::Store::load( write_text( 'list.json', qq({"version":$format,"mutants":[]}) ) ), {},
       'a file whose records are a list';
     is Test::Mutation::Store::load( write_text( 'array.json', '[1]' ) ), {}, 'a file that holds a list';
-    my $records = qq({"version":4,"mutants":{"aaaaaaaaaaaa":{"inputs":"k"},"bbbbbbbbbbbb":$valid,)
+    my $records = qq({"version":$format,"mutants":{"aaaaaaaaaaaa":{"inputs":"k"},"bbbbbbbbbbbb":$valid,)
       . qq("cccccccccccc":$reasonless}});
     is [ keys Test::Mutation::Store::load( write_text( 'record.json', $records ) )->%* ], ['bbbbbbbbbbbb'],
       'a malformed record and a record without the reason of its status are left out';
+};
+
+subtest 'partial baseline writes retain independent observations and measured verdicts' => sub {
+    my $path  = "$dir/originals.json";
+    my $facts = {
+        inputs    => 'one',
+        includes  => ['lib'],
+        duration  => 0.25,
+        files     => { 'lib/One.pm' => { traced => 1, hits => { 2 => 1 } } },
+        breakable => { 'lib/One.pm' => { 2      => 1 } }
+    };
+    my $other = { %$facts, inputs => 'two', files => {}, breakable => {} };
+    my $build = [ 'perl', 'Makefile.PL' ];
+    my $first = { 't/one.t' => $facts, 't/two.t' => $other };
+    Test::Mutation::Store::save( $path, { prior => record() }, undef, {}, { build => $build, tests => $first } );
+    is Test::Mutation::Store::originals($path), { build => $build, tests => $first },
+      'build arguments, duration and traced lines survive a round trip';
+    my $update = { 't/one.t' => undef, 't/three.t' => $facts };
+    Test::Mutation::Store::save( $path, {}, undef, {}, { build => [], tests => $update } );
+    my $kept = { 't/two.t' => $other, 't/three.t' => $facts };
+    is Test::Mutation::Store::originals($path), { build => [], tests => $kept },
+      'a partial write replaces the build, adds a new test and forgets the invalid observation';
+    Test::Mutation::Store::save( $path, {}, undef, {}, { build => $build, tests => {}, reset => 1 } );
+    is Test::Mutation::Store::originals($path), { build => $build, tests => {} },
+      'a reset clears every original even when no replacement tests are supplied';
+    is Test::Mutation::Store::load($path), { prior => record() }, 'baseline updates preserve verdicts';
+    my $broken = JSON::PP->new->encode(
+        {
+            version => Test::Mutation::Store::format_version(),
+            build   => 'invalid',
+            tests   => { valid => $facts, malformed => { %$facts, duration => [] } },
+        }
+    );
+    is Test::Mutation::Store::originals( write_text( 'broken-originals.json', $broken ) ),
+      { build => [], tests => { valid => $facts } }, 'malformed observations or build arguments cannot be reused';
+    isa_ok dies { Test::Mutation::Store::originals( $path, 'extra' ) }, ['Error::TypeTiny'],
+      'the original lookup checks its path arguments';
 };
 
 subtest 'verification samples vary by seed and include one verdict per fifty' => sub {
@@ -185,6 +224,7 @@ subtest 'each saved verdict requires the observations that justify its status' =
             map { $_ => { reusable => 1, files => { 'lib/Calc.pm' => {} } } } qw(t/add.t t/sign.t)
         }
     };
+    $run->{test_paths} = [ sort keys $baseline->{tests}->%* ];
     my $cache = Test::Mutation::Runner::_open_cache( $run, $baseline );
     is [ sort keys $cache->{facts}->%* ], [qw(t/add.t t/sign.t)],
       'an unusable observation before the passing tests does not hide their input digests';

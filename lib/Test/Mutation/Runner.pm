@@ -138,7 +138,6 @@ sub run ( $config, $listener, $options = {} ) {
 sub _copy_project ($run) {
     my $config  = $run->{config};
     my $project = $run->{project};
-    $run->{name} = File::Basename::basename($project);
 
     my $directory = $run->{workspace}->directory;
     $run->{copies} = "$directory/slot";
@@ -232,7 +231,7 @@ sub _inside ( $project, $path ) {
 
 # Each copy has the name of the project inside a directory of its own.
 sub _new_copy ( $run, $directory, $from, $skip, $link, $state = undef ) {
-    my $to = "$directory/$run->{name}";
+    my $to = "$directory/" . File::Basename::basename( $run->{project} );
     Test::Mutation::Tree::copy(
         from => $from,
         to   => $to,
@@ -358,36 +357,16 @@ sub _measure ( $run, $started ) {
 
     my $needs_tests = @active || $run->{options}{baseline_only};
     if ( $needs_tests && @tests ) {
-        $run->{rules} = Test::Mutation::Schedule::rules($root);
-        Test::Mutation::Event::phase( $listener, 'acquire' );
-        $run->{workspace} = Test::Mutation::Workspace::acquire( $run->{project} );
-        Test::Mutation::Event::phase( $listener, 'build' );
-        _prepare_project( $run, $selection );
-        my $measure = sub {
-            _prepare_work($run);
-            $run->{targets} = [ sort keys $run->{sources}->%* ];
-            Test::Mutation::Event::phase( $listener, 'baseline' );
-            _prepare_witnesses($run) if defined $run->{copies};
-            my $baseline = _observed_baseline( $run, \@tests );
-            my %measured = (
-                parallel_safe     => $baseline->{parallel_safe},
-                baseline_failures => $baseline->{failures},
-                tests             => [
-                    map { { name => $_, duration => $baseline->{tests}{$_}{duration} } }
-                    sort keys $baseline->{tests}->%*
-                ],
-            );
-            if ( !$baseline->{failures}->@* ) {
-                _begin_in_place( $run, $baseline ) if $run->{guard} && !$run->{options}{baseline_only};
-                $listener->( 'baseline', { tests => scalar(@tests), jobs => $run->{jobs} } );
-                if ( !$run->{options}{baseline_only} ) {
-                    Test::Mutation::Event::phase( $listener, 'mutants' );
-                    $measured{entries} = _mutants( $run, $selection->mutants, $baseline );
-                }
-            }
-            return \%measured;
-        };
-        %result = ( %result, $measure->()->%* );
+        $run->{targets}    = [ sort keys $run->{sources}->%* ];
+        $run->{test_paths} = \@tests;
+        my $plan = _plan_originals($run);
+        if ( $run->{options}{baseline_only} && !$plan->{missing}->@* ) {
+            $result{tests} = _test_list( $plan->{tests} );
+            $listener->( 'baseline', { tests => scalar(@tests), jobs => $run->{jobs} } );
+        }
+        else {
+            %result = ( %result, _measure_tests( $run, $selection, $plan )->%* );
+        }
     }
     else {
         $result{entries} = _empty_entries( $run, $selection, $needs_tests );
@@ -403,6 +382,117 @@ sub _measure ( $run, $started ) {
         in_copies      => $config->in_place ? 0 : 1,
         stats          => $run->{stats},
     };
+}
+
+sub _measure_tests ( $run, $selection, $plan ) {
+    my $listener = $run->{listener};
+    $run->{rules} = Test::Mutation::Schedule::rules( $run->{project} );
+    Test::Mutation::Event::phase( $listener, 'acquire' );
+    $run->{workspace} = Test::Mutation::Workspace::acquire( $run->{project} );
+    Test::Mutation::Event::phase( $listener, 'build' );
+    _prepare_project( $run, $selection );
+    _prepare_work($run);
+    _prepare_witnesses($run) if defined $run->{copies};
+    Test::Mutation::Event::phase( $listener, 'baseline' );
+    my $baseline = _complete_baseline( $run, $plan );
+    my $result   = {
+        parallel_safe     => $baseline->{parallel_safe},
+        baseline_failures => $baseline->{failures},
+        tests             => _test_list( $baseline->{tests} ),
+    };
+    return $result                     if $baseline->{failures}->@*;
+    _begin_in_place( $run, $baseline ) if $run->{guard} && !$run->{options}{baseline_only};
+    $listener->( 'baseline', { tests => scalar $run->{test_paths}->@*, jobs => $run->{jobs} } );
+    return $result if $run->{options}{baseline_only};
+    Test::Mutation::Event::phase( $listener, 'mutants' );
+    $result->{entries} = _mutants( $run, $selection->mutants, $baseline );
+
+    if ( my $fresh = $run->{rechecked_baseline} ) {
+        $result->{tests}             = _test_list( $fresh->{tests} );
+        $result->{parallel_safe}     = $fresh->{parallel_safe};
+        $result->{baseline_failures} = $fresh->{failures};
+    }
+    return $result;
+}
+
+sub _test_list ($records) {
+    my @tests;
+    for my $name ( sort keys %$records ) {
+        my $record = $records->{$name};
+        my $test   = { name => $name, duration => $record->{duration} };
+        $test->{neutral} = 1 if $record->{reusable} && !keys $record->{files}->%*;
+        push @tests, $test;
+    }
+    return \@tests;
+}
+
+sub _plan_originals ($run) {
+    my $all  = $run->{test_paths};
+    my $cold = { tests => {}, missing => $all };
+    return $cold unless $run->{config}->cache;
+    my $saved = Test::Mutation::Store::originals( _cache_path($run) );
+    my %tests = map { $_ => $saved->{tests}{$_} } grep { exists $saved->{tests}{$_} } @$all;
+    return $cold unless keys %tests;
+    local $run->{build} = $saved->{build};
+    _prepare_build( $run, $run->{targets} ) if $run->{config}->in_place;
+    my $shared = _run_inputs( $run, { tests => \%tests } );
+    return $cold unless defined $shared;
+    my %verified;
+
+    for my $test ( sort keys %tests ) {
+        my $record = $tests{$test};
+        my $key    = _original_key( $run, $shared, $test, $record );
+        next unless defined $key && $key eq $record->{inputs};
+        $verified{$test} = { %$record, anomalies => {}, early => 0, reusable => 1 };
+    }
+    return { tests => \%verified, missing => [ grep { !exists $verified{$_} } @$all ], shared => $shared };
+}
+
+sub _complete_baseline ( $run, $plan ) {
+    my $all      = $run->{test_paths};
+    my $hits     = $plan->{tests};
+    my $missing  = $plan->{missing};
+    my $baseline = { tests => {}, parallel_safe => 1, failures => [] };
+    if ( @$missing && keys %$hits && defined $run->{copies} ) {
+        my $trial = _control_copy( $run, $run->{root} );
+        {
+            local $run->{root} = $trial;
+            $baseline = _observed_baseline( $run, $missing );
+        }
+        _discard($trial);
+    }
+    elsif (@$missing) {
+        $hits     = {};
+        $baseline = _observed_baseline( $run, $all );
+    }
+    my %combined = ( %$hits, $baseline->{tests}->%* );
+    my $shared   = keys %$hits && @$missing ? _run_inputs( $run, { tests => \%combined } ) : undef;
+    if (
+           keys %$hits
+        && @$missing
+        && (   $run->{baseline_changed}
+            || !$baseline->{parallel_safe}
+            || $baseline->{failures}->@*
+            || !defined $shared
+            || $shared ne $plan->{shared} )
+      )
+    {
+        $hits     = {};
+        $baseline = _observed_baseline( $run, $all );
+        %combined = $baseline->{tests}->%*;
+    }
+    $baseline->{tests}       = \%combined;
+    $run->{reused_originals} = $hits;
+    my %breakable;
+    for my $record ( values %combined ) {
+        for my $path ( keys $record->{breakable}->%* ) {
+            my $lines = $record->{breakable}{$path};
+            $breakable{$path}{$_} = $lines->{$_} for keys %$lines;
+        }
+    }
+    $baseline->{breakable} = \%breakable;
+    _save_originals( $run, $baseline ) if $run->{config}->cache && @$missing;
+    return $baseline;
 }
 
 sub _empty_entries ( $run, $selection, $needs_tests ) {
@@ -871,10 +961,13 @@ sub _mark_originals ( $run, $root, $install, @paths ) {
 
 sub _observed_baseline ( $run, $tests ) {
     _mark_originals( $run, $run->{root}, 1 ) if $run->{task_descriptor};
-    my $original = defined $run->{copies} ? _tree($run) : undef;
+    my $original =
+      defined $run->{copies} ? _tree($run) : $run->{config}->cache && $run->{guard} ? $run->{guard}{state} : undef;
     my $baseline = _baseline( $run, $tests, $run->{targets} );
     if ( defined $original ) {
-        $run->{baseline_changed} = Test::Mutation::Tree::changes( $original, _tree($run) )->@* ? 1 : 0;
+        my $after = _tree($run);
+        $run->{baseline_changed} = Test::Mutation::Tree::changes( $original, $after )->@* ? 1 : 0;
+        $run->{tree}             = $after if !defined $run->{copies};
     }
     _mark_originals( $run, $run->{root}, 0 ) if $run->{task_descriptor};
     return $baseline;
@@ -938,10 +1031,9 @@ sub _baseline ( $run, $tests, $targets ) {
     }
     _trace_blind( $run, $outcome ) if !@failed && $run->{task_descriptor} && $run->{config}->coverage eq 'line';
     _observe_in_place_loads( $run, $tests, $targets, $outcome ) if !@failed && $run->{guard};
-    my ( $records, $breakable ) = _baseline_records( $run, $tests, $targets, $outcome );
+    my $records = _baseline_records( $run, $tests, $targets, $outcome );
     return {
         tests         => $records,
-        breakable     => $breakable,
         parallel_safe => $parallel_safe,
         failures      => [ map { _failure( $_, $outcome->{$_}{result} ) } @failed ],
     };
@@ -987,22 +1079,24 @@ sub _reusable_baseline ( $run, $test, $result, $record, $anomalies ) {
          $result->{passed}
       && !$result->{stopped}
       && !$result->{early}
+      && !$run->{disk_test}{$test}
       && !keys %$anomalies
+      && !keys $record->{load_failed}->%*
       && !keys $record->{bypassed}->%*;
 }
 
 sub _baseline_records ( $run, $tests, $targets, $outcome ) {
-    my ( %tests, %breakable );
+    my %tests;
     for my $test ( $tests->@* ) {
         my ( $result, $record ) = $outcome->{$test}->@{qw(result record)};
-        my ( %files, %anomalies );
+        my ( %files, %breakable, %anomalies );
         for my $path ( $targets->@* ) {
             my $absolute = ( $outcome->{$test}{root} || $run->{root} ) . "/$path";
             my $evidence = Test::Mutation::Evidence::target( $record, $absolute );
             $files{$path} = $evidence->{coverage}       if $evidence->{coverage};
             $files{$path} = { traced => 0, hits => {} } if $run->{sensitive}{$test}{$path};
             my $lines = $evidence->{breakable};
-            $breakable{$path} = { ( $breakable{$path} ? $breakable{$path}->%* : () ), $lines->%* } if $lines;
+            $breakable{$path} = $lines if $lines;
             my $anomaly = $evidence->{anomaly} or next;
             if ( $anomaly->{reason} eq 'loaded-around-hook' ) {
                 _warn( $run, Test::Mutation::Message::warning( 'loaded-around-hook', test => $test, path => $path ) );
@@ -1016,6 +1110,7 @@ sub _baseline_records ( $run, $tests, $targets, $outcome ) {
           map { Cwd::abs_path($_) || $_ } @{ $record->{includes} || [] };
         $tests{$test} = {
             includes  => \@includes,
+            breakable => \%breakable,
             duration  => $result->{duration},
             files     => \%files,
             early     => $result->{early},
@@ -1023,7 +1118,7 @@ sub _baseline_records ( $run, $tests, $targets, $outcome ) {
             reusable  => _reusable_baseline( $run, $test, $result, $record, \%anomalies )
         };
     }
-    return ( \%tests, \%breakable );
+    return \%tests;
 }
 
 sub _trace_blind ( $run, $outcome ) {
@@ -1169,7 +1264,7 @@ sub _check_reused ( $run, $cache, $baseline, $entries ) {
             defined $before ? !defined $after || $before ne $after : defined $after;
         } qw(status reason by);
         next unless $changed;
-        Test::Mutation::Store::save( $cache->{path}, {}, [] );
+        Test::Mutation::Store::save( $cache->{path}, {}, [], {}, { build => [], tests => {}, reset => 1 } );
         $run->{cache_mismatch} = 1;
         $run->{reused}         = 0;
         $run->{code_of_mutant} = {};
@@ -1186,6 +1281,12 @@ sub _mutants ( $run, $mutants, $baseline, $sample_only = 0 ) {
     my @jobs = _measurement_jobs( $run, $mutants, $baseline, $cache, \%entry_of );
     if ( $cache && $run->{reused} ) {
         my $interrupted = _check_reused( $run, $cache, $baseline, \%entry_of );
+        if ( $run->{cache_mismatch} && keys $run->{reused_originals}->%* ) {
+            $baseline = _complete_baseline( $run, { tests => {}, missing => $run->{test_paths} } );
+            $run->{rechecked_baseline} = $baseline;
+            return [] if $baseline->{failures}->@*;
+            $cache = _open_cache( $run, $baseline );
+        }
         if ( $run->{cache_mismatch} || $interrupted ) {
             %entry_of = ();
             @jobs     = _measurement_jobs( $run, $mutants, $baseline, undef, \%entry_of );
@@ -1341,7 +1442,7 @@ sub _tree ($run) {
 sub _begin_in_place ( $run, $baseline ) {
     my $guard = $run->{guard};
     $run->{jobs} = 1;
-    my $changes = Test::Mutation::Tree::changes( $guard->{state}, _tree($run) );
+    my $changes = Test::Mutation::Tree::changes( $guard->{state}, delete $run->{tree} || _tree($run) );
     return unless $changes->@*;
     _restore_changes( $run, $guard, $changes );
     $run->{setup_tests} = [ sort keys $baseline->{tests}->%* ];
@@ -1461,12 +1562,44 @@ sub _fingerprint ( $run, $baseline ) {
         Test::Mutation::Store::Key::digest(@libraries),
         Test::Mutation::Store::Key::digest(@launch),
         Test::Mutation::Store::Key::environment( \%ENV ),
-        Test::Mutation::Store::Key::tree( $run->{project}, [ @skip, @targets, @tests ] ),
+        Test::Mutation::Store::Key::tree( $run->{project}, [ @skip, @targets, $run->{test_paths}->@* ] ),
     );
 }
 
 sub _cache_path ($run) {
     return File::Spec->catfile( File::Spec->rel2abs( $run->{config}->cache_dir, $run->{project} ), 'cache.json' );
+}
+
+sub _original_key ( $run, $shared, $test, $record ) {
+    my @paths = sort keys $record->{files}->%*;
+    return if grep { !exists $run->{sources}{$_} } @paths;
+    return Test::Mutation::Store::Key::digest(
+        $shared, $test,
+        Test::Mutation::Store::Key::file("$run->{project}/$test"),
+        map { ( $_, Test::Mutation::Store::Key::file("$run->{project}/$_") ) } @paths
+    );
+}
+
+sub _save_originals ( $run, $baseline ) {
+    my $shared = _run_inputs( $run, $baseline );
+    return unless defined $shared;
+    my %updates;
+    for my $test ( keys $baseline->{tests}->%* ) {
+        my $record = $baseline->{tests}{$test};
+        $updates{$test} = undef;
+        next
+          if !$baseline->{parallel_safe}
+          || $run->{baseline_changed}
+          || $baseline->{failures}->@*
+          || !$record->{reusable};
+        $updates{$test} = {
+            $record->%{qw(duration includes files breakable)},
+            inputs => _original_key( $run, $shared, $test, $record )
+        };
+    }
+    return if !grep( {defined} values %updates ) && !-f _cache_path($run);
+    Test::Mutation::Store::save( _cache_path($run), {}, undef, {}, { build => $run->{build}, tests => \%updates } );
+    return;
 }
 
 sub _open_cache ( $run, $baseline ) {
@@ -1478,11 +1611,7 @@ sub _open_cache ( $run, $baseline ) {
     for my $test ( sort keys $baseline->{tests}->%* ) {
         my $record = $baseline->{tests}{$test};
         next unless $record->{reusable};
-        $facts{$test} = Test::Mutation::Store::Key::digest(
-            $shared, $test,
-            Test::Mutation::Store::Key::file("$run->{root}/$test"),
-            map { ( $_, $target{$_} ) } sort keys $record->{files}->%*
-        );
+        $facts{$test} = _original_key( $run, $shared, $test, $record );
     }
     return {
         path    => $path,
@@ -1652,7 +1781,11 @@ sub _after_test ( $run, $baseline, $task, $result ) {
         $job->{outcome}{read_check} = _ending($result);
         return;
     }
-    if ( $run->{baseline_changed} && !$result->{passed} && !$job->{outcome}{anomaly} ) {
+    if (   !$result->{passed}
+        && !$job->{outcome}{anomaly}
+        && !$run->{guard}
+        && ( $run->{baseline_changed} || $run->{reused_originals}{ $payload->{test} } ) )
+    {
         my $test  = $payload->{test};
         my $proof = $run->{controls}{$test} ||= _verified_reference( $run, $baseline, $test );
         if ( $proof->{unstable} ) {

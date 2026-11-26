@@ -13,9 +13,10 @@ our $VERSION = '0.001';
 
 with 'Test::Mutation::Value';
 
-has root     => ( is => 'ro', isa => Str, required => 1 );
-has sources  => ( is => 'ro', isa => HashRef [Str], required => 1 );
-has tests    => ( is => 'ro', isa => ArrayRef [ Dict [ name => Str, duration => Num ] ], required => 1 );
+has root => ( is => 'ro', isa => Str, required => 1 );
+has sources => ( is => 'ro', isa => HashRef [Str], required => 1 );
+has tests =>
+  ( is => 'ro', isa => ArrayRef [ Dict [ name => Str, duration => Num, neutral => Optional [Bool] ] ], required => 1 );
 has entries  => ( is => 'ro', isa => ArrayRef [Entry], required => 1 );
 has problems => ( is => 'ro', isa => ArrayRef [ Dict [ path => Str, problem => Str ] ], required => 1 );
 has warnings => ( is => 'ro', isa => ArrayRef [Str], required => 1 );

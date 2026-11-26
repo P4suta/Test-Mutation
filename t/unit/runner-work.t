@@ -1,5 +1,6 @@
 use v5.36;
 use Test2::V0;
+use File::Temp ();
 use lib 't/e2e/lib';
 use Fixture qw(copy_of);
 use Test::Mutation::Runner;
@@ -173,6 +174,132 @@ subtest 'interruptions retain completed verdicts and account for every attempted
           'an interrupted attempt retains its coverage, test count and elapsed time';
     }
 };
+
 ## use critic
+
+# The observers supply controlled test results while the runner manages the temporary project directory.
+## no critic (Variables::ProtectPrivateVars Subroutines::ProtectPrivateSubs)
+subtest 'original test writes invalidate saved observations in the applicable execution modes' => sub {
+    for my $case (
+        [ 'a private copy',           1, 0, 1 ],
+        [ 'an in-place cache',        0, 1, 1 ],
+        [ 'an uncached in-place run', 0, 0, 0 ],
+      )
+    {
+        my ( $label, $copied, $cached, $observes ) = @$case;
+        my $project = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+        my $settings =
+          Test::Mutation::Settings::of_call( { root => $project, cache => $cached, in_place => !$copied } );
+        my $run = { root => $project, project => $project, config => $settings, stats => {}, targets => [] };
+        if   ($copied) { $run->{copies} = "$project/slots" }
+        else           { $run->{guard}  = { state => Test::Mutation::Runner::_tree($run) } }
+        no warnings 'redefine';
+        local *Test::Mutation::Runner::_baseline = sub {
+            Fixture::write_file( "$project/observation.txt", "new contents\n" );
+            return { tests => {} };
+        };
+        is Test::Mutation::Runner::_observed_baseline( $run, [] ), { tests => {} }, "$label returns the test facts";
+        is $run->{baseline_changed}, $observes ? 1   : undef, "$label records the project change when it affects reuse";
+        is exists $run->{tree},      $cached   ? T() : F(), "$label retains the updated state only for a guarded cache";
+    }
+};
+
+subtest 'a complete or fully reused baseline needs no partial-input comparison' => sub {
+    my ( $cached, $changed ) = qw(t/cached.t t/changed.t);
+    my @all  = ( $cached, $changed );
+    my $fact = { breakable => {} };
+    for my $case (
+        [ 'an in-place update', 1, { $cached => $fact },         [$changed], 1 ],
+        [ 'a cold measurement', 1, {},                           [@all],     1 ],
+        [ 'a disabled cache',   0, {},                           [@all],     0 ],
+        [ 'a complete cache',   1, { map { $_ => $fact } @all }, [],         0 ],
+      )
+    {
+        my ( $label, $enabled, $hits, $missing, $save ) = @$case;
+        my $settings = Test::Mutation::Settings::of_call( { root => $root, cache => $enabled } );
+        my $run      = { root => $root, config => $settings, test_paths => \@all };
+        my ( @runs, @writes, $compared );
+        no warnings 'redefine';
+        local *Test::Mutation::Runner::_observed_baseline = sub ( $context, $tests ) {
+            push @runs, [@$tests];
+            return { tests => { map { $_ => $fact } @$tests }, failures => [], parallel_safe => 1 };
+        };
+        local *Test::Mutation::Runner::_run_inputs = sub { ++$compared; return 'observed' };
+        local *Test::Mutation::Runner::_save_originals =
+          sub ( $context, $baseline ) { push @writes, $baseline; return };
+        my $result = Test::Mutation::Runner::_complete_baseline( $run, { tests => $hits, missing => $missing } );
+        is \@runs,                   @$missing ? [ \@all ] : [], "$label controls whether the complete suite must run";
+        is $run->{reused_originals}, @$missing ? {} : $hits, "$label only reuses facts from accepted original tests";
+        is [ sort keys $result->{tests}->%* ], [ sort @all ], "$label reports every test";
+        ok !$compared, "$label needs no second fingerprint for a mixture of old and new test facts";
+        is \@writes, $save ? [$result] : [], "$label writes only newly measured facts when caching is enabled";
+    }
+};
+subtest 'partial original results are reused only when the two observations agree' => sub {
+    my ( $cached_test, $changed_test ) = qw(t/first.t t/second.t);
+    my $record = sub ($line) { return { duration => $line, breakable => { 'lib/Calc.pm' => { $line => 1 } } } };
+    for my $case (
+        [ 'matching inputs',    0, 1, 0, 'same',      1 ],
+        [ 'a changed project',  1, 1, 0, 'same',      0 ],
+        [ 'a test conflict',    0, 0, 0, 'same',      0 ],
+        [ 'a failed original',  0, 1, 1, 'same',      0 ],
+        [ 'unavailable inputs', 0, 1, 0, undef,       0 ],
+        [ 'different inputs',   0, 1, 0, 'different', 0 ]
+      )
+    {
+        my ( $label, $changed, $safe, $failed, $shared, $reuse ) = @$case;
+        my $run =
+          { root => $root, copies => 'available', config => $config, test_paths => [ $cached_test, $changed_test ] };
+        my $plan = { tests => { $cached_test => $record->(1) }, missing => [$changed_test], shared => 'same' };
+        my ( $trial, @reads, @saved );
+        no warnings 'redefine';
+        local *Test::Mutation::Runner::_control_copy      = sub { return $trial = File::Temp::tempdir( CLEANUP => 1 ) };
+        local *Test::Mutation::Runner::_observed_baseline = sub ( $context, $names ) {
+            push @reads, [ $context->{root}, [@$names] ];
+            if ( @$names == 1 ) {
+                $context->{baseline_changed} = $changed;
+                return {
+                    tests         => { $changed_test => $record->(2) },
+                    parallel_safe => $safe,
+                    failures      => $failed ? [ { test => $changed_test } ] : []
+                };
+            }
+            return {
+                tests         => { $cached_test => $record->(3), $changed_test => $record->(4) },
+                parallel_safe => 1,
+                failures      => []
+            };
+        };
+        local *Test::Mutation::Runner::_run_inputs     = sub { return $shared };
+        local *Test::Mutation::Runner::_save_originals = sub ( $context, $baseline ) {
+            push @saved, $baseline;
+            return;
+        };
+        my $result = Test::Mutation::Runner::_complete_baseline( $run, $plan );
+        is \@reads, [ [ $trial, [$changed_test] ], $reuse ? () : [ $root, [ $cached_test, $changed_test ] ] ],
+          "$label determines which original tests must be measured";
+        ok !-e $trial, "$label releases the temporary copy before returning";
+        is [ sort keys $run->{reused_originals}->%* ], $reuse ? [$cached_test] : [],
+          "$label retains the verified tests";
+        is [ sort keys $result->{breakable}{'lib/Calc.pm'}->%* ], $reuse ? [ 1, 2 ] : [ 3, 4 ],
+          "$label publishes the executable lines from the accepted observations";
+        is \@saved, [$result], "$label saves the completed baseline once";
+    }
+};
+## use critic
+
+subtest 'a fresh baseline after a cache mismatch supplies every original test fact' => sub {
+    my $old     = { tests => { 't/cached.t' => { duration => 1 } }, parallel_safe => 1, failures => [] };
+    my $failure = { test  => 't/current.t', output => "1..1\nnot ok 1\n", errors => "changed input\n" };
+    my $fresh   = { tests => { 't/current.t' => { duration => 4.5 } }, parallel_safe => 0, failures => [$failure] };
+    no warnings 'redefine';
+    local *Test::Mutation::Runner::_complete_baseline = sub { return $old };                                         ## no critic (Variables::ProtectPrivateVars)
+    local *Test::Mutation::Runner::_mutants = sub ( $run, @ ) { $run->{rechecked_baseline} = $fresh; return [] };    ## no critic (Variables::ProtectPrivateVars)
+    my $result = Test::Mutation::Runner::run( $config, sub { return }, { selection => $selection } );
+    is $result->tests, [ { name => 't/current.t', duration => 4.5 } ],
+      'the report uses the newly measured test and duration';
+    is $result->parallel_safe,     0,          'the new observation determines whether tests can run concurrently';
+    is $result->baseline_failures, [$failure], 'the failure from the new original run reaches the result';
+};
 
 done_testing;

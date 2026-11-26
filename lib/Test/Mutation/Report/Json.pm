@@ -75,7 +75,7 @@ my $DOCUMENT = Dict [
         warnings         => ArrayRef [Str],
         problems         => ArrayRef [ Dict [ path => Str, problem => Str ] ],
         baselineFailures => ArrayRef [Str],
-        tests            => ArrayRef [ Dict [ name => Str, duration => Num ] ],
+        tests            => ArrayRef [ Dict [ name => Str, duration => Num, neutral => Optional [$FLAG] ] ],
         stats            => Dict [ map { $_ => PositiveOrZeroInt } values %WORK_KEY ],
     ],
 ];
@@ -132,8 +132,12 @@ sub _facts ($result) {
         warnings         => [ $result->warnings->@* ],
         problems         => [ map { { path => $_->{path}, problem => $_->{problem} } } $result->problems->@* ],
         baselineFailures => [ map { $_->{test} } $result->baseline_failures->@* ],
-        tests            => [ map { { name => $_->{name}, duration => 0 + $_->{duration} } } $result->tests->@* ],
-        stats            => { map { $WORK_KEY{$_} => 0 + $result->stats->{$_} } keys %WORK_KEY },
+        tests            => [
+            map {
+                { name => $_->{name}, duration => 0 + $_->{duration}, $_->{neutral} ? ( neutral => _boolean(1) ) : () }
+            } $result->tests->@*
+        ],
+        stats => { map { $WORK_KEY{$_} => 0 + $result->stats->{$_} } keys %WORK_KEY },
     };
 }
 
@@ -213,6 +217,12 @@ sub _place ($explanation) {
 sub _result ($document) {
     my $facts = $document->{testMutation};
     my ( %sources, @entries );
+    my @tests;
+    for my $observed ( $facts->{tests}->@* ) {
+        my $test = { $observed->%{qw(name duration)} };
+        $test->{neutral} = 1 if $observed->{neutral};
+        push @tests, $test;
+    }
     for my $path ( sort keys $document->{files}->%* ) {
         my $file = $document->{files}{$path};
         $sources{$path} = $file->{source};
@@ -222,7 +232,7 @@ sub _result ($document) {
     return Test::Mutation::Result->new(
         root              => $document->{projectRoot},
         sources           => \%sources,
-        tests             => $facts->{tests},
+        tests             => \@tests,
         entries           => \@entries,
         problems          => $facts->{problems},
         warnings          => $facts->{warnings},

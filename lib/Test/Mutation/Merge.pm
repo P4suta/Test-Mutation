@@ -40,16 +40,19 @@ sub merge ($reports) {
         ) if $held != $expected;
     }
 
-    my %duration;
+    my ( %duration, %active );
     for my $test ( map { $_->tests->@* } @results ) {
         my $name = $test->{name};
+        $active{$name}   = 1 unless $test->{neutral};
         $duration{$name} = max( $test->{duration}, exists $duration{$name} ? $duration{$name} : () );
     }
     my %problem = map { $_->{path} => $_ } reverse map { $_->problems->@* } @results;
     return Test::Mutation::Result->new(
-        root              => $results[0]->root,
-        sources           => { map { $_->sources->%* } @results },
-        tests             => [ map { { name => $_, duration => $duration{$_} } } sort keys %duration ],
+        root    => $results[0]->root,
+        sources => { map { $_->sources->%* } @results },
+        tests   => [
+            map { { name => $_, duration => $duration{$_}, $active{$_} ? () : ( neutral => 1 ) } } sort keys %duration
+        ],
         entries           => [ map { $results[ $_ % $parts ]->entries->[ int( $_ / $parts ) ] } 0 .. $count - 1 ],
         problems          => [ map { $problem{$_} } sort keys %problem ],
         warnings          => [ uniq map { $_->warnings->@* } @results ],

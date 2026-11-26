@@ -80,7 +80,7 @@ my $record = {
 my $cache = "$directory/cache.json";
 is Test::Mutation::Store::save( $cache, { abc => $record } ), 1,       'the cache is written';
 is [ keys Test::Mutation::Store::load($cache)->%* ],          ['abc'], 'and read back';
-is failing_in( qr/::Store::load\z/, sub { Test::Mutation::Store::load($cache) } ), {},
+is failing_in( qr/::Store::_read\z/, sub { Test::Mutation::Store::load($cache) } ), {},
   'a cache that does not close counts as no cache';
 like dies {
     failing_in( qr/::Store::_merge_records\z/, sub { Test::Mutation::Store::save( $cache, { abc => $record } ) } )
