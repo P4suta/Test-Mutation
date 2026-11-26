@@ -3,7 +3,7 @@ use v5.36;
 use PPI;
 use PPIx::Regexp;
 use Scalar::Util    qw(refaddr);
-use Types::Standard qw(InstanceOf);
+use Types::Standard qw(InstanceOf Int Maybe Optional Tuple);
 use Type::Params    qw(signature_for);
 use version         ();
 use Test::Mutation::Mutator::Providers;
@@ -130,6 +130,36 @@ sub analyze ($source) {
         names        => $names,
         problem      => undef
     };
+}
+
+signature_for witness_offsets =>
+  ( positional => [ InstanceOf ['Test::Mutation::Source'] ], returns => Maybe [ Tuple [ Int, Int, Optional [Int] ] ] );
+
+sub witness_offsets ($source) {
+    my $text     = $source->text;
+    my $mark     = $text =~ s/\A\x{feff}// ? 1 : 0;
+    my $document = _document($text) or return;
+    my @tokens   = map { $_->first_token || () }
+      grep { $_->isa('PPI::Statement') && !$_->isa('PPI::Statement::Data') && !$_->isa('PPI::Statement::End') }
+      $document->schildren;
+    return unless @tokens;
+    my $at = sub ($token) {
+        my ( $line, $column ) = $token->location->@[ 0, 1 ];
+        return $source->offset_of( $line, $column ) + ( $line == 1 ? $mark : 0 );
+    };
+    my @edges = map { $at->($_) } @tokens[ 0, -1 ];
+    if ( $text =~ /\n[#]![^\n]*\bperl\b/ ) {
+        my $extract;
+        for my $token ( $document->tokens ) {
+            if ( $extract && $token->significant ) {
+                my $offset = $at->($token);
+                push @edges, $offset if $edges[0] < $offset && $offset <= $edges[1];
+                last;
+            }
+            $extract = 1 if $token->isa('PPI::Token::Comment') && $token->content =~ /\A[#]![^\n]*\bperl\b/;
+        }
+    }
+    return \@edges;
 }
 
 sub _problem ($message) {
@@ -1317,6 +1347,12 @@ It lists each C<use> statement with the names it imports, as far as the text of 
 C<use v5.40> and a later version import the booleans and the rounding functions of the core.
 
 =head1 FUNCTIONS
+
+=head2 witness_offsets
+
+Returns the character offsets of the first and last top-level Perl statements before a data section.
+An optional third offset marks the first Perl token after an extraction header for C<perl -x>.
+Returns an undefined value when the file has no statement.
 
 =head2 analyze
 

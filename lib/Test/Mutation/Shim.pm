@@ -74,6 +74,7 @@ sub activate {
         active      => 1,
         trace       => 0,
         debug_flags => $^P,
+        trace_eval  => $spec->{trace_eval},
         targets     => $spec->{targets},
         by_base     => \%by_base,
         placed      => $spec->{placed},
@@ -85,8 +86,8 @@ sub activate {
         my $hook = sub { return _serve(@_) };
         unshift @INC, $hook;
         _keep_hook_first($hook);
-        $STATE{trace} = _install_tracer() if $spec->{trace};
     }
+    $STATE{trace} = _install_tracer() if $spec->{trace};
     $STATE{blind} = $spec->{trace} && !$STATE{trace};
     _record_handle();
     return;
@@ -168,6 +169,7 @@ sub _serve {
             return;
         }
     }
+    return if $STATE{placed} && $path =~ /["\n]/;
     my $target = _target_at( $path, $file, $candidates ) or return;
 
     open my $handle, '<', $target->{serve} or do {    ## no critic (InputOutput::RequireBriefOpen)
@@ -197,6 +199,40 @@ sub _serve {
     return ( \$prepend, $handle, $filter );
 }
 
+sub trace_source {
+    my ( $index, $path, $file, $directory, $shift ) = @_;
+    if ( !$STATE{active} ) {
+        %STATE        = ( active => 1, targets => [], by_path => {}, record_dir => $directory, debug_flags => $^P );
+        $STATE{trace} = _install_tracer();
+        $STATE{blind} = !$STATE{trace};
+        _record_handle();
+    }
+    my $target = $STATE{targets}[$index] ||= { index => $index, original => $path };
+    return if !$STATE{trace};
+    $target->{tracing_file}   = $file;
+    $target->{line_shift}     = $shift;
+    $STATE{by_path}{$file}    = $target;
+    $STATE{compiling}{$index} = 1;
+    _source_lines($file);
+    _trace_compile(1);
+    return;
+}
+
+sub seen {
+    my ($index) = @_;
+    my $target = $STATE{targets}[$index] or return;
+    $target->{witnessed} = 1;
+    if ( defined $target->{tracing_file} ) {
+        delete $STATE{compiling}{$index};
+        _trace_compile(0);
+        _record( 'lines', $target->{original}, join q{,},
+            map { $_ + $target->{line_shift} } _breakable_lines( $target->{tracing_file} ) );
+    }
+    _record( ( $target->{served} || defined $target->{tracing_file} ) && !$STATE{blind} ? 'seen' : 'blind',
+        $target->{original} );
+    return 1;
+}
+
 sub mark_compiled {
     my ($index) = @_;
     my $target = $STATE{targets}[$index] or return;
@@ -212,7 +248,10 @@ sub mark_compiled {
 sub _trace_compile {
     my ($enabled) = @_;
     ## no critic (Variables::RequireLocalizedPunctuationVars)
-    $^P = $enabled ? $STATE{debug_flags} | $TRACE_FLAGS : $STATE{debug_flags};
+    my $flags = $STATE{debug_flags};
+    $flags |= 0x400 | 0x800 if $STATE{trace_eval};
+    $flags |= $TRACE_FLAGS  if $enabled || $STATE{compiling} && keys %{ $STATE{compiling} };
+    $^P = $flags;
     ## use critic
     return;
 }
@@ -230,7 +269,8 @@ sub _install_tracer {
         push @Test::Mutation::Shim::TRACERS, sub {
             my ( $file, $line ) = @_;
             my $target = $by_path->{$file} or return;
-            return if $target->{hits}{$line};
+            $line += $target->{line_shift} if $target->{line_shift};
+            return                         if $target->{hits}{$line};
             $target->{hits}{$line} = 1;
             $record->( 'hit', $target->{original}, $line );
             return;
@@ -290,6 +330,7 @@ sub _record {
 sub _source_lines {
     my ($path) = @_;
     no strict 'refs';    ## no critic (TestingAndDebugging::ProhibitNoStrict)
+    return \@{ $main::{"_<$path"} } if defined $main::{"_<$path"};
     return \@{"main::_<$path"};
 }
 
@@ -313,10 +354,16 @@ sub _loaded_from_disk {
 
 sub finish {
     return if !$STATE{active};
-    for my $target ( @{ $STATE{targets} } ) {
+    for my $target ( grep { defined } @{ $STATE{targets} } ) {
         _record( 'outside', $target->{original} )
           if _loaded_from_disk( $target, $target->{outside_device}, $target->{outside_inode} );
         if ( !$target->{served} ) {
+            if ( $target->{witnessed} ) {
+                _record( 'lines', $target->{original}, join q{,},
+                    map { $_ + $target->{line_shift} } _breakable_lines( $target->{tracing_file} ) )
+                  if defined $target->{tracing_file};
+                next;
+            }
             if ( _loaded_from_disk( $target, $target->{device}, $target->{inode} ) ) {
                 if   ( $STATE{placed} ) { _record( 'blind',  $target->{original} ) }
                 else                    { _record( 'around', $target->{original} ) }
@@ -371,6 +418,15 @@ C<end> marks a process that reached its C<END> block.
 
 Activates the shim when the environment names a spec file.
 Perl calls it when a C<-M> switch loads the module.
+
+=head2 trace_source
+
+Traces the executable lines of a diagnostic copy and maps them to lines in the measured source.
+
+=head2 seen
+
+Records compilation from the target itself.
+A load outside the tracing hook supplies file coverage.
 
 =head2 mark_compiled
 

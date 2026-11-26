@@ -28,6 +28,8 @@ use Test::Mutation::Tree;
 use Test::Mutation::Types qw(PathSelection);
 use Test::Mutation::Try;
 use Test::Mutation::Verdict;
+use Test::Mutation::Witness;
+use Test::Mutation::Syntax::PPI;
 use Test::Mutation::Workspace;
 use Test::Mutation::Workspace::Slot;
 use Test::Mutation::Workspace::Processes;
@@ -295,6 +297,7 @@ sub _measure ( $run, $started ) {
             _prepare_work($run);
             $run->{targets} = [ sort keys $selection->sources->%* ];
             Test::Mutation::Event::phase( $listener, 'baseline' );
+            _prepare_witnesses($run) if defined $run->{copies};
             my $baseline = _observed_baseline( $run, \@tests );
             my %measured = (
                 parallel_safe     => $baseline->{parallel_safe},
@@ -477,7 +480,8 @@ sub _remove_disk_spec ($spec) {
 sub _spec ( $run, $root, $name, $trace, $targets ) {
     my $path  = "$run->{work}/$name.spec";
     my @lines = ( "trace\t" . ( $trace ? 1 : 0 ) );
-    push @lines, "placed\t1" if defined $run->{copies};
+    push @lines, "placed\t1"     if defined $run->{copies};
+    push @lines, "trace_eval\t1" if $run->{trace_eval};
     _remove_disk_spec($path);
     for my $target ( $targets->@* ) {
         my @original = $root ne $run->{project} ? $run->{project} . substr( $target->[0], length $root ) : ();
@@ -514,13 +518,25 @@ sub target_pairs ( $root, $paths, $mutated, $file ) {
     return [ map { [ "$root/$_", $_ eq $mutated ? $file : "$root/$_" ] } @paths ];
 }
 
-sub _write_mutant ( $run, $source, $mutant, $root ) {
+sub _write_mutant ( $run, $source, $mutant, $root, $raw = 0 ) {
     my $file  = "$run->{work}/mutants/" . $mutant->id . '.pm';
-    my $bytes = $source->to_bytes( $source->replace_span( $mutant->start, $mutant->end, $mutant->replacement ) );
+    my $text  = $source->replace_span( $mutant->start, $mutant->end, $mutant->replacement );
+    my $bytes = $source->to_bytes($text);
     _spew( $file, $bytes );
     my $served = $file;
     if ( defined $run->{copies} ) {
-        Test::Mutation::Workspace::Slot::place( $root, $mutant->path, $source->to_bytes( $source->text ), $bytes );
+        my $placed = $bytes;
+        if ( !$raw && ( my $witness = $run->{witness}{ $mutant->path } ) ) {
+            my $at = $witness->{offset};
+            if ( $mutant->end <= $at ) {
+                $at += length( $mutant->replacement ) - ( $mutant->end - $mutant->start );
+            }
+            elsif ( $mutant->start < $at ) {
+                $at = $mutant->start;
+            }
+            $placed = _marked_bytes( $run, $source, $text, $at );
+        }
+        Test::Mutation::Workspace::Slot::place( $root, $mutant->path, $source->to_bytes( $source->text ), $placed );
         $served = "$root/" . $mutant->path;
     }
     my $targets = target_pairs( $root, $run->{targets} ? $run->{targets} : [], $mutant->path, $served );
@@ -609,10 +625,13 @@ sub _launch ( $run, $root, $tmp, $source, %task ) {
 sub _test_task ( $run, %arg ) {
     my $sequence = ++$run->{sequence};
     my $work     = $run->{work};
-    my $record   = "$work/records/$sequence";
     my $tmp      = "$work/tmp/$sequence";
-    Test::Mutation::Tree::make( $record, $tmp );
+    Test::Mutation::Tree::make($tmp);
+    my @identity = ( stat $tmp )[ 0, 1 ];
+    my $record   = "$work/records/" . join( '-', @identity );
+    Test::Mutation::Tree::make($record);
     my $spec = $arg{spec};
+
     if ( $run->{try_disk} || $run->{disk_test}{ $arg{test} } ) {
         my $disk = "$spec.disk";
         _spew( $disk, Test::Mutation::Source::read_bytes($spec) . "observe\t1\n" ) unless -e $disk;
@@ -625,18 +644,27 @@ sub _test_task ( $run, %arg ) {
     );
     return {
         $launch->%*,
-        cwd             => $arg{root},
+        cwd => $arg{root},
+        $run->{task_descriptor}
+        ? ( observation => { directory => $tmp, descriptor => fileno( $run->{task_descriptor} ) } )
+        : (),
         lease           => $run->{workspace}->directory . '/processes',
         timeout         => $arg{timeout},
         output_limit    => $OUTPUT_LIMIT,
         stop_on_failure => $arg{stop_on_failure},
-        payload         => { $arg{payload}->%*, test => $arg{test}, record => $record, tmp => $tmp },
+        payload         => {
+            $arg{payload}->%*,
+            test    => $arg{test},
+            record  => $record,
+            tmp     => $tmp,
+            targets => [ map { "$arg{root}/$_" } $run->{targets}->@* ]
+        },
     };
 }
 
 sub _collect ($task) {
     my $payload = $task->{payload};
-    my $record  = Test::Mutation::Record::read_directory( $payload->{record} );
+    my $record  = Test::Mutation::Record::read_directory( $payload->{record}, $payload->{targets} );
     _discard( $payload->{record}, $payload->{tmp} );
     return $record;
 }
@@ -672,12 +700,48 @@ sub _unmodified ( $run, $name, $trace, $jobs, $tests, $counted ) {
     return \%outcome;
 }
 
+sub _prepare_witnesses ($run) {
+    $run->{task_descriptor} = Test::Mutation::Witness::reserve( $run->{workspace}->directory . '/processes' );
+    my $targets = $run->{targets};
+    for my $index ( keys $targets->@* ) {
+        my $path = $targets->[$index];
+        my $at   = Test::Mutation::Syntax::PPI::witness_offsets( $run->{sources}{$path} );
+        $run->{witness}{$path} = { index => $index, first => $at->[0], offset => $at->[1], extract => $at->[2] } if $at;
+    }
+    return;
+}
+
+sub _marked_bytes ( $run, $source, $text, $at ) {
+    my $witness = $run->{witness}{ $source->path };
+    return $source->to_bytes(
+        Test::Mutation::Witness::insert(
+            $text,                  $at,
+            $run->{generation},     $witness->{index},
+            "$run->{work}/records", fileno( $run->{task_descriptor} )
+        )
+    );
+}
+
+sub _mark_originals ( $run, $root, $install, @paths ) {
+    for my $path ( @paths ? @paths : sort keys $run->{witness}->%* ) {
+        my $source = $run->{sources}{$path};
+        my $raw    = $source->to_bytes( $source->text );
+        my $marked = _marked_bytes( $run, $source, $source->text, $run->{witness}{$path}{offset} );
+        my ( $before, $after ) = $install ? ( $raw, $marked ) : ( $marked, $raw );
+        next if !-f "$root/$path" || Test::Mutation::Source::read_bytes("$root/$path") ne $before;
+        Test::Mutation::Workspace::Slot::place( $root, $path, $before, $after );
+    }
+    return;
+}
+
 sub _observed_baseline ( $run, $tests ) {
+    _mark_originals( $run, $run->{root}, 1 ) if $run->{task_descriptor};
     my $original = defined $run->{copies} ? _tree($run) : undef;
     my $baseline = _baseline( $run, $tests, $run->{targets} );
     if ( defined $original ) {
         $run->{baseline_changed} = Test::Mutation::Tree::changes( $original, _tree($run) )->@* ? 1 : 0;
     }
+    _mark_originals( $run, $run->{root}, 0 ) if $run->{task_descriptor};
     return $baseline;
 }
 
@@ -701,7 +765,6 @@ sub _disk_baseline ( $run, $pass, $outcome, $failed ) {
 }
 
 sub _baseline ( $run, $tests, $targets ) {
-    my $root = $run->{root};
     my $pass = sub ( $jobs, $names, $counted ) {
         return _unmodified( $run, 'baseline', $run->{config}->coverage eq 'line', $jobs, $names, $counted );
     };
@@ -724,20 +787,72 @@ sub _baseline ( $run, $tests, $targets ) {
         _disk_baseline( $run, $pass, $outcome, \@failed );
         @failed = grep { !$outcome->{$_}{result}{passed} } @failed;
     }
+    if ( @failed && $run->{task_descriptor} ) {
+        _raw_baseline( $run, \@failed, $outcome );
+        @failed = grep { !$outcome->{$_}{result}{passed} } @failed;
+    }
+    _trace_blind( $run, $outcome ) if !@failed && $run->{task_descriptor} && $run->{config}->coverage eq 'line';
+    _observe_in_place_loads( $run, $tests, $targets, $outcome ) if !@failed && $run->{guard};
+    my ( $records, $breakable ) = _baseline_records( $run, $tests, $targets, $outcome );
+    return {
+        tests         => $records,
+        breakable     => $breakable,
+        parallel_safe => $parallel_safe,
+        failures      => [ map { _failure( $_, $outcome->{$_}{result} ) } @failed ],
+    };
+}
+
+sub _observe_in_place_loads ( $run, $tests, $targets, $outcome ) {
+    my $project = $run->{project};
+    my %unknown;
+    for my $test (@$tests) {
+        my $record  = $outcome->{$test}{record};
+        my @missing = grep {
+            my $path = "$project/$_";
+            !$record->{served}{$path} && !$record->{bypassed}{$path} && !$record->{outside}{$path};
+        } @$targets;
+        $unknown{$test} = \@missing if @missing;
+    }
+    my @probe_tests = sort keys %unknown;
+    return unless @probe_tests;
+    local $run->{name} = File::Basename::basename($project);
+    my $probe = _control_copy( $run, $run->{guard}{backup} );
+    local $run->{root}            = $probe;
+    local $run->{copies}          = $probe;
+    local $run->{first}           = {};
+    local $run->{witness}         = {};
+    local $run->{task_descriptor} = undef;
+    _prepare_witnesses($run);
+    _mark_originals( $run, $probe, 1 );
+    my $observed = _unmodified( $run, 'in-place-loads', 0, 1, \@probe_tests, 'verifications' );
+
+    for my $test (@probe_tests) {
+        next unless $observed->{$test}{result}{passed};
+        for my $path ( $unknown{$test}->@* ) {
+            my $record = $observed->{$test}{record};
+            $outcome->{$test}{record}{bypassed}{"$project/$path"} = 1 if $record->{compiled}{"$probe/$path"};
+        }
+    }
+    _discard($probe);
+    return;
+}
+
+sub _baseline_records ( $run, $tests, $targets, $outcome ) {
     my ( %tests, %breakable );
     for my $test ( $tests->@* ) {
         my ( $result, $record ) = $outcome->{$test}->@{qw(result record)};
         my ( %files, %anomalies );
         for my $path ( $targets->@* ) {
-            my $absolute = "$root/$path";
+            my $absolute = ( $outcome->{$test}{root} || $run->{root} ) . "/$path";
             my $evidence = Test::Mutation::Evidence::target( $record, $absolute );
-            $files{$path} = $evidence->{coverage} if $evidence->{coverage};
+            $files{$path} = $evidence->{coverage}       if $evidence->{coverage};
+            $files{$path} = { traced => 0, hits => {} } if $run->{sensitive}{$test}{$path};
             my $lines = $evidence->{breakable};
             $breakable{$path} = { ( $breakable{$path} ? $breakable{$path}->%* : () ), $lines->%* } if $lines;
             my $anomaly = $evidence->{anomaly} or next;
             if ( $anomaly->{reason} eq 'loaded-around-hook' ) {
                 _warn( $run, Test::Mutation::Message::warning( 'loaded-around-hook', test => $test, path => $path ) );
-                next;
+                next unless $run->{guard};
             }
             $anomalies{$path} = $anomaly;
             $files{$path}     = { traced => 0, hits => {} };
@@ -745,12 +860,98 @@ sub _baseline ( $run, $tests, $targets ) {
         $tests{$test} =
           { duration => $result->{duration}, files => \%files, early => $result->{early}, anomalies => \%anomalies };
     }
-    return {
-        tests         => \%tests,
-        breakable     => \%breakable,
-        parallel_safe => $parallel_safe,
-        failures      => [ map { _failure( $_, $outcome->{$_}{result} ) } @failed ],
-    };
+    return ( \%tests, \%breakable );
+}
+
+sub _trace_blind ( $run, $outcome ) {
+    my $original = $run->{root};
+    my ( %tests, %paths );
+    for my $test ( sort keys $outcome->%* ) {
+        my $served = $outcome->{$test}{record}{served};
+        for my $path ( keys $run->{witness}->%* ) {
+            my $coverage = $served->{"$original/$path"};
+            next if !$coverage || $coverage->{traced} || $run->{sensitive}{$test}{$path};
+            push $tests{$test}->@*, $path;
+            $paths{$path} = 1;
+        }
+    }
+    return unless keys %tests;
+    my $probe = _control_copy( $run, $original );
+    for my $path ( sort keys %paths ) {
+        my $source = Test::Mutation::Source->from_bytes(
+            path  => $path,
+            bytes => Test::Mutation::Source::read_bytes("$probe/$path"),
+        );
+        my $witness = $run->{witness}{$path};
+        my $text    = $source->text;
+        for my $at ( grep { defined } $witness->@{qw(extract first)} ) {
+            $text = Test::Mutation::Witness::trace(
+                text       => $text,
+                offset     => $at,
+                line       => $source->position_of($at)->[0],
+                generation => $run->{generation},
+                index      => $witness->{index},
+                target     => "$probe/$path",
+                work       => $run->{work},
+                descriptor => fileno( $run->{task_descriptor} ),
+            );
+        }
+        Test::Mutation::Workspace::Slot::place(
+            $probe, $path,
+            $source->to_bytes( $source->text ),
+            $source->to_bytes($text)
+        );
+    }
+    local $run->{root}       = $probe;
+    local $run->{first}      = {};
+    local $run->{trace_eval} = 1;
+    my $observed = _unmodified( $run, 'trace-lines', 1, $run->{jobs}, [ sort keys %tests ], 'verifications' );
+    for my $test ( sort keys %tests ) {
+        next unless $observed->{$test}{result}{passed};
+        my $record = $observed->{$test}{record};
+        for my $path ( $tests{$test}->@* ) {
+            my $read = Test::Mutation::Evidence::target( $record, "$probe/$path" );
+            next if $read->{anomaly} || !$read->{coverage} || !$read->{coverage}{traced};
+            $outcome->{$test}{record}{served}{"$original/$path"}    = $read->{coverage};
+            $outcome->{$test}{record}{breakable}{"$original/$path"} = $read->{breakable} if $read->{breakable};
+        }
+    }
+    _discard($probe);
+    return;
+}
+
+sub _raw_trial ( $run, $root, $test ) {
+    local $run->{root}     = $root;
+    local $run->{first}    = {};
+    local $run->{try_disk} = 1;
+    my $outcome = _unmodified( $run, 'source-check-' . ++$run->{sequence}, 0, 1, [$test], 'verifications' );
+    return { $outcome->{$test}->%*, root => $root };
+}
+
+sub _raw_baseline ( $run, $tests, $outcome ) {
+    my @tests = grep { _ending( $outcome->{$_}{result} ) eq 'fail' } $tests->@*;
+    return unless @tests;
+    my $clean = _control_copy( $run, $run->{root} );
+    _mark_originals( $run, $clean, 0 );
+    for my $test (@tests) {
+        my $trial = _control_copy( $run, $clean );
+        my $raw   = _raw_trial( $run, $trial, $test );
+        _discard($trial);
+        next unless $raw->{result}{passed};
+        for my $path ( sort keys $run->{witness}->%* ) {
+            my $probe = _control_copy( $run, $clean );
+            _mark_originals( $run, $probe, 1, $path );
+            my $observation = _raw_trial( $run, $probe, $test );
+            _discard($probe);
+            $run->{sensitive}{$test}{$path} = 1 if _ending( $observation->{result} ) eq 'fail';
+        }
+        if ( keys $run->{sensitive}{$test}->%* ) {
+            $outcome->{$test} = $raw;
+            $run->{disk_test}{$test} = 1;
+        }
+    }
+    _discard($clean);
+    return;
 }
 
 sub _mutants ( $run, $mutants, $baseline ) {
@@ -1188,9 +1389,10 @@ sub _next_test ( $run, $job, $baseline ) {
     my $config    = $run->{config};
     my $mutant    = $job->{mutant};
     my $test      = $job->{tests}[ $job->{index} ];
+    my $raw       = $run->{sensitive}{$test} && keys $run->{sensitive}{$test}->%* ? 1 : 0;
     my $proof     = $run->{controls}{$test};
     my $reference = $proof && $proof->{root} ? $proof->{root} : $run->{root};
-    if ( $job->{copy} && $job->{copy}{reference} ne $reference ) {
+    if ( defined $job->{spec} && ( $raw != $job->{raw} || $job->{copy} && $job->{copy}{reference} ne $reference ) ) {
         _release( $run, $job );
         return if defined $job->{restore_error};
         delete $job->{spec};
@@ -1198,7 +1400,8 @@ sub _next_test ( $run, $job, $baseline ) {
     $job->{starting_tree} = $reference;
     if ( !defined $job->{spec} ) {
         $job->@{qw(file spec)} =
-          _write_mutant( $run, $run->{sources}{ $mutant->path }, $mutant, _job_root( $run, $job ) );
+          _write_mutant( $run, $run->{sources}{ $mutant->path }, $mutant, _job_root( $run, $job ), $raw );
+        $job->{raw} = $raw;
     }
     my $setup    = $run->{guard} ? _prepare_in_place_test( $run, $job, $test ) : undef;
     my $anomaly  = $setup || $baseline->{tests}{$test}{anomalies}{ $mutant->path };

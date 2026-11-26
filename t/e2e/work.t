@@ -99,8 +99,8 @@ subtest 'restoring the project after a mutant avoids rerunning unaffected tests'
         equivalence => 0,
         in_place    => 1
     );
-    is [ $result->stats->@{qw(baseline_tests verifications)} ], [ 2, 3 ],
-      'each mutant that changed the tree repeats its original writer once';
+    is [ $result->stats->@{qw(baseline_tests verifications)} ], [ 2, 4 ],
+      'the reader is checked once and each of the three changes repeats only its original writer';
 };
 
 done_testing;

@@ -62,9 +62,10 @@ my %APPLY = (
     },
 );
 
-signature_for parse => ( positional => [ ArrayRef [Str] ], returns => TaskRecord );
+signature_for parse =>
+  ( positional => [ ArrayRef [Str], ArrayRef [Str], { default => sub { [] } } ], returns => TaskRecord );
 
-sub parse ($texts) {
+sub parse ( $texts, $targets ) {
     my %record = (
         begun       => 0,
         ended       => 0,
@@ -90,6 +91,13 @@ sub parse ($texts) {
                 push $record{errors}->@*, "missing field for record kind $kind";
                 next;
             }
+            if ( $kind eq 'blind' && $path =~ /\A[0-9]+\z/ ) {
+                if ( !defined $targets->[$path] ) {
+                    push $record{errors}->@*, "unknown target index $path";
+                    next;
+                }
+                $path = $targets->[$path];
+            }
             $apply->( \%record, \$traced, $path, defined $value ? $value : q{} );
         }
     }
@@ -102,9 +110,10 @@ sub _served ( $record, $path ) {
     return $served->{$path};
 }
 
-signature_for read_directory => ( positional => [Str], returns => TaskRecord );
+signature_for read_directory =>
+  ( positional => [ Str, ArrayRef [Str], { default => sub { [] } } ], returns => TaskRecord );
 
-sub read_directory ($directory) {
+sub read_directory ( $directory, $targets ) {
     my @texts;
     opendir my $entries, $directory
       or Test::Mutation::Error::raise( 'directory-unopenable', path => $directory, reason => "$!" );
@@ -119,7 +128,7 @@ sub read_directory ($directory) {
         push @texts, $text if defined $text;
         close $handle or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
     }
-    return parse( \@texts );
+    return parse( \@texts, $targets );
 }
 
 1;

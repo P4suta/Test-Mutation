@@ -79,7 +79,7 @@ sub _states ($bench) {
         my ($root) = map { /\Acwd=(.*)\z/ ? $1 : () } @lines;
         s/\Q$root\E/<root>/g for @lines;
         my %env  = map { /\Aenv=([^=]+)=(.*)\z/s ? ( $1 => $2 ) : () } @lines;
-        my %shim = map { ( $env{$_} =~ s{/records/[0-9]+\z}{/shim}r => 1 ) }
+        my %shim = map { ( $env{$_} =~ s{/records/[0-9]+(?:-[0-9]+)?\z}{/shim}r => 1 ) }
           grep { /\ATEST_MUTATION_RECORD_G[0-9]+\z/ } keys %env;
         delete @env{ grep { /\ATEST_MUTATION_/ || $_ eq 'TMPDIR' || $_ eq 'PWD' } keys %env };
         my %instrument = map { ( "-I$_" => 1, '-Mlib+pack(q(H*),q(' . unpack( 'H*', $_ ) . '))' => 1 ) } keys %shim;

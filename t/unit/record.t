@@ -7,6 +7,15 @@ sub lines (@rows) {
     return join q{}, map { join( "\t", $_->@* ) . "\n" } @rows;
 }
 
+subtest 'indexed witnesses report an unknown target and continue decoding' => sub {
+    my $record = Test::Mutation::Record::parse(
+        [ lines( [ 'begin', 0 ], [ 'blind', 8 ], [ 'blind', 1 ], [ 'blind', '/p/Named.pm' ], [ 'end', 23 ] ) ],
+        [qw(/p/A.pm /p/B.pm)] );
+    is $record->{errors}, ['unknown target index 8'], 'an unregistered index supplies a diagnostic';
+    is $record->{compiled}, { '/p/B.pm' => 1, '/p/Named.pm' => 1 }, 'both kinds of subsequent witnesses remain valid';
+    is $record->{ended},                                            1, 'the process ending is still observed';
+};
+
 subtest 'a traced process' => sub {
     my $record = Test::Mutation::Record::parse(
         [

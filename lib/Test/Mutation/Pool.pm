@@ -15,6 +15,7 @@ use Test::Mutation::Signals;
 use Test::Mutation::Tap;
 use Test::Mutation::Try;
 use Test::Mutation::Workspace::Processes;
+use Test::Mutation::Witness;
 
 our $VERSION = '0.001';
 
@@ -34,6 +35,7 @@ my $TASK = Dict [
     env             => HashRef [ Maybe [Str] ],
     cwd             => Str,
     lease           => Optional [Str],
+    observation     => Optional [ Dict [ directory => Str, descriptor => PositiveInt ] ],
     timeout         => PositiveNum,
     output_limit    => PositiveInt,
     stop_on_failure => Bool,
@@ -286,6 +288,8 @@ sub _exec_child ( $task, $output, $errors ) {
             _take_standard_descriptors( $input, $output, $errors );
             my $lease =
               defined $task->{lease} ? Test::Mutation::Workspace::Processes::inherit( $task->{lease} ) : undef;
+            Test::Mutation::Witness::inherit( $task->{observation}->@{qw(directory descriptor)} )
+              if $task->{observation};
             no warnings 'exec';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
             exec { $task->{command}[0] } $task->{command}->@*
               or Test::Mutation::Error::raise( 'command-unstartable', command => $task->{command}[0], reason => "$!" );

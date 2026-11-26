@@ -1,12 +1,3 @@
-engine-zoo-full	in the project, loading=absolute-copy: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the witness that a target writes for itself
-engine-zoo-full	in the project, loading=absolute-original: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the witness that a target writes for itself
-engine-zoo-full	in the project, loading=cleared-perl5lib: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the witness that a target writes for itself
-engine-zoo-full	in the project, loading=direct-script: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the witness that a target writes for itself
-engine-zoo-full	in the project, loading=do-file: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the witness that a target writes for itself
-engine-zoo-full	in the project, loading=fresh-inc: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the witness that a target writes for itself
-engine-zoo-full	in the project, loading=local-inc: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the witness that a target writes for itself
-engine-zoo-full	in the project, loading=perl-x: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the witness that a target writes for itself
-engine-zoo-full	in the project, loading=system-perl: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the witness that a target writes for itself
 gates	xt/release/self-mutation.t has no rejecting subtest	the release gate for the run of the tool on itself
 gates	xt/release/self-mutation.t states no count	the release gate for the run of the tool on itself
 realworld	CPAN-Audit: the unmodified run fails where the tests of the distribution pass	the expectations of the real distributions, where a run of every test file as prove does fails with the name of the test
@@ -47,42 +38,10 @@ engine-differential	cache perturbation=source: the cache keeps the record of a m
 engine-differential	cache selection=since: the run measures again a result that the cache holds	the cache key over every input of a result
 engine-zoo	build=blib-differing: I6 the verdicts deviate without a warning or a reason	the build of a distribution in the copy
 engine-zoo	build=blib-differing: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the build of a distribution in the copy
-engine-zoo	build=blib-script: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
-engine-zoo	build=blib-script: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the witness that a target writes for itself
 engine-zoo	files=fixed-port: I6 the verdicts deviate without a warning or a reason	the recheck of a failure beside another run of the same test
 engine-zoo	files=fixed-port: I7 the run gives Killed where the truth gives Survived	the recheck of a failure beside another run of the same test
 engine-zoo	files=fixed-tmp-path: I6 the verdicts deviate without a warning or a reason	the recheck of a failure beside another run of the same test
 engine-zoo	files=fixed-tmp-path: I7 the run gives Killed where the truth gives Survived	the recheck of a failure beside another run of the same test
-engine-zoo	loading=absolute-copy: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
-engine-zoo	loading=absolute-copy: I8 the run gives Survived where the reference style gives NoCoverage	the witness that a target writes for itself
-engine-zoo	loading=cleared-env: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
-engine-zoo	loading=cleared-env: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the witness that a target writes for itself
-engine-zoo	loading=cleared-perl5lib: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
-engine-zoo	loading=cleared-perl5lib: I8 the run gives Survived where the reference style gives NoCoverage	the witness that a target writes for itself
-engine-zoo	loading=cleared-perl5opt: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
-engine-zoo	loading=cleared-perl5opt: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the witness that a target writes for itself
-engine-zoo	loading=direct-script: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
-engine-zoo	loading=direct-script: I8 the run gives Survived where the reference style gives NoCoverage	the witness that a target writes for itself
-engine-zoo	loading=do-file: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
-engine-zoo	loading=do-file: I8 the run gives Survived where the reference style gives NoCoverage	the witness that a target writes for itself
-engine-zoo	loading=eval-text: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
-engine-zoo	loading=eval-text: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the witness that a target writes for itself
-engine-zoo	loading=fresh-inc: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
-engine-zoo	loading=fresh-inc: I8 the run gives Survived where the reference style gives NoCoverage	the witness that a target writes for itself
-engine-zoo	loading=local-inc: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
-engine-zoo	loading=local-inc: I8 the run gives Survived where the reference style gives NoCoverage	the witness that a target writes for itself
-engine-zoo	loading=perl-x: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
-engine-zoo	loading=perl-x: I8 the run gives Survived where the reference style gives NoCoverage	the witness that a target writes for itself
-engine-zoo	loading=system-perl: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
-engine-zoo	loading=system-perl: I8 the run gives Survived where the reference style gives NoCoverage	the witness that a target writes for itself
-engine-zoo	loading=taint-child: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
-engine-zoo	loading=taint-child: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the witness that a target writes for itself
-engine-zoo	path=path-quote: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
-engine-zoo	path=path-quote: I7 the run gives Survived where the truth gives NoCoverage	the witness that a target writes for itself
-engine-zoo	suite=inc-assert: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
-engine-zoo	suite=inc-assert: I8 the run gives Survived where the reference style gives NoCoverage	the witness that a target writes for itself
-engine-zoo	suite=lib-checksum: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
-engine-zoo	suite=lib-checksum: I7 the run gives NoCoverage where the truth gives Killed	the witness that a target writes for itself
 contract-reason-reasons	no case gives the reason CompileError parse	the kinds of compile error, which tell a mutant whose code dies at compile time from invalid code
 contract-reason-reasons	no case gives the reason NoVerdict build-copy-not-updated	the build of a distribution in the copy
 contract-reason-reasons	no case gives the reason NoVerdict conflicting-test	the recheck of a failure beside another run of the same test
@@ -94,7 +53,7 @@ contract-stdout-reports	the bytes of the output are no UTF-8 form of the report;
 contract-no-leak-reports	a warning of Perl; shapes utf8-1 utf8-2; formats terminal	the encoding of the output
 contract-env-source	no table and no manual lists the variable; variables GITHUB_ACTIONS; files lib/Test/Mutation/Settings.pm	the manual that the tables generate
 contract-env-source	no table and no manual lists the variable; variables GITHUB_STEP_SUMMARY; files lib/Test/Mutation/CLI.pm	the manual that the tables generate
-contract-env-source	no table and no manual lists the variable; variables a-computed-name; files lib/Test/Mutation/Runner.pm lib/Test/Mutation/Shim.pm	the manual that the tables generate
+contract-env-source	no table and no manual lists the variable; variables a-computed-name; files lib/Test/Mutation/Runner.pm lib/Test/Mutation/Shim.pm lib/Test/Mutation/Witness.pm	the manual that the tables generate
 contract-examples-manual	code that does not compile; kinds perl; files lib/Test/Mutation/Tree.pm	the manual that the tables generate
 contract-manual-manual	the manual names no row of the table; rows --baseline-timeout --cache-dir --coverage --disable --enable --equivalence --format --jobs --keep-work --link --mutant --perl --report-dir --source --source-exclude --switch --test --test-exclude --threshold-high --threshold-low --timeout-factor --timeout-floor; tables flags	the manual that the tables generate
 contract-manual-manual	the manual names no row of the table; rows 0 1 125 126 127 129 130 131 141 143 2 3 4 5 6; tables exit-statuses	the manual that the tables generate

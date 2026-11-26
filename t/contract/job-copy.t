@@ -6,6 +6,7 @@ use lib 't/e2e/lib', 't/shim/lib', 't/lib';
 use ShimHarness ();
 use Fixture     qw(write_file);
 use Raised;
+use Test::Mutation::Record;
 use Test::Mutation::Runner;
 use Test::Mutation::Select;
 use Test::Mutation::Settings;
@@ -71,6 +72,28 @@ subtest 'built commands keep their installation-specific interpreter and source 
     write_file( "$tree/blib/lib/Installer.pm", $installed );
     is Test::Mutation::Workspace::Slot::place( $tree, 'lib/Installer.pm', $source, $changed ),
       ['lib/Installer.pm'], 'interpreter rewriting applies only to executable directories';
+};
+
+subtest 'a fresh child reports line coverage from a witness in its on-disk module' => sub {
+    my $child = ShimHarness::project();
+    write_file( "$child/Clockwork.pm", <<'MODULE' );
+package Clockwork;
+BEGIN { require Test::Mutation::Shim; Test::Mutation::Shim::trace_source(0, 'Clockwork.pm', __FILE__, 'records', 0) }
+UNITCHECK { Test::Mutation::Shim::seen(0) }
+sub read_value { return 11 }
+sub unused     { return 12 }
+1;
+MODULE
+    my $run = ShimHarness::run_bare(
+        root  => $child,
+        clear => 1,
+        args  => [ '-I' . ShimHarness::lib_dir(), '-e', q{require './Clockwork.pm'; print Clockwork::read_value()} ]
+    );
+    is [ $run->@{qw(status stdout stderr)} ], [ 0, '11', q{} ], 'the child loads the on-disk module without a hook';
+    my $record = Test::Mutation::Record::read_directory("$child/records");
+    my $served = $record->{served}{'Clockwork.pm'};
+    is $served->{traced}, 1, 'the standalone witness supplies line coverage for the parent';
+    ok $served->{hits}{4} && !$served->{hits}{5}, 'only the method invoked by the child has a hit';
 };
 
 subtest 'an installed command without a blib/bin entry receives the changed bytes' => sub {

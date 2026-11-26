@@ -156,10 +156,13 @@ sub together ( $axis, $members, %more ) {
         @names = grep { !$failing{$_} } @names;
     }
     my $reference = $built->{$plain} or die "the plain member of $axis fails without a mutant\n";
-    my $outside   = $built->{'absolute-original'} && !$more{in_place};
-    my @found     = (
+    my @bypassed =
+      qw(absolute-copy absolute-original cleared-env cleared-perl5lib cleared-perl5opt direct-script do-file eval-text fresh-inc local-inc perl-x system-perl taint-child);
+    my %bypassed = $more{in_place} ? map { $_ => 'loaded-around-hook' } grep { exists $built->{$_} } @bypassed : ();
+    my $outside  = $built->{'absolute-original'} && !$more{in_place};
+    my @found    = (
         ( map { "$axis=$_: the unmodified run fails" } @failed ),
-        ( map { "$axis: $_" } findings( [ @run, 'I1' ], run => $run, expected_exit => $outside ? 4 : 0 ) ),
+        ( map { "$axis: $_" } findings( [ @run, 'I1' ], run => $run, expected_exit => $outside || %bypassed ? 4 : 0 ) ),
         findings( ['I5'], run => $run ),
         ( map { "$axis=$plain: $_" } findings( ['I7'], run => $run, member => $reference, @truth ) ),
     );
@@ -168,7 +171,8 @@ sub together ( $axis, $members, %more ) {
 
         # A member whose behavior turns the statuses has a truth of its own, and no other member shows it.
         my @compared = $member->{turns}->%* ? @truth : ( reference => $reference );
-        push @compared, expected_reason => 'outside-copy' if $outside && $name eq 'absolute-original';
+        push @compared, expected_reason => $bypassed{$name} if exists $bypassed{$name};
+        push @compared, expected_reason => 'outside-copy'   if $outside && $name eq 'absolute-original';
         push @found,
           map { "$axis=$name: $_" }
           findings( [ ( $member->{turns}->%* ? 'I7' : 'I8' ), 'I6' ], run => $run, member => $member, @compared );

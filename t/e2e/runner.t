@@ -168,14 +168,14 @@ subtest 'a test that fails on its own is not blamed on the parallel run' => sub 
     local $ENV{RUN_LOG} = $first->filename;
     my ($serial) = run_fixture( $alone, jobs => 1 );
     is [ map { $_->{test} } $serial->baseline_failures->@* ], ['t/small.t'], 'the failure is reported with one job';
-    is $runs->($first), 2, 'the hook and plain search path both reproduce the failure';
+    is $runs->($first), 3, 'the hook, the disk load, and the original bytes reproduce the failure';
 
     my $beside = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $counted );
     my $later  = File::Temp->new;
     local $ENV{RUN_LOG} = $later->filename;
     my ($parallel) = run_fixture( $beside, jobs => 2 );
     is [ map { $_->{test} } $parallel->baseline_failures->@* ], ['t/small.t'], 'the failure is reported with two jobs';
-    is $runs->($later),                                   3, 'parallel, serial, and plain search path runs all fail';
+    is $runs->($later),                                   4, 'parallel, serial, disk, and original-byte runs all fail';
     is [ $parallel->parallel_safe, $parallel->warnings ], [ 1, [] ], 'and the parallel run gets no blame';
 };
 
