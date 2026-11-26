@@ -116,6 +116,19 @@ subtest 'a reproduced failure can detect a source that the test reads as data' =
       'an unmodified source that also fails standalone can still be tested as data';
 };
 
+subtest 'a conflicting pass waits for another test that can detect the mutant' => sub {
+    my $conflict = outcome(
+        test    => 't/shared.t',
+        served  => 0,
+        anomaly => { reason => 'conflicting-test', detail => 'passed only in isolation' }
+    );
+    is decided($conflict), 'NoVerdict conflicting-test', 'the conflict alone cannot decide detection';
+    my $detected = folded( $conflict, outcome( test => 't/independent.t', result => 'fail' ) );
+    is [ $detected->@{qw(status by tests)} ], [ 'Killed', 't/independent.t', 2 ],
+      'a separate detecting test supersedes the inconclusive pass';
+    is decided( outcome( result => 'fail' ), $conflict ), 'Killed', 'a conclusive earlier failure keeps its verdict';
+};
+
 subtest 'sequences' => sub {
     is decided(), 'NoCoverage unreached', 'no test at all';
     is decided( outcome( served => 0 ), outcome( served => 0, result => 'fail' ) ), 'NoCoverage not-loaded',

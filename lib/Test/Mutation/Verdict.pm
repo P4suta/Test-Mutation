@@ -67,7 +67,10 @@ sub step ( $state, $outcome ) {
         return { %next, status => $status, reason => $reason, by => $test, detail => $detail, waiting => undef };
     };
 
-    return $decide->( 'NoVerdict', $outcome->{anomaly}->@{qw(reason detail)} ) if $outcome->{anomaly};
+    if ( my $anomaly = $outcome->{anomaly} ) {
+        return $decide->( 'NoVerdict', $anomaly->@{qw(reason detail)} ) if $anomaly->{reason} ne 'conflicting-test';
+        return { %next, waiting => { status => 'NoVerdict', by => $test, $anomaly->%* } };
+    }
     return $decide->( 'NoVerdict', 'loaded-around-hook', "$test loaded the target without the hook" )
       if $outcome->{bypassed};
     if ( defined $outcome->{read_check} ) {

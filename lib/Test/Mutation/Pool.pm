@@ -44,9 +44,11 @@ my $TASK = Dict [
 
 signature_for run => (
     named => [
-        jobs  => PositiveInt,
-        next  => CodeRef,
-        done  => CodeRef,
+        jobs             => PositiveInt,
+        next             => CodeRef,
+        done             => CodeRef,
+        retry_after_done => Bool,
+        { default => 0 },
         clock => HasMethods [qw(now wait_for)],
         { default => sub { Test::Mutation::Clock->new } },
         work => HashRef [Int],
@@ -82,6 +84,7 @@ sub run ($arg) {
                 _close_streams( $pool, $slot );
                 delete $pool->{slots}{ $slot->{pid} };
                 $completed++;
+                $exhausted = 0 if $arg->retry_after_done;
                 my $follow_up = $arg->done->( $slot->{task}, _result($slot) );
                 _start( $pool, $follow_up ) if $follow_up;
             }
@@ -394,6 +397,7 @@ Before a forced end the pool lists the descendants of the task with C<ps>, and i
 =head2 run
 
 Runs tasks until C<next> returns nothing and every started task has finished, and returns the number of tasks.
+With C<retry_after_done>, a completion may release a scheduling constraint and the pool asks C<next> for work again.
 C<done> receives each task with its result, and a task it returns runs before any task from C<next>.
 C<clock> gives the time and the wait, and L<Test::Mutation::Clock> is its default.
 C<work> is a hash where the pool adds the processes that it started under C<spawns> and the process listings that it read under C<listings>.

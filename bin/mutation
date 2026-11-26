@@ -39,6 +39,7 @@ The project can supply library directories through C<.proverc>, C<--lib>, or the
 The driver adds the selected directories to C<PERL5LIB>.
 With taint checking, the interpreter receives the directories, inherited C<PERL5OPT> switches, and the shim on its command line.
 Selecting a build library sets C<PERL_DL_NONLAZY> for the test process.
+C<HARNESS_RULESFILE> selects the scheduling rules used by C<prove> when tests need exclusive access.
 C<TEST_MUTATION_ROOT> identifies the current test copy.
 C<TEST_MUTATION_GENERATION> selects its shim when a test starts another measurement.
 

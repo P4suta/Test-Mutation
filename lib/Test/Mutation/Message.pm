@@ -414,6 +414,11 @@ my @ROWS = (
         'The tests pass one at a time and fail side by side, so the run gives up the parallel jobs.'
     ],
     [
+        'conflicting-test', 'warning',
+        '{test} passed alone after an overlapping failure, so later invocations run one at a time',
+        'The isolated repeat passed after simultaneous invocations of the same test interfered.'
+    ],
+    [
         'loaded-around-hook', 'warning',
         '{test} loads {path} around the hook and cannot detect its mutants',
         'A test reads a source file in a way that passes by the module that places the mutants.'

@@ -82,9 +82,11 @@ subtest 'a test that fails side by side runs once more, alone' => sub {
         project( 'lib/Small.pm' => $MODULE, 't/first.t' => $guarded->('first'), 't/second.t' => $guarded->('second') ),
         equivalence => 0
     );
-    is $result->jobs, 1, 'the tests fail side by side';
-    is [ $result->stats->@{qw(baseline_tests verifications spawns)} ], [ 2, 1, 2 + 1 + 3 ],
-      'the two tests of the unmodified run and the run that verifies the failure';
+    is $result->jobs,                    2, 'the tests pass with one working directory per job';
+    is $result->stats->{baseline_tests}, 2, 'each original test ran once in the shared directory';
+    cmp_ok $result->stats->{verifications}, '>=', 3, 'the serial failure check and both private copies ran';
+    is $result->stats->{spawns}, 2 + $result->stats->{verifications} + 3,
+      'the count includes each verification and each mutant test';
 };
 
 subtest 'restoring the project after a mutant avoids rerunning unaffected tests' => sub {

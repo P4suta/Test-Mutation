@@ -1,0 +1,9 @@
+---
+par:
+  - 't/unit/*.t'
+  - 't/shim/*.t'
+  - 't/assumptions/*.t'
+  - 't/contract/*.t'
+  - 't/discovery/*.t'
+  - 't/e2e/*.t'
+  - '**'

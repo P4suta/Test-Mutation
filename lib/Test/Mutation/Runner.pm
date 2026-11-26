@@ -22,6 +22,7 @@ use Test::Mutation::Record;
 use Test::Mutation::Evidence;
 use Test::Mutation::Result;
 use Test::Mutation::Signals;
+use Test::Mutation::Schedule;
 use Test::Mutation::Select;
 use Test::Mutation::Source;
 use Test::Mutation::Status;
@@ -342,6 +343,7 @@ sub _measure ( $run, $started ) {
     );
 
     if ( ( @active || $run->{options}{baseline_only} ) && @tests ) {
+        $run->{rules} = Test::Mutation::Schedule::rules($root);
         Test::Mutation::Event::phase( $listener, 'acquire' );
         $run->{workspace} = Test::Mutation::Workspace::acquire( $run->{project} );
         Test::Mutation::Event::phase( $listener, 'build' );
@@ -748,29 +750,40 @@ sub _collect ($task) {
 
 # Runs tests against the unmodified sources, which the hook serves as it serves a mutant.
 # `counted` names the count of the work that the runs of these tests add to.
-sub _unmodified ( $run, $name, $trace, $jobs, $tests, $counted ) {
-    my $root  = $run->{root};
-    my $spec  = _spec( $run, $root, $name, $trace, [ map { [ "$root/$_", "$root/$_" ] } $run->{targets}->@* ] );
-    my @queue = $tests->@*;
+sub _unmodified ( $run, $name, $trace, $jobs, $tests, $counted, $isolated = 0 ) {
+    my $root     = $run->{root};
+    my $spec_for = sub ( $directory, $label ) {
+        return _spec( $run, $directory, $label, $trace,
+            [ map { [ "$directory/$_", "$directory/$_" ] } $run->{targets}->@* ] );
+    };
+    my $shared = $isolated ? undef : $spec_for->( $root, $name );
+    my $queue  = Test::Mutation::Schedule::queue( $run->{rules}, $tests );
     my %outcome;
     Test::Mutation::Pool::run(
-        jobs => $jobs,
-        work => $run->{stats},
-        next => sub {
-            my $test = shift @queue or return;
+        jobs             => $jobs,
+        retry_after_done => 1,
+        work             => $run->{stats},
+        next             => sub {
+            my $scheduled = $queue->get_job or return;
+            return if $scheduled->is_spinner;
+            my $directory = $isolated ? _control_copy( $run, $root )                             : $root;
+            my $spec      = $isolated ? $spec_for->( $directory, "$name-" . ++$run->{sequence} ) : $shared;
             $run->{stats}{$counted}++;
             return _test_task(
                 $run,
-                root            => $root,
-                test            => $test,
+                root            => $directory,
+                test            => $scheduled->filename,
                 spec            => $spec,
                 timeout         => $run->{config}->baseline_timeout,
                 stop_on_failure => 0,
-                payload         => {},
+                payload         => { scheduled => $scheduled },
             );
         },
         done => sub ( $task, $result ) {
-            $outcome{ $task->{payload}{test} } = { result => $result, record => _collect($task) };
+            my $payload = $task->{payload};
+            $outcome{ $payload->{test} } = { result => $result, record => _collect($task), root => $task->{cwd} };
+            $payload->{scheduled}->finish;
+            _discard( $task->{cwd} ) if $isolated;
             return;
         },
     );
@@ -855,9 +868,19 @@ sub _baseline ( $run, $tests, $targets ) {
         $outcome->{$_} = $serial->{$_} for @failed;
         @failed = grep { !$outcome->{$_}{result}{passed} } @failed;
         if ( !@failed ) {
-            $parallel_safe = 0;
-            $run->{jobs} = 1;
-            _warn( $run, Test::Mutation::Message::warning('tests-conflict') );
+            my $isolated =
+              defined $run->{copies}
+              ? _unmodified( $run, 'separate', $run->{config}->coverage eq 'line',
+                $run->{jobs}, $tests, 'verifications', 1 )
+              : undef;
+            if ( $isolated && !grep { !$isolated->{$_}{result}{passed} } $tests->@* ) {
+                $outcome = $isolated;
+            }
+            else {
+                $parallel_safe = 0;
+                $run->{jobs} = 1;
+                _warn( $run, Test::Mutation::Message::warning('tests-conflict') );
+            }
         }
     }
 
@@ -947,7 +970,7 @@ sub _trace_blind ( $run, $outcome ) {
     for my $test ( sort keys $outcome->%* ) {
         my $served = $outcome->{$test}{record}{served};
         for my $path ( keys $run->{witness}->%* ) {
-            my $coverage = $served->{"$original/$path"};
+            my $coverage = $served->{ ( $outcome->{$test}{root} || $original ) . "/$path" };
             next if !$coverage || $coverage->{traced} || $run->{sensitive}{$test}{$path};
             push $tests{$test}->@*, $path;
             $paths{$path} = 1;
@@ -986,8 +1009,9 @@ sub _trace_blind ( $run, $outcome ) {
         for my $path ( $tests{$test}->@* ) {
             my $read = Test::Mutation::Evidence::target( $record, "$probe/$path" );
             next if $read->{anomaly} || !$read->{coverage} || !$read->{coverage}{traced};
-            $outcome->{$test}{record}{served}{"$original/$path"}    = $read->{coverage};
-            $outcome->{$test}{record}{breakable}{"$original/$path"} = $read->{breakable} if $read->{breakable};
+            my $absolute = ( $outcome->{$test}{root} || $original ) . "/$path";
+            $outcome->{$test}{record}{served}{$absolute}    = $read->{coverage};
+            $outcome->{$test}{record}{breakable}{$absolute} = $read->{breakable} if $read->{breakable};
         }
     }
     _discard($probe);
@@ -1045,6 +1069,8 @@ sub _measurement_jobs ( $run, $mutants, $baseline, $cache, $entries ) {
         }
         my $tests = $coverage->tests_for($mutant);
         $tests = [ sort keys $baseline->{tests}->%* ] if !$tests->@* && exists $run->{stale}{ $mutant->path };
+        $tests = [ map { $_->filename } Test::Mutation::Schedule::queue( $run->{rules}, $tests )->get_all ]
+          if $run->{rules};
         my $job = {
             mutant   => $mutant,
             tests    => $tests,
@@ -1062,27 +1088,38 @@ sub _measurement_jobs ( $run, $mutants, $baseline, $cache, $entries ) {
 sub _mutants ( $run, $mutants, $baseline ) {
     my $cache = $run->{config}->cache ? _open_cache( $run, $baseline ) : undef;
     my %entry_of;
-    my @jobs    = _measurement_jobs( $run, $mutants, $baseline, $cache, \%entry_of );
-    my @waiting = @jobs;
-    my $finish  = sub ($job) {
+    my @jobs     = _measurement_jobs( $run, $mutants, $baseline, $cache, \%entry_of );
+    my @waiting  = @jobs;
+    my $schedule = { ready => [], active => {}, retrying => {}, locked => {}, compatible => {} };
+    my $occupied = 0;
+    my $finish   = sub ($job) {
         _release( $run, $job );
         $entry_of{ $job->{mutant}->id } = _finish( $run, $job );
+        $occupied--;
         return;
     };
     my $measure = sub {
         return Test::Mutation::Pool::run(
-            jobs => $run->{jobs},
-            work => $run->{stats},
-            next => sub {
-                while ( my $job = shift @waiting ) {
+            jobs             => $run->{jobs},
+            retry_after_done => 1,
+            work             => $run->{stats},
+            next             => sub {
+                while (1) {
+                    my $prepared = _take_ready( $schedule, $run->{rules} );
+                    return $prepared if $prepared;
+                    return           if $occupied >= $run->{jobs};
+                    my $job = shift @waiting or return;
+                    $occupied++;
                     my $task = $job->{tests}->@* ? _next_test( $run, $job, $baseline ) : _next_code( $run, $job );
-                    return $task if $task;
-                    $finish->($job);
+                    if ($task) { push $schedule->{ready}->@*, $task }
+                    else       { $finish->($job) }
                 }
-                return;
             },
             done => sub ( $task, $result ) {
-                return _after_task( $run, $baseline, $task, $result ) || $finish->( $task->{payload}{job} );
+                my $follow = _scheduled_result( $run, $baseline, $schedule, $task, $result );
+                if ($follow) { push $schedule->{ready}->@*, $follow }
+                else         { $finish->( $task->{payload}{job} ) }
+                return;
             },
         );
     };
@@ -1107,6 +1144,66 @@ sub _mutants ( $run, $mutants, $baseline ) {
     _save_cache( $run, $cache, \@entries ) if $cache;
     _ignore_repeated_code( $run, \@entries );
     return \@entries;
+}
+
+sub _may_overlap ( $schedule, $rules, $test, $other ) {
+    my $known = $schedule->{compatible}{$test} ||= {};
+    return $known->{$other} if exists $known->{$other};
+    return $known->{$other} = Test::Mutation::Schedule::compatible( $rules, $test, $other );
+}
+
+sub _take_ready ( $schedule, $rules ) {
+    my $ready  = $schedule->{ready};
+    my $active = $schedule->{active};
+    for my $at ( keys $ready->@* ) {
+        my $payload = $ready->[$at]{payload};
+        if ( $payload->{kind} eq 'test' ) {
+            my $test = $payload->{test};
+            next if $schedule->{retrying}{$test}                           && !$payload->{isolated};
+            next if ( $schedule->{locked}{$test} || $payload->{isolated} ) && $active->{$test};
+            next if $rules && grep { !_may_overlap( $schedule, $rules, $test, $_ ) } keys $active->%*;
+            my $peers = $active->{$test} ||= {};
+            if ( keys $peers->%* ) {
+                $_->{overlapped} = 1 for $payload, values $peers->%*;
+            }
+            $peers->{$payload} = $payload;
+        }
+        my ($task) = splice $ready->@*, $at, 1;
+        return $task;
+    }
+    return;
+}
+
+sub _scheduled_result ( $run, $baseline, $schedule, $task, $result ) {
+    my $payload = $task->{payload};
+    return _after_task( $run, $baseline, $task, $result ) if $payload->{kind} ne 'test';
+    my $test   = $payload->{test};
+    my $active = $schedule->{active};
+    delete $active->{$test}{$payload};
+    delete $active->{$test} unless keys $active->{$test}->%*;
+    if ( $payload->{isolated} ) {
+        $schedule->{retrying}{$test}--;
+        if ( $result->{passed} ) {
+            $schedule->{locked}{$test} = 1;
+            $payload->{conflict} = 1;
+            _warn( $run, Test::Mutation::Message::warning( 'conflicting-test', test => $test ) );
+        }
+    }
+    elsif ( $payload->{overlapped} && !$result->{passed} && !$result->{overflowed} ) {
+        my $job = $payload->{job};
+        _collect($task);
+        $job->{duration} += $result->{duration};
+        _release( $run, $job );
+        delete $job->{spec};
+        return if $job->{restore_error};
+        my $repeat = _next_test( $run, $job, $baseline ) or return;
+        $repeat->{payload}{isolated}     = 1;
+        $repeat->{payload}{confirm_read} = 1 if $payload->{confirm_read};
+        $schedule->{retrying}{$test}++;
+        $run->{stats}{verifications}++;
+        return $repeat;
+    }
+    return _after_task( $run, $baseline, $task, $result );
 }
 
 sub _tree ($run) {
@@ -1393,6 +1490,13 @@ sub _after_test ( $run, $baseline, $task, $result ) {
         anomaly     => $evidence->{anomaly} || $payload->{baseline_anomaly},
         syntax      => $job->{syntax},
     };
+    if ( $payload->{conflict} && ( !$evidence->{coverage} || $evidence->{load_failed} ) ) {
+        $job->{outcome}{anomaly} = {
+            reason => 'conflicting-test',
+            detail => "$payload->{test} passed alone without a confirmed target load after an overlapping failure"
+        };
+        return;
+    }
     if ( $payload->{confirm_read} ) {
         $job->{outcome}{read_check} = _ending($result);
         return;

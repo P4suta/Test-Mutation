@@ -51,6 +51,7 @@ use Test::Mutation ();
 use Test::Mutation::Cache;
 use Test::Mutation::CLI;
 use Test::Mutation::Settings;
+use Test::Mutation::Source;
 use Test::Mutation::Git;
 use Test::Mutation::Merge;
 use Test::Mutation::Message;
@@ -450,10 +451,23 @@ my $crlf =
   "package Small;\r\nuse strict;\r\nmy \$NOTE = \"two\r\nlines\";\r\nsub next_one { return \$_[0] + 1 }\r\n1;\r\n";
 measured( { 'lib/Once.pm' => $crlf, 'lib/Twice.pm' => $crlf =~ s/1;\r\n\z/my \$MORE = "a\r\nb";\r\n1;\r\n/r } );
 
-# Tests that fail side by side.
-my $guarded = "use Test::More tests => 2;\nuse Small;\nok mkdir('held'), 'the directory is free';\n"
-  . "select undef, undef, undef, 0.8;\nrmdir 'held';\nis Small::next_one(2), 3, 'the next one';\n";
-measured( { 'lib/Small.pm' => $module, 't/first.t' => $guarded, 't/second.t' => $guarded }, jobs => 2 );
+# An external lock covers one test of a mutant or two tests of the original.
+{
+    my $directory = File::Temp::tempdir( CLEANUP => 1 );
+    local $ENV{MUTATION_TEST_LOCK} = "$directory/resource";
+    my $resource = Test::Mutation::Source::read_bytes('t/fixtures/exclusive/t/resource.t');
+    my %files    = (
+        'lib/Exclusive.pm' => Test::Mutation::Source::read_bytes('t/fixtures/exclusive/lib/Exclusive.pm'),
+        't/a.t'            => $resource
+    );
+    my %pair  = ( %files, 't/b.t' => $resource );
+    my @cases = ( [ \%files, 3, 'mutants' ], [ \%pair, 2, 'originals' ] );
+    for my $case (@cases) {
+        my ( $project, $jobs, $phase ) = @$case;
+        local $ENV{MUTATION_TEST_OVERLAP} = $phase;
+        measured( $project, jobs => $jobs, equivalence => 0, timeout_floor => 30 );
+    }
+}
 
 # A source that fails a syntax check of its own and decompiles to no stable text, and a test that reads a source directly.
 my $bound = "package Bound;\nuse strict;\nuse warnings;\nBEGIN { die \"no application\\n\" if !\$main::APPLICATION }\n"

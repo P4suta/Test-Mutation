@@ -20,7 +20,7 @@ sub tests_run ($result) {
 opendir my $directory, 't/fixtures' or die "read t/fixtures: $!";
 my @fixtures = sort grep { !/\A[.]/ } readdir $directory;
 closedir $directory or die "close t/fixtures: $!";
-is \@fixtures, [qw(calc counter equivalent mechanics script)], 'the fixtures';
+is \@fixtures, [qw(calc counter equivalent exclusive mechanics script)], 'the fixtures';
 
 for my $fixture (@fixtures) {
     next
@@ -29,9 +29,11 @@ for my $fixture (@fixtures) {
     subtest $fixture => sub {
         my $root = copy_of($fixture);
         my %result;
+        my %deadline = $fixture eq 'mechanics' ? ( timeout_floor => 1, timeout_factor => 2 ) : ();
         for my $mode (qw(line file)) {
-            ( $result{$mode} ) = run_fixture( $root, coverage => $mode, timeout_floor => 1, timeout_factor => 2 );
-            is $result{$mode}->baseline_failures, [], "$mode: the unmodified run passes";
+            ( $result{$mode} ) = run_fixture( $root, coverage => $mode, %deadline );
+            is $result{$mode}->baseline_failures,      [], "$mode: the unmodified run passes";
+            is by_status( $result{$mode}, 'Timeout' ), [], "$mode: every finite mutant completes" unless %deadline;
         }
         for my $status (qw(Killed Timeout CompileError)) {
             is by_status( $result{line}, $status ), by_status( $result{file}, $status ), "the same mutants are $status";

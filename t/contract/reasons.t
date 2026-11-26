@@ -328,6 +328,17 @@ my $stale = measured(
 is of_status( $stale, 'lib/Small.pm', 'NoVerdict' ), ['NoVerdict build-copy-not-updated'],
   'a build product kept its original bytes';
 
+{
+    my $dir = File::Temp::tempdir( CLEANUP => 1 );
+    local $ENV{MUTATION_TEST_LOCK}       = "$dir/resource";
+    local $ENV{MUTATION_TEST_OVERLAP}    = 'mutants';
+    local $ENV{MUTATION_TEST_SKIP_RETRY} = 1;
+    my $root     = copy_of('exclusive');
+    my $conflict = measured( $root, jobs => 3, equivalence => 0, timeout_floor => 30 );
+    is of_status( $conflict, 'lib/Exclusive.pm', 'NoVerdict' ), ['NoVerdict conflicting-test'],
+      'the isolated pass did not load the mutant after the overlapping failure';
+}
+
 my $pairs   = pairs();
 my @ungiven = ungiven( $pairs, \%given );
 Gate::findings( 'contract-reason-reasons', [ map { "no case gives the reason $_" } @ungiven ] );

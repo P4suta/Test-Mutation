@@ -137,7 +137,7 @@ subtest 'an error of the listener stops the run and leaves no work directory' =>
     is [ glob "$temporary/mutation-*" ], [], 'the workspace is removed';
 };
 
-subtest 'tests that fail side by side run one at a time' => sub {
+subtest 'separate baseline copies preserve parallel jobs after a project-local conflict' => sub {
     my $guarded = sub ($name) {
         return
             "use Test::More tests => 2;\nuse Small;\n"
@@ -148,10 +148,9 @@ subtest 'tests that fail side by side run one at a time' => sub {
       project( 'lib/Small.pm' => $MODULE, 't/first.t' => $guarded->('first'), 't/second.t' => $guarded->('second') );
     my ($result) = run_fixture($root);
     is $result->baseline_failures,                [],       'the unmodified run passes after the second attempt';
-    is [ $result->parallel_safe, $result->jobs ], [ 0, 1 ], 'the result names one job and no safe parallel run';
-    is $result->warnings, ['the tests fail when they run side by side, so the mutants run one test at a time'],
-      'the warning';
-    is [ sort values statuses($result)->%* ], [ ('Killed') x 3 ], 'and the mutants are measured';
+    is [ $result->parallel_safe, $result->jobs ], [ 1, 2 ], 'both tests pass in simultaneous copies';
+    is $result->warnings,                         [], 'the project-local directory is private in every mutant job';
+    is [ sort values statuses($result)->%* ],     [ ('Killed') x 3 ], 'and the mutants are measured';
 };
 
 subtest 'a test that fails on its own is not blamed on the parallel run' => sub {
@@ -434,8 +433,8 @@ subtest 'two jobs never work in one copy' => sub {
     my ($result) = run_fixture( $root, jobs => 2, enable => ['comparison-boundary'] );
     open my $handle, '<', $log->filename or die "read: $!";
     chomp( my @lines = readline $handle );
-    is \@lines, [ ('alone') x ( 1 + scalar $result->entries->@* ) ],
-      'every run of the test has its directory to itself';
+    is \@lines, [ ('alone') x ( 1 + $result->entries->@* + $result->stats->{verifications} ) ],
+      'each original, mutant, and isolated repeat holds its own directory';
     is scalar $result->entries->@*, 8, 'for the unmodified run and eight mutants';
 };
 
