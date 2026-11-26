@@ -98,7 +98,13 @@ signature_for run => (
     returns => InstanceOf ['Test::Mutation::Result'],
 );
 
-sub run ( $config, $listener, $options = {} ) {
+sub run ( $config, $notify, $options = {} ) {
+    my %events   = ( analyzed => 'resolved', baseline => 'baseline_finished', mutant => 'mutant_finished' );
+    my $listener = sub ( $event, $data ) {
+        $notify->( $event,          $data );
+        $notify->( $events{$event}, $data ) if exists $events{$event};
+        return;
+    };
     my $started = Time::HiRes::time();
     Test::Mutation::Event::phase( $listener, 'resolve' );
     my $project = Cwd::abs_path( $config->root );
@@ -124,14 +130,21 @@ sub run ( $config, $listener, $options = {} ) {
     };
     my $result = Test::Mutation::Signals::watch(
         sub {
-            Test::Mutation::Try::with_cleanup( sub { _measure( $run, $started ) }, $release );
+            Test::Mutation::Event::during(
+                $listener,
+                sub {
+                    Test::Mutation::Try::with_cleanup( sub { _measure( $run, $started ) }, $release );
+                }
+            );
         }
     );
-    return Test::Mutation::Result->new(
+    my $measurement = Test::Mutation::Result->new(
         $result->%*,
         warnings => [ sort keys $run->{warnings}->%* ],
         finished => Time::HiRes::time()
     );
+    $listener->( 'finished', $measurement->tally );
+    return $measurement;
 }
 
 # The tests run in a copy of the project, so a file that a test writes or removes leaves the project as it was.
@@ -141,10 +154,14 @@ sub _copy_project ($run) {
 
     my $directory = $run->{workspace}->directory;
     $run->{copies} = "$directory/slot";
-    my @skip   = ( q{.git}, map { _inside( $project, $_ ) } $config->cache_dir, $config->report_dir );
+    my @skip = ( q{.git}, map { _inside( $project, $_ ) } $config->cache_dir, $config->report_dir );
+    $run->{listener}->( 'copy_started', { project => $project } );
     my $copied = Test::Mutation::Try::attempt(
         sub { $run->{root} = _new_copy( $run, "$directory/tree", $project, \@skip, $config->link ) } );
-    return if exists $copied->{value};
+    if ( exists $copied->{value} ) {
+        $run->{listener}->( 'copy_finished', { root => $run->{root} } );
+        return;
+    }
 
     # A failure of the system names its path, and the run adds what the user can do about it.
     my $error = $copied->{error};
@@ -339,8 +356,10 @@ sub _measure ( $run, $started ) {
             ? Test::Mutation::Message::warning( 'analysis-left-out-place',  path => $path )
             : Test::Mutation::Message::warning( 'analysis-left-out-places', path => $path, count => $count ) );
     }
-    $listener->( 'analyzed',
-        { mutants => scalar(@active), files => scalar( keys %targets ), tests => scalar(@tests) } );
+    $listener->(
+        'analyzed',
+        { mutants => scalar( $selection->mutants->@* ), files => scalar( keys %targets ), tests => scalar(@tests) }
+    );
 
     my %result = (
         root              => $run->{project},
@@ -402,12 +421,17 @@ sub _measure_tests ( $run, $selection, $plan ) {
         baseline_failures => $baseline->{failures},
         tests             => _test_list( $baseline->{tests} ),
     };
-    return $result                     if $baseline->{failures}->@*;
+
+    if ( $baseline->{failures}->@* ) {
+        $listener->( 'baseline_finished', { failures => $baseline->{failures} } );
+        return $result;
+    }
     _begin_in_place( $run, $baseline ) if $run->{guard} && !$run->{options}{baseline_only};
     $listener->( 'baseline', { tests => scalar $run->{test_paths}->@*, jobs => $run->{jobs} } );
     return $result if $run->{options}{baseline_only};
     Test::Mutation::Event::phase( $listener, 'mutants' );
     $result->{entries} = _mutants( $run, $selection->mutants, $baseline );
+    $listener->( 'mutants_finished', { total => scalar $result->{entries}->@* } );
 
     if ( my $fresh = $run->{rechecked_baseline} ) {
         $result->{tests}             = _test_list( $fresh->{tests} );
@@ -768,7 +792,7 @@ signature_for run_command => (
 
 sub run_command ( $config, $source, $mutant, $command ) {
     my $root = Cwd::abs_path( $config->root );
-    my $run  = { config => $config, project => $root, root => $root };
+    my $run  = { config => $config, project => $root, root => $root, listener => sub { return } };
     my $work = sub {
         $run->{workspace} = Test::Mutation::Workspace::acquire($root);
         _copy_project($run) unless $config->in_place;
@@ -919,6 +943,8 @@ sub _unmodified ( $run, $name, $trace, $jobs, $tests, $counted, $isolated = 0 ) 
             my $payload = $task->{payload};
             $outcome{ $payload->{test} } = { result => $result, record => _collect($task), root => $task->{cwd} };
             $payload->{scheduled}->finish;
+            $run->{listener}->( 'baseline_test', { test => $payload->{test}, passed => $result->{passed} } )
+              if $counted eq 'baseline_tests';
             _discard( $task->{cwd} ) if $isolated;
             return;
         },
@@ -2015,7 +2041,9 @@ The mutants of every mutator decide whether a comment suppresses one, so the cho
 =head2 run
 
 Runs the measurement and returns a L<Test::Mutation::Result>.
-The listener receives C<phase>, C<analyzed>, C<baseline>, and C<mutant> events with a hash reference of details.
+The listener receives C<phase> with its name and time, C<resolved>, C<copy_started>, C<copy_finished>, C<baseline_started>, C<baseline_test>, C<baseline_finished>, C<mutants_started>, C<mutant_finished>, C<mutants_finished>, C<tick>, and C<finished>.
+The original C<analyzed>, C<baseline>, and C<mutant> notifications remain available.
+The final event contains the measurement tally.
 Each C<phase> event gives the stage name and its start time.
 
 =head2 phases

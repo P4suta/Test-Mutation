@@ -46,7 +46,7 @@ sub configured ( $file, %given ) {
 
 subtest 'one row for each setting, with one name on every surface' => sub {
     my @names = map { $_->name } Test::Mutation::Settings::rows()->@*;
-    is scalar(@names),                                           33, 'the settings';
+    is scalar(@names),                                           34, 'the settings';
     is [ grep { $names[$_] eq $names[ $_ - 1 ] } 1 .. $#names ], [], 'no name twice in a row';
     my $score = $row{'min-score'};
     is [ $score->flag, $score->key, $score->attribute ], [ '--min-score', 'min-score', 'min_score' ], 'the three names';
@@ -89,6 +89,7 @@ subtest 'the default of every setting and its text' => sub {
         root               => q{.},
         config             => undef,
         jobs               => 3,
+        color              => 0,
         'min-score'        => undef,
         format             => [qw(terminal json html)],
         'report-dir'       => 'mutation-report',
@@ -125,6 +126,7 @@ subtest 'the default of every setting and its text' => sub {
 
     # A default that the facts leave as it is has a text that states its value.
     my $other = {
+        terminal   => 1,
         processors => 9,
         env        => { GITHUB_ACTIONS => 'true' },
         launch     => { lib            => [qw(blib/lib blib/arch)], switch => [] }

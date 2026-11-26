@@ -45,7 +45,7 @@ sub _holds ( $path, $pattern ) {
 
 # The lines that the tool writes when it has analyzed the sources, passed the unmodified run, and finished a mutant.
 my $PASSED   = qr/^The unmodified run passed/m;
-my $MEASURED = qr/^\[\s*[0-9]+\/[0-9]+\]/m;
+my $MEASURED = qr/^discovery-measured-mutant$/m;
 
 # Each deadline marks the next phase that the signal must precede.
 my %MOMENT = (
@@ -149,6 +149,7 @@ my $run = \&Test::Mutation::Runner::run;
                 $listener->( $event, $data );
                 my $name = $event eq 'phase' ? "phase:$data->{name}" : $event;
                 print STDERR "discovery-phase $data->{name}\n" if $event eq 'phase';
+                print STDERR "discovery-measured-mutant\n" if $event eq 'mutant';
                 die "the listener dies\n" if defined $ENV{DISCOVERY_DIES_AT} && $name eq $ENV{DISCOVERY_DIES_AT};
                 return;
             },

@@ -144,10 +144,19 @@ subtest 'the output of a run under every state of the environment' => sub {
           World::observe( [ 'run', '--format', 'terminal' ], cwd => $project, $environment->{fact}->%* );
         $output{ $environment->{label} } = $observation;
         is $observation->{exit}, 0, "the run under $environment->{label} succeeds";
+        my $facts  = $environment->{fact};
+        my $styled = $facts->{out_tty} && !length $facts->{env}{NO_COLOR};
+        is !!( $observation->{stdout} =~ /\e\[\d+m/ ), !!$styled,     "color under $environment->{label}";
+        is !!( $observation->{stderr} =~ /\r/ ), !!$facts->{err_tty}, "terminal updates under $environment->{label}";
+
         for my $stream (qw(stdout stderr)) {
+            my $rendered = $observation->{$stream} =~ s/\e\[\d+m//gr;
+            $rendered =~ s/\r/\n/g;
+            $rendered =~ s/\n+/\n/g;
+            my $plain = $output{plain}{$stream} =~ s/\n+/\n/gr;
             violation( 'independent', 'streams', 'the environment changes the output where no table declares it',
                 $stream, $environment->{label} )
-              if $observation->{$stream} ne $output{plain}{$stream};
+              if $rendered ne $plain;
         }
     }
     isnt $output{terminal}{stderr}, $output{plain}{stderr}, 'a terminal gets another progress than a log';

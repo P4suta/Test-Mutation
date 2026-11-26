@@ -2,6 +2,7 @@ package Test::Mutation::Signals;
 use v5.36;
 use Types::Standard qw(Bool CodeRef Defined Dict Enum FileHandle Int Maybe Undef);
 use Type::Params    qw(signature_for);
+use Test::Mutation::Event;
 use Test::Mutation::Exit;
 use Test::Mutation::Interrupted;
 
@@ -76,6 +77,7 @@ sub deferred ($code) {
 signature_for check => ( positional => [], returns => Undef );
 
 sub check () {
+    Test::Mutation::Event::checkpoint();
     my $watch = $HELD{watch};
     return if !$watch || !due($watch);
     $watch->{raised} = 1;

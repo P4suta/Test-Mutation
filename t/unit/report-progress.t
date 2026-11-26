@@ -11,7 +11,7 @@ subtest 'line shows the position and the counts that matter' => sub {
     is Test::Mutation::Report::Progress::line( 1, 1200, { Timeout => 1 } ), '[   1/1200] 1 timeout', 'a wide total';
     is Test::Mutation::Report::Progress::line( 0, 5,    {} ),               '[0/5]', 'nothing counted yet';
     is Test::Mutation::Report::Progress::line( 8, 8,    { map { $_ => 1 } Test::Mutation::Status::names()->@* } ),
-      '[8/8] 1 killed, 1 survived, 1 no coverage, 1 timeout, 1 compile error, 1 no verdict',
+      '[8/8] 1 killed, 1 survived, 1 no coverage, 1 timeout, 1 compile error, 1 no verdict, 1 ignored, 1 pending',
       'the statuses that the catalog counts in the progress line, in its order';
 };
 

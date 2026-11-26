@@ -146,11 +146,12 @@ for my $case (@cases) {
 
 ok $started, 'the sentinel reports the tests of a run that measures';
 
-# The progress space of t/contract sends these events in this order from a made run, after the count of processors.
 my $PROCESSORS = qr/\d+ processors? (?:online|in the [a-z ]+|by default)\n/;
+like $progress, qr/$PROCESSORS\d+ mutants? in \d+ files?, \d+ tests?\n/,
+  'the run states the available processors and the size of the measurement';
 like $progress,
-  qr/\A$PROCESSORS\d+ mutants? in \d+ files?, \d+ tests?\nThe unmodified run passed: [^\n]+\n(?:\[\s*\d+\/\d+\][^\n]*\n)+\z/,
-  'a run reports its processors, its analysis, then the end of the unmodified run, then each mutant';
+  qr/^Baseline \(\d+\/\d+ tests\) [|] \d+s elapsed.*^The unmodified run passed: [^\n]+.*^Mutants [|] \d+s elapsed.*^\[\s*\d+\/\d+\] [^\n]+.*^Release [|] \d+s elapsed/ms,
+  'the run reports the test phase, measured mutants and workspace release in order';
 Gate::checked( 'command lines in a process', scalar @cases, at_least => 40 );
 
 for my $gate (qw(exit-domain exit-table one-line no-leak no-effect stdout)) {

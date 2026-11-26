@@ -282,8 +282,9 @@ subtest 'progress-final rejects a last line that differs from the tally' => sub 
 };
 
 subtest 'liveness rejects a silence that grows with the run' => sub {
-    is [ Invariants::liveness( 1, 1 ) ],   [], 'the same silence in a small and a large run';
-    is [ Invariants::liveness( 1, 100 ) ], ['the silence grows with the run'], 'a longer silence in the large run';
+    is [ Invariants::liveness( 1, 1 ) ], [], 'the same silence in a small and a large run';
+    is [ Invariants::liveness( 1, 100 ) ], ['the display is silent for more than five seconds'],
+      'a longer silence in the large run';
 };
 
 subtest 'message rejects a message that no case produces' => sub {

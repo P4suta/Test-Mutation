@@ -44,6 +44,21 @@ is $tally->{counts}{NoCoverage}, 3,  'no coverage';
 ok $result->conclusive, 'the run is conclusive';
 is [ sort { $a cmp $b } map { $_->{name} } $result->tests->@* ], [ 't/add.t', 't/sign.t' ],
   'tests of the unmodified run';
-is [ grep { $_ ne 'mutant' && $_ ne 'phase' } $events->@* ], [ 'analyzed', 'baseline' ], 'events before the mutants';
+is [ grep { $_ eq 'analyzed' || $_ eq 'baseline' } $events->@* ], [qw(analyzed baseline)],
+  'the original listener events';
+is [
+    grep {
+        /\A(?:resolved|baseline_started|baseline_test|baseline_finished|mutants_started|mutant_finished|mutants_finished|finished)\z/
+    } $events->@*
+  ],
+  [
+    qw(resolved baseline_started baseline_test baseline_test baseline_finished mutants_started),
+    ('mutant_finished') x 21,
+    qw(mutants_finished finished)
+  ],
+  'each original test and each mutant finishes inside its phase';
+my $copies = grep { $_ eq 'copy_started' } $events->@*;
+ok $copies, 'the run acquired a copy';
+is scalar( grep { $_ eq 'copy_finished' } $events->@* ), $copies, 'each acquired copy finished';
 
 done_testing;

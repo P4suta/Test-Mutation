@@ -5,15 +5,7 @@ realworld	Moo: the number of mutants lies outside its band	the expectations of t
 realworld	Params-Util with blib: the number of mutants lies outside its band	the expectations of the real distributions after the mutator catalog changes
 realworld	Params-Util: the number of mutants lies outside its band	the expectations of the real distributions after the mutator catalog changes
 contract-plan-settings	the default of format differs from the contract	the terminal report and the summary of GitHub
-contract-plan-settings	the table lacks the setting color of the contract	the progress display
 contract-plan-settings	the table lacks the setting github of the contract	the terminal report and the summary of GitHub
-contract-no-leak-process	a place in the source; cases letters-in-a-patch; part report	the encoding of the output
-contract-progress-sum-progress	the counts of a line sum to less than its position; lengths 1 2 3 4; streams log terminal	the progress display
-contract-progress-final-progress	the last line states another count than the result; statuses Ignored Pending; streams log terminal	the progress display
-contract-liveness-progress	the silence grows with the run; phases baseline; streams log terminal	the progress display
-contract-liveness-progress	the silence grows with the run; phases mutants; streams log	the progress display
-contract-stdout-reports	the bytes of the output are no UTF-8 form of the report; shapes latin1-1 latin1-2; formats terminal	the encoding of the output
-contract-no-leak-reports	a warning of Perl; shapes utf8-1 utf8-2; formats terminal	the encoding of the output
 contract-env-source	no table and no manual lists the variable; variables GITHUB_ACTIONS; files lib/Test/Mutation/Settings.pm	the manual that the tables generate
 contract-env-source	no table and no manual lists the variable; variables GITHUB_STEP_SUMMARY; files lib/Test/Mutation/CLI.pm	the manual that the tables generate
 contract-env-source	no table and no manual lists the variable; variables a-computed-name; files lib/Test/Mutation/Runner.pm lib/Test/Mutation/Shim.pm lib/Test/Mutation/Witness.pm	the manual that the tables generate
@@ -22,4 +14,3 @@ contract-manual-manual	the manual names no row of the table; rows --baseline-tim
 contract-manual-manual	the manual names no row of the table; rows 0 1 125 126 127 129 130 131 141 143 2 3 4 5 6; tables exit-statuses	the manual that the tables generate
 contract-manual-manual	the manual names no row of the table; rows Pending; tables statuses	the manual that the tables generate
 contract-manual-manual	the manual names no row of the table; rows mutant shard since; tables keys	the manual that the tables generate
-contract-independent-pairs	the environment changes the output where no table declares it; streams stderr; environments GITHUB_ACTIONS+NO_COLOR+terminal GITHUB_ACTIONS+terminal NO_COLOR+terminal terminal	the progress display

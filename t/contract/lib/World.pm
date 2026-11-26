@@ -30,8 +30,8 @@ sub facts (%fact) {
 sub observe ( $argv, %fact ) {
     my $run = delete $fact{run} || 'all';
     my ( $out, $err ) = ( q{}, q{} );
-    open my $out_handle, '>', \$out or die "out: $!";
-    open my $err_handle, '>', \$err or die "err: $!";
+    open my $out_handle, '>:encoding(UTF-8)', \$out or die "out: $!";
+    open my $err_handle, '>:encoding(UTF-8)', \$err or die "err: $!";
     my $world = { facts(%fact), out => $out_handle, err => $err_handle };
     my $here  = Cwd::getcwd();
     my ( @warnings, $exit );
@@ -51,6 +51,8 @@ sub observe ( $argv, %fact ) {
         $died = "$@" if !defined $exit;
         chdir $here or die "chdir $here: $!";
     }
+    close $out_handle or die "out: $!";
+    close $err_handle or die "err: $!";
     return {
         argv     => $argv,
         plan     => $plan,

@@ -31,10 +31,10 @@ my @EXPECTED = (
         ]
     ],
     [
-        'Ignored', 'Ignored', 'ignored', undef, 'outside', 0, undef, 1,
+        'Ignored', 'Ignored', 'ignored', undef, 'outside', 1, undef, 1,
         [qw(suppressed same-code-as-original same-code-as-mutant)]
     ],
-    [ 'Pending', 'Pending', 'pending', undef, 'outside', 0, undef, 0, ['interrupted'] ],
+    [ 'Pending', 'Pending', 'pending', undef, 'outside', 1, undef, 0, ['interrupted'] ],
 );
 my @COLUMNS = qw(name schema word heading role progress annotation cached reasons);
 

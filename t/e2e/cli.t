@@ -42,10 +42,11 @@ subtest 'run prints the summary and succeeds' => sub {
 
 subtest 'run reports its progress on standard error' => sub {
     my $run = ran( 0, copy_of('calc'), '--jobs', 2, '--format', 'terminal' );
-    like $run->{stderr},   qr/^The unmodified run passed: 2 tests, 2 jobs$/m,      'the unmodified run';
-    like $run->{stderr},   qr/^\[21\/21\] 15 killed, 3 survived, 3 no coverage$/m, 'the last progress line';
-    unlike $run->{stderr}, qr/\r/,                                                 'no carriage return in a log';
-    unlike $run->{stderr}, qr/^mutation:/m,                                        'a complete run reports no problem';
+    like $run->{stderr}, qr/^The unmodified run passed: 2 tests, 2 jobs$/m, 'the unmodified run';
+    like $run->{stderr}, qr/^\[21\/21\] 15 killed, 3 survived, 3 no coverage [|] \d+s elapsed$/m,
+      'the last progress line';
+    unlike $run->{stderr}, qr/\r/,          'no carriage return in a log';
+    unlike $run->{stderr}, qr/^mutation:/m, 'a complete run reports no problem';
 };
 
 subtest 'run is the default command' => sub {

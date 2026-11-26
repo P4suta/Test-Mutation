@@ -9,7 +9,7 @@ our $VERSION = '0.001';
 
 my @settings = grep { $_->offers('line') } Test::Mutation::Settings::rows()->@*;
 my @all      = map  { $_->name } @settings;
-my @baseline = map  { $_->name } grep { $_->group =~ /\A(?:project|tests|cache)\z/ } @settings;
+my @baseline = map  { $_->name } grep { $_->name eq 'color' || $_->group =~ /\A(?:project|tests|cache)\z/ } @settings;
 my %grammar  = (
     paths      => [ '[PATH[:LINES]...]',           0, undef ],
     none       => [ q{},                           0, 0 ],

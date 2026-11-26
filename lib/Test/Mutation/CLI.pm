@@ -9,6 +9,7 @@ use Fcntl          qw(O_RDONLY LOCK_EX S_ISREG);
 use List::Util     ();
 use Scalar::Util   ();
 use Time::HiRes    ();
+use IO::Handle     ();
 use Types::Standard
   qw(ArrayRef Bool CodeRef Dict Enum FileHandle GlobRef HashRef InstanceOf Int Maybe Optional Slurpy Str);
 use Types::Common::Numeric qw(PositiveInt);
@@ -29,7 +30,7 @@ use Test::Mutation::Report::GitHub;
 use Test::Mutation::Report::Html;
 use Test::Mutation::Report::Json;
 use Test::Mutation::Report::Patch;
-use Test::Mutation::Report::Progress;
+use Test::Mutation::Report::Live;
 use Test::Mutation::Report::Terminal;
 use Test::Mutation::Runner;
 use Test::Mutation::Select;
@@ -113,6 +114,12 @@ sub _help ($command) {
 }
 
 sub main ($list) {
+    for my $stream ( \*STDOUT, \*STDERR ) {
+        next unless defined fileno $stream;
+        binmode $stream, ':raw:encoding(UTF-8)'
+          or Test::Mutation::Error::raise( 'file-unwritable', path => "$stream", reason => "$!" );
+        $stream->autoflush(1);
+    }
     my $world = {
         cwd        => Cwd::getcwd(),
         env        => \%ENV,
@@ -120,7 +127,7 @@ sub main ($list) {
         err        => \*STDERR,
         out_tty    => _terminal( \*STDOUT ),
         err_tty    => _terminal( \*STDERR ),
-        clock      => \&Time::HiRes::time,
+        clock      => sub { Time::HiRes::clock_gettime( Time::HiRes::CLOCK_MONOTONIC() ) },
         processors => \&Test::Mutation::Host::processors,
     };
     return Test::Mutation::Signals::watch( sub { execute( plan( argv => $list, world => $world ), $world ) } );
@@ -210,7 +217,11 @@ sub _planned ( $argv, $world ) {
         $plan{config}     = Test::Mutation::Settings::configure(
             root  => Cwd::abs_path($inside),
             given => $given,
-            facts => { processors => $plan{processors}{count}, env => $world->{env} },
+            facts => {
+                processors => $plan{processors}{count},
+                env        => $world->{env},
+                terminal   => $world->{out_tty} || $world->{err_tty}
+            },
         );
     }
     if ( $row->operands eq 'paths' && $plan{operands}->@* ) {
@@ -296,21 +307,19 @@ sub _first_line ($error) {
 }
 
 sub _run ( $invocation, $world ) {
-    my $config = $invocation->{config};
-    my $result = Test::Mutation::Runner::run(
-        $config,
-        _progress( $world->{err}, $world->{err_tty}, $invocation->{processors} ),
+    my $config   = $invocation->{config};
+    my $listener = _progress( $invocation, $world );
+    my $result   = Test::Mutation::Runner::run( $config, $listener,
         $invocation->{selection}
         ? { selection => $invocation->{selection} }
-        : { reports   => 1, summary => $world->{env}{GITHUB_STEP_SUMMARY} }
-    );
-    _report( $result, $config, $world );
+        : { reports   => 1, summary => $world->{env}{GITHUB_STEP_SUMMARY} } );
+    _report( $result, $config, $world, $listener );
     return _concluded( $result, $config->min_score, $world );
 }
 
 sub _baseline ( $invocation, $world ) {
     my $config = $invocation->{config};
-    my $result = Test::Mutation::Runner::run( $config, sub { }, { baseline_only => 1 } );
+    my $result = Test::Mutation::Runner::run( $config, _progress( $invocation, $world ), { baseline_only => 1 } );
     say { $world->{out} } 'Baseline: ', _plural( scalar $result->tests->@*, 'test' );
     say { $world->{err} } $_->{test} for $result->baseline_failures->@*;
     return _concluded( $result, undef, $world );
@@ -323,27 +332,17 @@ sub _settings ( $invocation, $world ) {
     return 0;
 }
 
-sub _progress ( $errors, $in_place, $processors ) {
-    my ( %counts, $total );
-    my $done = 0;
-    return sub ( $event, $data ) {
-        if ( $event eq 'analyzed' ) {
-            print {$errors} Test::Mutation::Host::describe($processors), "\n";
-            $total = $data->{mutants};
-            printf {$errors} "%s in %s, %s\n", _plural( $total, 'mutant' ), _plural( $data->{files}, 'file' ),
-              _plural( $data->{tests}, 'test' );
-        }
-        elsif ( $event eq 'baseline' ) {
-            printf {$errors} "The unmodified run passed: %s, %s\n", _plural( $data->{tests}, 'test' ),
-              _plural( $data->{jobs}, 'job' );
-        }
-        elsif ( $event eq 'mutant' ) {
-            $counts{ $data->{status} }++;
-            $done++;
-            print {$errors} Test::Mutation::Report::Progress::update( $done, $total, \%counts, $in_place );
-        }
-        return;
-    };
+sub _color ( $config, $world, $terminal ) {
+    return
+         $config->color
+      && !length( $world->{env}{NO_COLOR} )
+      && ( $terminal || exists $config->specified->{color} ) ? 1 : 0;
+}
+
+sub _progress ( $invocation, $world ) {
+    return Test::Mutation::Report::Live::listener( $world->{err}, $world->{err_tty},
+        _color( $invocation->{config}, $world, $world->{err_tty} ),
+        $world->{clock}, Test::Mutation::Host::describe( $invocation->{processors} ) );
 }
 
 my %FILE_REPORT = (
@@ -351,13 +350,19 @@ my %FILE_REPORT = (
     html => [ 'mutation.html', \&Test::Mutation::Report::Html::render ],
 );
 
-sub _report ( $result, $config, $world ) {
+sub _report ( $result, $config, $world, $listener = sub { return } ) {
     my %wanted = map { $_ => 1 } $config->format->@*;
-    print { $world->{out} } Test::Mutation::Report::Terminal::render( $result, color => 0 ) if $wanted{terminal};
+    print { $world->{out} } Test::Mutation::Report::Terminal::render(
+        $result,
+        color => _color( $config, $world, $world->{out_tty} ),
+        low   => $config->threshold_low,
+        high  => $config->threshold_high
+    ) if $wanted{terminal};
 
     my @formats = grep { $wanted{$_} } qw(json html);
     if (@formats) {
         my @written = _file_reports( $result, $config, \@formats );
+        $listener->( 'report_written', { path => $_ } ) for @written;
         print { $world->{out} } 'Reports: ', join( ', ', @written ), "\n";
     }
     _report_to_github( $result, $world, $config->root ) if $wanted{github};

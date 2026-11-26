@@ -131,7 +131,8 @@ my @PROGRESS = (
     qr/\A\d+ processors? (?:online|in the affinity of the process|in the quota of the control group|by default)\z/,
     $ANNOUNCED,
     qr/\AThe unmodified run passed: \d+ tests?, \d+ jobs?\z/,
-    qr{\A\[\s*\d+/\d+\](?: \d+ [a-z ]+(?:, \d+ [a-z ]+)*)?\z},
+    qr{\A(?:Resolve|Analyze|Plan|Acquire|Copy|Build|Mutants|Conclude|Release|Baseline(?: [(]\d+/\d+ tests[)])?) [|] \d+s elapsed\z},
+    qr{\A\[\s*\d+/\d+\](?: \d+ [a-z ]+(?:, \d+ [a-z ]+)*)?(?: [|] \d+s elapsed(?:, \d+s remaining)?)?\z},
 );
 
 # A run writes its progress to standard error, and any other line there is a message that nobody planned.

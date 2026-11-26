@@ -83,8 +83,14 @@ use Input;
 ok !-e 'changed-input', 'the setup leaves the input alone';
 PERL
     my $settings = Test::Mutation::Settings::of_call( { root => $project, jobs => 1 } );
+    my @finished;
     my $baseline = sub {
-        return Test::Mutation::Runner::run( $settings, sub { return }, { baseline_only => 1 } );
+        @finished = ();
+        my $progress = sub ( $event, $data ) {
+            push @finished, $data if $event eq 'baseline_finished';
+            return;
+        };
+        return Test::Mutation::Runner::run( $settings, $progress, { baseline_only => 1 } );
     };
     is $baseline->()->baseline_failures,       [], 'both original tests pass before the edit';
     is $baseline->()->stats->{baseline_tests}, 0,  'both passing observations are available';
@@ -95,6 +101,8 @@ close $out or die $!;
 pass 'setup';
 PERL
     my $result = $baseline->();
+    is \@finished, [ { failures => $result->baseline_failures } ],
+      'the progress event includes the observed failure before measurement stops';
     is [ map { $_->{test} } $result->baseline_failures->@* ], ['t/02-reader.t'],
       'the untouched consumer now fails when the original tests run together';
     is $result->stats->{baseline_tests}, 3, 'the trial of the changed test triggers a fresh run of the pair';

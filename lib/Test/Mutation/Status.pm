@@ -65,12 +65,12 @@ my @ROWS = (
         1
     ],
     [
-        'Ignored', 'Ignored', 'ignored', undef, 'outside', 0, undef, 1,
+        'Ignored', 'Ignored', 'ignored', undef, 'outside', 1, undef, 1,
         [qw(suppressed same-code-as-original same-code-as-mutant)],
         'a comment suppressed the mutant, or it compiles to code that the run measured already'
     ],
     [
-        'Pending', 'Pending', 'pending', undef, 'outside', 0, undef, 0, ['interrupted'],
+        'Pending', 'Pending', 'pending', undef, 'outside', 1, undef, 0, ['interrupted'],
         'the run ended before the mutant', 1
     ],
 );

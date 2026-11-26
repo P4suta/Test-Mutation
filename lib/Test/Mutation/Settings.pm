@@ -4,7 +4,7 @@ use File::Spec             ();
 use List::Util             ();
 use TOML::Tiny             ();
 use Type::Tiny             ();
-use Types::Standard        qw(ArrayRef Bool CodeRef Dict Enum HashRef InstanceOf Int Maybe Str StrictNum);
+use Types::Standard        qw(ArrayRef Bool CodeRef Dict Enum HashRef InstanceOf Int Maybe Optional Str StrictNum);
 use Types::Common::Numeric qw(PositiveInt);
 use Type::Params           qw(signature_for);
 use Test::Mutation::Error;
@@ -78,6 +78,13 @@ my @ROWS = (
         'one less than the processors, and at least one',
         'tests',
         'Test processes to run side by side'
+    ],
+    [
+        'color', undef, 'flag', $BOOLEAN, undef,
+        'true or false',
+        sub ($facts) { return $facts->{terminal} && !length( $facts->{env}{NO_COLOR} ) ? 1 : 0 },
+        'on for a terminal without NO_COLOR',
+        'report', 'Color the progress and the terminal report'
     ],
     [
         'min-score', undef,  'value',  $PERCENT, 'N', 'a number from 0 to 100',
@@ -318,7 +325,7 @@ my $VALUE       = Maybe [ Str | ArrayRef [Str] ];
 my $ARGUMENT    = Maybe [ Str | ArrayRef [Str] | CodeRef ];
 my $ENTRY       = Dict [ value      => $VALUE, spelled => Str, surface => Enum [qw(line file call)] ];
 my $LAYER       = Dict [ origin     => Enum [qw(file line call)], name => Maybe [Str], entries => HashRef [$ENTRY] ];
-my $FACTS       = Dict [ processors => PositiveInt, env => HashRef [ Maybe [Str] ] ];
+my $FACTS       = Dict [ processors => PositiveInt, env => HashRef [ Maybe [Str] ], terminal => Optional [Bool] ];
 my $CONFIG      = InstanceOf ['Test::Mutation::Config'];
 my $INTERACTION = Dict [
     rule        => Enum [qw(order exclusive defers updates-report)],

@@ -669,8 +669,9 @@ sub config_text ($config) {
 
 # The defaults that the table states for the environment of a world, as texts.
 sub declared_defaults ($fact) {
-    my $env   = exists $fact->{env} ? $fact->{env} : {};
-    my %facts = ( processors => World::processors(), env => $env );
+    my $env = exists $fact->{env} ? $fact->{env} : {};
+    my %facts =
+      ( processors => World::processors(), env => $env, terminal => $fact->{out_tty} || $fact->{err_tty} || 0 );
     my %text;
     for my $setting ( grep { defined $_->default } $SETTINGS->@* ) {
         my $value = $setting->default->( \%facts );

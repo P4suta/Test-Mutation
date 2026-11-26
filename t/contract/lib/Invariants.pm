@@ -222,6 +222,7 @@ sub counts ( $expected, $stated ) {
 
 sub _progress_line ($line) {
     my ( $position, $total, $rest ) = $line =~ /\A\[\s*(\d+)\/(\d+)\](.*)\z/ or return;
+    $rest =~ s/ [|] .*\z//;
     my %stated = map { /\A(\d+) (.+)\z/ ? ( $2 => $1 ) : () } split /, /, $rest =~ s/\A //r;
     return { position => $position, total => $total, stated => \%stated };
 }
@@ -254,7 +255,7 @@ sub progress_final ( $lines, $counts, $words ) {
 # liveness: the progress never stays silent for longer than a fixed time.
 # Each argument is the longest silence of a run in steps of its work, for a small run and for a large one.
 sub liveness ( $small, $large ) {
-    return $large > $small ? ('the silence grows with the run') : ();
+    return $small > 5 || $large > 5 ? ('the display is silent for more than five seconds') : ();
 }
 
 # message: some case produces every message that a user may read.

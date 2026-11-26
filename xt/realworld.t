@@ -136,6 +136,11 @@ subtest 'the observation of a run is read from what the tools print' => sub {
         '1 processor by default',
         '80 mutants in 1 file, 11 tests',
         'The unmodified run passed: 11 tests, 6 jobs',
+        'Resolve | 0s elapsed',
+        'Copy | 2s elapsed',
+        'Baseline (4/11 tests) | 5s elapsed',
+        '[ 8/80] 8 killed | 6s elapsed, 9s remaining',
+        '[80/80] 80 killed | 14s elapsed',
         '[ 8/80] 8 killed',
         '[80/80]',
         q{},
@@ -155,6 +160,12 @@ subtest 'the observation of a run is read from what the tools print' => sub {
       'and a run that fails ends with the one line of the tool that its manual promises';
     is RealWorld::unexpected_lines( [ 'mutation: first', 'mutation: second' ], 4 ), ['mutation: first'],
       'which comes once, at the end';
+
+    is RealWorld::unexpected_lines(
+        [ 'Cleanup | 5s elapsed', 'Copy | 1s remaining', 'Mutants (1/2 tests) | 3s elapsed' ], 0
+      ),
+      [ 'Cleanup | 5s elapsed', 'Copy | 1s remaining', 'Mutants (1/2 tests) | 3s elapsed' ],
+      'an unknown phase, a missing elapsed time and a test count outside the baseline stay visible';
 
     my $source   = "package A;\nsub sum { return \$_[0] + \$_[1] }\nsub none {\n    return;\n}\n1;\n";
     my $document = {

@@ -24,10 +24,11 @@ my %violations;
 
 # What the command prints to standard error while a run sends its events.
 # The run calls `work` once for each step of its work, with the text that the command has printed so far.
-sub printed ( $terminal, $events ) {
+sub printed ( $terminal, $events, $clock = sub { 0 } ) {
     my $text = q{};
     open my $errors, '>', \$text or die "open: $!";
-    my $world = { World::facts( cwd => $scratch, err_tty => $terminal ), out => $errors, err => $errors };
+    my $world =
+      { World::facts( cwd => $scratch, err_tty => $terminal, clock => $clock ), out => $errors, err => $errors };
     no warnings 'redefine';
     local *Test::Mutation::Runner::run = sub ( $config, $listener, $options ) {
         $events->( $listener, sub { return length $text } );
@@ -93,8 +94,9 @@ is $count,            2 * $expected, 'each sequence on a terminal and in a log';
 Gate::checked( 'sequences of statuses', $count, at_least => 9000 );
 
 # The silence of a run in steps of its work: the tests of the unmodified run, and the mutants.
-# The run sends its events as the runner does: one when the analysis ends, one when the unmodified run ends, and one for each mutant.
-sub silences ( $terminal, $size ) {
+# The injected clock advances one second at each checkpoint, even when a test has printed nothing.
+sub silences ( $terminal, $size, $ticks = 1 ) {
+    my $now     = 0;
     my %silence = ( baseline => 0, mutants => 0 );
     printed(
         $terminal,
@@ -102,30 +104,36 @@ sub silences ( $terminal, $size ) {
             my ( $quiet, $seen ) = ( 0, 0 );
             my $step = sub ( $phase, @event ) {
                 $quiet++;
-                $listener->(@event) if @event;
-                return              if $length->() == $seen;
+                $now++;
+                $listener->(@event)       if @event;
+                $listener->( 'tick', {} ) if $ticks;
+                return                    if $length->() == $seen;
                 $silence{$phase} = $quiet if $quiet > $silence{$phase};
                 ( $quiet, $seen ) = ( 0, $length->() );
             };
             $listener->( 'analyzed', { mutants => $size, files => 1, tests => $size } );
+            $listener->( 'phase',    { name    => 'baseline' } );
             $seen = $length->();
             $step->('baseline') for 2 .. $size;
-            $step->( 'baseline', 'baseline', { tests  => $size, jobs => 1 } );
-            $step->( 'mutants',  'mutant',   { status => 'Killed' } ) for 1 .. $size;
-        }
+            $step->( 'baseline', 'baseline', { tests => $size, jobs => 1 } );
+            $listener->( 'phase', { name => 'mutants' } );
+            $seen = $length->();
+            $step->( 'mutants', 'mutant', { status => 'Killed' } ) for 1 .. $size;
+        },
+        sub { $now }
     );
     return \%silence;
 }
 
 subtest 'the silence of a made run rejects a phase that prints nothing' => sub {
-    is silences( 1, 10 ), { baseline => 10, mutants => 1 },
-      'a terminal waits for the unmodified run and then prints every mutant';
-    is silences( 0, 10 ), { baseline => 10, mutants => 1 }, 'a log of a small run prints every mutant';
+    is silences( 1, 10 ), { baseline => 5, mutants => 1 },
+      'a terminal reports a quiet baseline and prints every mutant';
+    is silences( 0, 10 ), { baseline => 5, mutants => 1 }, 'a log of a small run prints every mutant';
     is [ Invariants::liveness( silences( 1, 10 )->{mutants}, silences( 1, 1000 )->{mutants} ) ], [],
       'the mutants on a terminal';
-    is [ Invariants::liveness( silences( 1, 10 )->{baseline}, silences( 1, 1000 )->{baseline} ) ],
-      ['the silence grows with the run'],
-      'the unmodified run';
+    is [ Invariants::liveness( silences( 1, 10, 0 )->{baseline}, silences( 1, 1000, 0 )->{baseline} ) ],
+      ['the display is silent for more than five seconds'],
+      'an unmodified run with a broken heartbeat';
 };
 
 my @sizes  = ( 10, 1000 );

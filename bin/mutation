@@ -30,6 +30,15 @@ C<mutation> runs in the root of a distribution, or in the directory that C<--roo
 C<mutation --help> lists every option.
 L<Test::Mutation> describes the configuration file, the reports, and the limits.
 
+=head1 PROGRESS
+
+The active phase and the elapsed time go to standard error.
+A terminal uses color by default.
+C<--color> enables color for redirected output, and a nonempty C<NO_COLOR> disables it.
+Use the following setting to keep progress and reports plain.
+
+    color = false
+
 =head1 TEST EXECUTION
 
 The project can supply library directories through C<.proverc>, C<--lib>, or the configuration file.

@@ -264,7 +264,8 @@ subtest 'each active job serves its installed source from a separate copy' => su
     my $path      = $mutant->path;
     my $source    = $selection->sources->{$path};
     my $workspace = Test::Mutation::Workspace::acquire($project);
-    my $run       = { config => $config, project => $project, root => $project, workspace => $workspace };
+    my $run =
+      { config => $config, project => $project, root => $project, workspace => $workspace, listener => sub { return } };
     Test::Mutation::Runner::_prepare_project( $run, $selection );
     Test::Mutation::Runner::_prepare_work($run);
     my ( $one, $two ) = map { Test::Mutation::Runner::_job_root( $run, {} ) } 1 .. 2;
@@ -293,8 +294,9 @@ subtest 'a changed checkout cannot run a selection generated from earlier bytes'
     my $edited    = Test::Mutation::Source::read_bytes($path) . "\n1;\n";
     write_file( $path, $edited );
     my $workspace = Test::Mutation::Workspace::acquire($project);
-    my $run       = { config => $config, root => $project, project => $project, workspace => $workspace };
-    my $error     = Raised::error( sub { Test::Mutation::Runner::_prepare_project( $run, $selection ) } );
+    my $run =
+      { config => $config, root => $project, project => $project, workspace => $workspace, listener => sub { return } };
+    my $error = Raised::error( sub { Test::Mutation::Runner::_prepare_project( $run, $selection ) } );
     is $error->[1], 'source-changed', 'the measurement checks the actual copied bytes';
     ok $workspace->release(0), 'a failed selection can release its copy';
 
