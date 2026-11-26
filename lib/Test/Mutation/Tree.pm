@@ -6,7 +6,7 @@ use File::Copy      ();
 use File::Find      ();
 use List::Util      ();
 use Time::HiRes     ();
-use Types::Standard qw(ArrayRef HashRef Int Slurpy Str);
+use Types::Standard qw(ArrayRef HashRef Int Optional Slurpy Str);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Error;
 use Test::Mutation::Signals;
@@ -110,7 +110,8 @@ sub changes ( $before, $after ) {
 }
 
 signature_for copy => (
-    named   => [ from => Str, to => Str, skip => ArrayRef [Str], link => ArrayRef [Str] ],
+    named =>
+      [ from => Str, to => Str, skip => ArrayRef [Str], link => ArrayRef [Str], state => Optional [ HashRef [Str] ] ],
     returns => Int,
 );
 
@@ -121,6 +122,8 @@ sub copy ($arg) {
     my %link = map { $_ => 1 } $arg->link->@*;
     make($to);
     my ( $count, %directory ) = (0);
+    my $state  = $arg->state;
+    my $recent = Time::HiRes::time() - $RECENT_SECONDS;
     File::Find::find(
         {
             no_chdir => 1,
@@ -135,11 +138,13 @@ sub copy ($arg) {
                     return if $skip{$path};
                     symlink $File::Find::name, "$to/$path"
                       or Test::Mutation::Error::raise( 'file-unlinkable', path => "$to/$path", reason => "$!" );
+                    $state->{$path} = _signature( "$to/$path", $recent ) if $state;
                     return;
                 }
                 my $kind = _copy_node( $File::Find::name, "$to/$path" );
-                $count++              if length $kind;
-                $directory{$path} = 1 if $kind eq q{directory};
+                $count++ if length $kind;
+                $directory{$path} = 1                                if $kind eq q{directory};
+                $state->{$path} = _signature( "$to/$path", $recent ) if $state && length $kind && $kind ne q{directory};
                 return;
             },
         },
@@ -147,7 +152,10 @@ sub copy ($arg) {
     );
 
     # A directory may forbid new entries, so each one gets its mode after its content.
-    _copy_mode( "$from/$_", "$to/$_" ) for sort keys %directory;
+    for my $path ( sort keys %directory ) {
+        _copy_mode( "$from/$path", "$to/$path" );
+        $state->{$path} = _signature( "$to/$path", $recent ) if $state;
+    }
     return $count;
 }
 
@@ -193,7 +201,7 @@ sub _below ( $path, $closed ) {
 }
 
 signature_for restore => (
-    named   => [ from => Str, to => Str, changes => ArrayRef [Str] ],
+    named   => [ from => Str, to => Str, changes => ArrayRef [Str], state => Optional [ HashRef [Str] ] ],
     returns => Int,
 );
 
@@ -223,6 +231,10 @@ sub restore ($arg) {
         $directory{$path} = 1;
     }
     _copy_mode( "$from/$_", "$to/$_" ) for sort keys %directory;
+    if ( my $state = $arg->state ) {
+        my $recent = Time::HiRes::time() - $RECENT_SECONDS;
+        $state->{$_} = _signature( "$to/$_", $recent ) for grep { exists $state->{$_} } @paths;
+    }
     return scalar @paths;
 }
 

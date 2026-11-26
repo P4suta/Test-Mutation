@@ -68,7 +68,7 @@ subtest 'a signal for the tool ends exec with its status when the command has en
     my $root = copy_of('calc');
     my ($identifier) = ran( 0, $root, 'list' )->{stdout} =~ /\A([0-9a-f]{12})  /;
     my ( $scratch, $temporary ) = map { Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) ) } 1 .. 2;
-    my $script = 'open my $out, q{>}, q{started}; close $out; select undef, undef, undef, 1; exit 7';
+    my $script = 'open my $out, q{>}, $ARGV[0] or die; close $out; select undef, undef, undef, 1; exit 7';
 
     my $pid = fork;
     die "fork: $!" if !defined $pid;
@@ -78,14 +78,15 @@ subtest 'a signal for the tool ends exec with its status when the command has en
         open STDIN,  '<', '/dev/null'           or die "stdin: $!";
         open STDOUT, '>', "$scratch/stdout.txt" or die "stdout: $!";
         open STDERR, '>', "$scratch/stderr.txt" or die "stderr: $!";
-        exec {$^X} $^X, "-I$library", $command, 'exec', $identifier, q{--}, $^X, '-e', $script or die "exec: $!";
+        exec {$^X} $^X, "-I$library", $command, 'exec', $identifier, q{--}, $^X, '-e', $script, "$scratch/started"
+          or die "exec: $!";
     }
-    ok wait_for( sub { -e "$root/started" } ), 'the command of exec runs';
+    ok wait_for( sub { -e "$scratch/started" } ), 'the command of exec runs';
     kill 'TERM', $pid;
     waitpid $pid, 0;
     is [ $? >> 8, $? & 127 ],          [ 143, 0 ], 'the tool ends with the status of the signal';
     is text_of("$scratch/stderr.txt"), "mutation: interrupted by SIGTERM\n", 'and with its line';
-    unlink "$root/started" or die "unlink: $!";
+    unlink "$scratch/started" or die "unlink: $!";
     is leftovers( $temporary, $root ), [], 'and it leaves no work directory';
 };
 

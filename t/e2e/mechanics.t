@@ -88,16 +88,15 @@ subtest 'tests in taint mode, with use lib, and with a forked child detect mutan
       'a test that loads the module in a forked child';
 };
 
-subtest 'a test that loads a file around the hook is reported and never counted as a survivor' => sub {
+subtest 'an absolute require loads the mutant placed in the job copy' => sub {
     is of('lib/Direct.pm'),
       {
-        'lib/Direct.pm:5 removed the body of quadruple' => 'NoCoverage',
-        'lib/Direct.pm:7 removed the return value'      => 'NoCoverage',
-        'lib/Direct.pm:7 replaced * with /'             => 'NoCoverage',
+        'lib/Direct.pm:5 removed the body of quadruple' => 'Killed',
+        'lib/Direct.pm:7 removed the return value'      => 'Killed',
+        'lib/Direct.pm:7 replaced * with /'             => 'Killed',
       },
       'statuses';
-    is $result->warnings, ['t/direct.t loads lib/Direct.pm around the hook and cannot detect its mutants'],
-      'the warning';
+    is $result->warnings, [], 'the load was observed in the job copy';
 };
 
 ok $result->conclusive, 'the run is conclusive';

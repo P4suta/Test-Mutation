@@ -41,18 +41,18 @@ subtest 'a run in copies counts each copy, walk, process, and listing' => sub {
       run_fixture( project( 'lib/Small.pm' => $MODULE, 't/waits.t' => $WAITS ), jobs => 1, equivalence => 0 );
     is [ sort values statuses($result)->%* ], [ ('Killed') x 3 ], 'the test detects the three mutants';
     is $result->stats,
-      work( copies => 2, walks => 6, spawns => 4, listings => 3, baseline_tests => 1 ),
-      'one copy of the project and one of the job, two walks and one test for each mutant, and no compile';
+      work( copies => 2, walks => 5, spawns => 4, listings => 3, baseline_tests => 1 ),
+      'one copy of the project and one of the job, two baseline walks, one walk and one test for each mutant, and no compile';
 };
 
-subtest 'a run in the project itself makes no copy and walks the project before and after the mutants' => sub {
+subtest 'an in-place run backs up the project and checks for changes before returning' => sub {
     my ($result) = run_fixture(
         project( 'lib/Small.pm' => $MODULE, 't/waits.t' => $WAITS ),
         jobs        => 1,
         equivalence => 0,
         in_place    => 1
     );
-    is $result->stats, work( walks => 2, spawns => 4, listings => 3, baseline_tests => 1 ), 'the counts';
+    is $result->stats, work( copies => 1, walks => 6, spawns => 4, listings => 3, baseline_tests => 1 ), 'the counts';
 };
 
 subtest 'an undetected mutant costs a compile of its code, and the original costs two' => sub {
@@ -87,7 +87,7 @@ subtest 'a test that fails side by side runs once more, alone' => sub {
       'the two tests of the unmodified run and the run that verifies the failure';
 };
 
-subtest 'a mutant that changes the project makes every test run once more' => sub {
+subtest 'restoring the project after a mutant avoids rerunning unaffected tests' => sub {
     my $writer =
         "use Test::More tests => 1;\nuse Small;\nmy \$next = Small::next_one(2);\n"
       . "if ( \$next != 3 ) { open my \$out, '>', 'left-behind.txt' or die \$!; close \$out }\n"
@@ -99,7 +99,8 @@ subtest 'a mutant that changes the project makes every test run once more' => su
         equivalence => 0,
         in_place    => 1
     );
-    is [ $result->stats->@{qw(baseline_tests verifications)} ], [ 2, 2 ], 'the two tests of the unmodified run, twice';
+    is [ $result->stats->@{qw(baseline_tests verifications)} ], [ 2, 3 ],
+      'each mutant that changed the tree repeats its original writer once';
 };
 
 done_testing;

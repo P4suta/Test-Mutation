@@ -76,14 +76,17 @@ sub activate {
         debug_flags => $^P,
         targets     => $spec->{targets},
         by_base     => \%by_base,
+        placed      => $spec->{placed},
         by_path     => {},
         record_dir  => scalar _untainted($record_dir),
     );
 
-    my $hook = sub { return _serve(@_) };
-    unshift @INC, $hook;
-    _keep_hook_first($hook);
-    $STATE{trace} = _install_tracer() if $spec->{trace};
+    unless ( $spec->{observe} ) {
+        my $hook = sub { return _serve(@_) };
+        unshift @INC, $hook;
+        _keep_hook_first($hook);
+        $STATE{trace} = _install_tracer() if $spec->{trace};
+    }
     $STATE{blind} = $spec->{trace} && !$STATE{trace};
     _record_handle();
     return;
@@ -314,8 +317,10 @@ sub finish {
         _record( 'outside', $target->{original} )
           if _loaded_from_disk( $target, $target->{outside_device}, $target->{outside_inode} );
         if ( !$target->{served} ) {
-            _record( 'around', $target->{original} )
-              if _loaded_from_disk( $target, $target->{device}, $target->{inode} );
+            if ( _loaded_from_disk( $target, $target->{device}, $target->{inode} ) ) {
+                if   ( $STATE{placed} ) { _record( 'blind',  $target->{original} ) }
+                else                    { _record( 'around', $target->{original} ) }
+            }
             next;
         }
         _record( 'seen', $target->{original}, 'failed' ) if !defined $INC{ $target->{file} };

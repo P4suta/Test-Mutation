@@ -27,11 +27,12 @@ subtest 'the helper rejects another exit status' => sub {
 
 subtest 'the helper rejects a run that leaves an entry behind' => sub {
     my ($id) = ran( 0, $root, 'list' )->{stdout} =~ /\A([0-9a-f]{12})/;
-    my $leaving = sub ($code) { return ( 'exec', $id, '--', $^X, '-e', $code ) };
+    my $leaving = sub ( $code, @options ) { return ( 'exec', $id, @options, '--', $^X, '-e', $code ) };
     is Gate::outcomes( sub { ran( 0, $root, $leaving->('1') ) } ), [ 'pass', 'pass' ], 'a command that writes nothing';
     is Gate::outcomes( sub { ran( 0, $root, $leaving->('open my $left, q{>}, "$ENV{TMPDIR}/left" or die') ) } ),
-      [ 'pass', 'fail' ], 'a file in the temporary directory';
-    is Gate::outcomes( sub { ran( 0, $root, $leaving->('mkdir q{.mutation}; mkdir q{.mutation/run-left} or die') ) } ),
+      [ 'pass', 'pass' ], 'the task removes a file in its temporary directory';
+    is Gate::outcomes(
+        sub { ran( 0, $root, $leaving->( 'mkdir q{.mutation}; mkdir q{.mutation/run-left} or die', '--in-place' ) ) } ),
       [ 'pass', 'fail' ], 'a work directory in the project';
     is Gate::outcomes( sub { ran( 0, $root, '--jobs', 2, '--format', 'terminal', '--keep-work' ) } ),
       [ 'pass', 'fail' ],

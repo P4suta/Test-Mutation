@@ -21,6 +21,35 @@ is $command->{env}{TEST_MUTATION_ROOT}, $project,              'every instrument
 is $command->{env}{HARNESS_VERSION},    TAP::Harness->VERSION, 'tests see the version of the active harness';
 is $command->{command},                 [ $^X, 't/test.t' ],   'a command needs no configured switches';
 
+subtest 'the pool routes each completed child to the matching result handler' => sub {
+    my @calls;
+    my $parent = File::Temp::tempdir( CLEANUP => 1 );
+    no warnings 'redefine';
+
+    # The three continuations make the next scheduled task observable before a compiler can run again.
+    ## no critic (Variables::ProtectPrivateVars Subroutines::ProtectPrivateSubs)
+    local *Test::Mutation::Runner::_after_test   = sub { push @calls, 'test';   return 'continue test' };
+    local *Test::Mutation::Runner::_after_syntax = sub { push @calls, 'syntax'; return 'continue syntax' };
+    local *Test::Mutation::Runner::_after_code   = sub { push @calls, 'code';   return 'continue code' };
+    for my $case (
+        [ 'test',            'test' ],
+        [ 'syntax-original', 'syntax' ],
+        [ 'syntax-mutant',   'syntax' ],
+        [ 'code-original',   'code' ],
+        [ 'code-mutant',     'code' ],
+      )
+    {
+        my ( $kind, $handler ) = @$case;
+        my $tmp  = File::Temp::tempdir( DIR => $parent );
+        my $task = { payload => { kind => $kind, tmp => $tmp, job => {} } };
+        is Test::Mutation::Runner::_after_task( {}, {}, $task, {} ), "continue $handler",
+          "$kind returns the continuation of its own result handler";
+        is pop(@calls), $handler, "$kind consumed exactly its own observation";
+        is( -d $tmp ? 1 : 0, $kind eq 'test' ? 1 : 0, 'compiler scratch is released on completion' );
+    }
+    ## use critic
+};
+
 my $compile  = File::Temp::tempdir( CLEANUP => 1 );
 my $observer = "package Observer;\n" . <<'OBSERVER';
 if ($^C) {
@@ -34,7 +63,20 @@ write_file( "$project/support/Observer.pm", $observer );
 write_file( "$project/lib/Clockwork.pm", "package Clockwork;\nuse Observer;\nsub total { return \$_[0] + 1 }\n1;\n" );
 local $ENV{TEST_COMPILE_OBSERVATIONS} = "$compile/compiled";
 write_file( "$project/t/idle.t", "use Test::More tests => 1;\npass 'the distribution loads';\n" );
-my ($measured) = run_fixture( $project, jobs => 1, lib => [qw(lib support)] );
+my $compile_task = Test::Mutation::Runner->can('_compile_task');
+my %scheduled;
+my $measured;
+{
+    no warnings 'redefine';
+
+    # Two original deparses establish stability and each remaining check consumes its compiler result once.
+    local *Test::Mutation::Runner::_compile_task = sub ( $run, $job, $kind, $file, $switch ) {    ## no critic (Variables::ProtectPrivateVars)
+        my $limit = $kind eq 'code-original' ? 2 : 1;
+        die "the runner scheduled $kind more than $limit times for $file\n" if ++$scheduled{$kind}{$file} > $limit;
+        return $compile_task->( $run, $job, $kind, $file, $switch );
+    };
+    ($measured) = run_fixture( $project, jobs => 1, lib => [qw(lib support)] );
+}
 ok $measured->stats->{compiles}, 'the comparison invoked the compiler';
 open my $observations, '<', "$compile/compiled" or die $!;
 my @recorded = <$observations>;

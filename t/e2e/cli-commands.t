@@ -81,7 +81,10 @@ subtest '--root runs the command as if it had started in the named directory' =>
 
     my $inside = ran( 0, $elsewhere, '--root', $root, 'exec', identifier('replaced + with -'),
         '--', $^X, '-MCwd', '-e', 'print Cwd::getcwd()' );
-    is $inside->{stdout}, $root, 'exec starts its command in the project';
+    my ($project_name) = $root =~ m{([^/]+)\z};
+    like $inside->{stdout}, qr{/mutation-[A-Za-z0-9]+/tree/\Q$project_name\E\z},
+      'exec starts in the private project copy';
+    isnt $inside->{stdout}, $root, 'the original working directory remains outside the command';
 
     my $missing = ran( 2, $elsewhere, '--root', "$elsewhere/none", 'list' );
     is [ $missing->@{qw(exit stdout)} ], [ 2, q{} ], 'a directory that does not exist is a usage error';
@@ -212,6 +215,14 @@ subtest 'show accepts a unique prefix and refuses an unknown or ambiguous identi
 subtest 'exec runs a command with one mutant active' => sub {
     my $detected = ran( 1, $root, 'exec', identifier('replaced + with -'), '--', $^X, '-Ilib', 't/add.t' );
     like $detected->{stdout}, qr/^not ok 1 - adds$/m, 'the output of the command passes through';
+
+    my $id      = identifier('replaced + with -');
+    my $tainted = ran( 0, $root, 'exec', $id, '--', $^X, '-T', '-Ilib', '-MCalc', '-e', 'print Calc::add(4,2)' );
+    is $tainted->{stdout}, '2', 'a tainted interpreter loads the file installed in the copy';
+    my $reader = q{open my $in, '<', 'lib/Calc.pm' or die $!; local $/; my $source = <$in>; }
+      . q{open my $out, '>', 'exec.marker' or die $!; print $source =~ /return \$x - \$y/ ? 'changed' : 'original'};
+    is ran( 0, $root, 'exec', $id, '--', $^X, '-e', $reader )->{stdout}, 'changed', 'a direct reader sees the mutant';
+    ok !-e "$root/exec.marker", 'files created by the command stay in its private tree';
 
     my ($survivor) =
       ran( 0, $root, 'list' )->{stdout} =~

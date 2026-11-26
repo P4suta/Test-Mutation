@@ -168,15 +168,15 @@ subtest 'a test that fails on its own is not blamed on the parallel run' => sub 
     local $ENV{RUN_LOG} = $first->filename;
     my ($serial) = run_fixture( $alone, jobs => 1 );
     is [ map { $_->{test} } $serial->baseline_failures->@* ], ['t/small.t'], 'the failure is reported with one job';
-    is $runs->($first),                                       1,             'and the test ran once';
+    is $runs->($first), 2, 'the hook and plain search path both reproduce the failure';
 
     my $beside = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $counted );
     my $later  = File::Temp->new;
     local $ENV{RUN_LOG} = $later->filename;
     my ($parallel) = run_fixture( $beside, jobs => 2 );
     is [ map { $_->{test} } $parallel->baseline_failures->@* ], ['t/small.t'], 'the failure is reported with two jobs';
-    is $runs->($later),                                         2,             'after a second attempt on its own';
-    is [ $parallel->parallel_safe, $parallel->warnings ],       [ 1, [] ],     'and the parallel run gets no blame';
+    is $runs->($later),                                   3, 'parallel, serial, and plain search path runs all fail';
+    is [ $parallel->parallel_safe, $parallel->warnings ], [ 1, [] ], 'and the parallel run gets no blame';
 };
 
 subtest 'a place that the analysis leaves out is reported with its file' => sub {
@@ -291,15 +291,16 @@ subtest 'warnings come once each and in the order of their text' => sub {
         't/bound.t'    => "use Test::More tests => 1;\nBEGIN { \$main::APPLICATION = 1 }\nuse Bound;\n"
           . "is Bound::size(), 'big', 'a size';\n",
     );
-    my ($result) = run_fixture( $root, jobs => 1 );
+    my ($result) = run_fixture( $root, jobs => 1, in_place => 1 );
     is $result->warnings,
       [
+        '--in-place uses the module hook, which can miss absolute paths and child processes',
         'lib/Bound.pm does not pass a standalone syntax check, so its load failures count as compile errors',
         'lib/Bound.pm: Perl decompiles the file to no stable text, so the run compares no compiled code of the file',
         't/first.t loads lib/Small.pm around the hook and cannot detect its mutants',
         't/second.t loads lib/Small.pm around the hook and cannot detect its mutants',
       ],
-      'four warnings';
+      'five distinct warnings';
     my %status = statuses($result)->%*;
     is {
         map { $_ => $status{$_} } grep { /lib\/Bound[.]pm:4 / } keys %status
@@ -371,9 +372,9 @@ subtest 'the tests of each mutant start from the state that the unmodified run l
     chomp( my @lines = readline $handle );
     my @sizes       = map { ( split q{ } )[0] } @lines;
     my @directories = map { ( split q{ } )[1] } @lines;
-    is \@sizes, [ 4, 8, 8, 8 ], 'each mutant finds the one line that the unmodified run wrote';
-    is [ map { $_ eq $directories[1] ? 'same' : 'other' } @directories ], [qw(other same same same)],
-      'one job at a time uses one copy again and again, apart from the copy of the unmodified run';
+    is \@sizes, [ 4, 8, 8, 8, 8 ], 'each mutant finds the one line that the unmodified run wrote';
+    is [ map { $_ eq $directories[1] ? 'same' : 'other' } @directories ], [qw(other same other same same)],
+      'the unmodified control runs in a separate copy while each mutant uses the reusable job copy';
     ok !-e "$root/count.txt", 'and the project gets no such file';
 
     my $place = project( 'lib/Small.pm' => $MODULE, 't/small.t' => $counting );
@@ -382,9 +383,8 @@ subtest 'the tests of each mutant start from the state that the unmodified run l
     run_fixture( $place, jobs => 1, in_place => 1 );
     open my $read, '<', $other->filename or die "read: $!";
     chomp( my @grown = map { ( split q{ } )[0] } readline $read );
-    is \@grown, [ 4, 8, 12, 16, 20 ],
-      'in the project itself, the file grows with every run and with the check at the end';
-    ok -e "$place/count.txt", 'and stays there';
+    is \@grown, [ (4) x 4 ], 'the original and the three in-place mutants append to the same initial file';
+    ok !-e "$place/count.txt", 'the run restores the project after the final check';
 };
 
 subtest 'a copy has the name of the project, links the installed modules, and holds no repository data' => sub {
@@ -458,7 +458,12 @@ subtest 'a work directory that resists removal stays, and a warning names it' =>
     local *Test::Mutation::Tree::remove = sub { die "stuck\n" };
     my ( $result, undef, $temporary ) = run_fixture( $root, jobs => 1, in_place => 1, leaves => $WORK_DIRECTORY );
     my ($work) = glob "$temporary/mutation-*";
-    is $result->warnings, ["the work directory $work stays, because a file in it resists removal"], 'the warning';
+    is $result->warnings,
+      [
+        '--in-place uses the module hook, which can miss absolute paths and child processes',
+        "the work directory $work stays, because a file in it resists removal"
+      ],
+      'the observation and cleanup warnings';
     is [ sort values statuses($result)->%* ], [ ('Killed') x 3 ], 'and the mutants are measured';
 };
 
@@ -521,8 +526,8 @@ subtest 'a change of the project during the run reaches no test' => sub {
     my $place = project( 'lib/Small.pm' => $module, 't/small.t' => $editing );
     local $ENV{PROJECT} = $place;
     my ($inside) = run_fixture( $place, jobs => 1, in_place => 1, enable => ['comparison-boundary'] );
-    is [ sort values status_by_line($inside)->%* ], [ ('NoCoverage') x 5 ],
-      'in the project itself, the edited test runs for every mutant and loads none';
+    is status_by_line($inside), status_by_line($result),
+      'each in-place measurement starts with the test that passed before the change';
 };
 
 subtest 'in the project itself, a mutant that leaves a file takes the verdict from the tests it breaks' => sub {
@@ -542,11 +547,11 @@ subtest 'in the project itself, a mutant that leaves a file takes the verdict fr
 
     is $result->warnings,
       [
-        't/reader.t fails without a mutant now, so the mutants it detected have no verdict',
+        '--in-place uses the module hook, which can miss absolute paths and child processes',
         'the project changed while the mutants ran: created left-behind.txt, created more-1.txt, created more-2.txt, '
           . 'created more-3.txt, created more-4.txt and 2 more',
       ],
-      'the warnings name the change and the test that it breaks';
+      'the warning identifies the files restored between mutants';
     my %entry = map { $_->{mutant}->from->[0] . q{ } . $_->{mutant}->description => $_ } $result->entries->@*;
     is {
         map { $_ => $entry{$_}{status} } sort keys %entry
@@ -555,18 +560,15 @@ subtest 'in the project itself, a mutant that leaves a file takes the verdict fr
         '4 removed the body of next_one'            => 'Killed',
         '4 removed the return value'                => 'Killed',
         '4 replaced + with -'                       => 'Killed',
-        '5 removed the body of size'                => 'NoVerdict',
-        '5 removed the return value'                => 'NoVerdict',
-        '5 replaced > with <='                      => 'NoVerdict',
-        '5 replaced > with >='                      => 'NoVerdict',
-        '5 swapped the branches of the conditional' => 'NoVerdict',
+        '5 removed the body of size'                => 'Killed',
+        '5 removed the return value'                => 'Killed',
+        '5 replaced > with <='                      => 'Killed',
+        '5 replaced > with >='                      => 'Survived',
+        '5 swapped the branches of the conditional' => 'Killed',
       },
-      'a kill by the broken test is no kill, and a kill by a sound test stays';
-    is [ $entry{'5 replaced > with >='}->@{qw(reason detail)} ],
-      [ 'project-changed', 't/reader.t fails without a mutant since the project changed' ],
-      'the reason of a mutant without a verdict';
-    ok !$result->conclusive,       'the run is not conclusive';
-    ok -e "$root/left-behind.txt", 'the file stays for the user to judge';
+      'the clean reader detects only changes to the result it checks';
+    ok $result->conclusive,         'every test measured its target from the verified initial state';
+    ok !-e "$root/left-behind.txt", 'the run restores the files left by the tests';
 };
 
 subtest 'a project that the mutants leave alone is not checked again' => sub {

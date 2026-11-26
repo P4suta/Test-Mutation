@@ -29,6 +29,7 @@ use Test::Mutation::Types qw(PathSelection);
 use Test::Mutation::Try;
 use Test::Mutation::Verdict;
 use Test::Mutation::Workspace;
+use Test::Mutation::Workspace::Slot;
 use Test::Mutation::Workspace::Processes;
 
 our $VERSION = '0.001';
@@ -144,6 +145,24 @@ sub _copy_project ($run) {
     return Test::Mutation::Error::raise( 'project-uncopyable', reason => $error->message );
 }
 
+sub _prepare_project ( $run, $selection ) {
+    unless ( $run->{config}->in_place ) {
+        _copy_project($run);
+        $selection->verify_copy( $run->{root} );
+        return;
+    }
+    _warn( $run, Test::Mutation::Message::warning('in-place-observation') );
+    my $root     = $run->{project};
+    my $backup   = $run->{workspace}->directory . '/tree/original';
+    my $original = _tree($run);
+    my @skip     = ( '.git', map { _inside( $root, $_ ) } $run->{config}->cache_dir, $run->{config}->report_dir );
+    my @opaque   = grep { !-l "$root/$_" && ( !-r _ || !( -f _ || -d _ && -x _ ) ) } keys $original->%*;
+    Test::Mutation::Tree::copy( from => $root, to => $backup, skip => [ @skip, @opaque ], link => [] );
+    $run->{stats}{copies}++;
+    $run->{guard} = { backup => $backup, state => $original, opaque => \@opaque };
+    return;
+}
+
 # The path from the project to a place inside it, and nothing for a place outside.
 sub _inside ( $project, $path ) {
     my $absolute = File::Spec->canonpath( File::Spec->rel2abs( $path, $project ) );
@@ -152,9 +171,15 @@ sub _inside ( $project, $path ) {
 }
 
 # Each copy has the name of the project inside a directory of its own.
-sub _new_copy ( $run, $directory, $from, $skip, $link ) {
+sub _new_copy ( $run, $directory, $from, $skip, $link, $state = undef ) {
     my $to = "$directory/$run->{name}";
-    Test::Mutation::Tree::copy( from => $from, to => $to, skip => $skip, link => $link );
+    Test::Mutation::Tree::copy(
+        from => $from,
+        to   => $to,
+        skip => $skip,
+        link => $link,
+        $state ? ( state => $state ) : ()
+    );
     $run->{stats}{copies}++;
     return $to;
 }
@@ -167,23 +192,44 @@ sub _walk ( $run, $root, @skip ) {
 # Every mutant starts from the state that the unmodified run left, so each job works in a copy of its own.
 # A job takes a copy that no job uses, or a new one, and records the state it finds.
 sub _job_root ( $run, $job ) {
-    return $run->{root} if !defined $run->{copies};
-    if ( !$job->{copy} ) {
-        my ($free) = sort keys $run->{free}->%*;
-        my $root = defined $free ? $free : _new_copy( $run, "$run->{copies}/" . ++$run->{slots}, $run->{root}, [], [] );
-        delete $run->{free}{$root};
-        $job->{copy} = { root => $root, state => _walk( $run, $root ) };
+    return $run->{root}       if !defined $run->{copies};
+    return $job->{copy}{root} if $job->{copy};
+    my $reference = $job->{starting_tree} || $run->{root};
+    my $available = $run->{free}{$reference} ||= [];
+    my $copy      = shift $available->@*;
+    if ( !$copy ) {
+        my $state = {};
+        my $root  = _new_copy( $run, "$run->{copies}/" . ++$run->{slots}, $reference, [], [], $state );
+        $copy = { root => $root, reference => $reference, state => $state };
     }
-    return $job->{copy}{root};
+    $job->{copy} = $copy;
+    return $copy->{root};
 }
 
 # A mutant may leave a changed copy behind, so the copy returns to its state before the next job takes it.
 # A copy that fails to return stays out of use, and the next job makes a new one.
 sub _release ( $run, $job ) {
+    if ( $run->{guard} && delete $job->{used_project} ) {
+        my $guard   = $run->{guard};
+        my $changes = Test::Mutation::Tree::changes( $guard->{state}, _tree($run) );
+        _restore_changes( $run, $guard, $changes );
+        if ( $changes->@* && !$run->{setup_tests} ) {
+            _changed_paths( $run, $changes );
+            _confirm_after_restore( $run, $job, $guard );
+        }
+        return;
+    }
     my $copy    = delete $job->{copy} or return;
     my $root    = $copy->{root};
     my $changes = Test::Mutation::Tree::changes( $copy->{state}, _walk( $run, $root ) );
-    my $restore = sub { Test::Mutation::Tree::restore( from => $run->{root}, to => $root, changes => $changes ) };
+    my $restore = sub {
+        Test::Mutation::Tree::restore(
+            from    => $copy->{reference},
+            to      => $root,
+            changes => $changes,
+            state   => $copy->{state}
+        );
+    };
     if ( $changes->@* ) {
         my $restored = Test::Mutation::Try::attempt($restore);
         if ( exists $restored->{error} ) {
@@ -191,7 +237,7 @@ sub _release ( $run, $job ) {
             return;
         }
     }
-    $run->{free}{$root} = 1;
+    push $run->{free}{ $copy->{reference} }->@*, $copy;
     return;
 }
 
@@ -244,15 +290,12 @@ sub _measure ( $run, $started ) {
         Test::Mutation::Event::phase( $listener, 'acquire' );
         $run->{workspace} = Test::Mutation::Workspace::acquire( $run->{project} );
         Test::Mutation::Event::phase( $listener, 'build' );
-        if ( !$config->in_place ) {
-            _copy_project($run);
-            $selection->verify_copy( $run->{root} );
-        }
+        _prepare_project( $run, $selection );
         my $measure = sub {
             _prepare_work($run);
             $run->{targets} = [ sort keys $selection->sources->%* ];
             Test::Mutation::Event::phase( $listener, 'baseline' );
-            my $baseline = _baseline( $run, \@tests, $run->{targets} );
+            my $baseline = _observed_baseline( $run, \@tests );
             my %measured = (
                 parallel_safe     => $baseline->{parallel_safe},
                 baseline_failures => $baseline->{failures},
@@ -262,10 +305,10 @@ sub _measure ( $run, $started ) {
                 ],
             );
             if ( !$baseline->{failures}->@* ) {
+                _begin_in_place( $run, $baseline ) if $run->{guard} && !$run->{options}{baseline_only};
                 $listener->( 'baseline', { tests => scalar(@tests), jobs => $run->{jobs} } );
                 if ( !$run->{options}{baseline_only} ) {
                     Test::Mutation::Event::phase( $listener, 'mutants' );
-                    $run->{tree} = _tree($run) if !defined $run->{copies};
                     $measured{entries} = _mutants( $run, $selection->mutants, $baseline );
                 }
             }
@@ -326,9 +369,40 @@ sub _warn ( $run, $text ) {
 
 sub _release_workspace ($run) {
     my $workspace = delete $run->{workspace} or return;
+    if ( my $guard = delete $run->{guard} ) {
+        my $restored = Test::Mutation::Try::attempt( sub { _restore_project( $run, $workspace, $guard ) } );
+        if ( exists $restored->{error} ) {
+            $workspace->release(1);
+            die $restored->{error};    ## no critic (ErrorHandling::RequireCarping)
+        }
+    }
     _warn( $run, Test::Mutation::Message::warning( 'work-directory-stays', path => $workspace->directory ) )
       unless $workspace->release( $run->{config}->keep_work );
     return;
+}
+
+sub _restore_project ( $run, $workspace, $guard ) {
+    Test::Mutation::Error::raise(
+        'directory-unopenable',
+        path   => $guard->{backup},
+        reason => 'test processes still hold the workspace'
+    ) unless Test::Mutation::Workspace::Processes::finish( $workspace->directory . '/processes' );
+    my $changes = Test::Mutation::Tree::changes( $guard->{state}, _tree($run) );
+    return _restore_changes( $run, $guard, $changes );
+}
+
+sub _restore_changes ( $run, $guard, $changes ) {
+    for my $change ( $changes->@* ) {
+        my $path = $change =~ s/\A\w+[ ]//r;
+        Test::Mutation::Error::raise(
+            'file-unreadable',
+            path   => $path,
+            reason => 'the original could not be backed up'
+          )
+          if grep { $_ eq $path || index( "$_/", "$path/" ) == 0 || index( "$path/", "$_/" ) == 0 }
+          $guard->{opaque}->@*;
+    }
+    return Test::Mutation::Tree::restore( from => $guard->{backup}, to => $run->{project}, changes => $changes );
 }
 
 sub _prepare_work ($run) {
@@ -392,9 +466,19 @@ sub _first_line ( $run, $path ) {
     return $run->{first}{$path};
 }
 
+sub _remove_disk_spec ($spec) {
+    my $path = "$spec.disk";
+    unlink $path
+      or $! == Errno::ENOENT()
+      or Test::Mutation::Error::raise( 'file-unremovable', path => $path, reason => "$!" );
+    return;
+}
+
 sub _spec ( $run, $root, $name, $trace, $targets ) {
     my $path  = "$run->{work}/$name.spec";
     my @lines = ( "trace\t" . ( $trace ? 1 : 0 ) );
+    push @lines, "placed\t1" if defined $run->{copies};
+    _remove_disk_spec($path);
     for my $target ( $targets->@* ) {
         my @original = $root ne $run->{project} ? $run->{project} . substr( $target->[0], length $root ) : ();
         push @lines, join "\t", 'target', $target->@*, @original;
@@ -431,9 +515,15 @@ sub target_pairs ( $root, $paths, $mutated, $file ) {
 }
 
 sub _write_mutant ( $run, $source, $mutant, $root ) {
-    my $file = "$run->{work}/mutants/" . $mutant->id . '.pm';
-    _spew( $file, $source->to_bytes( $source->replace_span( $mutant->start, $mutant->end, $mutant->replacement ) ) );
-    my $targets = target_pairs( $root, $run->{targets} ? $run->{targets} : [], $mutant->path, $file );
+    my $file  = "$run->{work}/mutants/" . $mutant->id . '.pm';
+    my $bytes = $source->to_bytes( $source->replace_span( $mutant->start, $mutant->end, $mutant->replacement ) );
+    _spew( $file, $bytes );
+    my $served = $file;
+    if ( defined $run->{copies} ) {
+        Test::Mutation::Workspace::Slot::place( $root, $mutant->path, $source->to_bytes( $source->text ), $bytes );
+        $served = "$root/" . $mutant->path;
+    }
+    my $targets = target_pairs( $root, $run->{targets} ? $run->{targets} : [], $mutant->path, $served );
     my $spec    = _spec( $run, $root, 'mutants/' . $mutant->id, 0, $targets );
     return ( $file, $spec );
 }
@@ -453,18 +543,39 @@ sub run_command ( $config, $source, $mutant, $command ) {
     my $run  = { config => $config, project => $root, root => $root };
     my $work = sub {
         $run->{workspace} = Test::Mutation::Workspace::acquire($root);
+        _copy_project($run) unless $config->in_place;
+        my $where = $run->{root};
+        Test::Mutation::Error::raise( 'source-changed', path => $source->path )
+          if Test::Mutation::Source::read_bytes( "$where/" . $source->path ) ne $source->to_bytes( $source->text );
         _prepare_work($run);
-        my ( undef, $spec ) = _write_mutant( $run, $source, $mutant, $root );
-        local %ENV = ( %ENV, _environment( $run, $spec, $root ) );
+        my ( undef, $spec ) = _write_mutant( $run, $source, $mutant, $where );
+        my $environment = Test::Mutation::Launch::test_command(
+            perl    => $^X,
+            root    => $where,
+            program => $command->[0],
+            tmp     => "$run->{work}/tmp",
+            lib     => $config->lib,
+            switch  => $config->switch,
+            env     => \%ENV,
+        )->{env};
+        delete $environment->@{qw(HARNESS_ACTIVE HARNESS_VERSION)};
+        local %ENV = ( %ENV, $environment->%*, $config->in_place ? _environment( $run, $spec, $where ) : () );
         my $lease = Test::Mutation::Workspace::Processes::inherit( $run->{workspace}->directory . '/processes' );
 
         # A command that cannot start ends exec with one line of the tool, and the warning of Perl would add another.
         no warnings 'exec';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
-        my $status = system { $command->[0] } $command->@*;
-
-        # As with env, a name that names nothing differs from a program that the system refuses to run.
-        my $missing = $! == Errno::ENOENT();
-        return [ $status, $missing, "$!" ];
+        my $previous = Cwd::getcwd();
+        chdir $where or Test::Mutation::Error::raise( 'test-directory-closed', directory => $where, reason => "$!" );
+        return Test::Mutation::Try::with_cleanup(
+            sub {
+                my $status = system { $command->[0] } $command->@*;
+                return [ $status, $! == Errno::ENOENT(), "$!" ];
+            },
+            sub {
+                chdir $previous
+                  or Test::Mutation::Error::raise( 'test-directory-closed', directory => $previous, reason => "$!" );
+            },
+        );
     };
 
     # A signal for the tool alone waits while the command runs, and it ends the work once the work directory is gone.
@@ -501,10 +612,16 @@ sub _test_task ( $run, %arg ) {
     my $record   = "$work/records/$sequence";
     my $tmp      = "$work/tmp/$sequence";
     Test::Mutation::Tree::make( $record, $tmp );
+    my $spec = $arg{spec};
+    if ( $run->{try_disk} || $run->{disk_test}{ $arg{test} } ) {
+        my $disk = "$spec.disk";
+        _spew( $disk, Test::Mutation::Source::read_bytes($spec) . "observe\t1\n" ) unless -e $disk;
+        $spec = $disk;
+    }
     my $launch = _launch(
         $run, $arg{root}, $tmp, $arg{test},
         program => $arg{test},
-        shim => { generation => $run->{generation}, directory => "$work/shim", record => $record, spec => $arg{spec} },
+        shim    => { generation => $run->{generation}, directory => "$work/shim", record => $record, spec => $spec },
     );
     return {
         $launch->%*,
@@ -555,6 +672,34 @@ sub _unmodified ( $run, $name, $trace, $jobs, $tests, $counted ) {
     return \%outcome;
 }
 
+sub _observed_baseline ( $run, $tests ) {
+    my $original = defined $run->{copies} ? _tree($run) : undef;
+    my $baseline = _baseline( $run, $tests, $run->{targets} );
+    if ( defined $original ) {
+        $run->{baseline_changed} = Test::Mutation::Tree::changes( $original, _tree($run) )->@* ? 1 : 0;
+    }
+    return $baseline;
+}
+
+sub _disk_baseline ( $run, $pass, $outcome, $failed ) {
+    my @completed = grep { _ending( $outcome->{$_}{result} ) eq 'fail' } $failed->@*;
+    return unless @completed;
+    my $disk;
+    {
+        local $run->{try_disk} = 1;
+        $disk = $pass->( 1, \@completed, 'verifications' );
+    }
+    my @passed = grep { $disk->{$_}{result}{passed} } @completed;
+    return unless @passed;
+    my $hooked = $pass->( 1, \@passed, 'verifications' );
+    for my $test (@passed) {
+        next if $hooked->{$test}{result}{passed};
+        $outcome->{$test} = $disk->{$test};
+        $run->{disk_test}{$test} = 1;
+    }
+    return;
+}
+
 sub _baseline ( $run, $tests, $targets ) {
     my $root = $run->{root};
     my $pass = sub ( $jobs, $names, $counted ) {
@@ -575,6 +720,10 @@ sub _baseline ( $run, $tests, $targets ) {
         }
     }
 
+    if ( @failed && defined $run->{copies} ) {
+        _disk_baseline( $run, $pass, $outcome, \@failed );
+        @failed = grep { !$outcome->{$_}{result}{passed} } @failed;
+    }
     my ( %tests, %breakable );
     for my $test ( $tests->@* ) {
         my ( $result, $record ) = $outcome->{$test}->@{qw(result record)};
@@ -674,32 +823,59 @@ sub _mutants ( $run, $mutants, $baseline ) {
     }
 
     my @entries = map { $entry_of{ $_->id } } $mutants->@*;
-    my $changes = $completed && $run->{tree} ? Test::Mutation::Tree::changes( $run->{tree}, _tree($run) ) : [];
-    _recheck( $run, [ sort keys $baseline->{tests}->%* ], \@entries, $changes ) if $changes->@*;
-    _save_cache( $run, $cache, \@entries )                                      if $cache && !$changes->@*;
+    _save_cache( $run, $cache, \@entries ) if $cache;
     _ignore_repeated_code( $run, \@entries );
     return \@entries;
 }
 
 sub _tree ($run) {
-    return _walk( $run, $run->{root}, '.git', $run->{config}->cache_dir );
+    return _walk(
+        $run, $run->{root}, '.git',
+        map { _inside( $run->{project}, $_ ) } $run->{config}->cache_dir,
+        $run->{config}->report_dir
+    );
 }
 
-# A mutant runs with the rights of the tests, so it may leave a file that makes a test fail from then on.
-# A kill by such a test proves nothing about the mutant, so the unmodified tests run once more to find them.
-sub _recheck ( $run, $tests, $entries, $changes ) {
+sub _begin_in_place ( $run, $baseline ) {
+    my $guard = $run->{guard};
+    $run->{jobs} = 1;
+    my $changes = Test::Mutation::Tree::changes( $guard->{state}, _tree($run) );
+    return unless $changes->@*;
+    _restore_changes( $run, $guard, $changes );
+    $run->{setup_tests} = [ sort keys $baseline->{tests}->%* ];
+    return;
+}
+
+sub _prepare_in_place_test ( $run, $job, $test ) {
+    _release( $run, $job ) if $run->{setup_tests};
+    $job->{used_project} = 1;
+    my @earlier = grep { $_ lt $test } @{ $run->{setup_tests} || [] };
+    return unless @earlier;
+    my $outcome = _unmodified( $run, 'setup-' . ++$run->{sequence}, 0, 1, \@earlier, 'verifications' );
+    my ($failed) = grep { !$outcome->{$_}{result}{passed} } @earlier;
+    return unless defined $failed;
+    return { reason => 'unstable-test', detail => "$failed failed while preparing the original state for $test" };
+}
+
+sub _confirm_after_restore ( $run, $job, $guard ) {
+    my $verdict = $job->{verdict};
+    return unless ( $verdict->{status} || q{} ) eq 'Killed';
+    my $test     = $verdict->{by};
+    my $observed = _unmodified( $run, 'restored-' . ++$run->{sequence}, 0, 1, [$test], 'verifications' );
+    my $changes  = Test::Mutation::Tree::changes( $guard->{state}, _tree($run) );
+    _restore_changes( $run, $guard, $changes );
+    return if $observed->{$test}{result}{passed};
+    $verdict->@{qw(status reason detail)} =
+      ( 'NoVerdict', 'project-changed', "$test still fails without a mutant after restoring the project" );
+    return;
+}
+
+sub _changed_paths ( $run, $changes ) {
     my @named   = $changes->@[ 0 .. List::Util::min( $changes->$#*, $CHANGES_NAMED - 1 ) ];
     my $rest    = $changes->@* - @named;
     my $changed = join( ', ', @named ) . ( $rest ? " and $rest more" : q{} );
     _warn( $run, Test::Mutation::Message::warning( 'project-changed', changes => $changed ) );
 
-    my $outcome = _unmodified( $run, 'recheck', 0, $run->{jobs}, $tests, 'verifications' );
-    my %broken  = map { $_ => 1 } grep { !$outcome->{$_}{result}{passed} } $tests->@*;
-    for my $entry ( grep { $_->{status} eq 'Killed' && $broken{ $_->{by} } } $entries->@* ) {
-        $entry->@{qw(status reason detail)} =
-          ( 'NoVerdict', 'project-changed', "$entry->{by} fails without a mutant since the project changed" );
-    }
-    _warn( $run, Test::Mutation::Message::warning( 'test-unstable', test => $_ ) ) for sort keys %broken;
     return;
 }
 
@@ -708,8 +884,8 @@ sub _after_task ( $run, $baseline, $task, $result ) {
     my $kind = $task->{payload}{kind};
     _discard( $task->{payload}{tmp} ) if $kind ne 'test';
     my $check =
-        $kind eq 'test'      ? _after_test( $run, $task, $result )
-      : $kind =~ /\Asyntax-/ ? _after_syntax( $run, $task, $result )
+        $kind eq 'test'      ? _after_test( $run, $baseline, $task, $result )
+      : $kind =~ /\Asyntax-/ ? _after_syntax( $run, $baseline, $task, $result )
       :                        _after_code( $run, $task, $result );
     return $check if $check;
 
@@ -877,7 +1053,48 @@ sub _after_code ( $run, $task, $result ) {
     return;
 }
 
-sub _after_test ( $run, $task, $result ) {
+sub _control_copy ( $run, $from ) {
+    my @skip =
+      $from eq $run->{project}
+      ? ( '.git', map { _inside( $from, $_ ) } $run->{config}->cache_dir, $run->{config}->report_dir )
+      : ();
+    my $link = $from eq $run->{project} ? $run->{config}->link : [];
+    return _new_copy( $run, "$run->{work}/controls/" . ++$run->{control_sequence}, $from, \@skip, $link );
+}
+
+sub _control_pass ( $run, $root, $tests ) {
+    local $run->{root}  = $root;
+    local $run->{first} = {};
+    my $outcomes = _unmodified( $run, 'control-' . ++$run->{sequence}, 0, 1, $tests, 'verifications' );
+    return !grep { !$outcomes->{$_}{result}{passed} } $tests->@*;
+}
+
+sub _verified_reference ( $run, $baseline, $test ) {
+    my $after  = _control_copy( $run, $run->{root} );
+    my $passed = _control_pass( $run, $after, [$test] );
+    _discard($after);
+    return { same => 1 } if $passed;
+    my $clean = $run->{pristine} ||= _control_copy( $run, $run->{project} );
+    my $trial = _control_copy( $run, $clean );
+    $passed = _control_pass( $run, $trial, [$test] );
+    _discard($trial);
+    return { root => $clean } if $passed;
+
+    my @earlier = sort grep { $_ lt $test } keys $baseline->{tests}->%*;
+    if (@earlier) {
+        my $ordered = _control_copy( $run, $clean );
+        if ( _control_pass( $run, $ordered, \@earlier ) ) {
+            my $check = _control_copy( $run, $ordered );
+            my $ok    = _control_pass( $run, $check, [$test] );
+            _discard($check);
+            return { root => $ordered } if $ok;
+        }
+        _discard($ordered);
+    }
+    return { unstable => 1 };
+}
+
+sub _after_test ( $run, $baseline, $task, $result ) {
     my $payload  = $task->{payload};
     my $job      = $payload->{job};
     my $path     = $job->{mutant}->path;
@@ -893,43 +1110,98 @@ sub _after_test ( $run, $task, $result ) {
         anomaly     => $evidence->{anomaly} || $payload->{baseline_anomaly},
         syntax      => $job->{syntax},
     };
-    return
-         if $job->{outcome}{anomaly}
-      || !$job->{outcome}{served}
-      || !$job->{outcome}{load_failed}
-      || defined $job->{syntax};
+    if ( $payload->{confirm_read} ) {
+        $job->{outcome}{read_check} = _ending($result);
+        return;
+    }
+    if ( $run->{baseline_changed} && !$result->{passed} && !$job->{outcome}{anomaly} ) {
+        my $test  = $payload->{test};
+        my $proof = $run->{controls}{$test} ||= _verified_reference( $run, $baseline, $test );
+        if ( $proof->{unstable} ) {
+            $job->{outcome}{anomaly} = { reason => 'unstable-test', detail => "$test failed without the mutant" };
+        }
+        elsif ( defined $proof->{root}
+            && ( !defined $job->{starting_tree} || $job->{starting_tree} ne $proof->{root} ) )
+        {
+            _release( $run, $job );
+            return if defined $job->{restore_error};
+            $run->{stats}{verifications}++;
+            $job->{starting_tree} = $proof->{root};
+            delete $job->{spec};
+            return _next_test( $run, $job, $baseline );
+        }
+    }
+    return _check_load( $run, $baseline, $job );
+}
 
+sub _check_load ( $run, $baseline, $job ) {
+    return if $job->{outcome}{anomaly};
+    my $path = $job->{mutant}->path;
+    if ( !$job->{outcome}{served} ) {
+        return unless defined $run->{copies} && $job->{outcome}{result} eq 'fail';
+        $job->{check_read} = 1;
+        return _verify_read( $run, $baseline, $job ) if defined $job->{syntax};
+    }
+    else {
+        return if !$job->{outcome}{load_failed} || defined $job->{syntax};
+    }
     my $known = $run->{syntax_of_original}{$path};
     return _compile_task( $run, $job, 'syntax-original', "$run->{root}/$path", '-c' ) if !defined $known;
-    return _compile_task( $run, $job, 'syntax-mutant',   $job->{file},         '-c' ) if $known;
+    return _compile_task( $run, $job, 'syntax-mutant',   $job->{file},         '-c' ) if $known || $job->{check_read};
     $job->{outcome}{syntax} = $job->{syntax} = 'standalone';
     return;
 }
 
 # A failed check of the original says that the source does not compile alone, so its mutants say nothing more.
-sub _after_syntax ( $run, $task, $result ) {
+sub _after_syntax ( $run, $baseline, $task, $result ) {
     my $job      = $task->{payload}{job};
     my $path     = $job->{mutant}->path;
     my $ok       = $result->{exit} == 0 && !$result->{timed_out} ? 1 : 0;
     my $original = $task->{payload}{kind} eq 'syntax-original';
     if ($original) {
         $run->{syntax_of_original}{$path} = $ok;
-        return _compile_task( $run, $job, 'syntax-mutant', $job->{file}, '-c' ) if $ok;
+        return _compile_task( $run, $job, 'syntax-mutant', $job->{file}, '-c' ) if $ok || $job->{check_read};
         _warn( $run, Test::Mutation::Message::warning( 'syntax-check-failed', path => $path ) );
     }
-    $job->{outcome}{syntax} = $job->{syntax} = $ok ? 'ok' : $original ? 'standalone' : 'compile-phase';
+    $job->{outcome}{syntax} = $job->{syntax} =
+      !$run->{syntax_of_original}{$path} ? 'standalone' : $ok ? 'ok' : 'compile-phase';
+    return _verify_read( $run, $baseline, $job ) if $job->{check_read};
     return;
 }
 
+sub _verify_read ( $run, $baseline, $job ) {
+    delete $job->{check_read};
+    if ( $job->{syntax} eq 'compile-phase' ) {
+        $job->{outcome}{read_check} = 'compile-error';
+        return;
+    }
+    _release( $run, $job );
+    return if defined $job->{restore_error};
+    delete $job->{spec};
+    my $repeat = _next_test( $run, $job, $baseline );
+    $repeat->{payload}{confirm_read} = 1;
+    $run->{stats}{verifications}++;
+    return $repeat;
+}
+
 sub _next_test ( $run, $job, $baseline ) {
-    my $config = $run->{config};
-    my $mutant = $job->{mutant};
+    my $config    = $run->{config};
+    my $mutant    = $job->{mutant};
+    my $test      = $job->{tests}[ $job->{index} ];
+    my $proof     = $run->{controls}{$test};
+    my $reference = $proof && $proof->{root} ? $proof->{root} : $run->{root};
+    if ( $job->{copy} && $job->{copy}{reference} ne $reference ) {
+        _release( $run, $job );
+        return if defined $job->{restore_error};
+        delete $job->{spec};
+    }
+    $job->{starting_tree} = $reference;
     if ( !defined $job->{spec} ) {
         $job->@{qw(file spec)} =
           _write_mutant( $run, $run->{sources}{ $mutant->path }, $mutant, _job_root( $run, $job ) );
     }
-    my $test     = $job->{tests}[ $job->{index} ];
-    my $anomaly  = $baseline->{tests}{$test}{anomalies}{ $mutant->path };
+    my $setup    = $run->{guard} ? _prepare_in_place_test( $run, $job, $test ) : undef;
+    my $anomaly  = $setup || $baseline->{tests}{$test}{anomalies}{ $mutant->path };
     my $duration = $baseline->{tests}{$test}{duration} * $config->timeout_factor;
     return _test_task(
         $run,
@@ -975,6 +1247,7 @@ sub _ending ($result) {
 }
 
 sub _finish ( $run, $job ) {
+    _remove_disk_spec( $job->{spec} ) if defined $job->{spec};
     unlink grep { defined } $job->@{qw(file spec)};
     my $verdict = Test::Mutation::Verdict::conclude( $job->{verdict} );
     my $mutant  = $job->{mutant};
@@ -1046,7 +1319,7 @@ Returns the ordered names of the phases a complete measurement can enter.
     my $status = Test::Mutation::Runner::run_command( $config, $source, $mutant, [ 'prove', '-l', 't/a.t' ] );
 
 Runs a command with one mutant active and returns its exit status.
-The mutant reaches every Perl process the command starts through C<PERL5OPT>, so a process in taint mode runs the original code.
+The command runs in a private copy containing the replacement, including when the command starts a tainted Perl process.
 
 =head2 target_pairs
 

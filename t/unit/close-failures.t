@@ -28,6 +28,8 @@ use Test::Mutation::Cache;
 use Test::Mutation::Settings;
 use Test::Mutation::Host;
 use Test::Mutation::Tree;
+use Test::Mutation::Workspace::Slot;
+use Test::Mutation::Source;
 use Test::Mutation::Record;
 use Test::Mutation::Report::Html;
 
@@ -97,5 +99,16 @@ ok length Test::Mutation::Report::Html::viewer_script(), 'the viewer script is r
 like dies {
     failing_in( qr/::Html::viewer_script\z/, sub { Test::Mutation::Report::Html::viewer_script() } )
 }, qr/\Acannot close \S+mutation-test-elements[.]js: /, 'a viewer script that does not close is an error';
+
+my $target = write_file( 'slot-source.pm', "1;\n" );
+like dies {
+    failing_in(
+        qr/::Slot::_replace\z/,
+        sub {
+            Test::Mutation::Workspace::Slot::place( $directory, 'slot-source.pm', "1;\n", "2;\n" );
+        }
+    )
+}, qr/\Acannot close \Q$target\E: /, 'a failed close refuses to install incomplete bytes';
+is Test::Mutation::Source::read_bytes($target), "1;\n", 'a failed staging-file close keeps the source unchanged';
 
 done_testing;

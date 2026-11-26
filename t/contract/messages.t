@@ -466,7 +466,8 @@ measured(
           . "is Small::next_one(2), 3, 'the next one';\n",
         't/bound.t' => "use Test::More tests => 1;\nBEGIN { \$main::APPLICATION = 1 }\nuse Bound;\n"
           . "is Bound::size(), 'big', 'a size';\n",
-    }
+    },
+    in_place => 1,
 );
 
 # A work directory that resists removal.

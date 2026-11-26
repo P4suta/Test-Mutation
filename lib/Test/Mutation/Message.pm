@@ -16,6 +16,11 @@ my @ROWS = (
         'The first word or the command named in help has no matching command.'
     ],
     [
+        'in-place-observation', 'warning',
+        '--in-place uses the module hook, which can miss absolute paths and child processes',
+        'A project run reports the observation limits of its module hook.'
+    ],
+    [
         'path-selector-invalid', 'usage',
         'invalid path selection {path}: {reason}',
         'A path operand must name a project source or directory and use positive, ascending line ranges.'
@@ -396,12 +401,7 @@ my @ROWS = (
     [
         'project-changed', 'warning',
         'the project changed while the mutants ran: {changes}',
-        'A mutant changed the project in place, so the run checks the unmodified tests once more.'
-    ],
-    [
-        'test-unstable', 'warning',
-        '{test} fails without a mutant now, so the mutants it detected have no verdict',
-        'A test fails without a mutant after the project changed, so its kills prove nothing.'
+        'A mutant test changed the project in place and the runner restored the affected paths.'
     ],
     [
         'decompiled-code-unstable',

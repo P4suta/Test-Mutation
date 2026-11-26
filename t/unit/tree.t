@@ -392,4 +392,23 @@ like dies { Test::Mutation::Tree::snapshot( root => 1 ) }, qr/Wrong number of pa
   'snapshot checks its arguments';
 like dies { Test::Mutation::Tree::changes( {}, [] ) }, qr/did not pass type constraint/, 'changes checks its arguments';
 
+subtest 'the copy records the same state as an independent snapshot and retains it after restoration' => sub {
+    my $source = project_tree();
+    require POSIX;
+    POSIX::mkfifo( "$source/unused.pipe", oct '600' ) or die "fifo: $!";
+    my $state = {};
+    my $copy  = copy_of( $source, skip => [ '.git', '.mutation' ], link => ['local'], state => $state );
+    is $state, snapshot($copy), 'the state represents files, completed directory modes and the selected link';
+    my $working = "$copy/lib/A.pm";
+    tree_file( $working,          "changed\n" );
+    tree_file( "$copy/transient", "new\n" );
+    my $changes = Test::Mutation::Tree::changes( $state, snapshot($copy) );
+    is $changes, [ 'changed lib/A.pm', 'created transient' ], 'a file replacement and a new file are distinguished';
+    Test::Mutation::Tree::restore( from => $source, to => $copy, changes => $changes, state => $state );
+    is $state, snapshot($copy), 'the restored inode and metadata become the reference for reuse';
+    ok !exists $state->{transient}, 'a temporary file is absent from the restored reference';
+    tree_file( $working, "another\n" );
+    is Test::Mutation::Tree::changes( $state, snapshot($copy) ), ['changed lib/A.pm'],
+      'the next job can detect another change';
+};
 done_testing;

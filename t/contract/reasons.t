@@ -116,8 +116,24 @@ is of_status(
 # A test that prints without end when the mutant is wrong, which the pool ends at the output limit of the run.
 my $flood = "use Small;\nmy \$next = Small::next_one(2);\ndefined \$next or die \"no value\\n\";\n"
   . "if ( \$next != 3 ) { print STDERR 'x' x 65_536 while 1 }\nprint \"1..1\\nok 1\\n\";\n";
-is of_status( measured( project( 'lib/Small.pm' => $module, 't/flood.t' => $flood ) ), 'lib/Small.pm', 'Timeout' ),
-  ['Timeout output-limit'], 'an output limit after the load';
+{
+    my $pool = \&Test::Mutation::Pool::run;
+    no warnings 'redefine';
+    local *Test::Mutation::Pool::run = sub (%options) {
+        my $next = $options{next};
+        $options{next} = sub {
+            my $task = $next->() or return;
+
+            # Scale the byte budget so the pipe fills before the independent deadline.
+            my $bytes = $task->{output_limit};
+            $task->{output_limit} = int( $bytes / 4096 );
+            return $task;
+        };
+        return $pool->(%options);
+    };
+    is of_status( measured( project( 'lib/Small.pm' => $module, 't/flood.t' => $flood ) ), 'lib/Small.pm', 'Timeout' ),
+      ['Timeout output-limit'], 'an output limit after the load';
+}
 my $slow = "use Test::More tests => 1;\nBEGIN { select undef, undef, undef, 0.6 }\n"
   . "use Small;\nis Small::next_one(2), 3, 'the next one';\n";
 is of_status(
@@ -145,7 +161,8 @@ my $compiled = measured(
         't/around.t' => "use Test::More tests => 1;\nuse Cwd ();\nuse Small;\nmy \$next = Small::next_one(2);\n"
           . "system \$^X, '-e', 'require shift', Cwd::getcwd() . '/lib/Small.pm' if \$next != 3;\n"
           . "is \$next, 3, 'the next one';\n",
-    )
+    ),
+    in_place => 1,
 );
 is of_status( $compiled, 'lib/Guarded.pm', 'CompileError' ), ['CompileError compile-phase'], 'a mutant that dies';
 is of_status( $compiled, 'lib/Bound.pm',   'CompileError' ), ['CompileError standalone'], 'a source that fails alone';
@@ -214,7 +231,8 @@ PERL
         $program =~ s/ACTION/$during{$reason}/;
         my $root = project( 'lib/Small.pm' => $module, 't/small.t' => $program );
         local $ENV{FIXTURE_ORIGINAL} = "$root/lib/Small.pm";
-        is of_status( measured( $root, coverage => 'file' ), 'lib/Small.pm', 'NoVerdict' ),
+        is of_status( measured( $root, coverage => 'file', in_place => $reason eq 'shim-error' ? 1 : 0 ),
+            'lib/Small.pm', 'NoVerdict' ),
           ["NoVerdict $reason"], "the report explains $reason";
     }
 };
@@ -244,7 +262,26 @@ is of_status(
     'lib/Small.pm',
     'NoVerdict'
   ),
-  ['NoVerdict project-changed'], 'a test that a mutant breaks for good';
+  [], 'restoring the marker keeps one mutant from changing the next verdict';
+{
+    local $ENV{FIXTURE_MARKER} = project() . '/marker';
+    my $persistent = <<'PERL';
+use Test::More tests => 1;
+use Small;
+my $next = Small::next_one(2);
+if ( $next != 3 ) {
+    for my $path ( 'left-behind.txt', $ENV{FIXTURE_MARKER} ) {
+        open my $file, '>', $path or die $!;
+        close $file or die $!;
+    }
+}
+ok !-e $ENV{FIXTURE_MARKER} && $next == 3, 'the original state and the expected value';
+PERL
+    is of_status( measured( project( 'lib/Small.pm' => $plain, 't/write.t' => $persistent ), jobs => 1, in_place => 1 ),
+        'lib/Small.pm', 'NoVerdict' ),
+      ['NoVerdict project-changed'],
+      'a killing test that still fails after restoring the project gives no verdict';
+}
 
 # A signal that ends the measurement after the unmodified run and before any mutant.
 {

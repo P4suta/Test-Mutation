@@ -34,6 +34,7 @@ my $OUTCOME = Dict [
     load_failed => Bool,
     bypassed    => Bool,
     anomaly     => Optional [ Maybe [ Dict [ reason => Reason, detail => Str ] ] ],
+    read_check  => Optional [ Enum [qw(pass fail timeout overflow compile-error)] ],
     syntax      => Maybe [ Enum [ 'ok', Test::Mutation::Status::of('CompileError')->reasons->@* ] ],
 ];
 my %COMPILE_DETAIL = (
@@ -69,6 +70,15 @@ sub step ( $state, $outcome ) {
     return $decide->( 'NoVerdict', $outcome->{anomaly}->@{qw(reason detail)} ) if $outcome->{anomaly};
     return $decide->( 'NoVerdict', 'loaded-around-hook', "$test loaded the target without the hook" )
       if $outcome->{bypassed};
+    if ( defined $outcome->{read_check} ) {
+        my $check = $outcome->{read_check};
+        return $decide->( 'CompileError', $outcome->{syntax}, $COMPILE_DETAIL{ $outcome->{syntax} } )
+          if $check eq 'compile-error';
+        return $decide->( 'Killed', undef, "$test failed twice with the changed source" ) if $check eq 'fail';
+        return $decide->(
+            'NoVerdict', 'unstable-test', "$test failed before loading the module and its repeat ended with $check"
+        );
+    }
     my $limit = limit( $outcome->{result} );
     return _timed_out( \%next, $test, $outcome->{served}, $limit ) if defined $limit;
     return \%next                                                  if !$outcome->{served};
@@ -164,7 +174,10 @@ Test::Mutation::Verdict - classify a mutant from the outcomes of its tests
 The functions fold test outcomes into a verdict state.
 A decided state ignores later outcomes.
 
-An outcome that never loaded the mutant says nothing about it.
+A passing test that never loaded the mutant gives no evidence of execution.
+A failing test can also detect a source change by reading the file as data.
+When only the changed file fails a standalone syntax check, its verdict is C<CompileError>.
+Otherwise a repeat must fail to establish C<Killed>.
 A mutant that no test loaded is C<NoCoverage>, never C<Survived>: C<unreached> without a test, and C<not-loaded> after tests that never loaded it.
 A test that loads the target around the hook yields C<NoVerdict> with the reason C<loaded-around-hook>, because the test ran the original code.
 A mutant that fails to load is C<CompileError> when its syntax check fails, with the kind that the check found, and otherwise the test result decides.

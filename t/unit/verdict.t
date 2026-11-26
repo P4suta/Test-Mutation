@@ -102,6 +102,20 @@ subtest 'single outcomes over the whole input domain' => sub {
     is \@rows, [], 'every combination yields the specified status and reason';
 };
 
+subtest 'a reproduced failure can detect a source that the test reads as data' => sub {
+    my %unloaded = ( result => 'fail', served => 0, syntax => 'ok' );
+    is decided( outcome( %unloaded, read_check => 'fail' ) ),    'Killed', 'two failed reads detect the change';
+    is decided( outcome( %unloaded, read_check => 'pass' ) ),    'NoVerdict unstable-test', 'the second read passed';
+    is decided( outcome( %unloaded, read_check => 'timeout' ) ), 'NoVerdict unstable-test', 'the second read timed out';
+    is decided( outcome( %unloaded, read_check => 'overflow' ) ), 'NoVerdict unstable-test',
+      'the second read exceeded its output limit';
+    is decided( outcome( %unloaded, syntax => 'compile-phase', read_check => 'compile-error' ) ),
+      'CompileError compile-phase',
+      'only the changed source failed to compile';
+    is decided( outcome( %unloaded, syntax => 'standalone', read_check => 'fail' ) ), 'Killed',
+      'an unmodified source that also fails standalone can still be tested as data';
+};
+
 subtest 'sequences' => sub {
     is decided(), 'NoCoverage unreached', 'no test at all';
     is decided( outcome( served => 0 ), outcome( served => 0, result => 'fail' ) ), 'NoCoverage not-loaded',
