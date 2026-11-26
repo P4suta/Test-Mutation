@@ -8,6 +8,7 @@ use TAP::Parser::SourceHandler::Perl ();
 use Text::ParseWords                 ();
 use Types::Standard                  qw(ArrayRef Bool Dict HashRef Int Maybe Optional Str);
 use Type::Params                     qw(signature_for);
+use Test::Mutation::Build;
 use Test::Mutation::Error;
 use Test::Mutation::Try;
 
@@ -24,8 +25,10 @@ my $SHIM     = Dict [ generation => Int, directory => Str, spec => Str, record =
 signature_for defaults => ( positional => [Str], returns => $DEFAULTS );
 
 sub defaults ($root) {
-    my $file = File::Spec->catfile( $root, '.proverc' );
-    return { lib => ['lib'], switch => [] } if !-e $file;
+    my $file      = File::Spec->catfile( $root, '.proverc' );
+    my $native    = Test::Mutation::Build::native($root);
+    my $libraries = $native->{sources}->@* || $native->{objects}->@* ? [qw(blib/lib blib/arch)] : ['lib'];
+    return { lib => $libraries, switch => [] } if !-e $file;
     require App::Prove;
     my $saved  = Getopt::Long::Configure();
     my $parsed = Test::Mutation::Try::attempt(
@@ -52,7 +55,7 @@ sub defaults ($root) {
         $app->taint_fail    ? '-T' : $app->taint_warn    ? '-t' : (),
         $app->warnings_fail ? '-W' : $app->warnings_warn ? '-w' : (),
     );
-    return { lib => @lib ? \@lib : ['lib'], switch => \@switch };
+    return { lib => @lib ? \@lib : $libraries, switch => \@switch };
 }
 
 signature_for test_command => (
@@ -72,38 +75,11 @@ signature_for test_command => (
     returns => Dict [ command => ArrayRef [Str], env => HashRef [ Maybe [Str] ] ],
 );
 
-sub _arguments ($arg) {
-    my @lib = $arg->lib->@*;
-    my @switch;
-    my $takes_directory = 0;
-    for my $word ( $arg->switch->@* ) {
-        if ($takes_directory) {
-            push @lib, $word;
-            $takes_directory = 0;
-            next;
-        }
-        if ( $word eq '-I' ) {
-            $takes_directory = 1;
-        }
-        elsif ( $word =~ /\A-I\s*(.+)\z/s ) {
-            push @lib, $1;
-        }
-        elsif ( $word =~ /\A-Mlib=(.+)\z/s ) {
-            push @lib, split /,/, $1;
-        }
-        else {
-            push @switch, $word;
-        }
-    }
-    push @switch, '-I' if $takes_directory;
-    return ( [ uniq map { File::Spec->rel2abs( $_, $arg->root ) } @lib ], \@switch );
-}
-
 sub test_command ($arg) {
-    my ( $directories, $options ) = _arguments($arg);
-    my @lib    = @$directories;
-    my @switch = @$options;
-    my $taint  = TAP::Parser::SourceHandler::Perl->get_taint( $arg->first );
+    my $options = interpreter_options( $arg->root, $arg->lib, $arg->switch );
+    my @lib     = $options->{lib}->@*;
+    my @switch  = $options->{switch}->@*;
+    my $taint   = TAP::Parser::SourceHandler::Perl->get_taint( $arg->first );
     push @switch, "-$taint" if defined $taint && !grep { $_ eq "-$taint" } @switch;
     my $tainted   = grep { /\A-[tT]\z/ } @switch;
     my $separator = $Config{path_sep};
@@ -143,6 +119,35 @@ sub test_command ($arg) {
     return { command => [ $arg->perl, @switch, $arg->arguments->@*, $arg->program ], env => \%env };
 }
 
+signature_for interpreter_options => ( positional => [ Str, ArrayRef [Str], ArrayRef [Str] ], returns => $DEFAULTS );
+
+sub interpreter_options ( $root, $libraries, $switches ) {
+    my @lib = @$libraries;
+    my @switch;
+    my $takes_directory = 0;
+    for my $word (@$switches) {
+        if ($takes_directory) {
+            push @lib, $word;
+            $takes_directory = 0;
+            next;
+        }
+        if ( $word eq '-I' ) {
+            $takes_directory = 1;
+        }
+        elsif ( $word =~ /\A-I\s*(.+)\z/s ) {
+            push @lib, $1;
+        }
+        elsif ( $word =~ /\A-Mlib=(.+)\z/s ) {
+            push @lib, split /,/, $1;
+        }
+        else {
+            push @switch, $word;
+        }
+    }
+    push @switch, '-I' if $takes_directory;
+    return { lib => [ uniq map { File::Spec->rel2abs( $_, $root ) } @lib ], switch => \@switch };
+}
+
 1;
 
 __END__
@@ -157,6 +162,10 @@ Test::Mutation::Launch - construct the Perl command and environment of one task
 
 Reads interpreter options and library directories from the project's F<.proverc>.
 An external test executor cannot run an instrumented Perl test.
+
+=head2 interpreter_options
+
+Resolves library directories in the project and separates them from other interpreter options.
 
 =head2 test_command
 

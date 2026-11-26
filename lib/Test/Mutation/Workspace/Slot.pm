@@ -5,7 +5,7 @@ use File::Basename  ();
 use File::Spec      ();
 use File::Temp      ();
 use List::Util      qw(uniq);
-use Types::Standard qw(ArrayRef HashRef Str);
+use Types::Standard qw(ArrayRef Dict HashRef Str);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Error;
 use Test::Mutation::Source;
@@ -13,10 +13,16 @@ use Test::Mutation::Try;
 
 our $VERSION = '0.001';
 
-signature_for twins => ( positional => [ Str, Str, Str ], returns => HashRef [Str] );
+my $PRODUCTS = Dict [ twins => HashRef [Str], generated => HashRef [Str] ];
 
-sub twins ( $root, $path, $original ) {
-    my %headers;
+signature_for products => ( positional => [ Str, Str, Str ], returns => $PRODUCTS );
+
+sub products ( $root, $path, $original ) {
+    return _classify_products( $root, $path, $original );
+}
+
+sub _classify_products ( $root, $path, $original ) {
+    my ( %headers, %generated );
     my @copies = ("blib/$path");
     if ( $path =~ m{\A(?:bin|script)/(.+)\z} ) {
         my $relative = $1;
@@ -33,15 +39,28 @@ sub twins ( $root, $path, $original ) {
             my $source = $original =~ s/\A[#]![^\n]*\n//r;
             $headers{$copy} = $head if defined $body && $body eq $source && $original =~ /\A[#]!/;
         }
+        $generated{$copy} = $built unless exists $headers{$copy};
     }
-    return \%headers;
+    return { twins => \%headers, generated => \%generated };
+}
+
+signature_for twins => ( positional => [ Str, Str, Str ], returns => HashRef [Str] );
+
+sub twins ( $root, $path, $original ) {
+    return _classify_products( $root, $path, $original )->{twins};
 }
 
 signature_for place => ( positional => [ Str, Str, Str, Str ], returns => ArrayRef [Str] );
 
 sub place ( $root, $path, $original, $mutant ) {
-    my $headers = twins( $root, $path, $original );
-    my @paths   = ( $path, sort keys %$headers );
+    my $built = _classify_products( $root, $path, $original );
+    return install( $root, $path, $mutant, $built->{twins} );
+}
+
+signature_for install => ( positional => [ Str, Str, Str, HashRef [Str] ], returns => ArrayRef [Str] );
+
+sub install ( $root, $path, $mutant, $headers ) {
+    my @paths = ( $path, sort keys %$headers );
     for my $file (@paths) {
         my $bytes = $mutant;
         $bytes =~ s/\A[#]![^\n]*\n/$headers->{$file}/ if $headers->{$file};
@@ -87,9 +106,17 @@ Test::Mutation::Workspace::Slot - install a mutation in a private job tree
 
 =head1 FUNCTIONS
 
+=head2 products
+
+Classifies existing built files by content and keeps the original bytes of each generated product.
+
 =head2 twins
 
 Returns the relative paths of matching built files and any replacement interpreter line installed by the build.
+
+=head2 install
+
+Installs the new bytes in the source and the matching products listed by C<products>.
 
 =head2 place
 

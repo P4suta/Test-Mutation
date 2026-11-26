@@ -10,6 +10,7 @@ use List::Util      ();
 use Time::HiRes     ();
 use Types::Standard qw(ArrayRef Bool CodeRef Dict HashRef InstanceOf Int Maybe Optional Str Tuple);
 use Type::Params    qw(signature_for);
+use Test::Mutation::Build;
 use Test::Mutation::Cache;
 use Test::Mutation::Coverage;
 use Test::Mutation::Error;
@@ -151,8 +152,10 @@ sub _prepare_project ( $run, $selection ) {
     unless ( $run->{config}->in_place ) {
         _copy_project($run);
         $selection->verify_copy( $run->{root} );
+        _prepare_build( $run, [ sort keys $selection->sources->%* ] );
         return;
     }
+    _prepare_build( $run, [ sort keys $selection->sources->%* ] );
     _warn( $run, Test::Mutation::Message::warning('in-place-observation') );
     my $root     = $run->{project};
     my $backup   = $run->{workspace}->directory . '/tree/original';
@@ -163,6 +166,56 @@ sub _prepare_project ( $run, $selection ) {
     $run->{stats}{copies}++;
     $run->{guard} = { backup => $backup, state => $original, opaque => \@opaque };
     return;
+}
+
+sub _prepare_build ( $run, $targets ) {
+    my $root    = $run->{root};
+    my $options = Test::Mutation::Launch::interpreter_options( $root, $run->{config}->lib, $run->{config}->switch );
+    $run->{build} = Test::Mutation::Build::prepare(
+        root      => $root,
+        native    => Test::Mutation::Build::native($root),
+        perl      => $run->{perl} || $run->{config}->perl,
+        libraries => $options->{lib},
+        targets   => $targets,
+        in_place  => $run->{config}->in_place,
+        run       => sub ( $where, $command ) { _build_command( $run, $where, $command ) },
+    );
+    return;
+}
+
+sub _build_command ( $run, $root, $command ) {
+    my $work  = $run->{workspace}->directory;
+    my @tasks = (
+        {
+            command         => $command,
+            cwd             => $root,
+            env             => { PWD => $root, TMPDIR => "$work/work" },
+            lease           => "$work/processes",
+            timeout         => $run->{config}->baseline_timeout,
+            output_limit    => $OUTPUT_LIMIT,
+            stop_on_failure => 0,
+        }
+    );
+    my $result;
+    Test::Mutation::Pool::run(
+        jobs => 1,
+        work => ( $run->{stats} ||= {} ),
+        next => sub { shift @tasks },
+        done => sub ( $task, $outcome ) { $result = $outcome; return }
+    );
+    return unless $result->{exit} || $result->{signal} || $result->{timed_out} || $result->{overflowed};
+    my $detail = join q{ }, grep { length } $result->@{qw(output errors)};
+    $detail =~ s/\s+/ /g;
+    $detail =~ s/\s+\z//;
+    $detail = substr $detail, -480 if length($detail) > 480;
+    return Test::Mutation::Error::raise(
+        'build-command-failed',
+        command => join( q{ }, @$command ),
+        reason => length $detail ? $detail
+        : $result->{timed_out}  ? 'time limit'
+        : $result->{overflowed} ? 'output limit'
+        :                         "exit $result->{exit}, signal $result->{signal}"
+    );
 }
 
 # The path from the project to a place inside it, and nothing for a place outside.
@@ -526,12 +579,25 @@ sub target_pairs ( $root, $paths, $mutated, $file ) {
     return [ map { [ "$root/$_", $_ eq $mutated ? $file : "$root/$_" ] } @paths ];
 }
 
+sub _place ( $run, $root, $path, $before, $after ) {
+    my $products = Test::Mutation::Workspace::Slot::products( $root, $path, $before );
+    Test::Mutation::Workspace::Slot::install( $root, $path, $after, $products->{twins} );
+    my $generated = $products->{generated};
+    return unless keys %$generated;
+    _build_command( $run, $root, $run->{build} ) if $run->{build} && $run->{build}->@*;
+    for my $copy ( sort keys %$generated ) {
+        return $copy if !-f "$root/$copy" || Test::Mutation::Source::read_bytes("$root/$copy") eq $generated->{$copy};
+    }
+    return;
+}
+
 sub _write_mutant ( $run, $source, $mutant, $root, $raw = 0 ) {
     my $file  = "$run->{work}/mutants/" . $mutant->id . '.pm';
     my $text  = $source->replace_span( $mutant->start, $mutant->end, $mutant->replacement );
     my $bytes = $source->to_bytes($text);
     _spew( $file, $bytes );
     my $served = $file;
+    my $stale;
     if ( defined $run->{copies} ) {
         my $placed = $bytes;
         if ( !$raw && ( my $witness = $run->{witness}{ $mutant->path } ) ) {
@@ -544,12 +610,12 @@ sub _write_mutant ( $run, $source, $mutant, $root, $raw = 0 ) {
             }
             $placed = _marked_bytes( $run, $source, $text, $at );
         }
-        Test::Mutation::Workspace::Slot::place( $root, $mutant->path, $source->to_bytes( $source->text ), $placed );
+        $stale  = _place( $run, $root, $mutant->path, $source->to_bytes( $source->text ), $placed );
         $served = "$root/" . $mutant->path;
     }
     my $targets = target_pairs( $root, $run->{targets} ? $run->{targets} : [], $mutant->path, $served );
     my $spec    = _spec( $run, $root, 'mutants/' . $mutant->id, 0, $targets );
-    return ( $file, $spec );
+    return ( $file, $spec, $stale );
 }
 
 signature_for run_command => (
@@ -571,8 +637,11 @@ sub run_command ( $config, $source, $mutant, $command ) {
         my $where = $run->{root};
         Test::Mutation::Error::raise( 'source-changed', path => $source->path )
           if Test::Mutation::Source::read_bytes( "$where/" . $source->path ) ne $source->to_bytes( $source->text );
+        _prepare_build( $run, [ $source->path ] );
         _prepare_work($run);
-        my ( undef, $spec ) = _write_mutant( $run, $source, $mutant, $where );
+        my ( undef, $spec, $stale ) = _write_mutant( $run, $source, $mutant, $where );
+        Test::Mutation::Error::raise( 'build-copy-not-updated', path => $stale, source => $source->path )
+          if defined $stale;
         my $environment = Test::Mutation::Launch::test_command(
             perl    => $^X,
             root    => $where,
@@ -737,7 +806,8 @@ sub _mark_originals ( $run, $root, $install, @paths ) {
         my $marked = _marked_bytes( $run, $source, $source->text, $run->{witness}{$path}{offset} );
         my ( $before, $after ) = $install ? ( $raw, $marked ) : ( $marked, $raw );
         next if !-f "$root/$path" || Test::Mutation::Source::read_bytes("$root/$path") ne $before;
-        Test::Mutation::Workspace::Slot::place( $root, $path, $before, $after );
+        my $stale = _place( $run, $root, $path, $before, $after );
+        $run->{stale}{$path} = $stale if $install && defined $stale;
     }
     return;
 }
@@ -904,11 +974,7 @@ sub _trace_blind ( $run, $outcome ) {
                 descriptor => fileno( $run->{task_descriptor} ),
             );
         }
-        Test::Mutation::Workspace::Slot::place(
-            $probe, $path,
-            $source->to_bytes( $source->text ),
-            $source->to_bytes($text)
-        );
+        _place( $run, $probe, $path, $source->to_bytes( $source->text ), $source->to_bytes($text) );
     }
     local $run->{root}       = $probe;
     local $run->{first}      = {};
@@ -962,7 +1028,7 @@ sub _raw_baseline ( $run, $tests, $outcome ) {
     return;
 }
 
-sub _mutants ( $run, $mutants, $baseline ) {
+sub _measurement_jobs ( $run, $mutants, $baseline, $cache, $entries ) {
     my $config   = $run->{config};
     my $coverage = Test::Mutation::Coverage->new(
         mode      => $config->coverage,
@@ -970,27 +1036,33 @@ sub _mutants ( $run, $mutants, $baseline ) {
         tests     => { map { $_ => { $baseline->{tests}{$_}->%{qw(duration files)} } } keys $baseline->{tests}->%* },
     );
 
-    my $cache = $config->cache ? _open_cache( $run, $baseline ) : undef;
-
     # Each mutant has one entry under its identifier, so the result keeps the order of the analysis.
-    my ( %entry_of, @jobs );
+    my @jobs;
     for my $mutant ( $mutants->@* ) {
         if ( $mutant->suppressed ) {
-            $entry_of{ $mutant->id } = _suppressed($mutant);
+            $entries->{ $mutant->id } = _suppressed($mutant);
             next;
         }
         my $tests = $coverage->tests_for($mutant);
-        my $job   = {
+        $tests = [ sort keys $baseline->{tests}->%* ] if !$tests->@* && exists $run->{stale}{ $mutant->path };
+        my $job = {
             mutant   => $mutant,
             tests    => $tests,
             index    => 0,
             verdict  => Test::Mutation::Verdict::start(),
             duration => 0
         };
-        $entry_of{ $mutant->id } = _reused_entry( $run, $cache, $job ) if $cache && $tests->@*;
-        push @jobs, $job if !$entry_of{ $mutant->id };
+        $entries->{ $mutant->id } = _reused_entry( $run, $cache, $job ) if $cache && $tests->@*;
+        push @jobs, $job if !$entries->{ $mutant->id };
     }
 
+    return @jobs;
+}
+
+sub _mutants ( $run, $mutants, $baseline ) {
+    my $cache = $run->{config}->cache ? _open_cache( $run, $baseline ) : undef;
+    my %entry_of;
+    my @jobs    = _measurement_jobs( $run, $mutants, $baseline, $cache, \%entry_of );
     my @waiting = @jobs;
     my $finish  = sub ($job) {
         _release( $run, $job );
@@ -1237,8 +1309,10 @@ sub _next_code ( $run, $job ) {
     return if !$UNDETECTED{ Test::Mutation::Verdict::final( $job->{verdict} ) };
     my $mutant = $job->{mutant};
     my $path   = $mutant->path;
-    $job->@{qw(file spec)} = _write_mutant( $run, $run->{sources}{$path}, $mutant, _job_root( $run, $job ) )
+    $job->@{qw(file spec stale)} = _write_mutant( $run, $run->{sources}{$path}, $mutant, _job_root( $run, $job ) )
       if !defined $job->{spec};
+
+    return if defined $job->{stale};
 
     # Two runs of the original show whether its compiled code has a stable text.
     my ( $once, $again ) = ( $run->{code_of_original}{$path} ||= [] )->@*;
@@ -1407,10 +1481,11 @@ sub _next_test ( $run, $job, $baseline ) {
     }
     $job->{starting_tree} = $reference;
     if ( !defined $job->{spec} ) {
-        $job->@{qw(file spec)} =
+        $job->@{qw(file spec stale)} =
           _write_mutant( $run, $run->{sources}{ $mutant->path }, $mutant, _job_root( $run, $job ), $raw );
         $job->{raw} = $raw;
     }
+    return if defined $job->{stale};
     my $setup    = $run->{guard} ? _prepare_in_place_test( $run, $job, $test ) : undef;
     my $anomaly  = $setup || $baseline->{tests}{$test}{anomalies}{ $mutant->path };
     my $duration = $baseline->{tests}{$test}{duration} * $config->timeout_factor;
@@ -1466,6 +1541,10 @@ sub _finish ( $run, $job ) {
     my ( $status, $reason, $detail ) = $verdict->@{qw(status reason detail)};
     if ( defined $job->{restore_error} ) {
         ( $status, $reason, $detail ) = ( 'NoVerdict', 'slot-not-restored', $job->{restore_error} );
+    }
+    elsif ( defined $job->{stale} ) {
+        ( $status, $reason, $detail ) =
+          ( 'NoVerdict', 'build-copy-not-updated', "the build did not update $job->{stale}" );
     }
     elsif ( length $code ) {
         $run->{code_of_mutant}{ $mutant->id } = $code;

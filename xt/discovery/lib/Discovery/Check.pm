@@ -91,6 +91,7 @@ sub _bounded ($arg) {
       if $stats->{baselineTests} != keys $run->{tests}->%*;
     if ( !$run->{reused} && !defined $run->{interrupted} ) {
         my $explained = $stats->{baselineTests} + $stats->{verifications} + $stats->{compiles};
+        $explained += $arg->{build_processes} if defined $arg->{build_processes};
         $explained += $_ for values $run->{completed}->%*;
         push @found, 'I1 the run starts more processes than its tests explain'  if $stats->{spawns} > $explained;
         push @found, 'I1 the run starts fewer processes than its tests explain' if $stats->{spawns} < $explained;

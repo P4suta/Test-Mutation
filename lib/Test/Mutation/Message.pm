@@ -11,6 +11,26 @@ with 'Test::Mutation::Value';
 # Each row: the identifier, the kind, the text with its slots, and the description for the manual.
 my @ROWS = (
     [
+        'build-recipe-missing',
+        'usage',
+        'XS sources need Makefile.PL or Build.PL; build the distribution separately and use -C to select its build directory',
+        'An XS distribution needs a configuration script in its source directory.'
+    ],
+    [
+        'build-product-stale', 'usage',
+        '{path} needs a rebuild; run {command} before in-place measurement',
+        'An in-place build product predates its source.'
+    ],
+    [
+        'build-copy-not-updated', 'environment',
+        '{path} in the private build did not update after changing {source}',
+        'The generated product kept its original contents after the mutant was installed.'
+    ],
+    [
+        'build-command-failed',       'environment',
+        '{command} failed: {reason}', 'A command that builds the private distribution failed.'
+    ],
+    [
         'command-unknown', 'usage',
         'unknown command {command}, did you mean {nearest}?',
         'The first word or the command named in help has no matching command.'

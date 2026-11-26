@@ -57,6 +57,7 @@ options = []
 
 [Params-Util.expect]
 mutants = [164, 200]
+score = [75, 89]
 warnings = []
 seconds = 30
 
@@ -91,6 +92,7 @@ options = []
 
 [Variable-Magic.expect]
 mutants = [16, 20]
+score = [87, 100]
 warnings = []
 seconds = 30
 

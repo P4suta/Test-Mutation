@@ -159,10 +159,11 @@ sub together ( $axis, $members, %more ) {
     my @bypassed =
       qw(absolute-copy absolute-original cleared-env cleared-perl5lib cleared-perl5opt direct-script do-file eval-text fresh-inc local-inc perl-x system-perl taint-child);
     my %bypassed = $more{in_place} ? map { $_ => 'loaded-around-hook' } grep { exists $built->{$_} } @bypassed : ();
-    my $outside  = $built->{'absolute-original'} && !$more{in_place};
-    my @found    = (
+    my %reason   = $more{in_place} ? %bypassed : map { exists $built->{ $_->[0] } ? @$_ : () }
+      [ 'absolute-original', 'outside-copy' ], [ 'blib-differing', 'build-copy-not-updated' ];
+    my @found = (
         ( map { "$axis=$_: the unmodified run fails" } @failed ),
-        ( map { "$axis: $_" } findings( [ @run, 'I1' ], run => $run, expected_exit => $outside || %bypassed ? 4 : 0 ) ),
+        ( map { "$axis: $_" } findings( [ @run, 'I1' ], run => $run, expected_exit => %reason ? 4 : 0 ) ),
         findings( ['I5'], run => $run ),
         ( map { "$axis=$plain: $_" } findings( ['I7'], run => $run, member => $reference, @truth ) ),
     );
@@ -171,8 +172,7 @@ sub together ( $axis, $members, %more ) {
 
         # A member whose behavior turns the statuses has a truth of its own, and no other member shows it.
         my @compared = $member->{turns}->%* ? @truth : ( reference => $reference );
-        push @compared, expected_reason => $bypassed{$name} if exists $bypassed{$name};
-        push @compared, expected_reason => 'outside-copy'   if $outside && $name eq 'absolute-original';
+        push @compared, expected_reason => $reason{$name} if exists $reason{$name};
         push @found,
           map { "$axis=$name: $_" }
           findings( [ ( $member->{turns}->%* ? 'I7' : 'I8' ), 'I6' ], run => $run, member => $member, @compared );
@@ -199,7 +199,8 @@ sub alone ( $axis, $name, %more ) {
     $compared += keys $run->{mutants}->%*;
     $ran{"$axis=$name"}++;
     $project->discard;
-    my @observed = ( run => $run, member => $member );
+    my @observed =
+      ( run => $run, member => $member, build_processes => $name eq 'xs-load' && !$more{in_place} ? 2 : 0 );
     return ( findings( ['I5'], run => $run ),
         map { "$axis=$name: $_" } findings( [ @run, 'I1', 'I7', 'I6' ], @observed ) );
 }

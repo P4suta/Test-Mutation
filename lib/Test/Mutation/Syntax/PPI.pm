@@ -358,7 +358,8 @@ sub _split_subtractions ($document) {
 sub _ends_operand ($element) {
     return 0 if !$element;
     return 1
-      if grep { $element->isa($_) } qw(PPI::Structure::Subscript PPI::Structure::List PPI::Structure::Constructor);
+      if grep { $element->isa($_) }
+      qw(PPI::Structure::Subscript PPI::Structure::List PPI::Structure::Condition PPI::Structure::Constructor);
     return 1 if _is_operator( $element, '++', '--' );
     return $element->isa('PPI::Token::Cast') && _is_operator( scalar $element->sprevious_sibling, '->' );
 }

@@ -317,6 +317,17 @@ TEST
 # A test that reached the line in the unmodified run and never loaded the mutant.
 is decided( outcome( served => 0 ) ), ['NoCoverage not-loaded'], 'a test that never loads the mutant';
 
+my $stale = measured(
+    project(
+        'lib/Small.pm'      => $module,
+        'blib/lib/Small.pm' => "# generated\n$module",
+        't/small.t'         => "use lib 'blib/lib';\n$test",
+    ),
+    equivalence => 0
+);
+is of_status( $stale, 'lib/Small.pm', 'NoVerdict' ), ['NoVerdict build-copy-not-updated'],
+  'a build product kept its original bytes';
+
 my $pairs   = pairs();
 my @ungiven = ungiven( $pairs, \%given );
 Gate::findings( 'contract-reason-reasons', [ map { "no case gives the reason $_" } @ungiven ] );

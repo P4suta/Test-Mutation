@@ -513,6 +513,8 @@ subtest 'extended mutators' => sub {
         %extended
       ),
       [ [ '[7]', '[]' ], [ '[8]', '[]' ] ], 'indices of a list slice and dereference keep their expressions';
+    is changes( 'sub f { return 0 if (stat("a"))[9] < (stat("b"))[9]; return [1] }', 'literal-collection', %extended ),
+      [ [ '[1]', '[]' ] ], 'the list before a modifier-condition subscript produces values';
     is changes( 'sub f { my ($ref) = @_; my $item = ${$ref}[0][1]; ' . 'return map { $_ + 1 } [2, 3] }',
         'literal-collection', %extended ),
       [ [ '[2, 3]', '[]' ] ], 'a symbolic dereference keeps each index and a map block accepts an array literal';

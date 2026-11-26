@@ -486,6 +486,38 @@ my $reader = "use Test::More tests => 2;\nuse Small;\nok !-e 'left-behind.txt', 
   . "is Small::size(9), 'big', 'a size';\n";
 measured( { 'lib/Small.pm' => $module, 't/reader.t' => $reader, 't/writer.t' => $writer }, in_place => 1 );
 
+my %builder_files = ( 'lib/Small.pm' => $module, 't/small.t' => $test, '.proverc' => "-b\n" );
+like raised( sub { measured( { %builder_files, 'Native.xs' => "/* native */\n" } ) } ), qr/Makefile[.]PL.*Build[.]PL/,
+  'an XS source needs a build recipe';
+like raised( sub { measured( { %builder_files, 'Build.PL' => "die qq{broken builder\\n};\n" } ) } ),
+  qr/Build[.]PL.*broken builder/, 'the configure diagnostic reaches the caller';
+{
+    my $root = directory( %builder_files, 'blib/lib/Small.pm' => $module );
+    utime 1000, 1000, "$root/blib/lib/Small.pm" or die "utime: $!";
+    my $config = Test::Mutation::Settings::of_call( { root => $root, in_place => 1 } );
+    like raised(
+        sub {
+            Test::Mutation::Runner::run( $config, sub (@) { return } );
+        }
+      ),
+      qr{blib/lib/Small[.]pm.*make}, 'in-place mode identifies an old product';
+}
+
+{
+    my $root            = directory( %builder_files, 'blib/lib/Small.pm' => "# generated\n$module" );
+    my $config          = Test::Mutation::Settings::of_call( { root => $root } );
+    my $build_selection = Test::Mutation::Select::resolve( config => $config );
+    my $build_mutant    = $build_selection->mutants->[0];
+    my $exec_failure    = raised(
+        sub {
+            Test::Mutation::Runner::run_command( $config, $build_selection->sources->{ $build_mutant->path },
+                $build_mutant, [ $^X, '-e', 'exit 0' ] );
+        }
+    );
+    like $exec_failure, qr{blib/lib/Small[.]pm.*private build.*lib/Small[.]pm},
+      'exec identifies both the unchanged generated product and the selected source';
+}
+
 my @unsaid = unsaid( \@catalog, \%said );
 Gate::findings( 'contract-message-messages', [ map { "no case produces the message $_" } @unsaid ] );
 Gate::checked( 'messages of the catalog',       scalar @catalog,    at_least => 86 );

@@ -4,11 +4,10 @@ realworld	CPAN-Audit: the unmodified run fails where the tests of the distributi
 realworld	Moo: the number of mutants lies outside its band	the expectations of the real distributions after the mutator catalog changes
 realworld	Params-Util with blib: the number of mutants lies outside its band	the expectations of the real distributions after the mutator catalog changes
 realworld	Params-Util: the number of mutants lies outside its band	the expectations of the real distributions after the mutator catalog changes
-realworld	Params-Util: the unmodified run fails where the tests of the distribution pass	the build of a distribution in the copy
 realworld	TOML-Tiny: the run warns that B::Deparse gives no stable output	the comparison of compiled code without the addresses that B::Deparse prints
 realworld	URI: the run warns that B::Deparse gives no stable output	the kinds of compile error, which name a source that fails to compile alone
 realworld	Variable-Magic with blib: the run reports a mutant that fails to compile	the kinds of compile error, which tell a module that fails to load from invalid code
-realworld	Variable-Magic: the unmodified run fails where the tests of the distribution pass	the build of a distribution in the copy
+realworld	Variable-Magic: the run reports a mutant that fails to compile	the kinds of compile error, which tell a module that fails to load from invalid code
 contract-plan-settings	the default of cache differs from the contract	the cache key over every input of a result
 contract-plan-settings	the default of format differs from the contract	the terminal report and the summary of GitHub
 contract-plan-settings	the table lacks the setting color of the contract	the progress display
@@ -35,14 +34,11 @@ engine-differential	cache perturbation=shadow: the run reuses a result that depe
 engine-differential	cache perturbation=shadow: the run with the cache gives Survived where the truth gives Killed	the cache key over every input of a result
 engine-differential	cache perturbation=source: the cache keeps the record of a mutant that is gone	the cache key over every input of a result
 engine-differential	cache selection=since: the run measures again a result that the cache holds	the cache key over every input of a result
-engine-zoo	build=blib-differing: I6 the verdicts deviate without a warning or a reason	the build of a distribution in the copy
-engine-zoo	build=blib-differing: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the build of a distribution in the copy
 engine-zoo	files=fixed-port: I6 the verdicts deviate without a warning or a reason	the recheck of a failure beside another run of the same test
 engine-zoo	files=fixed-port: I7 the run gives Killed where the truth gives Survived	the recheck of a failure beside another run of the same test
 engine-zoo	files=fixed-tmp-path: I6 the verdicts deviate without a warning or a reason	the recheck of a failure beside another run of the same test
 engine-zoo	files=fixed-tmp-path: I7 the run gives Killed where the truth gives Survived	the recheck of a failure beside another run of the same test
 contract-reason-reasons	no case gives the reason CompileError parse	the kinds of compile error, which tell a mutant whose code dies at compile time from invalid code
-contract-reason-reasons	no case gives the reason NoVerdict build-copy-not-updated	the build of a distribution in the copy
 contract-reason-reasons	no case gives the reason NoVerdict conflicting-test	the recheck of a failure beside another run of the same test
 contract-progress-sum-progress	the counts of a line sum to less than its position; lengths 1 2 3 4; streams log terminal	the progress display
 contract-progress-final-progress	the last line states another count than the result; statuses Ignored Pending; streams log terminal	the progress display
