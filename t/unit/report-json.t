@@ -169,6 +169,7 @@ subtest 'the document carries the facts of the run that the schema has no place 
       {
         shard            => undef,
         inventory        => undef,
+        selection        => {},
         jobs             => 2,
         parallelSafe     => JSON::PP::true,
         interrupted      => undef,

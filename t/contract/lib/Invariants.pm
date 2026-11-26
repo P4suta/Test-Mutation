@@ -143,8 +143,8 @@ sub gate ( $counts, $part, $exits ) {
     my @gates = sort { $a <=> $b } keys $exits->%*;
     my @symptoms;
     for my $gate ( grep { $exits->{$_} == 0 } @gates ) {
-        push @symptoms, 'success without a score'       if !defined $score && !$part;
-        push @symptoms, 'success with a score below it' if defined $score  && $score < $gate;
+        push @symptoms, 'success without a score' if !defined $score && !$part;
+        push @symptoms, 'success with a score below it' if defined $score && !$part && $score < $gate;
     }
     for my $index ( 1 .. $#gates ) {
         push @symptoms, 'a higher gate turns a failure into success'

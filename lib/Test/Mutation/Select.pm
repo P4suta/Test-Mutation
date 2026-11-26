@@ -19,6 +19,7 @@ use Test::Mutation::Suppression;
 use Test::Mutation::Syntax::PPI;
 use Test::Mutation::Error;
 use Test::Mutation::Types qw(PathSelection);
+use Test::Mutation::Store::Key;
 
 our $VERSION = '0.001';
 
@@ -108,6 +109,7 @@ sub resolve ($arg) {
             version       => $version,
             paths         => $paths,
             changed       => $changed,
+            report_inputs => $arg->reports,
             baseline_only => $arg->baseline_only
         }
     );
@@ -129,17 +131,29 @@ sub resolve ($arg) {
         my ( $part, $parts ) = split m{/}, $config->shard;
         @mutants = @mutants[ grep { $_ % $parts == $part - 1 } 0 .. $#mutants ];
     }
+    my %filters;
+    $filters{paths}   = $paths                  if defined $paths;
+    $filters{since}   = $config->since          if defined $config->since;
+    $filters{mutants} = [ $config->mutant->@* ] if $config->mutant->@*;
+    my $digests = $analysis->{digests};
+    my $catalog = Test::Mutation::Store::Key::digest(
+        $VERSION, "$version",
+        Test::Mutation::Store::Key::digest( map { $_->name } @$mutators ),
+        map { ( $_, $digests->{$_} ) } sort keys %$digests
+    );
     outputs( $config, $arg->summary ) if $arg->reports;
     return Test::Mutation::Selection->new(
         $analysis->%*,
-        project   => $root,
-        perl      => $program,
-        tests     => $tests,
-        mutators  => $mutators,
-        mutants   => \@mutants,
-        inventory => $inventory,
-        matches   => \%matches,
-        narrowed  => (
+        project        => $root,
+        perl           => $program,
+        tests          => $tests,
+        mutators       => $mutators,
+        mutants        => \@mutants,
+        inventory      => $inventory,
+        matches        => \%matches,
+        selection      => \%filters,
+        catalog_digest => $catalog,
+        narrowed       => (
             $paths
               || grep { exists $config->specified->{$_} }
               qw(source source-exclude test test-exclude since mutant enable disable profile shard)
@@ -260,7 +274,7 @@ sub _analysis ( $config, $files, $mutators, $options ) {
     my ( %sources, %digests, %left_out, @mutants, @problems, @rejected, @refusals );
     for my $path ( $files->@* ) {
         my $selected = ( !$changed || $changed->{$path} ) && ( !$paths || exists $paths->{$path} );
-        next unless $selected || $config->cache;
+        next unless $selected || $config->cache || $options->{report_inputs};
         my $bytes  = Test::Mutation::Source::read_bytes("$root/$path");
         my $source = Test::Mutation::Source->from_bytes( path => $path, bytes => $bytes );
         $digests{$path} = Digest::SHA::sha256_hex($bytes);

@@ -1,6 +1,7 @@
 use v5.36;
 use Test2::V0;
 use Test::Mutation::Mutant;
+use Test::Mutation::Outcome;
 use Test::Mutation::Result;
 use Test::Mutation::Status;
 
@@ -71,6 +72,23 @@ subtest 'conclusive' => sub {
     }
     ok !result( ['Killed'], baseline_failures => [ { test => 't/a.t', output => q{}, errors => q{} } ] )->conclusive,
       'the unmodified run failed';
+};
+
+subtest 'a cached disagreement or an unanalyzed source makes a scored run inconclusive' => sub {
+    isa_ok dies { Test::Mutation::Outcome::of( {}, 0 ) }, ['Error::TypeTiny'], 'a decision requires a measured result';
+    for my $mismatch ( 0, 1 ) {
+        for my $unparsed ( 0, 1 ) {
+            my $report = result(
+                ['Killed'],
+                cache_mismatch => $mismatch,
+                problems       => $unparsed ? [ { path => 'lib/Incomplete.pm', problem => 'unreadable source' } ] : []
+            );
+            my $decision = Test::Mutation::Outcome::of( $report, 0 );
+            is [ $decision->{name}, $decision->{exit}->name ],
+              $mismatch || $unparsed ? [qw(inconclusive inconclusive)] : [qw(measured success)],
+              "cache mismatch $mismatch and source problem $unparsed decide the whole measurement";
+        }
+    }
 };
 
 subtest 'construction checks the entries' => sub {

@@ -5,9 +5,10 @@ use Types::Standard        qw(ArrayRef Bool Dict Enum HashRef Int Maybe Num Opti
 use Types::Common::Numeric qw(PositiveInt PositiveOrZeroInt);
 use Type::Params           qw(signature_for);
 use Test::Mutation::Exit;
+use Test::Mutation::Outcome;
 use Test::Mutation::Score;
 use Test::Mutation::Status;
-use Test::Mutation::Types qw(Entry);
+use Test::Mutation::Types qw(Entry ReportSelection);
 
 our $VERSION = '0.001';
 
@@ -39,6 +40,8 @@ has reused         => ( is => 'ro', isa => Int,  default => 0 );
 has cache_mismatch => ( is => 'ro', isa => Bool, default => 0 );
 has in_copies      => ( is => 'ro', isa => Bool, default => 0 );
 has shard          => ( is => 'ro', isa => Maybe [ StrMatch [qr{\A[1-9][0-9]*/[1-9][0-9]*\z}] ], default => undef );
+has selection      => ( is => 'ro', isa => ReportSelection, default => sub { {} } );
+has catalog_digest => ( is => 'ro', isa => Maybe [Str], default => undef );
 has inventory =>
   ( is => 'ro', isa => Maybe [ Dict [ mutants => Int, digest => StrMatch [qr/\A[0-9a-f]{64}\z/] ] ], default => undef );
 has started  => ( is => 'ro', isa => Num, required => 1 );
@@ -73,11 +76,7 @@ sub invalid_entry ($self) {
 signature_for conclusive => ( method => 1, positional => [], returns => Bool );
 
 sub conclusive ($self) {
-    my $tally = $self->tally;
-    return 0 if $self->baseline_failures->@* || defined $self->interrupted;
-    return 0 if $self->cache_mismatch || $self->invalid_entry || $tally->{counts}{NoVerdict};
-    return 0 if $tally->{total} - $tally->{counts}{Ignored} > 0 && !$tally->{valid};
-    return 1;
+    return Test::Mutation::Outcome::of( $self, undef )->{exit}->code == Test::Mutation::Exit::of('success') ? 1 : 0;
 }
 
 1;
@@ -148,6 +147,11 @@ True when the tests ran in copies of the project, and false when they ran in the
 =head2 shard
 
 The part of the mutants that the run covered, such as C<2/4>, or undefined for a whole run.
+
+=head2 selection, catalog_digest
+
+The selection records the paths, changed lines or mutant identifiers requested by the caller.
+The catalog digest identifies the inputs that determine the available mutants.
 
 =head2 inventory
 

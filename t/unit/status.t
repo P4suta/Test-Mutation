@@ -107,4 +107,7 @@ subtest 'the shared types name the statuses, the reasons, and the entries of a r
     ok Entry->check( { %entry, status => 'Killed', reason => undef, detail => undef } ), 'a killed mutant without one';
 };
 
+is [ map { $_->name } grep { $_->incomplete } Test::Mutation::Status::rows()->@* ], [qw(NoVerdict Pending)],
+  'the status catalog identifies the verdicts that leave the measurement incomplete';
+
 done_testing;

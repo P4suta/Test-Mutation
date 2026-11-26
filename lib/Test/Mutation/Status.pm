@@ -19,6 +19,7 @@ has role        => ( is => 'ro', isa => Enum [qw(detected undetected outside)], 
 has progress    => ( is => 'ro', isa => Bool, required => 1 );
 has annotation  => ( is => 'ro', isa => Maybe [ Enum [qw(warning notice)] ], required => 1 );
 has cached      => ( is => 'ro', isa => Bool, required => 1 );
+has incomplete  => ( is => 'ro', isa => Bool, required => 1 );
 has reasons     => ( is => 'ro', isa => ArrayRef [ StrMatch [qr/\A[a-z]+(?:-[a-z]+)*\z/] ], required => 1 );
 has description => ( is => 'ro', isa => Str, required => 1 );
 
@@ -60,7 +61,8 @@ my @ROWS = (
             qw(loaded-around-hook outside-copy no-record shim-error unstable-test conflicting-test project-changed),
             qw(build-copy-not-updated slot-not-restored)
         ],
-        'the run could not decide, for the cause that the reason names'
+        'the run could not decide, for the cause that the reason names',
+        1
     ],
     [
         'Ignored', 'Ignored', 'ignored', undef, 'outside', 0, undef, 1,
@@ -69,11 +71,15 @@ my @ROWS = (
     ],
     [
         'Pending', 'Pending', 'pending', undef, 'outside', 0, undef, 0, ['interrupted'],
-        'the run ended before the mutant'
+        'the run ended before the mutant', 1
     ],
 );
 
-sub _row ( $name, $schema, $word, $heading, $role, $progress, $annotation, $cached, $reasons, $description ) {
+sub _row (
+    $name, $schema, $word, $heading, $role, $progress,
+    $annotation, $cached, $reasons, $description, $incomplete = 0
+  )
+{
     return __PACKAGE__->new(
         name        => $name,
         schema      => $schema,
@@ -83,6 +89,7 @@ sub _row ( $name, $schema, $word, $heading, $role, $progress, $annotation, $cach
         progress    => $progress,
         annotation  => $annotation,
         cached      => $cached,
+        incomplete  => $incomplete,
         reasons     => $reasons,
         description => $description,
     );
@@ -194,6 +201,10 @@ The level of the annotation that GitHub Actions gets for a mutant of the status,
 =head2 cached
 
 True when the cache keeps a result of the status.
+
+=head2 incomplete
+
+True when the status leaves the measurement inconclusive even if other mutants produced a score.
 
 =head2 reasons
 

@@ -26,8 +26,6 @@ my @ROWS = (
     [ 141, 'pipe',                 'PIPE', 'the signal PIPE ended the run' ],
     [ 143, 'termination',          'TERM', 'the signal TERM ended the run' ],
 );
-my %CODE    = map { $_->[1] => $_->[0] } @ROWS;
-my %SIGNAL  = map { $_->[2] => $_->[0] } grep { defined $_->[2] } @ROWS;
 my @SIGNALS = map { $_->[2] } grep { defined $_->[2] } @ROWS;
 
 has code    => ( is => 'ro', isa => Int, required => 1 );
@@ -42,10 +40,25 @@ sub rows () {
           @ROWS ];
 }
 
+signature_for row =>
+  ( positional => [ Enum [ ( map { $_->[1] } @ROWS ), @SIGNALS ] ], returns => InstanceOf [__PACKAGE__] );
+
+sub row ($name) {
+    state $by_name = do {
+        my %table;
+        for my $row ( rows()->@* ) {
+            $table{ $row->name }   = $row;
+            $table{ $row->signal } = $row if defined $row->signal;
+        }
+        \%table;
+    };
+    return $by_name->{$name};
+}
+
 signature_for of => ( positional => [ Enum [ map { $_->[1] } @ROWS ] ], returns => Int );
 
 sub of ($name) {
-    return $CODE{$name};
+    return row($name)->code;
 }
 
 signature_for signals => ( positional => [], returns => ArrayRef [Str] );
@@ -57,7 +70,7 @@ sub signals () {
 signature_for of_signal => ( positional => [ Enum [@SIGNALS] ], returns => Int );
 
 sub of_signal ($signal) {
-    return $SIGNAL{$signal};
+    return row($signal)->code;
 }
 
 1;
@@ -87,6 +100,11 @@ A signal that the command handles ends it with 128 plus the number of the signal
 =head2 rows
 
 Returns a L<Test::Mutation::Exit> for every exit status, in rising order.
+
+=head2 row
+
+Returns the catalog entry for an exit name or a supported signal.
+Its C<code> accessor supplies the process exit status.
 
 =head2 of
 

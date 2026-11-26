@@ -352,6 +352,8 @@ sub _measure ( $run, $started ) {
         parallel_safe     => 1,
         shard             => $config->shard,
         inventory         => $selection->inventory,
+        selection         => $selection->selection,
+        catalog_digest    => $selection->catalog_digest,
         started           => $started,
     );
 

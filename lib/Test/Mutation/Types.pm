@@ -2,7 +2,7 @@ package Test::Mutation::Types;
 use v5.36;
 use Type::Library -base,
   -declare =>
-  qw(Analysis Directive Dropped Entry Facts Heredoc Names PathSelection Reason Refusal Rejected StatusName Suppression TaskRecord);
+  qw(Analysis Directive Dropped Entry Facts Heredoc Names PathSelection ReportSelection Reason Refusal Rejected StatusName Suppression TaskRecord);
 use Type::Utils     qw(as declare where);
 use Types::Standard qw(ArrayRef Bool Dict Enum HashRef InstanceOf Int Maybe Num Optional Str StrMatch Tuple);
 use Test::Mutation::Status;
@@ -10,6 +10,9 @@ use Test::Mutation::Status;
 our $VERSION = '0.001';
 
 declare PathSelection, as HashRef [ ArrayRef [ Tuple [ Int, Int ] ] ];
+
+declare ReportSelection,
+  as Dict [ paths => Optional [PathSelection], since => Optional [Str], mutants => Optional [ ArrayRef [Str] ] ];
 
 declare StatusName, as Enum [ Test::Mutation::Status::names()->@* ];
 
@@ -169,5 +172,6 @@ The verdict, the result, the reports, and the cache share these types, so a stat
 
 C<PathSelection> maps each selected source path to its inclusive line ranges.
 An empty list of ranges selects the whole file.
+C<ReportSelection> records the path ranges, Git revision and mutant identifiers requested for a measurement.
 
 =cut

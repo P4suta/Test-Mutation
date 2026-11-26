@@ -1,6 +1,7 @@
 package Test::Mutation::Merge;
 use v5.36;
-use List::Util      qw(all any first max min sum0 uniq);
+use Digest::SHA     ();
+use List::Util      qw(all any first max mesh_longest min sum0 uniq);
 use Types::Standard qw(ArrayRef Dict InstanceOf Str);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Error;
@@ -53,7 +54,7 @@ sub merge ($reports) {
         tests   => [
             map { { name => $_, duration => $duration{$_}, $active{$_} ? () : ( neutral => 1 ) } } sort keys %duration
         ],
-        entries           => [ map { $results[ $_ % $parts ]->entries->[ int( $_ / $parts ) ] } 0 .. $count - 1 ],
+        entries           => [ grep { defined } mesh_longest map { $_->entries } @results ],
         problems          => [ map { $problem{$_} } sort keys %problem ],
         warnings          => [ uniq map { $_->warnings->@* } @results ],
         baseline_failures => [],
@@ -63,9 +64,38 @@ sub merge ($reports) {
         cache_mismatch    => ( any { $_->cache_mismatch } @results ) ? 1 : 0,
         reused            => sum0( map { $_->reused } @results ),
         inventory         => $results[0]->inventory,
+        selection         => $results[0]->selection,
+        catalog_digest    => $results[0]->catalog_digest,
         started           => min( map { $_->started } @results ),
         finished          => max( map { $_->finished } @results ),
         stats             => _work(@results),
+    );
+}
+
+signature_for refresh =>
+  ( positional => [ ( InstanceOf ['Test::Mutation::Result'] ) x 2 ], returns => InstanceOf ['Test::Mutation::Result'] );
+
+sub refresh ( $prior, $current ) {
+    return $current if defined $prior->shard || defined $current->shard || $prior->root ne $current->root;
+    return $current
+      unless defined $prior->catalog_digest
+      && defined $current->catalog_digest
+      && $prior->catalog_digest eq $current->catalog_digest;
+    return $current unless exists $current->selection->{paths} || exists $current->selection->{mutants};
+    return $current if $current->baseline_failures->@*;
+    my %replacement = map { $_->{mutant}->id => $_ } $current->entries->@*;
+    my @entries     = map { delete $replacement{ $_->{mutant}->id } || $_ } $prior->entries->@*;
+    push @entries, grep { exists $replacement{ $_->{mutant}->id } } $current->entries->@*;
+    my %tests = map { $_->{name} => $_ } $prior->tests->@*, $current->tests->@*;
+    return Test::Mutation::Result->new(
+        $current->%*,
+        entries   => \@entries,
+        tests     => [ map { $tests{$_} } sort keys %tests ],
+        sources   => { $prior->sources->%*, $current->sources->%* },
+        inventory => {
+            mutants => scalar @entries,
+            digest  => Digest::SHA::sha256_hex( join "\n", map { $_->{mutant}->id } @entries )
+        },
     );
 }
 
@@ -137,6 +167,12 @@ C<mutation run --shard K/N> measures one of C<N> parts of the mutants.
 This module joins the results of all parts into the result that one run without C<--shard> returns.
 
 =head1 FUNCTIONS
+
+=head2 refresh
+
+Updates the selected verdicts in a report from the same project and source catalog.
+The current test durations and entries take precedence.
+Shard reports remain independent until C<merge> joins them.
 
 =head2 merge
 

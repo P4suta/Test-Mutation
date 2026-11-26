@@ -5,6 +5,8 @@ use Exporter        qw(import);
 use Types::Standard qw(ArrayRef Bool CodeRef HashRef InstanceOf Maybe Slurpy Str);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Runner;
+use Test::Mutation::Outcome;
+use Test::Mutation::Exit;
 use Test::Mutation::Settings;
 
 our $VERSION = '0.001';
@@ -32,8 +34,8 @@ signature_for mutation_score_ok => ( positional => [$CALL], returns => Bool );
 
 sub mutation_score_ok ($settings) {
     my %settings = ( root => q{.}, $settings->%* );
-    my $minimum  = exists $settings{min}  ? delete $settings{min}  : 100;
-    my $name     = exists $settings{name} ? delete $settings{name} : "the mutation score is at least $minimum%";
+    my $name     = delete $settings{name};
+    $settings{min_score} = delete $settings{min} if exists $settings{min};
 
     # The command and the library run without the modules of a test file.
     require Test::Builder;
@@ -46,9 +48,13 @@ sub mutation_score_ok ($settings) {
         return 1;
     }
 
-    my $result  = run(%settings);
-    my $score   = $result->tally->{score};
-    my $reached = $result->conclusive && defined $score && $score >= $minimum ? 1 : 0;
+    my $listener = delete $settings{on_event};
+    my $config   = Test::Mutation::Settings::of_call( \%settings );
+    my $minimum  = $config->min_score // 100;
+    $name //= "the mutation score is at least $minimum%";
+    my $result  = Test::Mutation::Runner::run( $config, $listener || sub { return } );
+    my $outcome = Test::Mutation::Outcome::of( $result, $minimum );
+    my $reached = $outcome->{exit}->code == Test::Mutation::Exit::of('success') ? 1 : 0;
     $builder->ok( $reached, $name );
     $builder->diag( Test::Mutation::Report::Terminal::render( $result, color => 0 ) ) if !$reached;
     return $reached;
@@ -216,7 +222,8 @@ Returns the L<Test::Mutation::Mutant> objects of the project without running a t
     mutation_score_ok( min => 80, name => 'tests detect mutants', jobs => 4, profile => 'extended' );
 
 Measures the project in the current directory from a test file, which gets the function by loading the module.
-Passes when the run is conclusive and the score reaches C<min>, 100 by default.
+Applies the same decision as the command.
+The threshold is C<min>, the configured C<min-score>, or 100 in that order.
 C<name> names the test, and every other setting goes to C<run>, which also reads C<mutation.toml>.
 A failing assertion prints the report with the undetected mutants as diagnostics.
 A test file under C<xt/> keeps the measurement out of the tests that a run itself starts.

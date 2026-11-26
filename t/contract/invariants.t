@@ -188,6 +188,8 @@ subtest 'gate rejects success that no score earned' => sub {
       'a score that meets the gates it passes';
     is [ Invariants::gate( {}, 1, { 0 => 0, 50 => 0 } ) ], [],                          'an empty part';
     is [ Invariants::gate( {}, 0, { 0 => 0, 50 => 0 } ) ], ['success without a score'], 'an empty run';
+    is [ Invariants::gate( { Survived => 1 }, 1, { 0 => 0, 50 => 0 } ) ], [],
+      'a shard defers even a threshold above its own score';
     is [ Invariants::gate( { Survived => 1 }, 0, { 0 => 0, 50 => 0 } ) ], ['success with a score below it'],
       'a low score';
     is [ Invariants::gate( { Killed => 1 }, 0, { 0 => 1, 50 => 0 } ) ], ['a higher gate turns a failure into success'],

@@ -1,11 +1,14 @@
 package Test::Mutation::CLI;
 use v5.36;
-use Cwd          ();
-use Errno        ();
-use File::Spec   ();
-use List::Util   ();
-use Scalar::Util ();
-use Time::HiRes  ();
+use Cwd            ();
+use Errno          ();
+use File::Spec     ();
+use File::Basename ();
+use File::Temp     ();
+use Fcntl          qw(O_RDONLY LOCK_EX S_ISREG);
+use List::Util     ();
+use Scalar::Util   ();
+use Time::HiRes    ();
 use Types::Standard
   qw(ArrayRef Bool CodeRef Dict Enum FileHandle GlobRef HashRef InstanceOf Int Maybe Optional Slurpy Str);
 use Types::Common::Numeric qw(PositiveInt);
@@ -19,6 +22,7 @@ use Test::Mutation::Exit;
 use Test::Mutation::Host;
 use Test::Mutation::Interrupted;
 use Test::Mutation::Merge;
+use Test::Mutation::Outcome;
 use Test::Mutation::Message;
 use Test::Mutation::Mutator::Catalog;
 use Test::Mutation::Report::GitHub;
@@ -301,7 +305,7 @@ sub _run ( $invocation, $world ) {
         : { reports   => 1, summary => $world->{env}{GITHUB_STEP_SUMMARY} }
     );
     _report( $result, $config, $world );
-    return _concluded( $result, $config, $world );
+    return _concluded( $result, $config->min_score, $world );
 }
 
 sub _baseline ( $invocation, $world ) {
@@ -309,7 +313,7 @@ sub _baseline ( $invocation, $world ) {
     my $result = Test::Mutation::Runner::run( $config, sub { }, { baseline_only => 1 } );
     say { $world->{out} } 'Baseline: ', _plural( scalar $result->tests->@*, 'test' );
     say { $world->{err} } $_->{test} for $result->baseline_failures->@*;
-    return _concluded( $result, $config, $world );
+    return _concluded( $result, undef, $world );
 }
 
 sub _settings ( $invocation, $world ) {
@@ -351,19 +355,60 @@ sub _report ( $result, $config, $world ) {
     my %wanted = map { $_ => 1 } $config->format->@*;
     print { $world->{out} } Test::Mutation::Report::Terminal::render( $result, color => 0 ) if $wanted{terminal};
 
+    my @formats = grep { $wanted{$_} } qw(json html);
+    if (@formats) {
+        my @written = _file_reports( $result, $config, \@formats );
+        print { $world->{out} } 'Reports: ', join( ', ', @written ), "\n";
+    }
+    _report_to_github( $result, $world, $config->root ) if $wanted{github};
+    return;
+}
+
+sub _file_reports ( $result, $config, $formats ) {
+    my $directory = $config->report_dir;
+    my $target    = File::Spec->rel2abs( $directory, $config->root );
+    Test::Mutation::Tree::make($target);
+    sysopen my $lock, $target, O_RDONLY
+      or Test::Mutation::Error::raise( 'directory-unopenable', path => $directory, reason => "$!" );
+    flock $lock, LOCK_EX or Test::Mutation::Error::raise( 'file-unwritable', path => $directory, reason => "$!" );
+    my $saved = _refresh_report( $target, $result );
     my @written;
-    for my $format ( grep { $wanted{$_} } qw(json html) ) {
+    for my $format (@$formats) {
         my ( $name, $render ) = $FILE_REPORT{$format}->@*;
-        my $directory = $config->report_dir;
-        my $target    = File::Spec->rel2abs( $directory, $config->root );
-        Test::Mutation::Tree::make($target);
-        my $text = $render->( $result, high => $config->threshold_high, low => $config->threshold_low );
+        my $text = $render->( $saved, high => $config->threshold_high, low => $config->threshold_low );
         _write( "$target/$name", "$directory/$name", '>', $text );
         push @written, "$directory/$name";
     }
-    print { $world->{out} } 'Reports: ', join( ', ', @written ), "\n" if @written;
-    _report_to_github( $result, $world, $config->root ) if $wanted{github};
-    return;
+    close $lock or Test::Mutation::Error::raise( 'file-unclosable', path => $directory, reason => "$!" );
+    return @written;
+}
+
+sub _refresh_report ( $directory, $result ) {
+    return $result if defined $result->shard                 || !defined $result->catalog_digest;
+    return $result unless exists $result->selection->{paths} || exists $result->selection->{mutants};
+    my @reports;
+    for my $format (qw(json html)) {
+        my $path = "$directory/$FILE_REPORT{$format}[0]";
+        my ( $mode, $modified ) = ( Time::HiRes::stat($path) )[ 2, 9 ];
+        push @reports, { path => $path, modified => $modified } if defined $mode && S_ISREG($mode);
+    }
+    for my $report ( sort { $b->{modified} <=> $a->{modified} } @reports ) {
+        my $path = $report->{path};
+        open my $file, '<:encoding(UTF-8)', $path
+          or Test::Mutation::Error::raise( 'file-unreadable', path => $path, reason => "$!" );
+        my $text = do { local $/ = undef; readline $file };
+        close $file or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
+        next unless length $text;
+        if ( $path =~ /[.]html\z/ ) {
+            ($text) = $text =~ m{\Q<script id="report" type="application/json">\E (.+?) </script>}sx;
+            next unless defined $text;
+        }
+        my $parsed = Test::Mutation::Try::attempt( sub { Test::Mutation::Report::Json::parse($text) } );
+        next unless exists $parsed->{value};
+        my $combined = Test::Mutation::Merge::refresh( $parsed->{value}, $result );
+        return $combined if $combined != $result;
+    }
+    return $result;
 }
 
 sub _report_to_github ( $result, $world, $root ) {
@@ -376,10 +421,25 @@ sub _report_to_github ( $result, $world, $root ) {
 
 # Writes a text to a file, which an error names as the user knows it.
 sub _write ( $path, $name, $mode, $text ) {
-    open my $handle, "$mode:encoding(UTF-8)", $path
+    if ( $mode eq '>>' ) {
+        open my $file, '>>:encoding(UTF-8)', $path
+          or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
+        print {$file} $text or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
+        close $file         or Test::Mutation::Error::raise( 'file-unclosable', path => $name, reason => "$!" );
+        return;
+    }
+    $path = Cwd::abs_path($path) if -l $path;
+    my $temporary = File::Temp->new( DIR => File::Basename::dirname($path), PERMS => oct '666' );
+    if ( -f $path ) {
+        chmod( ( stat $path )[2] & oct('777'), $temporary->filename )
+          or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
+    }
+    binmode $temporary, ':encoding(UTF-8)'
       or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
-    print {$handle} $text or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
-    close $handle         or Test::Mutation::Error::raise( 'file-unclosable', path => $name, reason => "$!" );
+    print {$temporary} $text or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
+    close $temporary         or Test::Mutation::Error::raise( 'file-unclosable', path => $name, reason => "$!" );
+    rename $temporary->filename, $path
+      or Test::Mutation::Error::raise( 'file-unrenamable', path => $name, reason => "$!" );
     return;
 }
 
@@ -389,37 +449,11 @@ sub _ended ( $world, $status, $text ) {
 }
 
 # The outcome of a result: its exit status, and for every outcome but success the line that names it.
-sub _concluded ( $result, $config, $world ) {
-    my $signal = $result->interrupted;
-    my $failed = scalar $result->baseline_failures->@*;
-    my $score  = $result->tally->{score};
-    my $floor  = $config->min_score;
-    return _ended(
-        $world,
-        Test::Mutation::Exit::of_signal($signal),
-        Test::Mutation::Message::text_of( 'interrupted', signal => $signal )
-    ) if defined $signal;
-    return _ended(
-        $world,
-        Test::Mutation::Exit::of('baseline-failed'),
-        Test::Mutation::Message::text_of( 'baseline-failed', failed => $failed )
-    ) if $failed;
-    if ( my $invalid = $result->invalid_entry ) {
-        my $mutant = $invalid->{mutant};
-        return _ended(
-            $world,
-            Test::Mutation::Exit::of('internal'),
-            Test::Mutation::Message::text_of( 'invalid-mutant', id => $mutant->id, path => $mutant->path )
-        );
-    }
-    return _ended( $world, Test::Mutation::Exit::of('inconclusive'), Test::Mutation::Message::text_of('inconclusive') )
-      if !$result->conclusive;
-    return _ended(
-        $world,
-        Test::Mutation::Exit::of('below-gate'),
-        Test::Mutation::Message::text_of( 'below-gate', score => sprintf( '%.1f', $score ), gate => $floor )
-    ) if defined $floor && defined $score && $score < $floor;
-    return Test::Mutation::Exit::of('success');
+sub _concluded ( $result, $floor, $world ) {
+    my $outcome = Test::Mutation::Outcome::of( $result, $floor );
+    my $code    = $outcome->{exit}->code;
+    return _ended( $world, $code, $outcome->{diagnostic} ) if defined $outcome->{diagnostic};
+    return $code;
 }
 
 sub _heading ($mutant) {
@@ -482,7 +516,7 @@ sub _merge ( $invocation, $world ) {
         [ map { { name => $_, result => _read_report($_) } } $invocation->{operands}->@* ] );
     Test::Mutation::Select::outputs( $config, $world->{env}{GITHUB_STEP_SUMMARY} );
     _report( $result, $config, $world );
-    return _concluded( $result, $config, $world );
+    return _concluded( $result, $config->min_score, $world );
 }
 
 sub _mutators ( $invocation, $world ) {

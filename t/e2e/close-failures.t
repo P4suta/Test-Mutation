@@ -93,10 +93,31 @@ my ( $status, $errors ) = failing_in( qr/::CLI::_read_report\z/, sub { command( 
 is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 5, 'mutation: cannot close part1/mutation.json' ],
   'a report that does not close is an error of the environment';
 
+{
+    my ( $exit, $diagnostic ) = failing_in( qr/::CLI::_refresh_report\z/,
+        sub { command( 'run', '--mutant', $mutant->id, '--format', 'json', '--report-dir', 'part1', '--jobs', 1 ) } );
+    is $exit, 5, 'a failed read of a previous report stops a narrower measurement from overwriting it';
+    like $diagnostic, qr{cannot close \Q$root\E/part1/mutation[.]json:}, 'the diagnostic names the previous report';
+
+    mkdir "$root/nonfile"               or die $!;
+    mkdir "$root/nonfile/mutation.html" or die $!;
+    my ($published) = failing_in( qr/::CLI::_refresh_report\z/,
+        sub { command( 'run', '--mutant', $mutant->id, '--format', 'json', '--report-dir', 'nonfile', '--jobs', 1 ) } );
+    is $published, 0, 'a directory named like a report is skipped without opening it';
+
+}
+
 ( $status, $errors ) =
   failing_in( qr/::CLI::_write\z/, sub { command( 'merge', @reports, '--format', 'json', '--report-dir', 'whole' ) } );
 is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 5, 'mutation: cannot close whole/mutation.json' ],
   'a report file that does not close after the write fails the command';
+
+{
+    my ( $exit, $diagnostic, $output ) = failing_in( qr/::CLI::_file_reports\z/,
+        sub { command( 'merge', @reports, '--format', 'json', '--report-dir', 'whole' ) } );
+    is [ $exit, $diagnostic =~ s/: [^:\n]+\n\z//r, $output ], [ 5, 'mutation: cannot close whole', q{} ],
+      'the command reports a failed release of the report lock before announcing the files';
+}
 
 {
     local $ENV{GITHUB_STEP_SUMMARY} = "$root/summary.md";

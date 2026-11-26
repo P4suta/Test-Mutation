@@ -6,25 +6,27 @@ date: 2026-11-24
 
 ## Context
 
-Four places held exit numbers, and status 4 meant two things.
-Statuses 1, 3, and 4 printed no line, and a signal outside the pool left the work behind.
+Four callers disagreed on exit status 4.
+Failures lacked diagnostics and interrupted runs left temporary files.
 
 ## Decision
 
-`Test::Mutation::Exit` is the one table of exit statuses, and code names an outcome to get its number.
-It holds 0 to 6, the 125, 126, and 127 of `env` for `exec`, and 128 plus the number of HUP, INT, QUIT, PIPE, and TERM.
+`Test::Mutation::Exit` assigns each outcome its exit status.
+The table covers measurement, `exec`, and signal exits.
 Each outcome apart from success ends standard error with one line of the catalog.
 `Test::Mutation::Signals` watches these signals for the whole command, and the owning process releases the work once.
 A signal outranks every other outcome, a refused plan included.
 
 ## Alternatives
 
-A number at each caller drifts, as status 4 did.
+Independent exit tables drifted.
 A handler that dies at once can die inside a library that catches errors, or inside a release.
 
 ## Consequences
 
-The command still decides the outcome in the order of its checks until the planned `Outcome::of` takes over.
+The command, merged shards, and the test assertion use `Outcome::of` to decide whether the requested threshold was met.
+A shard defers its threshold until the complete measurement is available.
+The saved report records the selection so the distinction survives a round trip.
 
 ## Confirmation
 

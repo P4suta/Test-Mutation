@@ -75,7 +75,7 @@ for my $case ( [ 'Moo', '24aa5ed551a7', 'lib/Moo/_Utils.pm' ],
 {
     my ( $name, $id, $file ) = @$case;
     my $probe = $records->{$name}{compile_probe};
-    is $probe->{exit}, 4, "$name reports the lone compile error as inconclusive";
+    is $probe->{exit}, 0, "$name completes a narrowed measurement with no eligible mutant";
     is [ map { [ $_->@{qw(id file status reason)} ] } @{ $probe->{mutants} || [] } ],
       [ [ $id, $file, 'CompileError', 'compile-phase' ] ],
       "$name preserves the compile-time exception by ID in any shard";

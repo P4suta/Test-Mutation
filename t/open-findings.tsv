@@ -7,17 +7,6 @@ realworld	Params-Util: the number of mutants lies outside its band	the expectati
 contract-plan-settings	the default of format differs from the contract	the terminal report and the summary of GitHub
 contract-plan-settings	the table lacks the setting color of the contract	the progress display
 contract-plan-settings	the table lacks the setting github of the contract	the terminal report and the summary of GitHub
-contract-exit-table-outcomes	inconclusive: status 0, where the table calls for 4; gates 0 100 50 none; parts one whole	the single outcome of a run
-contract-exit-table-outcomes	inconclusive: status 1, where the table calls for 4; gates 100 50; parts one whole	the single outcome of a run
-contract-exit-table-outcomes	measured: status 1, where the table calls for 0; gates 100 50; parts one	the single outcome of a run
-contract-exit-table-outcomes	nothing: status 0, where the table calls for 4; gates 0 100 50; parts whole	the single outcome of a run
-contract-exit-table-outcomes	nothing: status 4, where the table calls for 0; gates 0 100 50; parts one	the single outcome of a run
-contract-exit-table-outcomes	nothing: status 4, where the table calls for 0; gates none; parts one whole	the single outcome of a run
-contract-gate-outcomes	success without a score; gates any; parts whole	the single outcome of a run
-contract-three-deciders-outcomes	pass: merge, run; fail: assertion; gates 50; parts whole	the single outcome of a run
-contract-three-deciders-outcomes	pass: run; fail: assertion; gates 0 100; parts whole	the single outcome of a run
-contract-three-deciders-outcomes	the gate of the file: pass: run; fail: assertion; gates 50; parts whole	the single outcome of a run
-contract-exit-table-process	status 0, where the table calls for 4; cases no-source-and-a-gate; part outcome	the single outcome of a run
 contract-no-leak-process	a place in the source; cases letters-in-a-patch; part report	the encoding of the output
 contract-progress-sum-progress	the counts of a line sum to less than its position; lengths 1 2 3 4; streams log terminal	the progress display
 contract-progress-final-progress	the last line states another count than the result; statuses Ignored Pending; streams log terminal	the progress display

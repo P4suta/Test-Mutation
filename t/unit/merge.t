@@ -1,5 +1,7 @@
 use v5.36;
 use Test2::V0;
+use Digest::SHA  ();
+use Scalar::Util qw(refaddr);
 use lib 't/lib';
 use Raised;
 use Test::Mutation::Merge;
@@ -118,6 +120,20 @@ subtest 'a part that is unsafe side by side or interrupted marks the whole' => s
     is [ $whole->parallel_safe, $whole->interrupted ], [ 0, 'TERM' ], 'the weaker fact wins';
 };
 
+subtest 'merging interleaves uneven shards and omits empty positions' => sub {
+    for my $case ( [ 0, [ [], [], [], [] ] ], [ 2, [ [1], [2], [], [] ] ], [ 5, [ [ 1, 5 ], [2], [3], [4] ] ] ) {
+        my ( $count, $groups ) = @$case;
+        my @reports;
+        for my $number ( 1 .. 4 ) {
+            my @entries = map { entry( $_, 'Killed' ) } $groups->[ $number - 1 ]->@*;
+            push @reports, part( "$number/4", \@entries, inventory => { mutants => $count, digest => $digest } );
+        }
+        my $result = merged( reverse @reports );
+        is [ map { 0 + $_->{mutant}->id } $result->entries->@* ], [ 1 .. $count ],
+          "four shards reconstruct all $count mutants in measurement order";
+    }
+};
+
 subtest 'a cache disagreement in either shard propagates to the whole run' => sub {
     for my $case ( [ 0, 0, 0 ], [ 1, 0, 1 ], [ 0, 1, 1 ], [ 1, 1, 1 ] ) {
         my ( $first_shard, $second_shard, $mismatch ) = @$case;
@@ -170,6 +186,60 @@ subtest 'a set that is not one complete run is refused' => sub {
       qr/\Areport 2 holds 2 mutants, and part 2 of 2 has 3/, 'a part that lost a mutant';
     like Raised::message( sub { merged( $one, part( '2/2', [ @rest[ 0, 1 ], $first[0] ] ) ) } ),
       qr/\Amutant 000000000001 appears in more than one part/, 'a mutant in two parts';
+};
+
+subtest 'refresh replaces the selected verdicts and keeps independently measured changes' => sub {
+    my $prior = part(
+        undef, [ entry( 3, 'Survived' ), entry( 1, 'Killed' ) ],
+        selection      => { mutants => [qw(000000000003 000000000001)] },
+        catalog_digest => $digest,
+        sources        => { 'lib/A.pm' => 'source A', 'lib/Empty.pm' => 'empty source' },
+        tests          => [ { name => 't/a.t', duration => 3 }, { name => 't/z.t', duration => 4 } ],
+    );
+    my $current = part(
+        undef, [ entry( 5, 'Killed' ), entry( 3, 'Killed' ), entry( 6, 'NoCoverage' ) ],
+        catalog_digest => $digest,
+        selection      => { mutants    => [qw(000000000005 000000000003 000000000006)] },
+        sources        => { 'lib/A.pm' => 'source A', 'lib/B.pm' => 'source B' },
+        tests          => [ { name => 't/c.t', duration => 2 }, { name => 't/a.t', duration => 1 } ],
+    );
+    my $saved = Test::Mutation::Merge::refresh( $prior, $current );
+    my @ids   = map { sprintf '%012d', $_ } ( 3, 1, 5, 6 );
+    is [ map { $_->{mutant}->id } $saved->entries->@* ], \@ids,
+      'prior entries keep their positions and new entries follow';
+    is [ map { $_->{status} } $saved->entries->@* ], [qw(Killed Killed Killed NoCoverage)],
+      'the repeated change takes its new verdict';
+    is $saved->tests,
+      [ { name => 't/a.t', duration => 1 }, { name => 't/c.t', duration => 2 }, { name => 't/z.t', duration => 4 } ],
+      'the saved test list includes both measurements and uses the latest duration';
+    is $saved->sources, { 'lib/A.pm' => 'source A', 'lib/B.pm' => 'source B', 'lib/Empty.pm' => 'empty source' },
+      'sources without a mutant remain in the report';
+    is $saved->inventory, { mutants => 4, digest => Digest::SHA::sha256_hex( join "\n", @ids ) },
+      'the inventory describes the resulting order';
+    is $saved->selection, $current->selection, 'the report records the latest selection';
+
+    for my $case (
+        [ 'a prior shard',           { shard => '1/2' },              {} ],
+        [ 'a current shard',         {},                              { shard => '2/2' } ],
+        [ 'another project',         { root => '/other' },            {} ],
+        [ 'a legacy prior report',   { catalog_digest => undef },     {} ],
+        [ 'a legacy current report', {},                              { catalog_digest => undef } ],
+        [ 'another catalog',         { catalog_digest => 'cd' x 32 }, {} ],
+        [ 'a whole run',             {},                              { selection => {} } ],
+        [
+            'a failed original test',
+            {}, { baseline_failures => [ { test => 't/a.t', output => 'not ok', errors => q{} } ] }
+        ],
+      )
+    {
+        my ( $label, $older, $newer ) = @$case;
+        my $before = Test::Mutation::Result->new( $prior->%*,   %$older );
+        my $after  = Test::Mutation::Result->new( $current->%*, %$newer );
+        is refaddr( Test::Mutation::Merge::refresh( $before, $after ) ), refaddr($after),
+          "$label preserves the current report independently";
+    }
+    isa_ok dies { Test::Mutation::Merge::refresh( $prior, {} ) }, ['Error::TypeTiny'],
+      'the refresh boundary requires two measured results';
 };
 
 done_testing;

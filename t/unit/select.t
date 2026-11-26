@@ -7,6 +7,7 @@ use lib 't/e2e/lib', 't/lib';
 use Fixture qw(write_file);
 use Raised;
 use Test::Mutation::Select;
+use Test::Mutation::Selection;
 use Test::Mutation::Runner;
 use Test::Mutation::Settings;
 
@@ -131,6 +132,34 @@ subtest 'the selection carries matching files, mutants and the bytes that produc
       'a same-length change between analysis and copy stops the run';
     ok !grep( { $_ eq 'baseline' } @phases ), 'no test starts on different bytes';
     is $phases[-1], 'release', 'the failed copy releases its workspace';
+};
+
+subtest 'a report identifies the requested lines and the inputs that support them' => sub {
+    my $project = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    my $first   = 'lib/A.pm';
+    my $chosen  = 'lib/Z.pm';
+    write_file( "$project/$first",   "package A;\nsub one { return 1 + 1 }\n1;\n" );
+    write_file( "$project/$chosen",  "package Z;\nsub two { return 2 + 2 }\n1;\n" );
+    write_file( "$project/t/pass.t", "use Test::More tests => 1;\nok 1;\n" );
+    for my $cache ( 0, 1 ) {
+        for my $reports ( 0, 1 ) {
+            my $config   = Test::Mutation::Settings::of_call( { root => $project, cache => $cache } );
+            my $selected = Test::Mutation::Select::resolve(
+                config   => $config,
+                operands => ["$chosen:2"],
+                reports  => $reports
+            );
+            is $selected->selection, { paths => { $chosen => [ [ 2, 2 ] ] } }, 'the report retains the requested range';
+            is [ sort keys $selected->sources->%* ], [$chosen], 'an earlier file cannot hide the selected source';
+            is [ sort keys $selected->digests->%* ], $cache || $reports ? [ $first, $chosen ] : [$chosen],
+              "cache $cache and reports $reports retain the required input digests";
+        }
+    }
+    my $whole = Test::Mutation::Select::resolve( config => Test::Mutation::Settings::of_call( { root => $project } ) );
+    my %attributes = $whole->%*;
+    delete $attributes{selection};
+    is Test::Mutation::Selection->new(%attributes)->selection, {},
+      'an unfiltered selection constructed without an explicit filter records the whole project';
 };
 
 done_testing;

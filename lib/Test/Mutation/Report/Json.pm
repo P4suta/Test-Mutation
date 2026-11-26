@@ -11,7 +11,7 @@ use Test::Mutation::Result;
 use Test::Mutation::Source;
 use Test::Mutation::Status;
 use Test::Mutation::Try;
-use Test::Mutation::Types qw(Reason StatusName);
+use Test::Mutation::Types qw(Reason ReportSelection StatusName);
 
 our $VERSION = '0.001';
 
@@ -63,6 +63,8 @@ my $DOCUMENT = Dict [
     files         => HashRef [ Dict [ language => Str, source => Str, mutants => ArrayRef [$MUTANT] ] ],
     testFiles     => HashRef [ Dict [ tests    => ArrayRef [ Dict [ id => Str, name => Str ] ] ] ],
     testMutation  => Dict [
+        selection        => Optional [ReportSelection],
+        catalogDigest    => Optional [Str],
         shard            => Maybe [ StrMatch [qr{\A[1-9][0-9]*/[1-9][0-9]*\z}] ],
         inventory        => Maybe [ Dict [ mutants => Int, digest => StrMatch [qr/\A[0-9a-f]{64}\z/] ] ],
         jobs             => PositiveInt,
@@ -120,7 +122,9 @@ sub _boolean ($value) {
 sub _facts ($result) {
     my $inventory = $result->inventory;
     return {
-        shard        => $result->shard,
+        shard     => $result->shard,
+        selection => $result->selection,
+        defined $result->catalog_digest ? ( catalogDigest => $result->catalog_digest ) : (),
         inventory    => $inventory ? { mutants => 0 + $inventory->{mutants}, digest => $inventory->{digest} } : undef,
         jobs         => 0 + $result->jobs,
         parallelSafe => _boolean( $result->parallel_safe ),
@@ -243,6 +247,8 @@ sub _result ($document) {
         cache_mismatch    => $facts->{cacheMismatch} ? 1 : 0,
         reused            => $facts->{reused},
         shard             => $facts->{shard},
+        selection         => $facts->{selection} || {},
+        catalog_digest    => $facts->{catalogDigest},
         inventory         => $facts->{inventory},
         started           => $facts->{started},
         finished          => $facts->{finished},

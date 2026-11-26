@@ -332,6 +332,29 @@ sub record () {
     );
 }
 
+subtest 'the reference judge compares command exits with the completed observations' => sub {
+    my $mismatch = 'Example: the exit status disagrees with the report';
+    for my $case (
+        [ [qw(CompileError)],         [],                  0 ],
+        [ [qw(CompileError Timeout)], [],                  4 ],
+        [ [qw(Killed Pending)],       [],                  4 ],
+        [ [qw(Killed)],               ['lib/Unparsed.pm'], 4 ],
+      )
+    {
+        my ( $statuses, $skipped, $expected ) = @$case;
+        my $record = record();
+        $record->{report}{mutants} =
+          [ map { { id => "m$_", file => 'lib/Example.pm', status => $_, reason => 'compile-phase' } } @$statuses ];
+        $record->{report}{skipped} = $skipped;
+        for my $status ( 0, 4 ) {
+            $record->{mutation}{exit} = $status;
+            my @found = grep { $_ eq $mismatch } RealWorld::findings( $RUN, $record )->@*;
+            is \@found, $status == $expected ? [] : [$mismatch],
+              "the exit for @$statuses and " . scalar(@$skipped) . " skipped sources is $expected";
+        }
+    }
+};
+
 # A run that stops at its unmodified tests announces its mutants and gives none of them a status.
 sub stopped ($record) {
     $record->{report}{baseline_failures} = ['t/a.t'];
@@ -388,7 +411,11 @@ my @REJECTED = (
         sub ($r) { $r->{report}{mutants}[3]{status} = 'NoVerdict'; $r->{mutation}{exit} = 4 },
         ['the run reports a mutant without a verdict'],
     ],
-    [ $RUN, sub ($r) { $r->{report}{mutants}[3]{status} = 'Pending' }, ['the run leaves a mutant pending'] ],
+    [
+        $RUN,
+        sub ($r) { $r->{report}{mutants}[3]{status} = 'Pending'; $r->{mutation}{exit} = 4 },
+        ['the run leaves a mutant pending']
+    ],
     [
         $RUN,
         sub ($r) { $r->{report}{warnings} = [$LOADS] },
@@ -409,7 +436,11 @@ my @REJECTED = (
         sub ($r) { $r->{report}{warnings} = ['no test files match'] },
         ['the run gives a warning of another kind']
     ],
-    [ $RUN, sub ($r) { $r->{report}{skipped} = ['lib/B.pm: no parse'] }, ['the run skips a source file'] ],
+    [
+        $RUN,
+        sub ($r) { $r->{report}{skipped} = ['lib/B.pm: no parse']; $r->{mutation}{exit} = 4 },
+        ['the run skips a source file']
+    ],
     [
         $RUN,
         sub ($r) { push $r->{mutation}{stderr}->@*, 'Use of uninitialized value' },

@@ -281,8 +281,8 @@ sub _promised_exit ( $report, $tally ) {
     return 3 if $report->{baseline_failures}->@*;
     my $counts = $tally->{counts};
     return 6 if grep { $_->{status} eq 'CompileError' && ( $_->{reason} || q{} ) eq 'parse' } $report->{mutants}->@*;
-    return 4 if $counts->{NoVerdict};
-    return 4 if $tally->{total} - ( $counts->{Ignored} || 0 ) > 0 && !defined $tally->{score};
+    return 4 if $counts->{NoVerdict} || $counts->{Pending} || $report->{skipped}->@*;
+    return 4 if $counts->{Timeout} && !defined $tally->{score};
     return 0;
 }
 
