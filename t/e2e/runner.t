@@ -643,7 +643,8 @@ subtest 'a syntax check runs once for each mutant that fails to load, and never 
     no warnings 'redefine';
     my $seen = sub (@returned) {
         my ($task) = @returned;
-        $checked{ $task->{command}[-1] }++ if ref $task eq 'HASH' && grep { $_ eq '-c' } $task->{command}->@*;
+        $checked{ $task->{command}[-1] }++
+          if ref $task eq 'HASH' && ( $task->{payload}{original} || grep { $_ eq '-c' } $task->{command}->@* );
         return $task;
     };
 

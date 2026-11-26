@@ -35,7 +35,7 @@ sub run_all ( $jobs, @tasks ) {
     Test::Mutation::Pool::run(
         jobs => $jobs,
         next => sub { shift @tasks },
-        done => sub ( $task, $got ) { $result{ $task->{command}[1] } = $got; return },
+        done => sub ( $task, $got ) { $result{ $task->{command}[-1] } = $got; return },
     );
     return \%result;
 }
@@ -157,7 +157,7 @@ subtest 'the driver may hold its standard handles in memory' => sub {
 
 subtest 'a command that cannot start leaves its reason in standard error' => sub {
     my $missing = "$dir/no-such-program";
-    my $result  = [ values run_all( 1, { task('absent')->%*, command => [$missing] } )->%* ]->[0];
+    my $result  = run_all( 1, { task('absent')->%*, command => [$missing] } )->{$missing};
     is $result->{exit}, 127, 'the exit status of a command that was not found';
     like $result->{errors}, qr/\Amutation: cannot start \Q$missing\E: [^\n]+\n\z/,
       'the message names the command and the reason';

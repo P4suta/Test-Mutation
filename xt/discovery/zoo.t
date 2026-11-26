@@ -159,8 +159,10 @@ sub together ( $axis, $members, %more ) {
     my @bypassed =
       qw(absolute-copy absolute-original cleared-env cleared-perl5lib cleared-perl5opt direct-script do-file eval-text fresh-inc local-inc perl-x system-perl taint-child);
     my %bypassed = $more{in_place} ? map { $_ => 'loaded-around-hook' } grep { exists $built->{$_} } @bypassed : ();
-    my %reason   = $more{in_place} ? %bypassed : map { exists $built->{ $_->[0] } ? @$_ : () }
-      [ 'absolute-original', 'outside-copy' ], [ 'blib-differing', 'build-copy-not-updated' ];
+    my %reason =
+      $more{in_place} ? %bypassed : map { exists $built->{ $_->[0] } ? @$_ : () }
+      [ 'absolute-original', 'outside-copy' ],
+      [ 'blib-differing',    'build-copy-not-updated' ];
     my @found = (
         ( map { "$axis=$_: the unmodified run fails" } @failed ),
         ( map { "$axis: $_" } findings( [ @run, 'I1' ], run => $run, expected_exit => %reason ? 4 : 0 ) ),

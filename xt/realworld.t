@@ -401,6 +401,11 @@ my @REJECTED = (
     ],
     [
         $RUN,
+        sub ($r) { $r->{report}{warnings} = ['lib/App.pm does not pass a standalone syntax check'] },
+        ['the run warns that a source requires its application to compile']
+    ],
+    [
+        $RUN,
         sub ($r) { $r->{report}{warnings} = ['no test files match'] },
         ['the run gives a warning of another kind']
     ],

@@ -17,6 +17,7 @@ use Test::Mutation::Error;
 use Test::Mutation::Event;
 use Test::Mutation::Message;
 use Test::Mutation::Launch;
+use Test::Mutation::Once;
 use Test::Mutation::Pool;
 use Test::Mutation::Record;
 use Test::Mutation::Evidence;
@@ -46,7 +47,9 @@ my $INTERRUPTION  = InstanceOf ['Test::Mutation::Interrupted'];
 
 # A test that prints a quarter of a gigabyte prints without end, as a loop that warns does, and the pool ends it.
 # The bytes stay in no file, and a test that prints a hundred megabytes and then fails still fails on its own.
-my $OUTPUT_LIMIT = 268_435_456;
+my $OUTPUT_LIMIT   = 268_435_456;
+my $COMPILE_FACTOR = 10;
+my $COMPILE_FLOOR  = 10;
 
 signature_for phases => ( positional => [], returns => ArrayRef [Str] );
 
@@ -593,11 +596,16 @@ sub _place ( $run, $root, $path, $before, $after ) {
     return;
 }
 
-sub _write_mutant ( $run, $source, $mutant, $root, $raw = 0 ) {
+sub _changed_source ( $run, $source, $mutant ) {
     my $file  = "$run->{work}/mutants/" . $mutant->id . '.pm';
     my $text  = $source->replace_span( $mutant->start, $mutant->end, $mutant->replacement );
     my $bytes = $source->to_bytes($text);
     _spew( $file, $bytes );
+    return ( $file, $text, $bytes );
+}
+
+sub _write_mutant ( $run, $source, $mutant, $root, $raw = 0 ) {
+    my ( $file, $text, $bytes ) = _changed_source( $run, $source, $mutant );
     my $served = $file;
     my $stale;
     if ( defined $run->{copies} ) {
@@ -1078,7 +1086,7 @@ sub _measurement_jobs ( $run, $mutants, $baseline, $cache, $entries ) {
             verdict  => Test::Mutation::Verdict::start(),
             duration => 0
         };
-        $entries->{ $mutant->id } = _reused_entry( $run, $cache, $job ) if $cache && $tests->@*;
+        $entries->{ $mutant->id } = _reused_entry( $run, $cache, $job ) if $cache;
         push @jobs, $job if !$entries->{ $mutant->id };
     }
 
@@ -1099,11 +1107,8 @@ sub _mutants ( $run, $mutants, $baseline ) {
         return;
     };
     my $measure = sub {
-        return Test::Mutation::Pool::run(
-            jobs             => $run->{jobs},
-            retry_after_done => 1,
-            work             => $run->{stats},
-            next             => sub {
+        my $once = Test::Mutation::Once::coalesce(
+            sub {
                 while (1) {
                     my $prepared = _take_ready( $schedule, $run->{rules} );
                     return $prepared if $prepared;
@@ -1115,11 +1120,23 @@ sub _mutants ( $run, $mutants, $baseline ) {
                     else       { $finish->($job) }
                 }
             },
-            done => sub ( $task, $result ) {
+            sub ( $task, $result ) {
                 my $follow = _scheduled_result( $run, $baseline, $schedule, $task, $result );
                 if ($follow) { push $schedule->{ready}->@*, $follow }
                 else         { $finish->( $task->{payload}{job} ) }
                 return;
+            },
+            sub ($task) { return $task->{payload}{original} },
+        );
+        return Test::Mutation::Pool::run(
+            jobs             => $run->{jobs},
+            retry_after_done => 1,
+            work             => $run->{stats},
+            done             => $once->{done},
+            next             => sub {
+                my $task = $once->{next}->() or return;
+                $run->{stats}{compiles}++ if $task->{payload}{compile};
+                return $task;
             },
         );
     };
@@ -1131,19 +1148,23 @@ sub _mutants ( $run, $mutants, $baseline ) {
         my $error = $attempt->{error};
         die $error if !$INTERRUPTION->check($error);    ## no critic (ErrorHandling::RequireCarping)
         $run->{interrupted} = $error->signal;
-        for my $job ( grep { !$entry_of{ $_->{mutant}->id } } @jobs ) {
-            my $tests_run = $job->{verdict}{tests};
-            $tests_run += $job->{first}{tests} if $job->{first};
-            $entry_of{ $job->{mutant}->id } =
-              _entry( $job->{mutant}, 'Pending', 'interrupted', 'the run was interrupted',
-                undef, $job->{tests}, $tests_run, $job->{duration} );
-        }
+        _pending_jobs( \@jobs, \%entry_of );
     }
 
     my @entries = map { $entry_of{ $_->id } } $mutants->@*;
     _save_cache( $run, $cache, \@entries ) if $cache;
     _ignore_repeated_code( $run, \@entries );
     return \@entries;
+}
+
+sub _pending_jobs ( $jobs, $entries ) {
+    for my $job ( grep { !$entries->{ $_->{mutant}->id } } $jobs->@* ) {
+        my $tests_run = $job->{verdict}{tests};
+        $tests_run += $job->{first}{tests} if $job->{first};
+        $entries->{ $job->{mutant}->id } = _entry( $job->{mutant}, 'Pending', 'interrupted', 'the run was interrupted',
+            undef, $job->{tests}, $tests_run, $job->{duration} );
+    }
+    return;
 }
 
 sub _may_overlap ( $schedule, $rules, $test, $other ) {
@@ -1260,6 +1281,14 @@ sub _changed_paths ( $run, $changes ) {
 sub _after_task ( $run, $baseline, $task, $result ) {
     my $job  = $task->{payload}{job};
     my $kind = $task->{payload}{kind};
+    if ( defined( my $path = $task->{payload}{original} ) ) {
+        my $ok = _compiled($result);
+        $run->{original_compile}{$path} = {
+            passed   => $ok ? 1 : 0,
+            duration => $result->{duration},
+            code     => $ok && length $result->{output} ? $result->{digest} : q{},
+        };
+    }
     _discard( $task->{payload}{tmp} ) if $kind ne 'test';
     my $check =
         $kind eq 'test'      ? _after_test( $run, $baseline, $task, $result )
@@ -1406,15 +1435,15 @@ sub _next_code ( $run, $job ) {
     return if !$UNDETECTED{ Test::Mutation::Verdict::final( $job->{verdict} ) };
     my $mutant = $job->{mutant};
     my $path   = $mutant->path;
-    $job->@{qw(file spec stale)} = _write_mutant( $run, $run->{sources}{$path}, $mutant, _job_root( $run, $job ) )
-      if !defined $job->{spec};
-
     return if defined $job->{stale};
-
-    # Two runs of the original show whether its compiled code has a stable text.
-    my ( $once, $again ) = ( $run->{code_of_original}{$path} ||= [] )->@*;
-    return _compile_task( $run, $job, 'code-original', "$run->{root}/$path", '-MO=Deparse' ) if !defined $again;
-    if ( !length $once || $once ne $again ) {
+    if ( !defined $job->{file} ) {
+        ( $job->{file} ) = _changed_source( $run, $run->{sources}{$path}, $mutant );
+    }
+    my $original = $run->{original_compile}{$path};
+    return _compile_task( $run, $job, 'code-original', "$run->{root}/$path", '-MO=Deparse' ) unless $original;
+    if ( !length $original->{code} ) {
+        _warn( $run, Test::Mutation::Message::warning( 'syntax-check-failed', path => $path ) )
+          unless $original->{passed};
         _warn( $run, Test::Mutation::Message::warning( 'decompiled-code-unstable', path => $path ) );
         return;
     }
@@ -1422,14 +1451,9 @@ sub _next_code ( $run, $job ) {
 }
 
 sub _after_code ( $run, $task, $result ) {
-    my $job    = $task->{payload}{job};
-    my $usable = $result->{exit} == 0 && !$result->{timed_out} && length $result->{output};
-    my $digest = $usable ? $result->{digest} : q{};
-    if ( $task->{payload}{kind} eq 'code-original' ) {
-        push $run->{code_of_original}{ $job->{mutant}->path }->@*, $digest;
-        return;
-    }
-    $job->{code} = $digest;
+    return if $task->{payload}{original};
+    my $usable = _compiled($result);
+    $task->{payload}{job}{code} = $usable && length $result->{output} ? $result->{digest} : q{};
     return;
 }
 
@@ -1532,9 +1556,9 @@ sub _check_load ( $run, $baseline, $job ) {
     else {
         return if !$job->{outcome}{load_failed} || defined $job->{syntax};
     }
-    my $known = $run->{syntax_of_original}{$path};
+    my $known = $run->{original_compile}{$path};
     return _compile_task( $run, $job, 'syntax-original', "$run->{root}/$path", '-c' ) if !defined $known;
-    return _compile_task( $run, $job, 'syntax-mutant',   $job->{file},         '-c' ) if $known || $job->{check_read};
+    return _compile_task( $run, $job, 'syntax-mutant',   $job->{file}, '-c' ) if $known->{passed} || $job->{check_read};
     $job->{outcome}{syntax} = $job->{syntax} = 'standalone';
     return;
 }
@@ -1543,15 +1567,14 @@ sub _check_load ( $run, $baseline, $job ) {
 sub _after_syntax ( $run, $baseline, $task, $result ) {
     my $job      = $task->{payload}{job};
     my $path     = $job->{mutant}->path;
-    my $ok       = $result->{exit} == 0 && !$result->{timed_out} ? 1 : 0;
+    my $ok       = _compiled($result);
     my $original = $task->{payload}{kind} eq 'syntax-original';
     if ($original) {
-        $run->{syntax_of_original}{$path} = $ok;
         return _compile_task( $run, $job, 'syntax-mutant', $job->{file}, '-c' ) if $ok || $job->{check_read};
         _warn( $run, Test::Mutation::Message::warning( 'syntax-check-failed', path => $path ) );
     }
     $job->{outcome}{syntax} = $job->{syntax} =
-      !$run->{syntax_of_original}{$path} ? 'standalone' : $ok ? 'ok' : 'compile-phase';
+      !$run->{original_compile}{$path}{passed} ? 'standalone' : $ok ? 'ok' : 'compile-phase';
     return _verify_read( $run, $baseline, $job ) if $job->{check_read};
     return;
 }
@@ -1604,22 +1627,41 @@ sub _next_test ( $run, $job, $baseline ) {
     );
 }
 
+sub _compiled ($result) {
+    return !$result->{exit} && !$result->{signal} && !$result->{timed_out} && !$result->{overflowed};
+}
+
+sub _hint_line ($line) {
+    my $table = qr{charnames_(?:inverse_ords|name_aliases|ord_aliases)}x;
+    my $key   = qr{(?:charnames'\} [ ]=[ ] 'CODE | $table'\} [ ]=[ ] 'HASH)}x;
+    return $line =~ s{\A ([ \t]* \$\^H\{' $key \( ) 0x[0-9a-fA-F]+ (?= \)'; \n? \z ) }{$1*}xr;
+}
+
 sub _compile_task ( $run, $job, $kind, $file, $switch ) {
-    my $config = $run->{config};
-    my $root   = _job_root( $run, $job );
-    $run->{stats}{compiles}++;
-    my $tmp = "$run->{work}/tmp/" . ++$run->{sequence};
+    my $path     = $job->{mutant}->path;
+    my $original = $kind eq 'code-original' || $kind eq 'syntax-original';
+    my $measured = $run->{original_compile}{$path};
+    my $timeout =
+      $measured
+      ? List::Util::max( $COMPILE_FLOOR, $COMPILE_FACTOR * $measured->{duration} )
+      : $run->{config}->baseline_timeout;
+    my $root = $original || !$job->{copy} ? $run->{root} : $job->{copy}{root};
+    my $tmp  = "$run->{work}/tmp/" . ++$run->{sequence};
     Test::Mutation::Tree::make($tmp);
-    my $launch = _launch( $run, $root, $tmp, $job->{mutant}->path, program => $file, arguments => [$switch] );
+    my $option         = $original ? '-MO=Deparse' : $switch;
+    my $source         = $run->{sources}{$path}->text;
+    my $standard_hints = $option eq '-MO=Deparse' && $source =~ /\buse\s+charnames\b/ && $source !~ /[\$%]\^H/;
+    my $launch         = _launch( $run, $root, $tmp, $path, program => $file, arguments => [$option] );
     return {
         command         => $launch->{command},
         env             => { $launch->{env}->%*, PERL_HASH_SEED => '0', PERL_PERTURB_KEYS => '0' },
-        cwd             => $root,
+        cwd             => $job->{tests}->@* ? $root : $tmp,
         lease           => $run->{workspace}->directory . '/processes',
-        timeout         => $config->baseline_timeout,
+        timeout         => $timeout,
         output_limit    => $OUTPUT_LIMIT,
         stop_on_failure => 0,
-        payload         => { kind => $kind, job => $job, tmp => $tmp },
+        ( $standard_hints ? ( digest_line => \&_hint_line ) : () ),
+        payload => { kind => $kind, job => $job, tmp => $tmp, compile => 1, $original ? ( original => $path ) : () },
     };
 }
 
@@ -1654,7 +1696,7 @@ sub _finish ( $run, $job ) {
         $run->{code_of_mutant}{ $mutant->id } = $code;
         ( $status, $reason, $detail ) =
           ( 'Ignored', 'same-code-as-original', 'compiles to the same code as the original' )
-          if $code eq $run->{code_of_original}{ $mutant->path }[0];
+          if $code eq $run->{original_compile}{ $mutant->path }{code};
     }
     my $entry =
       _entry( $mutant, $status, $reason, $detail, $verdict->{by}, $job->{tests}, $verdict->{tests}, $job->{duration} );

@@ -42,9 +42,12 @@ subtest 'a file that does not compile on its own keeps its survivors and warns' 
     );
     my ($result) = run_fixture( $project, enable => ['comparison-boundary'] );
     is statuses($result)->{'lib/Bound.pm:5 replaced > with >='}, 'Survived', 'the mutant survives';
-    is [ grep { /compiled code/ } $result->warnings->@* ],
-      ['lib/Bound.pm: Perl decompiles the file to no stable text, so the run compares no compiled code of the file'],
-      'one warning names the file';
+    is $result->warnings,
+      [
+        'lib/Bound.pm does not pass a standalone syntax check, so its load failures count as compile errors',
+        'lib/Bound.pm: Perl decompiles the file to no stable text, so the run compares no compiled code of the file',
+      ],
+      'the failed original compiler observation explains both unavailable checks';
 };
 
 subtest 'a mutant that no test reaches is compared too' => sub {
@@ -110,6 +113,24 @@ subtest 'the comparison can be turned off' => sub {
     my %statuses = statuses($result)->%*;
     is [ sort grep { $statuses{$_} eq 'Ignored' } keys %statuses ], [], 'no mutant is ignored';
     is scalar( grep { $_ eq 'Survived' } values %statuses ),        4,  'the four undetected mutants survive';
+};
+
+subtest 'the Unicode name hints preserve constant folding and literal addresses' => sub {
+    my $project = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    write_file( "$project/lib/Named.pm", <<'MODULE' );
+package Named;
+use charnames qw(:full);
+sub size { return 10 > 5 ? 'big' : 'small' }
+sub label { return $_[0] ? 'CODE(0x11)' : 'CODE(0x22)' }
+1;
+MODULE
+    write_file( "$project/t/names.t",
+        "use Test::More tests => 1;\nuse Named;\nNamed::label(1);\nis Named::size(), 'big', 'size';\n" );
+    my ($result) = run_fixture( $project, jobs => 3, enable => ['comparison-boundary'] );
+    my $entries = statuses($result);
+    is $entries->{'lib/Named.pm:3 replaced > with >='}, 'Ignored', 'the folded expression has the original code';
+    is $entries->{'lib/Named.pm:4 swapped the branches of the conditional'}, 'Survived',
+      'two different ordinary strings still produce different code';
 };
 
 done_testing;

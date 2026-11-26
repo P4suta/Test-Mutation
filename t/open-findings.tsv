@@ -4,7 +4,6 @@ realworld	CPAN-Audit: the unmodified run fails where the tests of the distributi
 realworld	Moo: the number of mutants lies outside its band	the expectations of the real distributions after the mutator catalog changes
 realworld	Params-Util with blib: the number of mutants lies outside its band	the expectations of the real distributions after the mutator catalog changes
 realworld	Params-Util: the number of mutants lies outside its band	the expectations of the real distributions after the mutator catalog changes
-realworld	TOML-Tiny: the run warns that B::Deparse gives no stable output	the comparison of compiled code without the addresses that B::Deparse prints
 realworld	URI: the run warns that B::Deparse gives no stable output	the kinds of compile error, which name a source that fails to compile alone
 realworld	Variable-Magic with blib: the run reports a mutant that fails to compile	the kinds of compile error, which tell a module that fails to load from invalid code
 realworld	Variable-Magic: the run reports a mutant that fails to compile	the kinds of compile error, which tell a module that fails to load from invalid code

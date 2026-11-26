@@ -29,11 +29,16 @@ for my $fixture (@fixtures) {
     subtest $fixture => sub {
         my $root = copy_of($fixture);
         my %result;
-        my %deadline = $fixture eq 'mechanics' ? ( timeout_floor => 1, timeout_factor => 2 ) : ();
+        my @endless =
+          $fixture eq 'mechanics'
+          ? ( 'lib/Loop.pm:9 removed the statement', 'lib/Loop.pm:9 replaced -- with ++' )
+          : ();
         for my $mode (qw(line file)) {
-            ( $result{$mode} ) = run_fixture( $root, coverage => $mode, %deadline );
-            is $result{$mode}->baseline_failures,      [], "$mode: the unmodified run passes";
-            is by_status( $result{$mode}, 'Timeout' ), [], "$mode: every finite mutant completes" unless %deadline;
+            ( $result{$mode} ) = run_fixture( $root, coverage => $mode );
+            is $result{$mode}->baseline_failures, [], "$mode: the unmodified run passes";
+            my $observed = Fixture::statuses( $result{$mode} );
+            is [ sort grep { $observed->{$_} eq 'Timeout' } keys %$observed ], \@endless,
+              "$mode: only nonterminating loops reach the test deadline";
         }
         for my $status (qw(Killed Timeout CompileError)) {
             is by_status( $result{line}, $status ), by_status( $result{file}, $status ), "the same mutants are $status";

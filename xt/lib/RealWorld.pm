@@ -8,7 +8,7 @@ use TOML::Tiny ();
 # The program inside the container writes a record with these functions, and the gates on the host read it with them.
 # Nothing here asks the tool what its report means, so a wrong report cannot excuse itself.
 
-my @WARNING_KINDS = qw(around-the-hook no-stable-output other);
+my @WARNING_KINDS = qw(around-the-hook no-stable-output standalone other);
 my @TEXTS         = qw(name version pathname sha256 shape);
 my %FIELD         = map { $_ => 1 } @TEXTS, qw(build tests options config expect hash_seed);
 my %EXPECTED      = map { $_ => 1 } qw(mutants score warnings seconds);
@@ -114,6 +114,7 @@ sub harness ($output) {
 sub warning_kind ($text) {
     return 'around-the-hook'  if $text =~ /\bloads \S+ around the hook\b/;
     return 'no-stable-output' if $text =~ /\bPerl decompiles the file to no stable text\b/;
+    return 'standalone'       if $text =~ /\bdoes not pass a standalone syntax check\b/;
     return 'other';
 }
 
@@ -344,6 +345,10 @@ my @INVARIANTS = (
     [
         'the run warns that B::Deparse gives no stable output',
         sub ( $run, $record, $seen ) { $seen->{warned}{'no-stable-output'} }
+    ],
+    [
+        'the run warns that a source requires its application to compile',
+        sub ( $run, $record, $seen ) { $seen->{warned}{standalone} }
     ],
     [ 'the run gives a warning of another kind', sub ( $run, $record, $seen ) { $seen->{warned}{other} } ],
     [ 'the run skips a source file', sub ( $run, $record, $seen ) { $seen->{report} && $seen->{report}{skipped}->@* } ],

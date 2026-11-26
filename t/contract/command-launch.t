@@ -69,10 +69,8 @@ my $measured;
 {
     no warnings 'redefine';
 
-    # Two original deparses establish stability and each remaining check consumes its compiler result once.
     local *Test::Mutation::Runner::_compile_task = sub ( $run, $job, $kind, $file, $switch ) {    ## no critic (Variables::ProtectPrivateVars)
-        my $limit = $kind eq 'code-original' ? 2 : 1;
-        die "the runner scheduled $kind more than $limit times for $file\n" if ++$scheduled{$kind}{$file} > $limit;
+        die "the runner scheduled $kind twice for $file\n" if $scheduled{$kind}{$file}++;
         return $compile_task->( $run, $job, $kind, $file, $switch );
     };
     ($measured) = run_fixture( $project, jobs => 1, lib => [qw(lib support)] );

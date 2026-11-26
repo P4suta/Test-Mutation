@@ -144,7 +144,7 @@ options = ["--shard", "1/8"]
 [URI.expect]
 mutants = [271, 331]
 score = [69, 84]
-warnings = []
+warnings = ["standalone"]
 seconds = 120
 
 [CPAN-Audit]

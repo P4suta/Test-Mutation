@@ -114,15 +114,19 @@ PERL
 };
 
 subtest 'a test gets a chance to clean up before it is ended' => sub {
-    my $marker = "$dir/term-received";
-    my $path   = script( 'graceful.t', <<"PERL" );
-\$| = 1;
-\$SIG{TERM} = sub { open my \$out, '>', '$marker'; close \$out; exit 0 };
-print "1..1\\n";
+    my $path = script( 'graceful.t', <<'PERL' );
+$SIG{TERM} = sub { open my $out, '>', "$0.cleaned" or die $!; close $out or die $!; exit 0 };
+open my $ready, '>', "$0.ready" or die $!;
+print {$ready} "ready\n" or die $!;
+close $ready or die $!;
+$| = 1;
+print "1..1\n";
 sleep 30;
 PERL
-    my $result = run_one( $path, timeout => 0.5 );
-    ok -e $marker, 'the test received TERM';
+    my $clock = ManualClock->new(
+        steps => [ ManualClock::after_ready( "$path.ready", sub ( $clock, @ ) { $clock->move(0.5) } ) ] );
+    my $result = run_one( $path, timeout => 0.5, clock => $clock );
+    ok -e "$path.cleaned", 'the test received TERM';
     is $result->{timed_out}, 1, 'the result reports the time limit';
 
     my $stubborn = script( 'stubborn.t', q{$| = 1; $SIG{TERM} = 'IGNORE'; print "1..1\n"; sleep 30;} );
@@ -157,24 +161,28 @@ subtest 'a command that cannot start fails' => sub {
     is $result, hash { field passed => 0; field exit => 127; etc }, 'exit status 127';
 };
 
-subtest 'tasks run in parallel and follow-up tasks run first' => sub {
-    my $sleeper = script( 'sleep.t', qq{sleep 1; print "1..1\\nok 1\\n";\n} );
-    my @queue   = map { task( $sleeper, payload => { name => "first-$_" } ) } 1 .. 4;
-    my @order;
-    my $started = Time::HiRes::time();
-    my $count   = Test::Mutation::Pool::run(
+subtest 'four tasks overlap and a follow-up runs to completion' => sub {
+    my $path = script( 'together.t', <<'PERL' );
+open my $ready, '>', "$0.ready.$ENV{POOL_SLOT}" or die $!;
+close $ready or die $!;
+select undef, undef, undef, 0.01 while grep { !-e "$0.ready.$_" } 1 .. 4;
+print "1..1\nok 1\n";
+PERL
+    my @queue = map { task( $path, env => { POOL_SLOT => $_ }, payload => { name => "first-$_" } ) } 1 .. 4;
+    my ( @order, @passed );
+    my $count = Test::Mutation::Pool::run(
         jobs => 4,
         next => sub { shift @queue },
         done => sub ( $task, $result ) {
-            push @order, $task->{payload}{name};
+            push @order,  $task->{payload}{name};
+            push @passed, $result->{passed};
             return task( script( 'quick.t', qq{print "1..1\\nok 1\\n";\n} ), payload => { name => 'follow-up' } )
               if $task->{payload}{name} eq 'first-1';
             return;
         },
     );
-    my $elapsed = Time::HiRes::time() - $started;
-    is $count, 5, 'every task ran';
-    ok $elapsed < 3, "four one-second tasks ran side by side ($elapsed s)";
+    is $count,   5,           'every task ran';
+    is \@passed, [ (1) x 5 ], 'the first four tasks all reached the barrier before any could finish';
     is scalar( grep { $_ eq 'follow-up' } @order ), 1, 'the follow-up task ran';
 };
 
@@ -370,11 +378,14 @@ subtest 'a forced end reaches a child that left the process group' => sub {
     my $code = <<'PERL';
 $| = 1;
 if ( !fork ) { setpgrp 0, 0; open my $out, '>', "$0.child"; print {$out} $$; close $out; sleep 30; exit 0 }
+select undef, undef, undef, 0.01 until -s "$0.child";
 print "1..2\nnot ok 1\n";
 sleep 30;
 PERL
     my $late = script( 'escape-late.t', $code );
-    is run_one( $late, timeout => 1 )->{timed_out}, 1, 'the test runs into its time limit';
+    my $clock =
+      ManualClock->new( steps => [ ManualClock::after_ready( "$late.child", sub ( $clock, @ ) { $clock->move(1) } ) ] );
+    is run_one( $late, timeout => 1, clock => $clock )->{timed_out}, 1, 'the test runs into its time limit';
     ok wait_for("$late.child"),          'its child started';
     ok gone( number_in("$late.child") ), 'the time limit ends the child';
 
@@ -410,8 +421,18 @@ PERL
 };
 
 subtest 'a test that exits cleanly after its time limit does not pass' => sub {
-    my $path   = script( 'late.t', q{$| = 1; $SIG{TERM} = sub { exit 0 }; print "1..1\nok 1\n"; sleep 30;} );
-    my $result = run_one( $path, timeout => 0.5 );
+    my $path = script( 'late.t', <<'PERL' );
+$SIG{TERM} = sub { exit 0 };
+$| = 1;
+print "1..1\nok 1\n";
+open my $ready, '>', "$0.ready" or die $!;
+print {$ready} "ready\n" or die $!;
+close $ready or die $!;
+sleep 30;
+PERL
+    my $clock = ManualClock->new(
+        steps => [ ManualClock::after_ready( "$path.ready", sub ( $clock, @ ) { $clock->move(0.5) } ) ] );
+    my $result = run_one( $path, timeout => 0.5, clock => $clock );
     is $result, hash { field timed_out => 1; field exit => 0; field signal => 0; field passed => 0; etc },
       'the time limit decides';
 };
@@ -458,6 +479,45 @@ subtest 'a malformed task is refused' => sub {
             )
         }, qr/did not pass type constraint/, $name;
     }
+};
+
+subtest 'a filtered digest consumes complete lines and retains all long output' => sub {
+    my $path   = script( 'digest-stream.pl', q{print 'x' x 300_000, "\ntrim\nlast"} );
+    my $filter = sub ($line) { return $line eq "trim\n" ? "fold\n" : uc $line };
+    my $result = run_one( $path, digest_line => $filter );
+    is $result->{digest}, Digest::SHA::sha256_hex( ( 'x' x 300_000 ) . "\nfold\nLAST" ),
+      'an oversized line passes through and the last incomplete line reaches the filter';
+    like $result->{output}, qr/x\ntrim\nlast\z/, 'the raw output retained for diagnostics stays intact';
+};
+
+subtest 'a short last fragment still belongs to the preceding oversized line' => sub {
+    my @filtered;
+    my $slot = {
+        digest => Digest::SHA->new(256),
+        task   => { digest_line => sub ($line) { push @filtered, $line; return uc $line } },
+    };
+    for my $chunk ( 'x' x 65_536, 'y', "z\nnext\n" ) {
+        Test::Mutation::Pool::_digest_output( $slot, $chunk );    ## no critic (Subroutines::ProtectPrivateSubs)
+    }
+    is \@filtered, ["next\n"], 'filtering resumes at the next complete line';
+    is $slot->{digest}->hexdigest, Digest::SHA::sha256_hex( ( 'x' x 65_536 ) . "yz\nNEXT\n" ),
+      'every fragment of the oversized line contributes its original bytes';
+};
+
+subtest 'the digest filters complete and final lines up to the input chunk size' => sub {
+    my $path = script( 'digest-boundaries.pl', q{print "a" x 65_535, "\n", "b" x 65_536, "\n", "c" x 65_536} );
+    my @filtered;
+    my $result = run_one(
+        $path,
+        digest_line => sub ($line) {
+            push @filtered, [ substr( $line, 0, 1 ), length $line ];
+            return '<filtered>';
+        }
+    );
+    is \@filtered, [ [ 'a', 65_536 ], [ 'c', 65_536 ] ],
+      'an exact-size line is filtered with and without its terminator';
+    is $result->{digest}, Digest::SHA::sha256_hex( '<filtered>' . ( 'b' x 65_536 ) . "\n<filtered>" ),
+      'the one-byte-longer line retains all its bytes across pipe reads';
 };
 
 done_testing;

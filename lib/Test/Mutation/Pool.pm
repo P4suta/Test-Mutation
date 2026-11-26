@@ -35,6 +35,7 @@ my $TASK = Dict [
     env             => HashRef [ Maybe [Str] ],
     cwd             => Str,
     lease           => Optional [Str],
+    digest_line     => Optional [CodeRef],
     observation     => Optional [ Dict [ directory => Str, descriptor => PositiveInt ] ],
     timeout         => PositiveNum,
     output_limit    => PositiveInt,
@@ -163,8 +164,30 @@ sub _consume ( $slot, $name, $chunk ) {
     $slot->{printed} += length $chunk;
     $slot->{$name} = substr $slot->{$name} . $chunk, -$KEPT_BYTES;
     return if $name ne 'output';
-    $slot->{digest}->add($chunk);
+    _digest_output( $slot, $chunk );
     $slot->{tap} = Test::Mutation::Tap::feed( $slot->{tap}, $chunk );
+    return;
+}
+
+sub _digest_output ( $slot, $chunk ) {
+    my $filter = $slot->{task}{digest_line};
+    if ( !$filter ) {
+        $slot->{digest}->add($chunk);
+        return;
+    }
+    my $tail   = delete $slot->{digest_tail};
+    my $buffer = defined $tail ? $tail . $chunk : $chunk;
+    my @lines  = split qr{(?<=\n)}, $buffer;
+    for my $line (@lines) {
+        my $complete = substr( $line, -1 ) eq "\n";
+        my $long     = $slot->{long_line} || length($line) > $CHUNK_BYTES;
+        if ( !$complete && !$long ) {
+            $slot->{digest_tail} = $line;
+            return;
+        }
+        $slot->{digest}->add( $long ? $line : $filter->($line) );
+        $slot->{long_line} = !$complete;
+    }
     return;
 }
 
@@ -347,6 +370,10 @@ sub _end_escaped (@pids) {
 }
 
 sub _result ($slot) {
+    my $tail = delete $slot->{digest_tail};
+    if ( defined $tail ) {
+        $slot->{digest}->add( $slot->{task}{digest_line}->($tail) );
+    }
     my $tap     = Test::Mutation::Tap::finish( $slot->{tap} );
     my $limited = $slot->{timed_out} || $slot->{overflowed};
     return {
@@ -404,6 +431,8 @@ C<work> is a hash where the pool adds the processes that it started under C<spaw
 
 A task has the keys C<command>, C<env>, C<cwd>, C<timeout>, C<output_limit>, C<stop_on_failure>, and an optional C<payload> hash.
 An undefined value in C<env> removes the variable.
+An optional C<digest_line> transforms ordinary lines for the digest and preserves the raw diagnostic output.
+Lines longer than the input chunk size pass through intact.
 C<output_limit> is the number of bytes that the task may print on its two streams together.
 
 A result has the keys C<exit>, C<signal>, C<timed_out>, C<overflowed>, C<stopped>, C<passed>, C<early>, C<duration>, C<output>, C<errors>, and C<digest>.
