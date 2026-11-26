@@ -263,8 +263,8 @@ subtest 'the time limit grows with the duration of the unmodified test' => sub {
 subtest 'the tests inherit the library path and the options of the interpreter' => sub {
     my $environment =
         "use Test::More tests => 3;\nuse Small;\nis Small::next_one(2), 3, 'the next one';\n"
-      . "like \$ENV{PERL5OPT}, qr/\\A%s-MTest::Mutation::Shim::G\\d+\\z/, 'the options';\n"
-      . "like \$ENV{PERL5LIB}, qr{\\A[^:]+/shim%s\\z}, 'the library path';\n";
+      . "like \$ENV{PERL5OPT}, qr{\\A%s-I\\S+/shim -MTest::Mutation::Shim::G\\d+\\z}, 'the options';\n"
+      . "like \$ENV{PERL5LIB}, qr{\\A[^:]+/lib%s:[^:]+/shim\\z}, 'the library path';\n";
     my $run = sub ( $options, $library, @expected ) {
         my $root = project( 'lib/Small.pm' => $MODULE, 't/small.t' => sprintf $environment, @expected );
         local $ENV{PERL5OPT} = $options;
@@ -274,7 +274,7 @@ subtest 'the tests inherit the library path and the options of the interpreter' 
     };
     is $run->( q{}, q{}, q{}, q{} ), [], 'empty variables add nothing';
     is $run->( '-MFile::Spec', '/elsewhere', '-MFile::Spec ', ':/elsewhere' ), [],
-      'set variables stay after the additions';
+      'the project libraries and instrumentation preserve the inherited options and libraries';
 };
 
 subtest 'warnings come once each and in the order of their text' => sub {

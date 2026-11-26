@@ -46,7 +46,7 @@ sub configured ( $file, %given ) {
 
 subtest 'one row for each setting, with one name on every surface' => sub {
     my @names = map { $_->name } Test::Mutation::Settings::rows()->@*;
-    is scalar(@names),                                           32, 'the settings';
+    is scalar(@names),                                           33, 'the settings';
     is [ grep { $names[$_] eq $names[ $_ - 1 ] } 1 .. $#names ], [], 'no name twice in a row';
     my $score = $row{'min-score'};
     is [ $score->flag, $score->key, $score->attribute ], [ '--min-score', 'min-score', 'min_score' ], 'the three names';
@@ -95,7 +95,8 @@ subtest 'the default of every setting and its text' => sub {
         'threshold-high'   => 80,
         'threshold-low'    => 60,
         perl               => $^X,
-        switch             => ['-Ilib'],
+        lib                => ['lib'],
+        switch             => [],
         source             => ['lib/**/*.pm'],
         'source-exclude'   => [],
         test               => ['t/**/*.t'],
@@ -123,7 +124,11 @@ subtest 'the default of every setting and its text' => sub {
       'the defaults';
 
     # A default that the facts leave as it is has a text that states its value.
-    my $other   = { processors => 9, env => { GITHUB_ACTIONS => 'true' } };
+    my $other = {
+        processors => 9,
+        env        => { GITHUB_ACTIONS => 'true' },
+        launch     => { lib            => [qw(blib/lib blib/arch)], switch => [] }
+    };
     my $count   = 0;
     my $text_of = sub ($value) { ref $value ? "@$value" : $value };
     for my $setting ( grep { defined $_->default } values %row ) {
@@ -137,7 +142,7 @@ subtest 'the default of every setting and its text' => sub {
         is $setting->default_text, $text, 'the text of the default of ' . $setting->name;
         $count++;
     }
-    is $count, 26, 'every default but the two that depend on the facts';
+    is $count, 26, 'the defaults that stay the same on the two projects';
 };
 
 subtest 'the interactions that the table declares' => sub {

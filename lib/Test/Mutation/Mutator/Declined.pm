@@ -77,7 +77,7 @@ my @DECLINED = (
         'a function of a value has no counterpart that takes the same operands, and the mutants of its operands measure it'
           => map { "word $_" }
           qw(caller each fc fileno glob gmtime length localtime log lstat oct ord prototype quotemeta rand readdir
-          readlink ref split sprintf sqrt stat tell telldir tied undef)
+          readlink ref split sprintf sqrt stat tell telldir tied undef unpack)
     ],
 
     # The profile slice of the plan brings the mutators of these constructs, and the census then refuses each reason here.

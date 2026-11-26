@@ -9,6 +9,7 @@ use Types::Common::Numeric qw(PositiveInt);
 use Type::Params           qw(signature_for);
 use Test::Mutation::Error;
 use Test::Mutation::Host;
+use Test::Mutation::Launch;
 use Test::Mutation::Project;
 use Test::Mutation::Setting;
 
@@ -116,10 +117,22 @@ my @ROWS = (
         'tests', 'Interpreter that runs the tests'
     ],
     [
+        'lib',
+        undef,
+        'list',
+        $DIRECTORY,
+        'DIR',
+        'a list of library directories',
+        sub ($facts) { return $facts->{launch} ? $facts->{launch}{lib} : ['lib'] },
+        'lib, or blib for a distribution that builds',
+        'tests',
+        'Directory to search for Perl modules'
+    ],
+    [
         'switch', undef, 'list', $SWITCH, 'SWITCH',
         'a list of switches of perl',
-        sub { ['-Ilib'] },
-        '-Ilib', 'tests', 'Switch of the interpreter of the tests; repeatable'
+        sub ($facts) { return $facts->{launch} ? $facts->{launch}{switch} : [] },
+        'none', 'tests', 'Switch of the interpreter of the tests; repeatable'
     ],
     [
         'source', undef, 'list', $GLOB, 'GLOB',
@@ -495,12 +508,13 @@ sub resolve ($arg) {
         %entry = ( %entry, $layer->{entries}->%* );
         $file  = $layer->{name} if $layer->{origin} eq 'file';
     }
+    my $facts = { $arg->facts->%*, launch => Test::Mutation::Launch::defaults( $arg->root ) };
     my %value;
     for my $setting ( grep { $_->group ne 'project' } @SETTINGS ) {
         my $entry = $entry{ $setting->name };
         $value{ $setting->attribute } =
             $entry            ? $entry->{value}
-          : $setting->default ? $setting->default->( $arg->facts )
+          : $setting->default ? $setting->default->($facts)
           :                     undef;
     }
     for my $interaction ( grep { $CHECK{ $_->{rule} } } @INTERACTIONS ) {

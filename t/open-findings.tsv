@@ -14,10 +14,8 @@ mutants-kills-fixtures	run_command serves no mutant to a test under taint mode	t
 contract-plan-settings	the default of cache differs from the contract	the cache key over every input of a result
 contract-plan-settings	the default of format differs from the contract	the terminal report and the summary of GitHub
 contract-plan-settings	the default of source differs from the contract	the Perl scripts of a project as sources of a run
-contract-plan-settings	the default of switch differs from the contract	the launch of a test command
 contract-plan-settings	the table lacks the setting color of the contract	the progress display
 contract-plan-settings	the table lacks the setting github of the contract	the terminal report and the summary of GitHub
-contract-plan-settings	the table lacks the setting lib of the contract	the launch of a test command
 contract-exit-table-outcomes	inconclusive: status 0, where the table calls for 4; gates 0 100 50 none; parts one whole	the single outcome of a run
 contract-exit-table-outcomes	inconclusive: status 1, where the table calls for 4; gates 100 50; parts one whole	the single outcome of a run
 contract-exit-table-outcomes	measured: status 1, where the table calls for 0; gates 100 50; parts one	the single outcome of a run
@@ -30,20 +28,6 @@ contract-three-deciders-outcomes	pass: run; fail: assertion; gates 0 100; parts 
 contract-three-deciders-outcomes	the gate of the file: pass: run; fail: assertion; gates 50; parts whole	the single outcome of a run
 contract-exit-table-process	status 0, where the table calls for 4; cases no-source-and-a-gate; part outcome	the single outcome of a run
 contract-no-leak-process	a place in the source; cases letters-in-a-patch; part report	the encoding of the output
-engine-baseline	every first line: the tool leaves out the variable HARNESS_VERSION of prove	the launch of a test command
-engine-baseline	first-line=T: the search path of modules lacks an entry of prove	the launch of a test command
-engine-baseline	first-line=bundle-Tw: the search path of modules lacks an entry of prove	the launch of a test command
-engine-baseline	first-line=bundle-wT: the search path of modules lacks an entry of prove	the launch of a test command
-engine-baseline	first-line=include: the search path of modules lacks an entry of prove	the launch of a test command
-engine-baseline	first-line=lower: the search path of modules lacks an entry of prove	the launch of a test command
-engine-baseline	first-line=plain: the variable PERL5LIB differs from the one of prove	the launch of a test command
-engine-baseline	first-line=separate: the search path of modules lacks an entry of prove	the launch of a test command
-engine-baseline	first-line=space: the search path of modules lacks an entry of prove	the launch of a test command
-engine-baseline	first-line=tab: the search path of modules lacks an entry of prove	the launch of a test command
-engine-baseline	launch=explicit-taint, every first line: the search path of modules lacks an entry of prove	the launch of a test command
-engine-baseline	launch=proverc, every first line: the search path of modules lacks an entry of prove	the launch of a test command
-engine-baseline	launch=separate-include, every first line: the search path of modules holds an entry that prove lacks	the launch of a test command
-engine-baseline	launch=separate-include, every first line: the search path of modules lacks an entry of prove	the launch of a test command
 engine-differential	cache perturbation=data-file: the run reuses a result that depends on the changed input	the cache key over every input of a result
 engine-differential	cache perturbation=data-file: the run with the cache gives Survived where the truth gives Killed	the cache key over every input of a result
 engine-differential	cache perturbation=environment: the run reuses a result that depends on the changed input	the cache key over every input of a result
@@ -67,7 +51,7 @@ engine-zoo	files=mkdir-out: I7 the run gives Killed where the truth gives Surviv
 engine-zoo	loading=absolute-copy: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the placement of a mutant in the copy
 engine-zoo	loading=cleared-env: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
 engine-zoo	loading=cleared-env: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the placement of a mutant in the copy
-engine-zoo	loading=cleared-perl5lib: the unmodified run fails	the launch of a test command
+engine-zoo	loading=cleared-perl5lib: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the placement of a mutant in the copy
 engine-zoo	loading=cleared-perl5opt: I6 the verdicts deviate without a warning or a reason	the witness that a target writes for itself
 engine-zoo	loading=cleared-perl5opt: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the placement of a mutant in the copy
 engine-zoo	loading=direct-script: I8 the run gives NoCoverage where the reference style gives Killed and Survived	the placement of a mutant in the copy
@@ -109,8 +93,6 @@ contract-stdout-reports	the bytes of the output are no UTF-8 form of the report;
 contract-no-leak-reports	a warning of Perl; shapes utf8-1 utf8-2; formats terminal	the encoding of the output
 contract-env-source	no table and no manual lists the variable; variables GITHUB_ACTIONS; files lib/Test/Mutation/Settings.pm	the manual that the tables generate
 contract-env-source	no table and no manual lists the variable; variables GITHUB_STEP_SUMMARY; files lib/Test/Mutation/CLI.pm	the manual that the tables generate
-contract-env-source	no table and no manual lists the variable; variables TEST_MUTATION_GENERATION; files lib/Test/Mutation/Runner.pm	the manual that the tables generate
-contract-env-source	no table and no manual lists the variable; variables TEST_MUTATION_ROOT; files lib/Test/Mutation.pm	the manual that the tables generate
 contract-env-source	no table and no manual lists the variable; variables a-computed-name; files lib/Test/Mutation/Runner.pm lib/Test/Mutation/Shim.pm	the manual that the tables generate
 contract-examples-manual	code that does not compile; kinds perl; files lib/Test/Mutation/Tree.pm	the manual that the tables generate
 contract-manual-manual	the manual names no row of the table; rows --baseline-timeout --cache-dir --coverage --disable --enable --equivalence --format --jobs --keep-work --link --mutant --perl --report-dir --source --source-exclude --switch --test --test-exclude --threshold-high --threshold-low --timeout-factor --timeout-floor; tables flags	the manual that the tables generate

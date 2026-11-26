@@ -35,8 +35,18 @@ my %status_of = ( HUP => 129, INT => 130, QUIT => 131, PIPE => 141, TERM => 143 
 
 for my $signal ( sort keys %status_of ) {
     subtest "SIG$signal ends the tests and removes the work directory" => sub {
-        my $root = copy_of('calc');
-        write_file( "$root/t/slow.t", "use Test::More tests => 1;\nuse Calc;\nsleep 30;\nok 1, 'slept';\n" );
+        my $root  = copy_of('calc');
+        my $ready = File::Temp->new;
+        local $ENV{MUTATION_INTERRUPT_READY} = $ready->filename;
+        write_file( "$root/t/slow.t", <<'TEST' );
+use Test::More tests => 1;
+use Calc;
+open my $ready, '>', $ENV{MUTATION_INTERRUPT_READY} or die "open: $!";
+print {$ready} $$ or die "write: $!";
+close $ready or die "close: $!";
+sleep 30;
+ok 1, 'slept';
+TEST
         my $scratch = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
         local $ENV{TMPDIR} = $scratch;
 
@@ -50,18 +60,17 @@ for my $signal ( sort keys %status_of ) {
             exec {$^X} $^X, "-I$library", $command, '--jobs', 2, '--format', 'terminal' or die "exec: $!";
         }
 
+        my $child;
         ok wait_for(
-            sub {
-                scalar grep { /slow[.]t/ } processes_under($scratch)->@*;
-            }
-          ),
+            sub { $child = text_of( $ready->filename ); return $child =~ /\A[1-9][0-9]*\z/ && kill 0, $child } ),
           'the slow test is running';
         kill $signal, $pid;
         waitpid $pid, 0;
         is $? >> 8, $status_of{$signal}, 'the exit status names the signal';
         like text_of("$root/stderr.txt"), qr/^mutation: interrupted by SIG$signal$/m, 'and so does standard error';
 
-        ok wait_for( sub { !processes_under($scratch)->@* } ), 'no process of the run is left'
+        ok wait_for( sub { !( $child && kill 0, $child ) && !processes_under($scratch)->@* } ),
+          'no process of the run is left'
           or diag join q{}, processes_under($scratch)->@*;
         is [ glob "$scratch/*" ], [], 'the workspace and its copies are removed';
     };

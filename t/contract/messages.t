@@ -238,6 +238,7 @@ for my $text ( "[test]\njobs = 1\n", "root = \"x\"\n", "jobs = = 1\n" ) {
 raised(
     sub { Test::Mutation::Mutator::Catalog::choose( profile => 'default', enable => ['nonesuch'], disable => [] ) } );
 
+printed( ['run'], cwd => directory( '.proverc' => "--exec custom-runner\n" ) );
 printed( [ 'run', '--source', 'lib/Absent*.pm' ] );
 printed( [ 'run', '--perl',   "$tree/absent-perl" ] );
 raised( sub { Test::Mutation::Git::changed( Space::git_tree(), 'absent-revision' ) } );

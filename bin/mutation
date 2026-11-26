@@ -30,6 +30,18 @@ C<mutation> runs in the root of a distribution, or in the directory that C<--roo
 C<mutation --help> lists every option.
 L<Test::Mutation> describes the configuration file, the reports, and the limits.
 
+=head1 TEST EXECUTION
+
+The project can supply library directories through C<.proverc>, C<--lib>, or the configuration file.
+
+    lib = ["lib", "t/lib"]
+
+The driver adds the selected directories to C<PERL5LIB>.
+With taint checking, the interpreter receives the directories, inherited C<PERL5OPT> switches, and the shim on its command line.
+Selecting a build library sets C<PERL_DL_NONLAZY> for the test process.
+C<TEST_MUTATION_ROOT> identifies the current test copy.
+C<TEST_MUTATION_GENERATION> selects its shim when a test starts another measurement.
+
 =head1 AUTHOR
 
 Yasunobu Sakashita

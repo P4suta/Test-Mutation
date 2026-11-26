@@ -36,7 +36,7 @@ sub taint_switch ($path) {
 sub command ( $config, $test ) {
     my $root     = $config->root;
     my @switches = map { s{\A-I(?=[^/])}{-I$root/}r } $config->switch->@*;
-    return [ $config->perl, @switches, taint_switch("$root/$test"), $test ];
+    return [ $config->perl, @switches, taint_switch("$root/$test"), ( map { "-I$_" } $config->lib->@* ), $test ];
 }
 
 sub _slurp ($path) {
@@ -124,6 +124,7 @@ sub _compiles ( $config, $source, $mutant ) {
     my $root    = $config->root;
     my @include = map { m{\A-I(.+)\z} ? ( $1 =~ m{\A/} ? $1 : "$root/$1" ) : () } $config->switch->@*;
     my $bytes   = $source->to_bytes( $source->replace_span( $mutant->start, $mutant->end, $mutant->replacement ) );
+    push @include, map { File::Spec->rel2abs( $_, $root ) } $config->lib->@*;
     my $verdict = Judge::reference_calls( $bytes, include => \@include );
     return $verdict->{compiled} || $verdict->{diagnostics} =~ /^(?:BEGIN|UNITCHECK|CHECK) failed--/m ? 1 : 0;
 }

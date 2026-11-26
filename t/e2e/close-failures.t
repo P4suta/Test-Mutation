@@ -41,7 +41,7 @@ like dies {
     failing_in( qr/::Runner::_spew\z/, sub { run_fixture($root) } )
 }, qr/\Acannot close \S+: /, 'a work file that does not close stops the run';
 like dies {
-    failing_in( qr/::Runner::_taint_switch\z/, sub { run_fixture($root) } )
+    failing_in( qr/::Runner::_first_line\z/, sub { run_fixture($root) } )
 }, qr/\Acannot close t\/\w+[.]t: /, 'a test file that does not close stops the run';
 
 my $analysis = Test::Mutation::Runner::analyze( Test::Mutation::Settings::of_call( { root => $root } ) );

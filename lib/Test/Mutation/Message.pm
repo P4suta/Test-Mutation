@@ -54,6 +54,12 @@ my @ROWS = (
     ],
     [ 'mutator-unknown', 'usage', 'unknown mutator: {names}', 'A setting names a mutator that the tool lacks.' ],
     [
+        'prove-exec-unsupported',
+        'usage',
+        '.proverc: --exec replaces the Perl interpreter needed to measure mutants',
+        'The project requests an external test executor in its prove configuration.'
+    ],
+    [
         'glob-unmatched', 'usage',
         '{setting} pattern "{pattern}" matches no project file',
         'An explicitly supplied include or exclude pattern must match a file in the project.'

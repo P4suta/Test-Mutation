@@ -82,7 +82,9 @@ sub _states ($bench) {
         my %shim = map { ( $env{$_} =~ s{/records/[0-9]+\z}{/shim}r => 1 ) }
           grep { /\ATEST_MUTATION_RECORD_G[0-9]+\z/ } keys %env;
         delete @env{ grep { /\ATEST_MUTATION_/ || $_ eq 'TMPDIR' || $_ eq 'PWD' } keys %env };
-        $env{PERL5OPT} = join q{ }, grep { !/\A-MTest::Mutation::Shim/ } split q{ }, $env{PERL5OPT}
+        my %instrument = map { ( "-I$_" => 1, '-Mlib+pack(q(H*),q(' . unpack( 'H*', $_ ) . '))' => 1 ) } keys %shim;
+        $env{PERL5OPT} = join q{ }, grep { !$instrument{$_} && !/\A-MTest::Mutation::Shim::G[0-9]+\z/ }
+          split q{ }, $env{PERL5OPT}
           if defined $env{PERL5OPT};
         delete $env{PERL5OPT} if defined $env{PERL5OPT} && !length $env{PERL5OPT};
         $env{PERL5LIB} = join q{:}, grep { !$shim{$_} } split /:/, $env{PERL5LIB}

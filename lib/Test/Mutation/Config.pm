@@ -22,6 +22,7 @@ has report_dir       => ( is => 'ro', isa => $TYPE{report_dir},       required =
 has threshold_high   => ( is => 'ro', isa => $TYPE{threshold_high},   required => 1 );
 has threshold_low    => ( is => 'ro', isa => $TYPE{threshold_low},    required => 1 );
 has perl             => ( is => 'ro', isa => $TYPE{perl},             required => 1 );
+has lib              => ( is => 'ro', isa => $TYPE{lib},              required => 1 );
 has switch           => ( is => 'ro', isa => $TYPE{switch},           required => 1 );
 has source           => ( is => 'ro', isa => $TYPE{source},           required => 1 );
 has source_exclude   => ( is => 'ro', isa => $TYPE{source_exclude},   required => 1 );
@@ -104,10 +105,11 @@ The scores from which a report marks the result as good and below which it marks
 
 The interpreter that runs the tests.
 
-=head2 switch
+=head2 lib, switch
 
-Switches for the interpreter, C<-Ilib> by default.
-The run names a relative directory after C<-I> in full, as C<prove> does, so a test may change its directory.
+C<lib> names the Perl library directories relative to the project.
+C<switch> gives additional switches for the test interpreter.
+The project F<.proverc> provides defaults for both settings.
 
 =head2 source, source_exclude
 

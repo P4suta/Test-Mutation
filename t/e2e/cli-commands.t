@@ -282,7 +282,7 @@ subtest 'version, help, and stray arguments' => sub {
     like $help->{stdout}, qr/^\s+mutation merge FILE/m,                                        'the merge command';
     like $help->{stdout}, qr/^\s+mutation mutators \[options\]$/m,                             'the mutators command';
     my @undocumented = grep { $help->{stdout} !~ /^\s+(?:--[\w-]+, )*--\Q$_\E(?![\w-])/m }
-      qw(root config jobs min-score format report-dir threshold-high threshold-low perl switch source source-exclude test
+      qw(root config jobs min-score format report-dir threshold-high threshold-low perl lib switch source source-exclude test
       test-exclude profile enable disable equivalence no-equivalence coverage timeout-factor timeout-floor baseline-timeout
       in-place no-in-place link keep-work no-keep-work mutant since shard cache no-cache cache-dir help version);
     is \@undocumented, [], 'every option is described';

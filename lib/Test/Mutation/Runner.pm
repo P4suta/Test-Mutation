@@ -15,6 +15,7 @@ use Test::Mutation::Coverage;
 use Test::Mutation::Error;
 use Test::Mutation::Event;
 use Test::Mutation::Message;
+use Test::Mutation::Launch;
 use Test::Mutation::Pool;
 use Test::Mutation::Record;
 use Test::Mutation::Evidence;
@@ -100,7 +101,7 @@ sub run ( $config, $listener, $options = {} ) {
         listener => $listener,
         jobs     => $config->jobs,
         sequence => 0,
-        taint    => {},
+        first    => {},
         warnings => {},
         free     => {},
         stats    => { map { $_ => 0 } qw(copies walks compiles spawns listings baseline_tests verifications) },
@@ -381,15 +382,14 @@ sub _module_text ($file) {
     die Test::Mutation::Message::text_of( 'shim-missing', file => $file ) . "\n";
 }
 
-sub _taint_switch ( $run, $test ) {
-    if ( !exists $run->{taint}{$test} ) {
-        open my $handle, '<', "$run->{root}/$test"
-          or Test::Mutation::Error::raise( 'file-unreadable', path => $test, reason => "$!" );
-        my $first = readline $handle;
-        close $handle or Test::Mutation::Error::raise( 'file-unclosable', path => $test, reason => "$!" );
-        $run->{taint}{$test} = defined $first && $first =~ /\A[#]!.*perl.*\s-\w*([Tt])/ ? "-$1" : undef;
+sub _first_line ( $run, $path ) {
+    if ( !exists $run->{first}{$path} ) {
+        open my $handle, '<', "$run->{root}/$path"
+          or Test::Mutation::Error::raise( 'file-unreadable', path => $path, reason => "$!" );
+        $run->{first}{$path} = readline $handle;
+        close $handle or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
     }
-    return $run->{taint}{$test};
+    return $run->{first}{$path};
 }
 
 sub _spec ( $run, $root, $name, $trace, $targets ) {
@@ -482,30 +482,32 @@ sub run_command ( $config, $source, $mutant, $command ) {
     return $status >> 8;
 }
 
-# prove names its library directories in full, so a test may change its directory before it loads a module.
-sub _switches ( $run, $root ) {
-    return map { s{\A-I(?=[^/])}{-I$root/}r } $run->{config}->switch->@*;
+sub _launch ( $run, $root, $tmp, $source, %task ) {
+    return Test::Mutation::Launch::test_command(
+        perl   => $run->{perl},
+        root   => $root,
+        tmp    => $tmp,
+        env    => \%ENV,
+        lib    => $run->{config}->lib,
+        switch => $run->{config}->switch,
+        first  => _first_line( $run, $source ),
+        %task,
+    );
 }
 
 sub _test_task ( $run, %arg ) {
-    my $sequence   = ++$run->{sequence};
-    my $work       = $run->{work};
-    my $generation = $run->{generation};
-    my $record     = "$work/records/$sequence";
-    my $tmp        = "$work/tmp/$sequence";
+    my $sequence = ++$run->{sequence};
+    my $work     = $run->{work};
+    my $record   = "$work/records/$sequence";
+    my $tmp      = "$work/tmp/$sequence";
     Test::Mutation::Tree::make( $record, $tmp );
-    my $taint = _taint_switch( $run, $arg{test} );
-    my $load  = '-M' . $run->{package};
+    my $launch = _launch(
+        $run, $arg{root}, $tmp, $arg{test},
+        program => $arg{test},
+        shim => { generation => $run->{generation}, directory => "$work/shim", record => $record, spec => $arg{spec} },
+    );
     return {
-        command =>
-          [ $run->{perl}, _switches( $run, $arg{root} ), ( $taint ? $taint : () ), "-I$work/shim", $load, $arg{test}, ],
-        env => {
-            _environment( $run, $arg{spec}, $arg{root} ),
-            "TEST_MUTATION_RECORD_G$generation" => $record,
-            HARNESS_ACTIVE                      => 1,
-            PWD                                 => $arg{root},
-            TMPDIR                              => $tmp,
-        },
+        $launch->%*,
         cwd             => $arg{root},
         lease           => $run->{workspace}->directory . '/processes',
         timeout         => $arg{timeout},
@@ -704,6 +706,7 @@ sub _recheck ( $run, $tests, $entries, $changes ) {
 sub _after_task ( $run, $baseline, $task, $result ) {
     my $job  = $task->{payload}{job};
     my $kind = $task->{payload}{kind};
+    _discard( $task->{payload}{tmp} ) if $kind ne 'test';
     my $check =
         $kind eq 'test'      ? _after_test( $run, $task, $result )
       : $kind =~ /\Asyntax-/ ? _after_syntax( $run, $task, $result )
@@ -774,6 +777,8 @@ sub _open_cache ( $run, $baseline ) {
         $VERSION,
         $run->{perl},
         @interpreter,
+        scalar $config->lib->@*,
+        $config->lib->@*,
         scalar $config->switch->@*,
         $config->switch->@*,
         $config->coverage,
@@ -941,15 +946,18 @@ sub _compile_task ( $run, $job, $kind, $file, $switch ) {
     my $config = $run->{config};
     my $root   = _job_root( $run, $job );
     $run->{stats}{compiles}++;
+    my $tmp = "$run->{work}/tmp/" . ++$run->{sequence};
+    Test::Mutation::Tree::make($tmp);
+    my $launch = _launch( $run, $root, $tmp, $job->{mutant}->path, program => $file, arguments => [$switch] );
     return {
-        command         => [ $run->{perl}, $config->switch->@*, $switch, $file ],
-        env             => { PERL_HASH_SEED => '0', PERL_PERTURB_KEYS => '0', PWD => $root },
+        command         => $launch->{command},
+        env             => { $launch->{env}->%*, PERL_HASH_SEED => '0', PERL_PERTURB_KEYS => '0' },
         cwd             => $root,
         lease           => $run->{workspace}->directory . '/processes',
         timeout         => $config->baseline_timeout,
         output_limit    => $OUTPUT_LIMIT,
         stop_on_failure => 0,
-        payload         => { kind => $kind, job => $job },
+        payload         => { kind => $kind, job => $job, tmp => $tmp },
     };
 }
 
