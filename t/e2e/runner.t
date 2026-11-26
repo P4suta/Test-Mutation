@@ -583,7 +583,7 @@ subtest 'a project that the mutants leave alone is not checked again' => sub {
 };
 
 subtest 'a comparison with the version of Perl follows the interpreter of the tests' => sub {
-    my $root = project( 'lib/Old.pm' => "package Old;\nsub era { return 'old' if \$] < 5.008; return 'new' }\n1;\n" );
+    my $root = project( 'lib/Old.pm' => "package Old;\nsub era { return 'old' if \$] < 5.010; return 'new' }\n1;\n" );
     my $fake = sub ( $name, $script ) {
         write_file( "$root/$name", "#!/bin/sh\n$script\n" );
         chmod 0755, "$root/$name" or die "chmod: $!";
@@ -596,14 +596,20 @@ subtest 'a comparison with the version of Perl follows the interpreter of the te
         return scalar grep { $_->description eq 'replaced < with <=' } $analysis->{mutants}->@*;
     };
     is $boundary->(), 0, 'the interpreter of this test has another version, so the boundary yields no mutant';
-    is $boundary->( perl => $fake->( 'same', 'printf 5.008' ) ), 1,
+    is $boundary->( perl => $fake->( 'same', 'printf 5.010' ) ), 1,
       'an interpreter of the named version keeps the mutant';
-    is $boundary->( perl => $fake->( 'other', 'printf 5.010' ) ), 0, 'an interpreter of another version drops it';
-    is $boundary->( perl => $fake->( 'failing', 'printf 5.010; exit 1' ) ), 1,
-      'an interpreter that fails gives no version, so the mutant stays';
-    is $boundary->( perl => $fake->( 'wordy', 'printf "no version here"' ) ), 1,
-      'an answer that is no number gives no version';
-    is $boundary->( perl => "$root/no-such-perl" ), 1, 'an interpreter that cannot start gives no version';
+    is $boundary->( perl => $fake->( 'other', 'printf 5.014' ) ), 0, 'an interpreter of another version drops it';
+    for my $bad (
+        $fake->( 'old',     'printf 5.008' ),
+        $fake->( 'failing', 'printf 5.010; exit 1' ),
+        $fake->( 'wordy',   'printf "no version here"' ),
+        "$root/no-such-perl"
+      )
+    {
+        my $error = dies { $boundary->( perl => $bad ) };
+        is $error->id, 'interpreter-invalid', 'a missing, failing, or unrecognized interpreter stops selection';
+        like $error->message, qr/\Q$bad\E/, 'the diagnostic names the interpreter';
+    }
 
     $root = project( 'lib/Old.pm' => "package Old;\nsub era { return 'old' if \$] < $]; return 'new' }\n1;\n" );
     is $boundary->(), 1, 'a literal that equals the version of this interpreter keeps the mutant';

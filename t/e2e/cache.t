@@ -107,4 +107,21 @@ subtest 'a changed source without a mutant of its own invalidates the tests that
     is $outside->reused, 0, 'a change to a file outside the selection measures the mutants again';
 };
 
+subtest 'a named interpreter is keyed by its resolved executable' => sub {
+    my $project = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    write_file( "$project/lib/One.pm", "package One; sub next_value { return \$_[0] + 1 } 1;\n" );
+    write_file( "$project/t/count.t",  "use Test::More tests => 1;\nuse One;\nis One::next_value(1), 2;\n" );
+    my $portable = "#!$^X\nexec {q{$^X}} q{$^X}, \@ARGV or die \$!;\n";
+    my $program  = write_file( "$project/tools/runner", $portable );
+    chmod 0700, $program or die $!;
+    local $ENV{PATH} = "$project/tools:$ENV{PATH}";
+    my @options = ( cache => 1, perl => 'runner' );
+    run_fixture( $project, @options );
+    my ($warm) = run_fixture( $project, @options );
+    ok $warm->reused, 'a stable program found on the search path can reuse measurements';
+    write_file( $program, $portable . "# Rebuilt interpreter wrapper.\n" );
+    my ($rebuilt) = run_fixture( $project, @options );
+    is $rebuilt->reused, 0, 'replacing that executable invalidates its cached verdicts';
+};
+
 done_testing;

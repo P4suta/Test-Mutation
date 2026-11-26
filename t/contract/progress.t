@@ -29,7 +29,7 @@ sub printed ( $terminal, $events ) {
     open my $errors, '>', \$text or die "open: $!";
     my $world = { World::facts( cwd => $scratch, err_tty => $terminal ), out => $errors, err => $errors };
     no warnings 'redefine';
-    local *Test::Mutation::Runner::run = sub ( $config, $listener ) {
+    local *Test::Mutation::Runner::run = sub ( $config, $listener, $options ) {
         $events->( $listener, sub { return length $text } );
         return $nothing;
     };

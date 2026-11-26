@@ -12,23 +12,17 @@ use Types::Standard qw(ArrayRef Bool CodeRef Dict HashRef InstanceOf Int Maybe O
 use Type::Params    qw(signature_for);
 use Test::Mutation::Cache;
 use Test::Mutation::Coverage;
-use Test::Mutation::Diff;
 use Test::Mutation::Error;
 use Test::Mutation::Event;
-use Test::Mutation::Git;
 use Test::Mutation::Message;
-use Test::Mutation::Mutant::Generator;
-use Test::Mutation::Mutator::Catalog;
 use Test::Mutation::Pool;
-use Test::Mutation::Project;
 use Test::Mutation::Record;
 use Test::Mutation::Evidence;
 use Test::Mutation::Result;
 use Test::Mutation::Signals;
+use Test::Mutation::Select;
 use Test::Mutation::Source;
 use Test::Mutation::Status;
-use Test::Mutation::Suppression;
-use Test::Mutation::Syntax::PPI;
 use Test::Mutation::Tree;
 use Test::Mutation::Types qw(PathSelection);
 use Test::Mutation::Try;
@@ -67,112 +61,28 @@ signature_for analyze =>
   ( positional => [ InstanceOf ['Test::Mutation::Config'], Optional [ Maybe [PathSelection] ] ], returns => $ANALYSIS );
 
 sub analyze ( $config, $paths = undef ) {
-    my $root = Cwd::abs_path( $config->root );
-    return _analysis( $config, $root, $root, { paths => $paths } );
-}
-
-# Git answers for the project, and the files come from the tree that the tests run in.
-sub _analysis ( $config, $project, $root, $options ) {
-    my $paths    = $options->{paths};
-    my $mutators = Test::Mutation::Mutator::Catalog::choose(
-        profile => $config->profile,
-        enable  => $config->enable,
-        disable => $config->disable,
-    );
-
-    # A comment may name a mutator that the run leaves out, so the mutants of every mutator decide whether it suppresses one.
-    my %chosen = map { $_->name => 1 } $mutators->@*;
-    my $others = [ grep { !$chosen{ $_->name } } Test::Mutation::Mutator::Catalog::mutators()->@* ];
-    my ( %sources, %left_out, @mutants, @problems, @rejected, @refusals );
-    my %only    = map { $_ => 1 } $config->mutant->@*;
-    my $changed = defined $config->since    ? Test::Mutation::Git::changed( $project, $config->since ) : undef;
-    my $perl    = $options->{baseline_only} ? undef : _perl_version( $config->perl );
-    for my $path ( Test::Mutation::Project::files( $root, $config->source, $config->source_exclude )->@* ) {
-        next if $changed && !$changed->{$path};
-        next if $paths   && !exists $paths->{$path};
-        my $source = Test::Mutation::Source->from_bytes( path => $path, bytes => _slurp("$root/$path") );
-        if ( $options->{baseline_only} ) {
-            $sources{$path} = $source;
-            next;
-        }
-        my $analysis = Test::Mutation::Syntax::PPI::analyze($source);
-
-        # The analysis of a file is the longest step outside the tests, so a signal ends the work after the file it met.
-        Test::Mutation::Signals::check();
-        if ( defined $analysis->{problem} ) {
-            push @problems, { path => $path, problem => $analysis->{problem} };
-            next;
-        }
-        $sources{$path}  = $source;
-        $left_out{$path} = scalar $analysis->{dropped}->@* if $analysis->{dropped}->@*;
-        my $generated = Test::Mutation::Mutant::Generator::generate(
-            source   => $source,
-            analysis => $analysis,
-            mutators => $mutators,
-            perl     => $perl
-        );
-        my $judged = Test::Mutation::Mutant::Generator::generate(
-            source   => $source,
-            analysis => $analysis,
-            mutators => $others,
-            perl     => $perl
-        );
-        push @refusals,
-          Test::Mutation::Suppression::refusals(
-            path           => $path,
-            suppression    => $analysis->{suppressions},
-            mutants        => [ map { $_->{mutants}->@* } $generated, $judged ],
-            require_names  => $config->suppress_require_names,
-            require_reason => $config->suppress_require_reason,
-          )->@*;
-        push @mutants, grep { !$paths || !$paths->{$path}->@* || _in_changed_lines( $paths->{$path}, $_ ) }
-          grep { !$changed || _in_changed_lines( $changed->{$path}, $_ ) }
-          grep { !%only || $only{ $_->id } } $generated->{mutants}->@*;
-        push @rejected, map { { path => $path, $_->%* } } $generated->{rejected}->@*;
-    }
-
-    # A run with a broken comment would measure other mutants than the comments ask for, so it measures none.
-    Test::Mutation::Error::raise( 'suppressions-invalid', list => join q{; }, map { $_->{text} } @refusals )
-      if @refusals;
-    my $inventory =
-      { mutants => scalar @mutants, digest => Digest::SHA::sha256_hex( join "\n", map { $_->id } @mutants ) };
-    if ( defined $config->shard ) {
-        my ( $part, $parts ) = split m{/}, $config->shard;
-        @mutants = @mutants[ grep { $_ % $parts == $part - 1 } 0 .. $#mutants ];
-    }
+    my $selected = Test::Mutation::Select::resolve( config => $config, paths => $paths );
     return {
-        sources   => \%sources,
-        mutants   => \@mutants,
-        problems  => \@problems,
-        left_out  => \%left_out,
-        rejected  => \@rejected,
-        inventory => $inventory
+        sources   => $selected->sources,
+        mutants   => $selected->mutants,
+        problems  => $selected->unanalyzed,
+        rejected  => $selected->rejected,
+        left_out  => $selected->left_out,
+        inventory => $selected->inventory,
     };
-}
-
-# The version of the interpreter that runs the tests, which may be another one than this interpreter.
-sub _perl_version ($perl) {
-    return 0 + $] if $perl eq $^X;
-    no warnings 'exec';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
-    open my $answer, q{-|}, $perl, '-e', 'print $]' or return;
-    my $version = readline $answer;
-    close $answer or return;
-    return defined $version && $version =~ /\A[0-9]+(?:[.][0-9]+)?\z/ ? 0 + $version : undef;
-}
-
-sub _in_changed_lines ( $ranges, $mutant ) {
-    my ( $first, $last ) = ( $mutant->from->[0], $mutant->to->[0] );
-
-    # An end at the first column of a line leaves that line outside the mutant.
-    $last-- if $mutant->to->[1] == 1;
-    return Test::Mutation::Diff::touches( $ranges, $first, $last );
 }
 
 signature_for run => (
     positional => [
         InstanceOf ['Test::Mutation::Config'],
         CodeRef,
-        Dict [ paths => Optional [ Maybe [PathSelection] ], baseline_only => Optional [Bool] ],
+        Dict [
+            paths         => Optional [ Maybe [PathSelection] ],
+            selection     => Optional [ InstanceOf ['Test::Mutation::Selection'] ],
+            baseline_only => Optional [Bool],
+            reports       => Optional [Bool],
+            summary       => Optional [ Maybe [Str] ]
+        ],
         { default => sub { {} } }
     ],
     returns => InstanceOf ['Test::Mutation::Result'],
@@ -297,15 +207,17 @@ sub _measure ( $run, $started ) {
     my $listener = $run->{listener};
     my $root     = $run->{root};
     Test::Mutation::Event::phase( $listener, 'analyze' );
-    my $analysis = _analysis( $config, $run->{project}, $root, $run->{options} );
+    my $selection =
+      $run->{options}{selection} || Test::Mutation::Select::resolve( config => $config, $run->{options}->%* );
     Test::Mutation::Event::phase( $listener, 'plan' );
-    my @tests   = Test::Mutation::Project::files( $root, $config->test, $config->test_exclude )->@*;
-    my @active  = grep { !$_->suppressed } $analysis->{mutants}->@*;
+    my @tests   = $selection->tests->@*;
+    my @active  = grep { !$_->suppressed } $selection->mutants->@*;
     my %targets = map  { $_->path => 1 } @active;
-    $run->{sources} = $analysis->{sources};
+    $run->{sources} = $selection->sources;
+    $run->{perl}    = $selection->perl;
 
-    for my $path ( sort keys $analysis->{left_out}->%* ) {
-        my $count = $analysis->{left_out}{$path};
+    for my $path ( sort keys $selection->left_out->%* ) {
+        my $count = $selection->left_out->{$path};
         _warn( $run,
             $count == 1
             ? Test::Mutation::Message::warning( 'analysis-left-out-place',  path => $path )
@@ -316,14 +228,14 @@ sub _measure ( $run, $started ) {
 
     my %result = (
         root              => $run->{project},
-        sources           => { map { $_ => $analysis->{sources}{$_}->text } keys $analysis->{sources}->%* },
+        sources           => { map { $_ => $selection->sources->{$_}->text } keys $selection->sources->%* },
         tests             => [],
         entries           => [],
-        problems          => $analysis->{problems},
+        problems          => $selection->unanalyzed,
         baseline_failures => [],
         parallel_safe     => 1,
         shard             => $config->shard,
-        inventory         => $analysis->{inventory},
+        inventory         => $selection->inventory,
         started           => $started,
     );
 
@@ -331,10 +243,13 @@ sub _measure ( $run, $started ) {
         Test::Mutation::Event::phase( $listener, 'acquire' );
         $run->{workspace} = Test::Mutation::Workspace::acquire( $run->{project} );
         Test::Mutation::Event::phase( $listener, 'build' );
-        _copy_project($run) if !$config->in_place;
+        if ( !$config->in_place ) {
+            _copy_project($run);
+            $selection->verify_copy( $run->{root} );
+        }
         my $measure = sub {
             _prepare_work($run);
-            $run->{targets} = [ sort keys $analysis->{sources}->%* ];
+            $run->{targets} = [ sort keys $selection->sources->%* ];
             Test::Mutation::Event::phase( $listener, 'baseline' );
             my $baseline = _baseline( $run, \@tests, $run->{targets} );
             my %measured = (
@@ -350,7 +265,7 @@ sub _measure ( $run, $started ) {
                 if ( !$run->{options}{baseline_only} ) {
                     Test::Mutation::Event::phase( $listener, 'mutants' );
                     $run->{tree} = _tree($run) if !defined $run->{copies};
-                    $measured{entries} = _mutants( $run, $analysis->{mutants}, $baseline );
+                    $measured{entries} = _mutants( $run, $selection->mutants, $baseline );
                 }
             }
             return \%measured;
@@ -362,7 +277,7 @@ sub _measure ( $run, $started ) {
           if ( @active || $run->{options}{baseline_only} ) && !@tests;
         $result{entries} =
           [ map { $_->suppressed ? _suppressed($_) : _entry( $_, 'NoCoverage', 'unreached', undef, undef, [], 0, 0 ) }
-              $analysis->{mutants}->@* ];
+              $selection->mutants->@* ];
     }
 
     Test::Mutation::Event::phase( $listener, 'conclude' );
@@ -374,14 +289,6 @@ sub _measure ( $run, $started ) {
         in_copies   => $config->in_place ? 0 : 1,
         stats       => $run->{stats},
     };
-}
-
-sub _slurp ($path) {
-    open my $handle, '<:raw', $path or Test::Mutation::Error::raise( 'file-unreadable', path => $path, reason => "$!" );
-    local $/ = undef;
-    my $content = readline $handle;
-    close $handle or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
-    return $content // q{};
 }
 
 sub _spew ( $path, $content ) {
@@ -468,8 +375,8 @@ sub _module_text ($file) {
             }
             return $text;
         }
-        next                          if ref $entry;
-        return _slurp("$entry/$file") if -f "$entry/$file";
+        next                                                      if ref $entry;
+        return Test::Mutation::Source::read_bytes("$entry/$file") if -f "$entry/$file";
     }
     die Test::Mutation::Message::text_of( 'shim-missing', file => $file ) . "\n";
 }
@@ -590,11 +497,8 @@ sub _test_task ( $run, %arg ) {
     my $taint = _taint_switch( $run, $arg{test} );
     my $load  = '-M' . $run->{package};
     return {
-        command => [
-            $run->{config}->perl,     _switches( $run, $arg{root} ),
-            ( $taint ? $taint : () ), "-I$work/shim",
-            $load,                    $arg{test},
-        ],
+        command =>
+          [ $run->{perl}, _switches( $run, $arg{root} ), ( $taint ? $taint : () ), "-I$work/shim", $load, $arg{test}, ],
         env => {
             _environment( $run, $arg{spec}, $arg{root} ),
             "TEST_MUTATION_RECORD_G$generation" => $record,
@@ -860,14 +764,15 @@ sub _open_cache ( $run, $baseline ) {
     my $file   = join q{/}, $run->{project}, $config->cache_dir, 'cache.json';
     my %digest;
     my $digest_of = sub ($path) {
-        $digest{$path} = Digest::SHA::sha256_hex( _slurp("$root/$path") ) if !defined $digest{$path};
+        $digest{$path} = Digest::SHA::sha256_hex( Test::Mutation::Source::read_bytes("$root/$path") )
+          if !defined $digest{$path};
         return $digest{$path};
     };
     my @tests       = sort keys $baseline->{tests}->%*;
-    my @interpreter = map { defined ? $_ : q{} } ( stat $config->perl )[ 7, 9 ];
+    my @interpreter = map { defined ? $_ : q{} } ( stat $run->{perl} )[ 7, 9 ];
     my @shared      = (
         $VERSION,
-        $config->perl,
+        $run->{perl},
         @interpreter,
         scalar $config->switch->@*,
         $config->switch->@*,
@@ -1037,7 +942,7 @@ sub _compile_task ( $run, $job, $kind, $file, $switch ) {
     my $root   = _job_root( $run, $job );
     $run->{stats}{compiles}++;
     return {
-        command         => [ $config->perl, $config->switch->@*, $switch, $file ],
+        command         => [ $run->{perl}, $config->switch->@*, $switch, $file ],
         env             => { PERL_HASH_SEED => '0', PERL_PERTURB_KEYS => '0', PWD => $root },
         cwd             => $root,
         lease           => $run->{workspace}->directory . '/processes',

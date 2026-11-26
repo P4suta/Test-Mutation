@@ -292,10 +292,7 @@ subtest 'a run that ends without success says why in one line' => sub {
         my $observation =
           World::observe( [ 'run', '--format', 'json', '--report-dir', "$elsewhere/out", @line ], cwd => $root );
 
-        # The first line of a run names its processors, and the outcome follows it.
-        my ( $first, $rest ) = split /\n/, $observation->{stderr}, 2;
-        is $first, '4 processors online', 'the first line of the run';
-        return [ $observation->{exit}, $rest ];
+        return [ $observation->{exit}, $observation->{stderr} ];
     };
     is $ended->( Samples::result( statuses => [qw(Killed Killed Survived)] ), '--min-score', 67 ),
       [ 1, "mutation: the score 66.7% is below the gate of 67%\n" ], 'a score below the gate';
@@ -315,7 +312,7 @@ subtest 'a run reports its progress to the errors of the world and its result to
     my $result = Samples::result( statuses => [qw(Killed Survived Killed)] );
     my $run    = sub ( $argv, %fact ) {
         no warnings 'redefine';
-        local *Test::Mutation::Runner::run = sub ( $config, $listener ) {
+        local *Test::Mutation::Runner::run = sub ( $config, $listener, $options ) {
             $listener->( 'analyzed', { mutants => 3, files => 1, tests => 1 } );
             $listener->( 'baseline', { tests   => 1, jobs  => 2 } );
             $listener->( 'mutant',   { status  => $_->{status} } ) for $result->entries->@*;

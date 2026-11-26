@@ -506,7 +506,8 @@ sub resolve ($arg) {
     for my $interaction ( grep { $CHECK{ $_->{rule} } } @INTERACTIONS ) {
         $CHECK{ $interaction->{rule} }->( \%entry, \%value, map { $BY_NAME{$_} } $interaction->{settings}->@* );
     }
-    return Test::Mutation::Config->new( %value, root => $arg->root, config => $file );
+    my %specified = map { $_ => $entry{$_}{spelled} } keys %entry;
+    return Test::Mutation::Config->new( %value, root => $arg->root, config => $file, specified => \%specified );
 }
 
 signature_for configure => ( named => [ root => Str, given => $LAYER, facts => $FACTS ], returns => $CONFIG );

@@ -18,18 +18,6 @@ contract-plan-settings	the default of switch differs from the contract	the launc
 contract-plan-settings	the table lacks the setting color of the contract	the progress display
 contract-plan-settings	the table lacks the setting github of the contract	the terminal report and the summary of GitHub
 contract-plan-settings	the table lacks the setting lib of the contract	the launch of a test command
-contract-selector-selectors	malformed: status 0, where the selector calls for 2; selectors exclude mutant source test; origins file line	the selection resolved before the first write
-contract-selector-selectors	malformed: status 3, where the selector calls for 2; selectors perl; origins file line	the selection resolved before the first write
-contract-selector-selectors	malformed: status 5, where the selector calls for 2; selectors since; origins file line	the selection resolved before the first write
-contract-selector-selectors	nothing: status 0, where the selector calls for 2; selectors exclude mutant source test; origins file line	the selection resolved before the first write
-contract-selector-selectors	nothing: status 3, where the selector calls for 2; selectors perl; origins file line	the selection resolved before the first write
-contract-one-line-selectors	malformed: other lines before the refusal; selectors mutator; origins file line	the selection resolved before the first write
-contract-one-line-selectors	nothing: other lines before the refusal; selectors mutator; origins file line	the selection resolved before the first write
-contract-no-leak-selectors	malformed: a warning of Perl; selectors perl; origins file line	the selection resolved before the first write
-contract-no-effect-selectors	malformed: a test started before the refusal; selectors perl; origins file line	the selection resolved before the first write
-contract-no-effect-selectors	malformed: the project was copied before the refusal; selectors perl; origins file line	the selection resolved before the first write
-contract-no-effect-selectors	nothing: a test started before the refusal; selectors perl; origins file line	the selection resolved before the first write
-contract-no-effect-selectors	nothing: the project was copied before the refusal; selectors perl; origins file line	the selection resolved before the first write
 contract-exit-table-outcomes	inconclusive: status 0, where the table calls for 4; gates 0 100 50 none; parts one whole	the single outcome of a run
 contract-exit-table-outcomes	inconclusive: status 1, where the table calls for 4; gates 100 50; parts one whole	the single outcome of a run
 contract-exit-table-outcomes	measured: status 1, where the table calls for 0; gates 100 50; parts one	the single outcome of a run
@@ -40,11 +28,7 @@ contract-gate-outcomes	success without a score; gates any; parts whole	the singl
 contract-three-deciders-outcomes	pass: merge, run; fail: assertion; gates 50; parts whole	the single outcome of a run
 contract-three-deciders-outcomes	pass: run; fail: assertion; gates 0 100; parts whole	the single outcome of a run
 contract-three-deciders-outcomes	the gate of the file: pass: run; fail: assertion; gates 50; parts whole	the single outcome of a run
-contract-exit-table-process	status 0, where the table calls for 2; cases unmatched-mutant unmatched-source unmatched-test; part selection	the selection resolved before the first write
 contract-exit-table-process	status 0, where the table calls for 4; cases no-source-and-a-gate; part outcome	the single outcome of a run
-contract-exit-table-process	status 3, where the table calls for 2; cases missing-interpreter; part selection	the selection resolved before the first write
-contract-exit-table-process	status 5, where the table calls for 2; cases unknown-revision; part selection	the selection resolved before the first write
-contract-one-line-process	other lines before the refusal; cases unknown-mutator; part selection	the selection resolved before the first write
 contract-no-leak-process	a place in the source; cases letters-in-a-patch; part report	the encoding of the output
 engine-baseline	every first line: the tool leaves out the variable HARNESS_VERSION of prove	the launch of a test command
 engine-baseline	first-line=T: the search path of modules lacks an entry of prove	the launch of a test command

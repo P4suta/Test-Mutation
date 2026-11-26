@@ -118,8 +118,8 @@ subtest 'an error of the command and an outcome of a run' => sub {
         local *Test::Mutation::Runner::run = sub { die "the engine broke\n" };
         World::observe( ['run'], cwd => Space::scratch() );
     };
-    is [ $error->@{qw(exit stderr)} ], [ 6, "4 processors online\nmutation: internal error: the engine broke\n" ],
-      'an error ends the command with its line, after the first line of the run';
+    is [ $error->@{qw(exit stderr)} ], [ 6, "mutation: internal error: the engine broke\n" ],
+      'an engine failure before analysis reports the error without announcing progress';
     violation( 'exit-table', "an error of the command: status $error->{exit}, the status of an inconclusive run",
         undef, undef )
       if $error->{exit} == $inconclusive;

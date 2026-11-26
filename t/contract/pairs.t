@@ -135,7 +135,7 @@ subtest 'the output of a run under every state of the environment' => sub {
     my %output;
     for my $environment (@environments) {
         no warnings 'redefine';
-        local *Test::Mutation::Runner::run = sub ( $config, $listener ) {
+        local *Test::Mutation::Runner::run = sub ( $config, $listener, $options ) {
             $listener->( 'analyzed', { mutants => 2, files => 1, tests => 1 } );
             $listener->( 'mutant',   { status  => $_->{status} } ) for $result->entries->@*;
             return $result;

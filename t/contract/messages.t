@@ -238,6 +238,19 @@ for my $text ( "[test]\njobs = 1\n", "root = \"x\"\n", "jobs = = 1\n" ) {
 raised(
     sub { Test::Mutation::Mutator::Catalog::choose( profile => 'default', enable => ['nonesuch'], disable => [] ) } );
 
+printed( [ 'run', '--source', 'lib/Absent*.pm' ] );
+printed( [ 'run', '--perl',   "$tree/absent-perl" ] );
+raised( sub { Test::Mutation::Git::changed( Space::git_tree(), 'absent-revision' ) } );
+my $selection = Test::Mutation::Select::resolve( config => Test::Mutation::Settings::of_call( { root => $tree } ) );
+raised( sub { $selection->verify_copy( directory() ) } );
+my $many = directory(
+    'lib/Many.pm' => join( "\n", 'package Many;', ( map { "sub item$_ { return \$_[0] + $_ }" } 1 .. 20 ), '1;' ) );
+my $mutants = Test::Mutation::mutants( root => $many );
+my %prefix;
+$prefix{ substr( $_->id, 0, 1 ) }++ for $mutants->@*;
+my ($ambiguous) = sort grep { $prefix{$_} > 1 } keys %prefix;
+raised( sub { Test::Mutation::Select::by_id( $mutants, $ambiguous ) } );
+
 # The comments that suppress mutants: every refusal of the grammar in one file, and the two settings that ask for more.
 my $noted = join "\n", 'package Noted;', '## use mutate', 'sub one { return $_[0] + 1 }    ## no mutate (nonesuch)',
   'sub two { return $_[0] - 1 }    ##no mutate', '## no mutate sub', 'my $three = 3 * 3;',

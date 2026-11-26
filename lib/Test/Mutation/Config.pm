@@ -1,6 +1,7 @@
 package Test::Mutation::Config;
 use v5.36;
 use Moo;
+use Types::Standard qw(HashRef Str);
 use Test::Mutation::Settings;
 
 our $VERSION = '0.001';
@@ -9,6 +10,8 @@ with 'Test::Mutation::Value';
 
 # Each attribute takes its type from the row of its setting, and the resolution of the settings gives every value.
 my %TYPE = map { $_->attribute => $_->value_type } Test::Mutation::Settings::rows()->@*;
+
+has specified => ( is => 'ro', isa => HashRef [Str], required => 1 );
 
 has root             => ( is => 'ro', isa => $TYPE{root},             required => 1 );
 has config           => ( is => 'ro', isa => $TYPE{config},           required => 1 );
@@ -72,6 +75,10 @@ The project directory, with its full path.
 =head2 config
 
 The name of the configuration file that the run read, or nothing.
+
+=head2 specified
+
+Maps each explicitly supplied setting to its spelling in the command, the configuration file, or the library call.
 
 =head2 jobs
 

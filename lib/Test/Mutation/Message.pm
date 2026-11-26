@@ -54,6 +54,26 @@ my @ROWS = (
     ],
     [ 'mutator-unknown', 'usage', 'unknown mutator: {names}', 'A setting names a mutator that the tool lacks.' ],
     [
+        'glob-unmatched', 'usage',
+        '{setting} pattern "{pattern}" matches no project file',
+        'An explicitly supplied include or exclude pattern must match a file in the project.'
+    ],
+    [
+        'interpreter-invalid', 'usage',
+        'cannot use "{program}" as the Perl interpreter',
+        'The selected program must report Perl 5.10 or later to load the test shim.'
+    ],
+    [
+        'revision-unknown', 'usage',
+        'no commit matches revision "{revision}"',
+        'The revision passed to --since must identify a commit in the project repository.'
+    ],
+    [
+        'source-changed', 'environment',
+        '{path} changed after analysis',
+        'The bytes of the copied source differ from the bytes used to generate its mutants.'
+    ],
+    [
         'option-unknown', 'usage',
         '{option} names no option; the nearest is {nearest}',
         'The command line holds an option that the command lacks, and the message names the option nearest to it.'

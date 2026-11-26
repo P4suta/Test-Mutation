@@ -21,13 +21,14 @@ my $sentinel = "use Test::More tests => 1;\nopen my \$mark, '>>', '$marker' or d
   . "print {\$mark} \"started\\n\" or die \"mark: \$!\";\nclose \$mark or die \"mark: \$!\";\nok 1, 'the sentinel';\n";
 my $root = copy_of('calc');
 write_file( "$root/t/sentinel.t", $sentinel );
-my $tiny   = Space::tree( 't/sentinel.t'  => $sentinel );
-my $empty  = Space::tree( 'lib/Tiny.pm'   => undef, 'lib/Other.pm' => undef, 't/sentinel.t' => $sentinel );
-my $typed  = Space::tree( 'mutation.toml' => "jobs = 0\n" );
-my $keyed  = Space::tree( 'mutation.toml' => "[mutators]\nprofil = \"default\"\n" );
-my $truthy = Space::tree( 'mutation.toml' => "cache = true\n" );
-my $broken = Space::tree( 't/broken.t'    => "use Test::More tests => 1;\nis 1, 2, 'never equal';\n" );
-my $wide   = Space::tree(
+my $tiny       = Space::tree( 't/sentinel.t' => $sentinel );
+my $repository = Space::git_tree( 't/sentinel.t' => $sentinel );
+my $empty      = Space::tree( 'lib/Tiny.pm'   => undef, 'lib/Other.pm' => undef, 't/sentinel.t' => $sentinel );
+my $typed      = Space::tree( 'mutation.toml' => "jobs = 0\n" );
+my $keyed      = Space::tree( 'mutation.toml' => "[mutators]\nprofil = \"default\"\n" );
+my $truthy     = Space::tree( 'mutation.toml' => "cache = true\n" );
+my $broken     = Space::tree( 't/broken.t'    => "use Test::More tests => 1;\nis 1, 2, 'never equal';\n" );
+my $wide       = Space::tree(
     'lib/Tiny.pm'  => "package Tiny;\nuse strict;\nuse warnings;\nsub greet { return '\xE6\x97\xA5 ' . \$_[0] }\n1;\n",
     'lib/Other.pm' => undef
 );
@@ -59,48 +60,48 @@ my $letters = first_identifier($wide);
 # and the command line.
 my @run   = ( '--format', 'terminal', '--jobs', 2 );
 my @cases = (
-    [ 'version',              'commands',  $root,   0, '--version' ],
-    [ 'help',                 'commands',  $root,   0, '--help' ],
-    [ 'help-after-run',       'commands',  $root,   0, 'run',      '--help' ],
-    [ 'help-after-list',      'commands',  $root,   0, 'list',     '-h' ],
-    [ 'help-after-mutators',  'commands',  $root,   0, 'mutators', '--help' ],
-    [ 'version-after-list',   'commands',  $root,   0, 'list',     '--version' ],
-    [ 'word-help',            'commands',  $root,   0, 'help' ],
-    [ 'word-lst',             'commands',  $root,   2, 'lst' ],
-    [ 'operand-of-list',      'commands',  $root,   0, 'list',     'lib/Calc.pm' ],
-    [ 'operand-of-show',      'commands',  $root,   2, 'show',     $calc, 'surplus' ],
-    [ 'operand-of-run',       'commands',  $root,   2, 'run',      'surplus' ],
-    [ 'operand-of-mutators',  'commands',  $root,   2, 'mutators', 'surplus' ],
-    [ 'show-without-id',      'commands',  $root,   2, 'show' ],
-    [ 'exec-without-command', 'commands',  $root,   2, 'exec', $calc ],
-    [ 'merge-without-file',   'commands',  $root,   2, 'merge' ],
-    [ 'abbreviation',         'settings',  $root,   2, 'list', '--jo',   2 ],
-    [ 'unknown-option',       'settings',  $root,   2, 'list', '--jobz', 2 ],
-    [ 'missing-value',        'settings',  $root,   2, 'list', '--jobs' ],
-    [ 'word-for-a-number',    'settings',  $root,   2, 'list', '--jobs',      'x' ],
-    [ 'number-out-of-range',  'settings',  $root,   2, 'list', '--jobs',      0 ],
-    [ 'gate-out-of-range',    'settings',  $root,   2, 'list', '--min-score', 120 ],
-    [ 'negated-value',        'settings',  $root,   2, 'list', '--no-jobs' ],
-    [ 'value-for-a-flag',     'settings',  $root,   2, 'list', '--cache=1' ],
-    [ 'options-after-dashes', 'settings',  $root,   2, 'list', q{--}, '--jobs', 2 ],
-    [ 'missing-config',       'settings',  $root,   2, 'list', '--config', 'absent.toml' ],
-    [ 'value-in-the-file',    'settings',  $typed,  2, 'list' ],
-    [ 'key-in-the-file',      'settings',  $keyed,  2, 'list' ],
-    [ 'boolean-in-the-file',  'settings',  $truthy, 0, 'list' ],
-    [ 'missing-directory',    'selection', $root,   2, '--root', 'absent', 'list' ],
-    [ 'missing-report',       'selection', $root,   2, 'merge',  'absent.json' ],
-    [ 'unmatched-source',     'selection', $root,   2, 'list',   '--source', 'nothing/**' ],
-    [ 'unmatched-mutant',     'selection', $root,   2, 'list',   '--mutant', 'zzzz' ],
-    [ 'unknown-identifier',   'selection', $root,   2, 'show',   'zzzz' ],
-    [ 'unknown-mutator',      'selection', $tiny,   2, 'run',    @run,      '--enable', 'nonesuch' ],
-    [ 'unmatched-test',       'selection', $tiny,   2, 'run',    @run,      '--test',   't/nothing*.t' ],
-    [ 'missing-interpreter',  'selection', $tiny,   2, 'run',    @run,      '--perl',   '/nonesuch/bin/perl' ],
-    [ 'unknown-revision',     'selection', $tiny,   2, 'list',   '--since', 'no..such..revision' ],
-    [ 'letters-in-a-patch',   'report',    $wide,   0, 'show',   $letters ],
-    [ 'no-source-and-a-gate', 'outcome',   $empty,  4, 'run',    @run, '--min-score', 50 ],
-    [ 'measured',             'outcome',   $tiny,   0, 'run',    @run ],
-    [ 'below-the-gate',       'outcome',   $tiny,   1, 'run',    @run, '--min-score', 100 ],
-    [ 'failing-baseline',     'outcome',   $broken, 3, 'run',    @run ],
+    [ 'version',              'commands',  $root,       0, '--version' ],
+    [ 'help',                 'commands',  $root,       0, '--help' ],
+    [ 'help-after-run',       'commands',  $root,       0, 'run',      '--help' ],
+    [ 'help-after-list',      'commands',  $root,       0, 'list',     '-h' ],
+    [ 'help-after-mutators',  'commands',  $root,       0, 'mutators', '--help' ],
+    [ 'version-after-list',   'commands',  $root,       0, 'list',     '--version' ],
+    [ 'word-help',            'commands',  $root,       0, 'help' ],
+    [ 'word-lst',             'commands',  $root,       2, 'lst' ],
+    [ 'operand-of-list',      'commands',  $root,       0, 'list',     'lib/Calc.pm' ],
+    [ 'operand-of-show',      'commands',  $root,       2, 'show',     $calc, 'surplus' ],
+    [ 'operand-of-run',       'commands',  $root,       2, 'run',      'surplus' ],
+    [ 'operand-of-mutators',  'commands',  $root,       2, 'mutators', 'surplus' ],
+    [ 'show-without-id',      'commands',  $root,       2, 'show' ],
+    [ 'exec-without-command', 'commands',  $root,       2, 'exec', $calc ],
+    [ 'merge-without-file',   'commands',  $root,       2, 'merge' ],
+    [ 'abbreviation',         'settings',  $root,       2, 'list', '--jo',   2 ],
+    [ 'unknown-option',       'settings',  $root,       2, 'list', '--jobz', 2 ],
+    [ 'missing-value',        'settings',  $root,       2, 'list', '--jobs' ],
+    [ 'word-for-a-number',    'settings',  $root,       2, 'list', '--jobs',      'x' ],
+    [ 'number-out-of-range',  'settings',  $root,       2, 'list', '--jobs',      0 ],
+    [ 'gate-out-of-range',    'settings',  $root,       2, 'list', '--min-score', 120 ],
+    [ 'negated-value',        'settings',  $root,       2, 'list', '--no-jobs' ],
+    [ 'value-for-a-flag',     'settings',  $root,       2, 'list', '--cache=1' ],
+    [ 'options-after-dashes', 'settings',  $root,       2, 'list', q{--}, '--jobs', 2 ],
+    [ 'missing-config',       'settings',  $root,       2, 'list', '--config', 'absent.toml' ],
+    [ 'value-in-the-file',    'settings',  $typed,      2, 'list' ],
+    [ 'key-in-the-file',      'settings',  $keyed,      2, 'list' ],
+    [ 'boolean-in-the-file',  'settings',  $truthy,     0, 'list' ],
+    [ 'missing-directory',    'selection', $root,       2, '--root', 'absent', 'list' ],
+    [ 'missing-report',       'selection', $root,       2, 'merge',  'absent.json' ],
+    [ 'unmatched-source',     'selection', $root,       2, 'list',   '--source', 'nothing/**' ],
+    [ 'unmatched-mutant',     'selection', $root,       2, 'list',   '--mutant', 'zzzz' ],
+    [ 'unknown-identifier',   'selection', $root,       2, 'show',   'zzzz' ],
+    [ 'unknown-mutator',      'selection', $tiny,       2, 'run',    @run,      '--enable', 'nonesuch' ],
+    [ 'unmatched-test',       'selection', $tiny,       2, 'run',    @run,      '--test',   't/nothing*.t' ],
+    [ 'missing-interpreter',  'selection', $tiny,       2, 'run',    @run,      '--perl',   '/nonesuch/bin/perl' ],
+    [ 'unknown-revision',     'selection', $repository, 2, 'list',   '--since', 'no..such..revision' ],
+    [ 'letters-in-a-patch',   'report',    $wide,       0, 'show',   $letters ],
+    [ 'no-source-and-a-gate', 'outcome',   $empty,      4, 'run',    @run, '--min-score', 50 ],
+    [ 'measured',             'outcome',   $tiny,       0, 'run',    @run ],
+    [ 'below-the-gate',       'outcome',   $tiny,       1, 'run',    @run, '--min-score', 100 ],
+    [ 'failing-baseline',     'outcome',   $broken,     3, 'run',    @run ],
 );
 
 my %violations;

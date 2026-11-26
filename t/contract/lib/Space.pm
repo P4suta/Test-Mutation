@@ -604,12 +604,17 @@ sub selections ($identifier) {
 }
 
 # The project of a case, in the state that the case calls for.
-sub selection_tree ($case) {
-    my $root = tree( $case->{change}->%* );
-    return $root if $case->{kind} ne 'since';
+sub git_tree (%change) {
+    my $root = tree(%change);
     _git( $root, 'init',   '-q' );
     _git( $root, 'add',    q{.} );
     _git( $root, 'commit', '-q', '-m', 'the project' );
+    return $root;
+}
+
+sub selection_tree ($case) {
+    return tree( $case->{change}->%* ) if $case->{kind} ne 'since';
+    my $root = git_tree( $case->{change}->%* );
     Fixture::write_file( "$root/lib/Tiny.pm", $TINY{'lib/Tiny.pm'} =~ s/[+]/*/r ) if $case->{state} eq 'matches';
     return $root;
 }

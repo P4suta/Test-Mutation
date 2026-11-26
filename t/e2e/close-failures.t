@@ -32,7 +32,7 @@ sub failing_in ( $pattern, $code ) {
 my $root = copy_of('calc');
 
 like dies {
-    failing_in( qr/::Runner::_slurp\z/,
+    failing_in( qr/::Source::read_bytes\z/,
         sub { Test::Mutation::Runner::analyze( Test::Mutation::Settings::of_call( { root => $root } ) ) } )
 },
   qr/\Acannot close \Q$root\E\/lib\/Calc[.]pm: /,
@@ -80,6 +80,14 @@ for my $part ( 1, 2 ) {
     is $status, 0, "part $part runs";
 }
 my @reports = ( 'part1/mutation.json', 'part2/mutation.json' );
+{
+    mkdir "$root/invalid-report"               or die $!;
+    mkdir "$root/invalid-report/mutation.json" or die $!;
+    my ( $exit, $diagnostic, $output ) =
+      command( 'merge', @reports, '--format', 'terminal', '--format', 'json', '--report-dir', 'invalid-report' );
+    is [ $exit, $output ], [ 5, q{} ], 'an unusable merge output is refused before publishing the terminal report';
+    like $diagnostic, qr/cannot write .*mutation[.]json/, 'the refusal names the destination';
+}
 
 my ( $status, $errors ) = failing_in( qr/::CLI::_read_report\z/, sub { command( 'merge', @reports ) } );
 is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 5, 'mutation: cannot close part1/mutation.json' ],

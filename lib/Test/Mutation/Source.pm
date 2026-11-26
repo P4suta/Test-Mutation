@@ -4,6 +4,7 @@ use Moo;
 use Encode          ();
 use Types::Standard qw(ArrayRef Enum InstanceOf Int Str Tuple);
 use Type::Params    qw(signature_for);
+use Test::Mutation::Error;
 use Test::Mutation::Try;
 
 our $VERSION = '0.001';
@@ -14,6 +15,16 @@ has path         => ( is => 'ro',   isa => Str, required => 1 );
 has text         => ( is => 'ro',   isa => Str, required => 1 );
 has encoding     => ( is => 'ro',   isa => Enum [ 'UTF-8', 'latin1' ], required => 1 );
 has _line_starts => ( is => 'lazy', isa => ArrayRef [Int] );
+
+signature_for read_bytes => ( positional => [Str], returns => Str );
+
+sub read_bytes ($path) {
+    open my $handle, '<:raw', $path or Test::Mutation::Error::raise( 'file-unreadable', path => $path, reason => "$!" );
+    local $/ = undef;
+    my $content = readline $handle;
+    close $handle or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
+    return $content // q{};
+}
 
 signature_for from_bytes => (
     method  => 1,
@@ -110,6 +121,10 @@ The decoded characters of the file.
 C<UTF-8> or C<latin1>, the encoding that turns the text back into the bytes of the file.
 
 =head1 METHODS
+
+=head2 read_bytes
+
+Reads the original bytes of a file.
 
 =head2 from_bytes
 

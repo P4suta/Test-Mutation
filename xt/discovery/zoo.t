@@ -27,7 +27,7 @@ my $known  = Discovery::Known->new(
 );
 my $zoo      = Discovery::Zoo->new( known => $known );
 my @run      = qw(completes I2 I3 I4);
-my %settings = ( sources => Discovery::Zoo::sources(), equivalence => 0, enable => ['comparison-boundary'] );
+my %settings = ( equivalence => 0, enable => ['comparison-boundary'] );
 my $plain    = 'use';
 my ( %found, %ran );
 my ( $runs,  $compared ) = ( 0, 0 );
@@ -146,7 +146,7 @@ sub together ( $axis, $members, %more ) {
         $project = Discovery::Project->new;
         $built   = $zoo->build( $project, @names );
         passes_under_prove( $project, $built ) if $sanity && !@failed;
-        $run = $engine->run( $project, %settings, %more );
+        $run = $engine->run( $project, %settings, sources => Discovery::Zoo::sources($built), %more );
         note sprintf '%s: the run of %d members took %.1f seconds', $axis, scalar @names, $run->{seconds};
         $runs++;
         my %broken  = map { $_ => 1 } $run->{baseline_failures}->@*;
@@ -185,7 +185,11 @@ sub alone ( $axis, $name, %more ) {
     my $member  = $zoo->build( $project, $name )->{$name};
     passes_under_prove( $project, { $name => $member }, $member->{prove}->@* ) if !%more;
     my @given = $member->{environment}->%* ? ( environment => $member->{environment} ) : ();
-    my $run   = $engine->run( $project, %settings, $member->{settings}->%*, @given, %more );
+    my $run   = $engine->run(
+        $project, %settings,
+        sources => Discovery::Zoo::sources( { $name => $member } ),
+        $member->{settings}->%*, @given, %more
+    );
     note sprintf '%s=%s: the run took %.1f seconds', $axis, $name, $run->{seconds};
     $runs++;
     $compared += keys $run->{mutants}->%*;

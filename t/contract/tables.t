@@ -40,13 +40,18 @@ subtest 'the comparison rejects a table that differs from the surface' => sub {
       'a name that the surface lacks';
 };
 
-subtest 'the settings table names every attribute of the configuration' => sub {
+subtest 'the configuration preserves the input spellings and the typed settings' => sub {
 
     # Moo keeps the declarations of the attributes with the maker of the constructor, and offers no other reader.
     my $specs   = Moo->_constructor_maker_for('Test::Mutation::Config')->all_attribute_specs;    ## no critic (Subroutines::ProtectPrivateSubs)
     my %surface = map { $_            => Space::attribute_facts( $specs->{$_} ) } keys $specs->%*;
     my %table   = map { $_->attribute => Space::attribute_text($_) } @settings;
-    is Space::differences( \%table, \%surface ), [], 'the kind, the type, and whether a value may stay unset';
+    $table{specified} = 'value HashRef[Str] required has a value';
+    is Space::differences( \%table, \%surface ), [], 'the origin map and every setting have their declared types';
+    my $tree   = Space::tree( 'mutation.toml' => "jobs = 2\n" );
+    my $config = Test::Mutation::Settings::of_call( { root => $tree, source_exclude => ['lib/Never.pm'] } );
+    is $config->specified, { root => 'root', jobs => 'mutation.toml: jobs', 'source-exclude' => 'source_exclude' },
+      'only supplied settings carry the spelling of the winning layer';
     Gate::checked( 'attributes', scalar( keys %surface ), at_least => 32 );
 };
 

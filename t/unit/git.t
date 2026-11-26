@@ -66,21 +66,22 @@ ok Test::Mutation::Diff::touches( $changed->{'lib/Added.pm'}, 100_000, 100_000 )
   'and every line of it counts as changed';
 
 like Raised::error( sub { Test::Mutation::Git::changed( $root, 'no-such-revision' ) } ),
-  [ 'environment', 'git-failed', qr/\Agit diff failed: [^\n]*no-such-revision[^\n]*\z/ ],
-  'an unknown revision gives one line with the reason of git';
+  [ 'usage', 'revision-unknown', 'no commit matches revision "no-such-revision"' ],
+  'an unknown revision names the input to fix';
 
 # The temporary directory may lie inside a work tree, so the search of git for a repository stops at its parent.
 my $plain = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
 {
     local $ENV{GIT_CEILING_DIRECTORIES} = File::Basename::dirname($plain);
-    like Raised::message( sub { Test::Mutation::Git::changed( $plain, 'HEAD' ) } ), qr/\Agit diff failed: [^\n]+\z/,
+    like Raised::message( sub { Test::Mutation::Git::changed( $plain, 'HEAD' ) } ),
+      qr/\Agit rev-parse failed: [^\n]+\z/,
       'a directory outside a repository gives the reason of git';
 }
 
 {
     local $ENV{PATH} = $plain;
     like Raised::message( sub { Test::Mutation::Git::changed( $root, 'HEAD' ) } ),
-      qr/\Agit diff failed: cannot start git: [^\n]+\z/,
+      qr/\Agit rev-parse failed: cannot start git: [^\n]+\z/,
       'a machine without git gets a message that names the command';
 }
 

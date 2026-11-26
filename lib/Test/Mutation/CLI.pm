@@ -28,9 +28,7 @@ use Test::Mutation::Report::Patch;
 use Test::Mutation::Report::Progress;
 use Test::Mutation::Report::Terminal;
 use Test::Mutation::Runner;
-use Test::Mutation::Project;
 use Test::Mutation::Select;
-use Test::Mutation::Types qw(PathSelection);
 use Test::Mutation::Settings;
 use Test::Mutation::Signals;
 use Test::Mutation::Tree;
@@ -79,7 +77,7 @@ my $INVOCATION = $REFUSED | Dict [
     directory  => Maybe [Str],
     config     => Maybe [ InstanceOf ['Test::Mutation::Config'] ],
     operands   => ArrayRef [Str],
-    paths      => Optional [PathSelection],
+    selection  => Optional [ InstanceOf ['Test::Mutation::Selection'] ],
     topic      => Optional [Str],
     processors => Maybe [ Dict [ count => PositiveInt, source => Str ] ],
 ];
@@ -214,9 +212,12 @@ sub _planned ( $argv, $world ) {
     if ( $row->operands eq 'paths' && $plan{operands}->@* ) {
         my $first = $plan{operands}[0];
         _unknown_command($first) if $parsed->{implicit} && $first !~ m{[./:]} && !-e _under( $inside, $first );
-        my $config = $plan{config};
-        my $files  = Test::Mutation::Project::files( $config->root, $config->source, $config->source_exclude );
-        $plan{paths} = Test::Mutation::Select::paths( $config->root, $plan{operands}, $files );
+        $plan{selection} = Test::Mutation::Select::resolve(
+            config   => $plan{config},
+            operands => $plan{operands},
+            reports  => $command eq 'run' ? 1 : 0,
+            summary  => $world->{env}{GITHUB_STEP_SUMMARY}
+        );
     }
     return \%plan;
 }
@@ -292,11 +293,12 @@ sub _first_line ($error) {
 
 sub _run ( $invocation, $world ) {
     my $config = $invocation->{config};
-    print { $world->{err} } Test::Mutation::Host::describe( $invocation->{processors} ), "\n";
     my $result = Test::Mutation::Runner::run(
         $config,
-        _progress( $world->{err}, $world->{err_tty} ),
-        ( $invocation->{paths} ? { paths => $invocation->{paths} } : () )
+        _progress( $world->{err}, $world->{err_tty}, $invocation->{processors} ),
+        $invocation->{selection}
+        ? { selection => $invocation->{selection} }
+        : { reports   => 1, summary => $world->{env}{GITHUB_STEP_SUMMARY} }
     );
     _report( $result, $config, $world );
     return _concluded( $result, $config, $world );
@@ -317,11 +319,12 @@ sub _settings ( $invocation, $world ) {
     return 0;
 }
 
-sub _progress ( $errors, $in_place ) {
+sub _progress ( $errors, $in_place, $processors ) {
     my ( %counts, $total );
     my $done = 0;
     return sub ( $event, $data ) {
         if ( $event eq 'analyzed' ) {
+            print {$errors} Test::Mutation::Host::describe($processors), "\n";
             $total = $data->{mutants};
             printf {$errors} "%s in %s, %s\n", _plural( $total, 'mutant' ), _plural( $data->{files}, 'file' ),
               _plural( $data->{tests}, 'test' );
@@ -359,15 +362,15 @@ sub _report ( $result, $config, $world ) {
         push @written, "$directory/$name";
     }
     print { $world->{out} } 'Reports: ', join( ', ', @written ), "\n" if @written;
-    _report_to_github( $result, $world ) if $wanted{github};
+    _report_to_github( $result, $world, $config->root ) if $wanted{github};
     return;
 }
 
-sub _report_to_github ( $result, $world ) {
+sub _report_to_github ( $result, $world, $root ) {
     print { $world->{out} } Test::Mutation::Report::GitHub::annotations($result);
     my $path = $world->{env}{GITHUB_STEP_SUMMARY};
     return if !defined $path || !length $path;
-    _write( $path, $path, '>>', Test::Mutation::Report::GitHub::summary($result) );
+    _write( File::Spec->rel2abs( $path, $root ), $path, '>>', Test::Mutation::Report::GitHub::summary($result) );
     return;
 }
 
@@ -417,7 +420,10 @@ sub _heading ($mutant) {
 }
 
 sub _list ( $invocation, $world ) {
-    my @mutants = Test::Mutation::Runner::analyze( $invocation->{config}, $invocation->{paths} )->{mutants}->@*;
+    my @mutants =
+        $invocation->{selection}
+      ? $invocation->{selection}->mutants->@*
+      : Test::Mutation::Runner::analyze( $invocation->{config} )->{mutants}->@*;
     say { $world->{out} } _heading($_), _suppression($_) for @mutants;
     say { $world->{out} } _plural( scalar @mutants, 'mutant' );
     return 0;
@@ -431,16 +437,9 @@ sub _suppression ($mutant) {
       :                        '  (suppressed)';
 }
 
-sub _find ( $analysis, $identifier ) {
-    my @matches = grep { substr( $_->id, 0, length $identifier ) eq $identifier } $analysis->{mutants}->@*;
-    Test::Mutation::Error::raise( 'mutant-unknown',   identifier => $identifier ) if !@matches;
-    Test::Mutation::Error::raise( 'mutant-ambiguous', identifier => $identifier ) if @matches > 1;
-    return $matches[0];
-}
-
 sub _show ( $invocation, $world ) {
     my $analysis = Test::Mutation::Runner::analyze( $invocation->{config} );
-    my $mutant   = _find( $analysis, $invocation->{operands}[0] );
+    my $mutant   = Test::Mutation::Select::by_id( $analysis->{mutants}, $invocation->{operands}[0] );
     say { $world->{out} } _heading($mutant);
     print { $world->{out} } Test::Mutation::Report::Patch::render(
         text   => $analysis->{sources}{ $mutant->path }->text,
@@ -453,7 +452,7 @@ sub _exec ( $invocation, $world ) {
     my $config = $invocation->{config};
     my ( $identifier, @command ) = $invocation->{operands}->@*;
     my $analysis = Test::Mutation::Runner::analyze($config);
-    my $mutant   = _find( $analysis, $identifier );
+    my $mutant   = Test::Mutation::Select::by_id( $analysis->{mutants}, $identifier );
     return Test::Mutation::Runner::run_command( $config, $analysis->{sources}{ $mutant->path }, $mutant, \@command );
 }
 
@@ -473,6 +472,7 @@ sub _merge ( $invocation, $world ) {
     my $config = $invocation->{config};
     my $result = Test::Mutation::Merge::merge(
         [ map { { name => $_, result => _read_report($_) } } $invocation->{operands}->@* ] );
+    Test::Mutation::Select::outputs( $config, $world->{env}{GITHUB_STEP_SUMMARY} );
     _report( $result, $config, $world );
     return _concluded( $result, $config, $world );
 }

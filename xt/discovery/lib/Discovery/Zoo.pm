@@ -574,8 +574,12 @@ sub known ($self) {
 }
 
 # The source patterns of a project of the zoo, which holds cells in modules and in scripts.
-sub sources () {
-    return [ 'lib/**/*.pm', 'script/*' ];
+sub sources ($built) {
+    my @targets = map { $_->{target} } values $built->%*;
+    return [
+        ( grep( { m{\Alib/} } @targets )    ? 'lib/**/*.pm' : () ),
+        ( grep( { m{\Ascript/} } @targets ) ? 'script/*'    : () )
+    ];
 }
 
 sub _filled ( $template, $value ) {

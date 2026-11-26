@@ -55,8 +55,9 @@ subtest 'an untracked source file counts as changed' => sub {
 };
 
 subtest 'a revision that git does not know stops the run' => sub {
-    my $run = ran( 5, $root, 'list', '--since', 'no-such-revision' );
-    like $run->{stderr}, qr/\Amutation: git [^\n]*no-such-revision[^\n]*\n\z/, 'one line that names the revision';
+    my $run = ran( 2, $root, 'list', '--since', 'no-such-revision' );
+    is $run->{stderr}, "mutation: no commit matches revision \"no-such-revision\"\n",
+      'one line names the unknown revision';
 };
 
 subtest 'a change selects the mutants whose lines it touches' => sub {

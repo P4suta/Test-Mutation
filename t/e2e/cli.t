@@ -205,15 +205,16 @@ subtest 'options choose mutators, files, and selection' => sub {
     ok $extended > 21, "--profile extended yields more mutants ($extended)";
     like ran( 0, $root, @common, '--coverage', 'file' )->{stdout}, qr/^21 mutants: 15 killed, 6 survived$/m,
       '--coverage file runs every loading test';
-    like ran( 0, $root, @common, '--test',   't/add.t' )->{stdout},         qr/^1 test, /m,   '--test';
-    like ran( 0, $root, @common, '--source', 'lib/Nothing*.pm' )->{stdout}, qr/^0 mutants$/m, '--source';
+    like ran( 0, $root, @common, '--test', 't/add.t' )->{stdout}, qr/^1 test, /m, '--test';
+    like ran( 2, $root, @common, '--source', 'lib/Nothing*.pm' )->{stderr}, qr{\Qlib/Nothing*.pm\E},
+      'an unmatched explicit source names the pattern';
 };
 
 subtest 'options choose the interpreter, the time limits, and the work directory' => sub {
     my $root     = copy_of('calc');
     my @common   = ( '--jobs', 2, '--format', 'terminal' );
     my $ordinary = ran( 0, $root, @common, '--perl', $^X, '--timeout-factor', 3, '--timeout-floor', 5 );
-    ran( 3, $root, @common, '--perl',           "$root/no-such-perl" );
+    ran( 2, $root, @common, '--perl',           "$root/no-such-perl" );
     ran( 2, $root, @common, '--timeout-factor', 0 );
 
     is [ glob "$ordinary->{temporary}/mutation-*" ], [], 'the workspace is removed by default';
