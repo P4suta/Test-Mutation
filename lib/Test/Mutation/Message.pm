@@ -441,6 +441,10 @@ my @ROWS = (
         'A source file fails a syntax check of its own, so a mutant that fails to load counts as a compile error.'
     ],
     [
+        'invalid-mutant',                'internal',
+        'invalid mutant {id} in {path}', 'Perl rejected a replacement or a function that the replacement introduced.'
+    ],
+    [
         'internal-error',         'internal',
         'internal error: {text}', 'An error that the tool did not foresee ended the command.'
     ],

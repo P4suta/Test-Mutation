@@ -16,6 +16,62 @@ sub summary ( $code, $kind ) {
     return [ map { [ $_->text, $_->role ] } sites_of( $code, $kind )->@* ];
 }
 
+subtest 'BEGIN membership uses the character offsets of the original source' => sub {
+    my $first  = 'BEGIN { 1 }';
+    my $later  = "BEGIN {\r\n3;\r\n}";
+    my $text   = "\x{feff}$first\r\nEND { 2 }\r\n$later\r\n1;\r\n";
+    my $source = Test::Mutation::Source->new( path => 'X.pm', text => $text, encoding => 'UTF-8' );
+    my @inside = grep { Test::Mutation::Syntax::PPI::inside_begin( $source, $_ ) } 0 .. length $text;
+    my $start  = index $text, $later;
+    is \@inside, [ 1 .. length($first), $start .. $start + length($later) - 1 ],
+      'the mark, CRLF, neighboring END block and bytes beyond the closing brace are outside the BEGIN blocks';
+    for my $code ( "my \$a = 1;\n", "my \$a = 1;\x0bmy \$b;\n" ) {
+        my $other = Test::Mutation::Source->new( path => 'Y.pm', text => $code, encoding => 'UTF-8' );
+        is Test::Mutation::Syntax::PPI::inside_begin( $other, 0 ), 0,
+          'a source with no observable BEGIN block supplies no attribution';
+    }
+    my $location = PPI::Element->can('location');
+    for my $missing ( 'BEGIN', '}' ) {
+        no warnings 'redefine';
+        local *PPI::Element::location = sub ($token) {
+            return if $token->content eq $missing;
+            return $token->$location();
+        };
+        is Test::Mutation::Syntax::PPI::inside_begin( $source, 3 ), 0,
+          'a block with an unlocated endpoint cannot establish where the replacement occurred';
+    }
+    isa_ok dies { Test::Mutation::Syntax::PPI::inside_begin( $source, 1, 'extra' ) }, ['Error::TypeTiny'],
+      'the public lookup checks its source and offset arguments';
+};
+
+subtest 'a replacement call is observed in its nearest executable statement and package' => sub {
+    my $code = <<'PERL';
+package Other;
+sub min { 1 }
+package Local;
+use List::Util qw(min sum);
+sub pick { 2 }
+sub total { return (sum(1, min(2, 3)) + pick()); }
+PERL
+    my %lookups;
+    my $lookup = Test::Mutation::Syntax::PPI->can('_package_of');
+    no warnings 'redefine';
+    local *Test::Mutation::Syntax::PPI::_package_of = sub ($node) {    ## no critic (Variables::ProtectPrivateVars)
+        $lookups{ $node->content }++ if $node->isa('PPI::Token::Word');
+        return $lookup->($node);
+    };
+    my %calls = map { $_->text => $_->facts } grep { $_->role eq 'call' } sites_of( $code, 'word' )->@*;
+    for my $name (qw(sum min pick)) {
+        is $calls{$name}{call_offset}, index( $code, 'return' ),
+          "the probe for $name belongs to the return statement enclosing the expression";
+    }
+    is $lookups{sum}, undef, 'an imported name absent from the declarations needs no namespace walk';
+    ok $lookups{min},                    'a name declared in another package requires a namespace lookup';
+    ok !exists $calls{sum}{local_calls}, 'an imported function has no list of local replacements';
+    ok !exists $calls{min}{local_calls}, 'a function of the same name in another package provides no local replacement';
+    ok exists $calls{pick}{local_calls}, 'a declared function carries the candidates from its own package';
+};
+
 subtest 'every site addresses its own text' => sub {
     my $code     = "use v5.36;\nsub f (\$x) {\n    return \$x + 1 if \$x > 0;\n    return -\$x;\n}\n";
     my $analysis = analyze($code);

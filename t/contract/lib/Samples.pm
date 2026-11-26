@@ -31,6 +31,41 @@ my %TYPE = (
     Mutator    => { valid => [ 'arithmetic', 'sub-body' ] },
 );
 
+sub incomplete_import () {
+    return {
+        'lib/Local/Pair.pm' => <<'PERL',
+package Local::Pair;
+use strict;
+use warnings;
+
+sub import {
+    no strict 'refs';
+    *{caller() . '::min'} = sub { $_[0] };
+}
+
+1;
+PERL
+        'lib/Small.pm' => <<'PERL',
+package Small;
+use strict;
+use warnings;
+use Local::Pair qw(min max);
+
+sub lesser { return min(@_) }
+
+1;
+PERL
+        't/small.t' => <<'PERL',
+use strict;
+use warnings;
+use Test::More tests => 1;
+use Small;
+
+is Small::lesser(2, 3), 2, 'the first argument is smaller';
+PERL
+    };
+}
+
 sub type ($name) {
     my $type = $TYPE{$name} or die "no type is named $name\n";
     return { number => 0, invalid => [], $type->%*, name => $name };
@@ -102,6 +137,7 @@ sub _unit ( $number, $letters, $lines ) {
 
 # The first reason that the catalog gives the status, and a sentence about the case.
 sub _reason ($status) {
+    return 'compile-phase' if $status eq 'CompileError';
     return Test::Mutation::Status::of($status)->reasons->[0];
 }
 

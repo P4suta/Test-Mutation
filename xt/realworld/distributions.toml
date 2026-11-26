@@ -91,6 +91,7 @@ tests = ["make", "test"]
 options = []
 
 [Variable-Magic.expect]
+compile = { "5ebd8caa0236" = "compile-phase" }
 mutants = [16, 20]
 score = [87, 100]
 warnings = []
@@ -110,6 +111,7 @@ switch = ["-Iblib/lib", "-Iblib/arch"]
 '''
 
 ["Variable-Magic with blib".expect]
+compile = { "5ebd8caa0236" = "compile-phase" }
 mutants = [16, 20]
 score = [87, 100]
 warnings = []

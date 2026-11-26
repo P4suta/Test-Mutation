@@ -381,7 +381,7 @@ my @REJECTED = (
     [
         $RUN,
         sub ($r) { $r->{report}{mutants}[3]{status} = 'CompileError' },
-        ['the run reports a mutant that fails to compile']
+        ['the compile errors differ from the expected mutants or causes']
     ],
     [
         $RUN,
@@ -449,6 +449,17 @@ subtest 'the judge rejects an observation outside the expectation of its run' =>
     my $warned = record();
     $warned->{report}{warnings} = [ $LOADS, $UNSTABLE, 'no test files match' ];
     is RealWorld::findings( $listed, $warned ), [], 'a warning of a kind that the run lists gives no finding';
+
+    my $id       = '5ebd8caa0236';
+    my $expected = { %$RUN, expect => { $RUN->{expect}->%*, compile => { $id => 'compile-phase' } } };
+    my $compiled = record();
+    $compiled->{report}{mutants}[3]->@{qw(id status reason)} = ( $id, 'CompileError', 'compile-phase' );
+    is RealWorld::findings( $expected, $compiled ), [], 'a known compile-time exception has its expected cause';
+    $compiled->{report}{mutants}[3]{reason} = 'parse';
+    $compiled->{mutation}{exit} = 6;
+    is RealWorld::findings( $expected, $compiled ),
+      ['Example: the compile errors differ from the expected mutants or causes'],
+      'the same ID with invalid code fails the gate even when the exit status is correct';
 
     my $agreed = record();
     stopped($agreed);

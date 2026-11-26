@@ -42,8 +42,10 @@ my @ROWS = (
         'a test that loaded the mutant exceeded its time limit or printed past its output limit, and no test failed'
     ],
     [
-        'CompileError', 'CompileError', 'compile error',
-        undef, 'outside', 1, undef, 1,
+        'CompileError', 'CompileError',
+        'compile error',
+        'Compile errors',
+        'outside', 1, undef, 1,
         [qw(parse compile-phase standalone)],
         'the mutated file fails to compile'
     ],

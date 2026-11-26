@@ -43,11 +43,8 @@ subtest 'a file that does not compile on its own keeps its survivors and warns' 
     my ($result) = run_fixture( $project, enable => ['comparison-boundary'] );
     is statuses($result)->{'lib/Bound.pm:5 replaced > with >='}, 'Survived', 'the mutant survives';
     is $result->warnings,
-      [
-        'lib/Bound.pm does not pass a standalone syntax check, so its load failures count as compile errors',
-        'lib/Bound.pm: Perl decompiles the file to no stable text, so the run compares no compiled code of the file',
-      ],
-      'the failed original compiler observation explains both unavailable checks';
+      ['lib/Bound.pm does not pass a standalone syntax check, so its load failures count as compile errors'],
+      'one warning names the file';
 };
 
 subtest 'a mutant that no test reaches is compared too' => sub {

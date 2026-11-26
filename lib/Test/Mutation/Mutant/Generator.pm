@@ -6,6 +6,7 @@ use Types::Standard qw(ArrayRef Dict InstanceOf Maybe Num);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Mutant;
 use Test::Mutation::Mutant::Validity;
+use Test::Mutation::Mutator::Providers;
 use Test::Mutation::Site;
 use Test::Mutation::Suppression;
 use Test::Mutation::Types qw(Analysis Rejected);
@@ -52,18 +53,22 @@ sub generate ($arg) {
                     $from->[0], $mutator->name );
                 push @mutants,
                   Test::Mutation::Mutant->new(
-                    id                 => _id( $source->path, $site, $mutator->name, $replacement ),
-                    path               => $source->path,
-                    mutator            => $mutator->name,
-                    start              => $site->start,
-                    end                => $site->end,
-                    original           => $site->text,
-                    replacement        => $replacement,
-                    description        => $description,
-                    from               => $from,
-                    to                 => $source->position_of( $site->end ),
-                    scope              => $site->scope,
-                    comparable         => $site->comparable,
+                    id              => _id( $source->path, $site, $mutator->name, $replacement ),
+                    path            => $source->path,
+                    mutator         => $mutator->name,
+                    start           => $site->start,
+                    end             => $site->end,
+                    original        => $site->text,
+                    replacement     => $replacement,
+                    description     => $description,
+                    from            => $from,
+                    to              => $source->position_of( $site->end ),
+                    scope           => $site->scope,
+                    comparable      => $site->comparable,
+                    introduced_call => defined $mutation->{calls}
+                      && defined $site->facts->{call_offset}
+                      && !Test::Mutation::Mutator::Providers::is_core($replacement)
+                      && $replacement !~ /\ACORE::/ ? [ $replacement, $site->facts->{call_offset} ] : undef,
                     suppressed         => $directive ? 1                    : 0,
                     suppression_reason => $directive ? $directive->{reason} : undef,
                   );

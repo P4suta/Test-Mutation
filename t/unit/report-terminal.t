@@ -121,7 +121,8 @@ subtest 'sections appear for the statuses that need attention' => sub {
     like $text,   qr/^    reached by no test$/m,                         'a mutant without tests says so';
     like $text,   qr/^No verdict \(1\)$/m,                               'a section for the mutants without a verdict';
     like $text,   qr/^    t\/a\.t loaded the target without the hook$/m, 'the sentence about the case';
-    is [ $text =~ /^(\S[^\n]*) [(]\d+[)]$/mg ], [ 'No coverage', 'No verdict' ],
+    like $text,   qr/^    parse$/m, 'the compile error identifies a rejected Perl source';
+    is [ $text =~ /^(\S[^\n]*) [(]\d+[)]$/mg ], [ 'No coverage', 'Compile errors', 'No verdict' ],
       'the statuses without a heading in the catalog have no section';
     like $text, qr/^6 mutants: 1 killed, 1 no coverage, 1 compile error, 1 no verdict, 1 ignored, 1 pending$/m,
       'the summary counts every status in the order of the catalog';

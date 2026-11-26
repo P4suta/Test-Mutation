@@ -85,6 +85,7 @@ sub _entry ( $result, $entry ) {
     my $more  = @tests > $LISTED_TESTS ? sprintf ' and %d more', @tests - $LISTED_TESTS : q{};
     splice @tests, $LISTED_TESTS if $more;
     push @lines, '    reached by ' . ( @tests ? join( ', ', @tests ) . $more : 'no test' );
+    push @lines, "    $entry->{reason}" if $entry->{status} eq 'CompileError';
     push @lines, "    $entry->{detail}" if defined $entry->{detail};
     return @lines;
 }

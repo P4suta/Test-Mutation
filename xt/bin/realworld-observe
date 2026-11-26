@@ -23,6 +23,7 @@ my $DEPENDENCIES  = '/opt/dependencies';
 my $TOOL_LIBRARY  = '/opt/mutation/lib/perl5';
 my $WORK          = '/work';
 my @PROVE         = qw(prove -lr t);
+my %COMPILE_PROBE = ( Moo => '24aa5ed551a7', 'Variable-Magic' => '5ebd8caa0236' );
 
 # A command that hangs must not hold the harness, and no honest run here needs half an hour.
 my $LIMIT      = 1800;
@@ -223,6 +224,13 @@ sub observed ( $run, $environment ) {
     my $prove = "@{ $run->{tests} }" eq "@PROVE" ? $tests : truth( $run, "$place/prove", \@PROVE );
     my ( $mutation, $report ) = measured( $run, "$place/mutation", $environment->{jobs} );
     my $loads = $run->{run} eq $run->{name} ? load_sample( $run, "$place/load" ) : undef;
+    my $probe;
+
+    if ( my $id = $COMPILE_PROBE{ $run->{run} } ) {
+        my ( $command, $selected ) =
+          measured( { %$run, options => [ '--mutant', $id ] }, "$place/compile", $environment->{jobs} );
+        $probe = { exit => $command->{exit}, mutants => $selected ? $selected->{mutants} : [] };
+    }
     File::Path::remove_tree($place);
     return {
         run         => $run->{run},
@@ -238,7 +246,8 @@ sub observed ( $run, $environment ) {
         prove    => $prove,
         mutation => $mutation,
         report   => $report,
-        ( defined $loads ? ( loads => $loads ) : () ),
+        ( defined $probe ? ( compile_probe => $probe ) : () ),
+        ( defined $loads ? ( loads         => $loads ) : () ),
     };
 }
 

@@ -3,7 +3,7 @@ use v5.36;
 use Encode                 ();
 use Fcntl                  ();
 use POSIX                  ();
-use Types::Standard        qw(FileHandle Int Str);
+use Types::Standard        qw(FileHandle Int Maybe Str StrMatch);
 use Types::Common::Numeric qw(PositiveOrZeroInt PositiveInt);
 use Type::Params           qw(signature_for);
 use Test::Mutation::Error;
@@ -37,6 +37,7 @@ sub _literal ($bytes) {
 
 sub _directory ( $generation, $records, $descriptor ) {
     my $variable = "TEST_MUTATION_RECORD_G$generation";
+    return 'my($d)=keys%{+{($ENV{' . $variable . '}||q{}),1}};' unless defined $descriptor;
     return
         'my($d)=keys%{+{(defined$ENV{'
       . $variable
@@ -48,6 +49,24 @@ sub _directory ( $generation, $records, $descriptor ) {
       . ')){@k=(CORE::stat($i))[0,1];CORE::close($i)}'
       . _literal($records)
       . '.q{/}.join(q{-},@k)}),1}};';
+}
+
+signature_for binding => (
+    positional => [ StrMatch [qr/\A(?:[^\W\d]\w*::)*[^\W\d]\w*\z/], PositiveInt, Str, Str, Maybe [PositiveInt] ],
+    returns    => Str,
+);
+
+sub binding ( $name, $generation, $target, $records, $descriptor ) {
+    my $autoload = $name =~ s/[^:]+\z/AUTOLOAD/r;
+    my $missing  = 'unless(defined&' . $name . '||defined&' . $autoload . '){';
+    my $write =
+        'local$!;local$?;local$@;'
+      . _directory( $generation, $records, $descriptor )
+      . 'if(length($d)&&CORE::open(my$h,q{>>:raw},"$d/call-$$.rec")){CORE::syswrite($h,"seen\t".'
+      . _literal($target);
+    return join q{},
+      map { $_->[0] . '{' . $missing . $write . '."\t' . $_->[1] . '\n");CORE::close($h)}}}' }
+      [ 'UNITCHECK', 'unresolved' ], [ 'END', 'unresolved-at-exit' ];
 }
 
 signature_for trace => (
@@ -122,6 +141,11 @@ Test::Mutation::Witness - record the compilation of a copied Perl source file
 
 Inserts a C<UNITCHECK> block at a character offset without adding a line.
 The block records the target index through the shim or in the record directory of the current test.
+
+=head2 binding
+
+Checks the function name introduced by a replacement in its lexical scope when Perl finishes compiling the file and when the process exits.
+A package with an autoloader can resolve the call at run time.
 
 =head2 trace
 

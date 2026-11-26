@@ -404,6 +404,14 @@ sub _concluded ( $result, $config, $world ) {
         Test::Mutation::Exit::of('baseline-failed'),
         Test::Mutation::Message::text_of( 'baseline-failed', failed => $failed )
     ) if $failed;
+    if ( my $invalid = $result->invalid_entry ) {
+        my $mutant = $invalid->{mutant};
+        return _ended(
+            $world,
+            Test::Mutation::Exit::of('internal'),
+            Test::Mutation::Message::text_of( 'invalid-mutant', id => $mutant->id, path => $mutant->path )
+        );
+    }
     return _ended( $world, Test::Mutation::Exit::of('inconclusive'), Test::Mutation::Message::text_of('inconclusive') )
       if !$result->conclusive;
     return _ended(

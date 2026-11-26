@@ -164,6 +164,16 @@ subtest 'evidence separates a missing observer from an untested target' => sub {
     is $evidence->("begin\t0\naround\t/p/A.pm\n")->{anomaly}{reason},  'loaded-around-hook', 'the hook was bypassed';
     is $evidence->("begin\t0\nerror\t/p/A.pm\twriter failed\n")->{anomaly}{detail}, '/p/A.pm: writer failed',
       'the diagnostic survives into the verdict';
+    my $missing = "seen\t/p/A.pm\tunresolved\n";
+    my $at_exit = "seen\t/p/A.pm\tunresolved-at-exit\n";
+    my $mixed   = Test::Mutation::Record::parse( [ $missing . $at_exit . "begin\t0\nseen\t/p/B.pm\nend\t24\n" ] );
+    is Test::Mutation::Evidence::target( $mixed, '/p/B.pm' )->{unresolved}, 0,
+      'an unresolved name belongs only to the target where Perl looked it up';
+    is $mixed->{compiled}, { '/p/B.pm' => 1 }, 'records after the binding observation still identify compiled targets';
+    is $evidence->( $missing . $at_exit )->{unresolved}, 1,     'the same interpreter observed both missing bindings';
+    is $evidence->( $missing, $at_exit )->{unresolved},  0,     'independent interpreters cannot confirm each other';
+    is $evidence->( $at_exit . $missing )->{unresolved}, 0,     'a later load cannot confirm a previous ending';
+    is $evidence->( $missing . $at_exit )->{coverage},   undef, 'a function binding does not count as coverage';
     my $blind = $evidence->("begin\t1\nblind\t/p/A.pm\n");
     is $blind->{coverage}, { traced => 0, hits => {} }, 'a blind witness proves file coverage';
     is $blind->{load_failed}, 0, 'the witness ran during compilation';

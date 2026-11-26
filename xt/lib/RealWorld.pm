@@ -11,7 +11,7 @@ use TOML::Tiny ();
 my @WARNING_KINDS = qw(around-the-hook no-stable-output standalone other);
 my @TEXTS         = qw(name version pathname sha256 shape);
 my %FIELD         = map { $_ => 1 } @TEXTS, qw(build tests options config expect hash_seed);
-my %EXPECTED      = map { $_ => 1 } qw(mutants score warnings seconds);
+my %EXPECTED      = map { $_ => 1 } qw(mutants score warnings seconds compile);
 my $NUMBER        = qr/\A[0-9]+(?:[.][0-9]+)?\z/;
 
 sub _words ($value) {
@@ -38,7 +38,14 @@ sub _expectation ( $run, $expect ) {
     my @unnamed = grep { !$kind{$_} } $expect->{warnings}->@*;
     die "$run: no kind of warning is named $unnamed[0]\n" if @unnamed;
     die "$run: seconds is no time\n" if ref $expect->{seconds} || $expect->{seconds} !~ /\A[1-9][0-9]*\z/;
+    if ( exists $expect->{compile} ) {
+        my $compile = $expect->{compile};
+        die "$run: compile needs mutant IDs and observed causes\n"
+          if ref $compile ne 'HASH'
+          || grep { $_ !~ /\A[0-9a-f]{12}\z/ || $compile->{$_} !~ /\A(?:compile-phase|standalone)\z/ } keys %$compile;
+    }
     return {
+        ( exists $expect->{compile} ? ( compile => $expect->{compile} ) : () ),
         mutants  => [ map { 0 + $_ } $expect->{mutants}->@* ],
         score    => defined $expect->{score} ? [ map { 0 + $_ } $expect->{score}->@* ] : undef,
         warnings => [ $expect->{warnings}->@* ],
@@ -273,9 +280,19 @@ sub _inside ( $band, $value ) {
 sub _promised_exit ( $report, $tally ) {
     return 3 if $report->{baseline_failures}->@*;
     my $counts = $tally->{counts};
+    return 6 if grep { $_->{status} eq 'CompileError' && ( $_->{reason} || q{} ) eq 'parse' } $report->{mutants}->@*;
     return 4 if $counts->{NoVerdict};
     return 4 if $tally->{total} - ( $counts->{Ignored} || 0 ) > 0 && !defined $tally->{score};
     return 0;
+}
+
+sub _unexpected_compile ( $expected, $mutants ) {
+    my %unseen = %{ $expected || {} };
+    for my $mutant ( grep { $_->{status} eq 'CompileError' } @$mutants ) {
+        my $cause = delete $unseen{ $mutant->{id} };
+        return 1 unless defined $cause && defined $mutant->{reason} && $cause eq $mutant->{reason};
+    }
+    return scalar keys %unseen;
 }
 
 sub _seen ( $run, $record ) {
@@ -334,7 +351,10 @@ my @INVARIANTS = (
         sub ( $run, $record, $seen ) { $seen->{report} && $record->{mutation}{exit} != $seen->{exit} }
     ],
     [
-        'the run reports a mutant that fails to compile', sub ( $run, $record, $seen ) { $seen->{counts}{CompileError} }
+        'the compile errors differ from the expected mutants or causes',
+        sub ( $run, $record, $seen ) {
+            return $seen->{report} && _unexpected_compile( $run->{expect}{compile}, $seen->{report}{mutants} );
+        }
     ],
     [ 'the run reports a mutant without a verdict', sub ( $run, $record, $seen ) { $seen->{counts}{NoVerdict} } ],
     [ 'the run leaves a mutant pending',            sub ( $run, $record, $seen ) { $seen->{counts}{Pending} } ],

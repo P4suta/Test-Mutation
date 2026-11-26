@@ -61,12 +61,19 @@ sub tally ($self) {
     return Test::Mutation::Score::tally( [ map { $_->{status} } $self->entries->@* ] );
 }
 
+signature_for invalid_entry => ( method => 1, positional => [], returns => Maybe [Entry] );
+
+sub invalid_entry ($self) {
+    my ($entry) = grep { $_->{status} eq 'CompileError' && $_->{reason} eq 'parse' } $self->entries->@*;
+    return $entry;
+}
+
 signature_for conclusive => ( method => 1, positional => [], returns => Bool );
 
 sub conclusive ($self) {
     my $tally = $self->tally;
     return 0 if $self->baseline_failures->@* || defined $self->interrupted;
-    return 0 if $tally->{counts}{NoVerdict};
+    return 0 if $self->invalid_entry         || $tally->{counts}{NoVerdict};
     return 0 if $tally->{total} - $tally->{counts}{Ignored} > 0 && !$tally->{valid};
     return 1;
 }
@@ -159,6 +166,10 @@ Such a run follows a failure of tests side by side and a change of the project b
 =head2 tally
 
 Returns the status counts and the score, as L<Test::Mutation::Score/tally> does.
+
+=head2 invalid_entry
+
+Returns the first mutant whose generated code Perl rejected.
 
 =head2 conclusive
 

@@ -12,6 +12,7 @@ signature_for target => (
         coverage    => Maybe [ Dict [ traced => Bool, hits => HashRef [Bool] ] ],
         breakable   => Maybe [ HashRef [Bool] ],
         load_failed => Bool,
+        unresolved  => Bool,
         anomaly     => Maybe [ Dict [ reason => Reason, detail => Str ] ],
     ],
 );
@@ -21,6 +22,7 @@ sub target ( $record, $path ) {
         coverage    => $record->{served}{$path},
         breakable   => $record->{breakable}{$path},
         load_failed => $record->{load_failed}{$path} || !$record->{compiled}{$path} ? 1 : 0,
+        unresolved  => $record->{unresolved} && $record->{unresolved}{$path}        ? 1 : 0,
         anomaly     => scalar _anomaly( $record, $path ),
     };
 }

@@ -28,16 +28,18 @@ my $RESULT = Enum [ qw(pass fail), keys %LIMIT ];
 
 # A syntax check passes, or it fails with the kind of compile error that it found.
 my $OUTCOME = Dict [
-    test        => Str,
-    result      => $RESULT,
-    served      => Bool,
-    load_failed => Bool,
-    bypassed    => Bool,
-    anomaly     => Optional [ Maybe [ Dict [ reason => Reason, detail => Str ] ] ],
-    read_check  => Optional [ Enum [qw(pass fail timeout overflow compile-error)] ],
-    syntax      => Maybe [ Enum [ 'ok', Test::Mutation::Status::of('CompileError')->reasons->@* ] ],
+    test         => Str,
+    result       => $RESULT,
+    served       => Bool,
+    load_failed  => Bool,
+    bypassed     => Bool,
+    anomaly      => Optional [ Maybe [ Dict [ reason => Reason, detail => Str ] ] ],
+    invalid_call => Optional [ Maybe [Str] ],
+    read_check   => Optional [ Enum [qw(pass fail timeout overflow compile-error)] ],
+    syntax       => Maybe [ Enum [ 'ok', Test::Mutation::Status::of('CompileError')->reasons->@* ] ],
 ];
 my %COMPILE_DETAIL = (
+    parse           => 'Perl rejected the generated replacement',
     'compile-phase' => 'the mutant does not compile',
     standalone      => 'the original source fails a syntax check of its own',
 );
@@ -73,6 +75,8 @@ sub step ( $state, $outcome ) {
     }
     return $decide->( 'NoVerdict', 'loaded-around-hook', "$test loaded the target without the hook" )
       if $outcome->{bypassed};
+    return $decide->( 'CompileError', 'parse', "the introduced function $outcome->{invalid_call} is undefined" )
+      if defined $outcome->{invalid_call};
     if ( defined $outcome->{read_check} ) {
         my $check = $outcome->{read_check};
         return $decide->( 'CompileError', $outcome->{syntax}, $COMPILE_DETAIL{ $outcome->{syntax} } )

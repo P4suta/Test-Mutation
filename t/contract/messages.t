@@ -195,6 +195,16 @@ sub shim_says ( $spec, $before ) {
     return defined $text ? $text : q{};
 }
 
+subtest 'invalid generated code identifies the mutant and its source' => sub {
+    my $root = directory( Samples::incomplete_import()->%* );
+    my $run =
+      World::observe( [qw(run --source lib/Small.pm --enable call-swap --jobs 1 --format terminal)], cwd => $root );
+    is $run->{exit}, 6, 'the generator defect sets the internal error exit status';
+    like $run->{stderr}, qr/invalid mutant [0-9a-f]+ in lib\/Small[.]pm/, 'the diagnostic identifies the replacement';
+    like $run->{stdout}, qr/lib\/Small[.]pm:.*\n(?:.*\n)*?    parse\n    the introduced function max is undefined/m,
+      'the terminal report includes the site, cause and function';
+};
+
 subtest 'the space rejects a message that no case produces' => sub {
     my $code = "sub read_file (\$path) { open my \$in, '<', \$path or die \"cannot read \$path: \$!\\n\"; return }\n"
       . "sub check (\$n) { die \"the count \$n is too large\\n\" if \$n > 9; return }\n";
@@ -469,14 +479,17 @@ measured( { 'lib/Once.pm' => $crlf, 'lib/Twice.pm' => $crlf =~ s/1;\r\n\z/my \$M
     }
 }
 
-# A source that fails a syntax check of its own and decompiles to no stable text, and a test that reads a source directly.
+# The module Bound needs its application's initialization and the module Empty stops the deparser before it writes anything.
 my $bound = "package Bound;\nuse strict;\nuse warnings;\nBEGIN { die \"no application\\n\" if !\$main::APPLICATION }\n"
   . "sub size { return 10 > 5 ? 'big' : 'small' }\n1;\n";
 measured(
     {
         'lib/Small.pm' => $module,
         'lib/Bound.pm' => $bound,
-        't/direct.t'   => "use Test::More tests => 1;\nuse Cwd ();\nrequire( Cwd::getcwd() . '/lib/Small.pm' );\n"
+        'lib/Empty.pm' =>
+          "package Empty;\nuse File::Spec;\nBEGIN { open STDOUT, '>', File::Spec->devnull if \$0 =~ /Empty[.]pm\\z/ }\nsub high { return 10 > 5 }\n1;\n",
+        't/empty.t'  => "use Test::More tests => 1;\nuse Empty;\nok Empty::high(), 'a true result';\n",
+        't/direct.t' => "use Test::More tests => 1;\nuse Cwd ();\nrequire( Cwd::getcwd() . '/lib/Small.pm' );\n"
           . "is Small::next_one(2), 3, 'the next one';\n",
         't/bound.t' => "use Test::More tests => 1;\nBEGIN { \$main::APPLICATION = 1 }\nuse Bound;\n"
           . "is Bound::size(), 'big', 'a size';\n",

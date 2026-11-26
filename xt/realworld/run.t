@@ -70,6 +70,16 @@ for my $run ( $runs->@* ) {
     note "$run->{run}: $_" for RealWorld::notes( $run, $record )->@*;
 }
 Gate::findings( 'realworld', RealWorld::judged( $runs, $records ) );
+for my $case ( [ 'Moo', '24aa5ed551a7', 'lib/Moo/_Utils.pm' ],
+    [ 'Variable-Magic', '5ebd8caa0236', 'lib/Variable/Magic.pm' ] )
+{
+    my ( $name, $id, $file ) = @$case;
+    my $probe = $records->{$name}{compile_probe};
+    is $probe->{exit}, 4, "$name reports the lone compile error as inconclusive";
+    is [ map { [ $_->@{qw(id file status reason)} ] } @{ $probe->{mutants} || [] } ],
+      [ [ $id, $file, 'CompileError', 'compile-phase' ] ],
+      "$name preserves the compile-time exception by ID in any shard";
+}
 my $loads = RealWorld::load_counts( $runs, $records );
 note "$_: $loads->{$_}[0] failed loads in $loads->{$_}[1] probes" for sort keys $loads->%*;
 my @defaults = map { $_->name } grep { $_->profile eq 'default' } Test::Mutation::Mutator::Catalog::mutators()->@*;

@@ -20,7 +20,12 @@ has to                 => ( is => 'ro', isa => Tuple [ Int, Int ], required => 1
 has scope              => ( is => 'ro', isa => Tuple [ Int, Int ], required => 1 );
 has suppressed         => ( is => 'ro', isa => Bool, default => 0 );
 has suppression_reason => ( is => 'ro', isa => Maybe [Str], default => undef );
-has comparable         => ( is => 'ro', isa => Bool, default => 1 );
+has introduced_call => (
+    is      => 'ro',
+    isa     => Maybe [ Tuple [ StrMatch [qr/\A(?:[^\W\d]\w*::)*[^\W\d]\w*\z/], Int ] ],
+    default => undef
+);
+has comparable => ( is => 'ro', isa => Bool, default => 1 );
 
 1;
 
@@ -83,6 +88,10 @@ True when a C<## no mutate> comment covers the mutant.
 =head2 suppression_reason
 
 The reason that the comment gives after its colon, or nothing.
+
+=head2 introduced_call
+
+The replacement function and the character offset of a statement in its lexical scope, when a function name changes.
 
 =head2 comparable
 

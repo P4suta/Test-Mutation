@@ -3,7 +3,7 @@ use v5.36;
 use PPI;
 use PPIx::Regexp;
 use Scalar::Util    qw(refaddr);
-use Types::Standard qw(InstanceOf Int Maybe Optional Tuple);
+use Types::Standard qw(Bool InstanceOf Int Maybe Optional Tuple);
 use Type::Params    qw(signature_for);
 use version         ();
 use Test::Mutation::Mutator::Providers;
@@ -130,6 +130,22 @@ sub analyze ($source) {
         names        => $names,
         problem      => undef
     };
+}
+
+signature_for inside_begin => ( positional => [ InstanceOf ['Test::Mutation::Source'], Int ], returns => Bool );
+
+sub inside_begin ( $source, $offset ) {
+    my $text     = $source->text;
+    my $mark     = $text =~ s/\A\x{feff}// ? 1 : 0;
+    my $document = _document($text) or return 0;
+    my $context  = { source => $source, text => $source->text, mark => $mark };
+    for my $block ( @{ $document->find('PPI::Statement::Scheduled') || [] } ) {
+        next unless $block->first_token->content eq 'BEGIN';
+        my $first = _offset( $context, $block->first_token );
+        my $last  = _offset( $context, $block->last_token );
+        return 1 if defined $first && defined $last && $first <= $offset && $offset <= $last;
+    }
+    return 0;
 }
 
 signature_for witness_offsets =>
@@ -678,11 +694,21 @@ sub _modifier_condition ( $context, $token ) {
 }
 
 sub _local_calls ( $context, $token ) {
-    my $packages = $context->{local_subs}{ $token->content } or return {};
-    my $peers    = $packages->{ _package_of($token) }        or return {};
+    my $facts = {};
+    for ( my $node = $token ; $node ; $node = $node->parent ) {
+        next unless $node->isa('PPI::Statement');
+        my $parent = $node->parent;
+        next unless $parent && ( $parent->isa('PPI::Document') || $parent->isa('PPI::Structure::Block') );
+        my $offset = _offset( $context, $node->first_token );
+        $facts->{call_offset} = $offset if defined $offset;
+        last;
+    }
+    my $packages = $context->{local_subs}{ $token->content } or return $facts;
+    my $peers    = $packages->{ _package_of($token) }        or return $facts;
     my $args     = $token->snext_sibling;
     my $explicit = $args && $args->isa('PPI::Structure::List');
-    return { local_calls =>
+    return { %$facts,
+        local_calls =>
           [ sort grep { $peers->{$_}{defined} && ( $explicit || $peers->{$_}{visible} ) } keys $peers->%* ] };
 }
 
@@ -1348,6 +1374,10 @@ It lists each C<use> statement with the names it imports, as far as the text of 
 C<use v5.40> and a later version import the booleans and the rounding functions of the core.
 
 =head1 FUNCTIONS
+
+=head2 inside_begin
+
+Returns true when the original source offset lies inside a C<BEGIN> block.
 
 =head2 witness_offsets
 

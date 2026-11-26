@@ -21,6 +21,7 @@ declare TaskRecord,
     served      => HashRef [ Dict [ traced => Bool, hits => HashRef [Bool] ] ],
     compiled    => HashRef [Bool],
     load_failed => HashRef [Bool],
+    unresolved  => Optional [ HashRef [Bool] ],
     bypassed    => HashRef [Bool],
     outside     => HashRef [Bool],
     breakable   => HashRef [ HashRef [Bool] ],
@@ -48,6 +49,7 @@ declare Facts,
     implicit_call => Optional [Bool],
     quantified    => Optional [Bool],
     local_calls   => Optional [ ArrayRef [Str] ],
+    call_offset   => Optional [Int],
     operand       => Optional [ Enum [qw(match substitute transliterate dynamic)] ],
     keyword       => Optional [Str],
     head          => Optional [Str],
@@ -136,6 +138,7 @@ C<final_value> marks a standalone literal value or the expression that computes 
 C<implicit_call> marks a comparison after a function that uses its default argument.
 C<has_argument> identifies a call whose argument can stand alone after the function name is removed.
 C<operands> holds the offsets of the end of the left operand and the start of the right operand in a three-way comparison.
+C<call_offset> is the insertion point for checking a replacement function in the lexical scope of its call.
 C<local_calls> lists the subroutines that the package of a local call defines and that the call can name.
 C<quantified> indicates that a regular expression quantifier applies to the anchor.
 C<branches> holds the length of the first branch of a conditional and the place where its second branch starts, both counted from the start of the span.

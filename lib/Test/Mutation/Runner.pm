@@ -10,6 +10,7 @@ use List::Util      ();
 use Time::HiRes     ();
 use Types::Standard qw(ArrayRef Bool CodeRef Dict HashRef InstanceOf Int Maybe Optional Str Tuple);
 use Type::Params    qw(signature_for);
+use Test::Mutation::Attribution;
 use Test::Mutation::Build;
 use Test::Mutation::Cache;
 use Test::Mutation::Coverage;
@@ -604,24 +605,40 @@ sub _changed_source ( $run, $source, $mutant ) {
     return ( $file, $text, $bytes );
 }
 
+sub _observed_bytes ( $run, $source, $mutant, $root, $text ) {
+    my $witness = $run->{witness}{ $mutant->path };
+    my $at;
+    if ($witness) {
+        $at = $witness->{offset};
+        if ( $mutant->end <= $at ) {
+            $at += length( $mutant->replacement ) - ( $mutant->end - $mutant->start );
+        }
+        elsif ( $mutant->start < $at ) {
+            $at = $mutant->start;
+        }
+    }
+    if ( my $call = $mutant->introduced_call ) {
+        my ( $name, $position ) = @$call;
+        my $statement = Test::Mutation::Witness::binding( $name, $run->{generation}, "$root/" . $mutant->path,
+            "$run->{work}/records", defined $run->{task_descriptor} ? fileno( $run->{task_descriptor} ) : undef );
+        substr $text, $position, 0, $statement;
+        $at += length $statement if defined $at && $position < $at;
+    }
+    return defined $at ? _marked_bytes( $run, $source, $text, $at ) : $source->to_bytes($text);
+}
+
 sub _write_mutant ( $run, $source, $mutant, $root, $raw = 0 ) {
     my ( $file, $text, $bytes ) = _changed_source( $run, $source, $mutant );
+    my $placed = !$raw && $run->{targets} ? _observed_bytes( $run, $source, $mutant, $root, $text ) : $bytes;
     my $served = $file;
     my $stale;
     if ( defined $run->{copies} ) {
-        my $placed = $bytes;
-        if ( !$raw && ( my $witness = $run->{witness}{ $mutant->path } ) ) {
-            my $at = $witness->{offset};
-            if ( $mutant->end <= $at ) {
-                $at += length( $mutant->replacement ) - ( $mutant->end - $mutant->start );
-            }
-            elsif ( $mutant->start < $at ) {
-                $at = $mutant->start;
-            }
-            $placed = _marked_bytes( $run, $source, $text, $at );
-        }
         $stale  = _place( $run, $root, $mutant->path, $source->to_bytes( $source->text ), $placed );
         $served = "$root/" . $mutant->path;
+    }
+    elsif ( $placed ne $bytes ) {
+        $served = "$file.observed";
+        _spew( $served, $placed );
     }
     my $targets = target_pairs( $root, $run->{targets} ? $run->{targets} : [], $mutant->path, $served );
     my $spec    = _spec( $run, $root, 'mutants/' . $mutant->id, 0, $targets );
@@ -1441,9 +1458,11 @@ sub _next_code ( $run, $job ) {
     }
     my $original = $run->{original_compile}{$path};
     return _compile_task( $run, $job, 'code-original', "$run->{root}/$path", '-MO=Deparse' ) unless $original;
+    if ( !$original->{passed} ) {
+        _warn( $run, Test::Mutation::Message::warning( 'syntax-check-failed', path => $path ) );
+        return;
+    }
     if ( !length $original->{code} ) {
-        _warn( $run, Test::Mutation::Message::warning( 'syntax-check-failed', path => $path ) )
-          unless $original->{passed};
         _warn( $run, Test::Mutation::Message::warning( 'decompiled-code-unstable', path => $path ) );
         return;
     }
@@ -1506,13 +1525,14 @@ sub _after_test ( $run, $baseline, $task, $result ) {
     my $evidence = Test::Mutation::Evidence::target( _collect($task), $absolute );
     $job->{duration} += $result->{duration};
     $job->{outcome} = {
-        test        => $payload->{test},
-        result      => _ending($result),
-        served      => $evidence->{coverage} ? 1 : 0,
-        load_failed => $evidence->{load_failed},
-        bypassed    => 0,
-        anomaly     => $evidence->{anomaly} || $payload->{baseline_anomaly},
-        syntax      => $job->{syntax},
+        test         => $payload->{test},
+        result       => _ending($result),
+        served       => $evidence->{coverage} ? 1 : 0,
+        load_failed  => $evidence->{load_failed},
+        bypassed     => 0,
+        anomaly      => $evidence->{anomaly} || $payload->{baseline_anomaly},
+        syntax       => $job->{syntax},
+        invalid_call => $evidence->{unresolved} ? $job->{mutant}->introduced_call->[0] : undef,
     };
     if ( $payload->{conflict} && ( !$evidence->{coverage} || $evidence->{load_failed} ) ) {
         $job->{outcome}{anomaly} = {
@@ -1573,15 +1593,25 @@ sub _after_syntax ( $run, $baseline, $task, $result ) {
         return _compile_task( $run, $job, 'syntax-mutant', $job->{file}, '-c' ) if $ok || $job->{check_read};
         _warn( $run, Test::Mutation::Message::warning( 'syntax-check-failed', path => $path ) );
     }
-    $job->{outcome}{syntax} = $job->{syntax} =
-      !$run->{original_compile}{$path}{passed} ? 'standalone' : $ok ? 'ok' : 'compile-phase';
+    my $mutant = $job->{mutant};
+    my $end;
+    if ( $result->{errors} =~ /\ABareword /
+        && Test::Mutation::Syntax::PPI::inside_begin( $run->{sources}{$path}, $mutant->start ) )
+    {
+        $end = $mutant->from->[0] + ( $mutant->replacement =~ tr/\n// );
+    }
+    $job->{outcome}{syntax} = $job->{syntax} = Test::Mutation::Attribution::compilation(
+        $run->{original_compile}{$path}{passed},
+        $ok ? 1 : 0,
+        $result->{errors}, $job->{file}, $end
+    );
     return _verify_read( $run, $baseline, $job ) if $job->{check_read};
     return;
 }
 
 sub _verify_read ( $run, $baseline, $job ) {
     delete $job->{check_read};
-    if ( $job->{syntax} eq 'compile-phase' ) {
+    if ( $job->{syntax} eq 'compile-phase' || $job->{syntax} eq 'parse' ) {
         $job->{outcome}{read_check} = 'compile-error';
         return;
     }

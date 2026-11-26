@@ -295,11 +295,10 @@ subtest 'warnings come once each and in the order of their text' => sub {
       [
         '--in-place uses the module hook, which can miss absolute paths and child processes',
         'lib/Bound.pm does not pass a standalone syntax check, so its load failures count as compile errors',
-        'lib/Bound.pm: Perl decompiles the file to no stable text, so the run compares no compiled code of the file',
         't/first.t loads lib/Small.pm around the hook and cannot detect its mutants',
         't/second.t loads lib/Small.pm around the hook and cannot detect its mutants',
       ],
-      'five distinct warnings';
+      'four distinct warnings';
     my %status = statuses($result)->%*;
     is {
         map { $_ => $status{$_} } grep { /lib\/Bound[.]pm:4 / } keys %status

@@ -62,6 +62,13 @@ subtest 'conclusive' => sub {
     ok result( [qw(Ignored Ignored)] )->conclusive,       'every mutant suppressed';
     ok !result( [qw(Killed NoVerdict)] )->conclusive,     'a mutant without a verdict';
     ok !result( [qw(Timeout CompileError)] )->conclusive, 'mutants ran and none is valid';
+    isa_ok dies { result( ['Killed'] )->invalid_entry('extra') }, ['Error::TypeTiny'],
+      'a result checks the arguments of its invalid entry lookup';
+    for my $cause (qw(parse compile-phase standalone)) {
+        my $result = result( [], entries => [ entry('Killed'), entry( 'CompileError', reason => $cause ) ] );
+        is $result->conclusive, $cause eq 'parse' ? 0 : 1, "a measured result with a $cause error";
+        is defined $result->invalid_entry ? 1 : 0, $cause eq 'parse' ? 1 : 0, 'only a generator defect is invalid';
+    }
     ok !result( ['Killed'], baseline_failures => [ { test => 't/a.t', output => q{}, errors => q{} } ] )->conclusive,
       'the unmodified run failed';
 };

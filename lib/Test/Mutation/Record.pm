@@ -78,6 +78,7 @@ sub parse ( $texts, $targets ) {
         errors      => []
     );
     for my $text ( $texts->@* ) {
+        my %missing;
         my $traced = 0;
         for my $line ( split /\n/, $text ) {
             my ( $kind, $path, $value ) = split /\t/, $line, 3;
@@ -97,6 +98,14 @@ sub parse ( $texts, $targets ) {
                     next;
                 }
                 $path = $targets->[$path];
+            }
+            if ( $kind eq 'seen' && defined $value && $value eq 'unresolved' ) {
+                $missing{$path} = 1;
+                next;
+            }
+            if ( $kind eq 'seen' && defined $value && $value eq 'unresolved-at-exit' ) {
+                $record{unresolved}{$path} = 1 if $missing{$path};
+                next;
             }
             $apply->( \%record, \$traced, $path, defined $value ? $value : q{} );
         }
@@ -153,6 +162,7 @@ C<served> maps each target that the hook served to its trace state and the lines
 A target counts as traced when every process that loaded it was tracing.
 C<begun> and C<ended> count process starts and endings across the record files.
 C<compiled>, C<load_failed>, C<bypassed>, and C<outside> name the targets with those observations.
+C<unresolved> names introduced functions by target when the same process found the binding missing at compilation and exit.
 C<errors> preserves diagnostics from the shim and the record decoder.
 C<breakable> maps a target to the lines that hold a runtime statement.
 

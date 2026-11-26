@@ -5,6 +5,7 @@ use File::Temp ();
 use lib 't/contract/lib', 't/e2e/lib', 't/lib';
 use Fixture qw(copy_of write_file);
 use Gate;
+use Samples;
 use Test::Mutation::Settings;
 use Test::Mutation::Interrupted;
 use Test::Mutation::Pool;
@@ -144,6 +145,30 @@ is of_status(
   ['NoVerdict unstable-test'], 'a time limit before the load';
 
 # A mutant that dies while it compiles, a source that fails a syntax check of its own, and a test that loads around the hook.
+my $unresolved = project( Samples::incomplete_import()->%* );
+for my $in_place ( 0, 1 ) {
+    my $observed = measured( $unresolved, source => ['lib/Small.pm'], enable => ['call-swap'], in_place => $in_place );
+    is of_status( $observed, 'lib/Small.pm', 'CompileError' ), ['CompileError parse'],
+      "an unresolved replacement is a generator defect with in-place=$in_place";
+}
+
+for my $case (
+    [ late     => q{*{'Small::max'} = sub { $_[1] };} ],
+    [ autoload => q{BEGIN { *{'Small::AUTOLOAD'} = sub { $_[1] }; }} ],
+  )
+{
+    my ( $name, $install ) = @$case;
+    my $root = project( Samples::incomplete_import()->%* );
+    write_file( "$root/t/small.t",
+            "#!perl -T\nuse Test::More tests => 1;\nuse Small;\nno strict 'refs';\n"
+          . "$install\nis Small::lesser(2, 3), 2, 'the lesser value';\n" );
+    my $config = Test::Mutation::Settings::of_call(
+        { root => $root, source => ['lib/Small.pm'], enable => ['call-swap'], jobs => 1 } );
+    my @entries = Test::Mutation::Runner::run( $config, sub (@) { return } )->entries->@*;
+    is [ map { $_->{status} } grep { $_->{mutant}->replacement eq 'max' } @entries ], ['Killed'],
+      "a $name binding permits a real assertion failure in taint mode";
+}
+
 my $guarded = "package Guarded;\nuse strict;\nuse warnings;\nBEGIN { die \"no room\\n\" if 2 < 1 }\n"
   . "sub size { return \$_[0] > 5 ? 'big' : 'small' }\n1;\n";
 my $bound = "package Bound;\nuse strict;\nuse warnings;\nBEGIN { die \"no application\\n\" if !\$main::APPLICATION }\n"

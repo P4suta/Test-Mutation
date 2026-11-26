@@ -13,8 +13,10 @@ my @EXPECTED = (
     ],
     [ 'Timeout', 'Ignored', 'timeout', 'Timeout', 'outside', 1, 'notice', 0, [qw(time-limit output-limit)] ],
     [
-        'CompileError', 'CompileError', 'compile error',
-        undef, 'outside', 1, undef, 1, [qw(parse compile-phase standalone)]
+        'CompileError', 'CompileError',
+        'compile error',
+        'Compile errors',
+        'outside', 1, undef, 1, [qw(parse compile-phase standalone)]
     ],
     [
         'NoVerdict',
