@@ -198,7 +198,7 @@ sub _prepare_build ( $run, $targets ) {
         perl      => $run->{perl} || $run->{config}->perl,
         libraries => $options->{lib},
         targets   => $targets,
-        in_place  => $run->{config}->in_place,
+        in_place  => !defined $run->{copies},
         run       => sub ( $where, $command ) { _build_command( $run, $where, $command ) },
     );
     return;
@@ -608,7 +608,6 @@ sub _prepare_work ($run) {
     Test::Mutation::Tree::make( map { "$work/$_" } 'shim/Test/Mutation/Shim', 'mutants', 'records', 'tmp' );
     _spew( "$work/shim/Test/Mutation/Shim/G$generation.pm", shim_text($generation) );
     $run->{generation} = $generation;
-    $run->{package}    = "Test::Mutation::Shim::G$generation";
     return;
 }
 
@@ -691,22 +690,6 @@ sub _spec ( $run, $root, $name, $trace, $targets ) {
     }
     _spew( $path, join q{}, map { "$_\n" } @lines );
     return $path;
-}
-
-sub _inherited ($name) {
-    my $value = $ENV{$name};
-    return defined $value && length $value ? ($value) : ();
-}
-
-sub _environment ( $run, $spec, $root ) {
-    my $generation = $run->{generation};
-    return (
-        "TEST_MUTATION_SPEC_G$generation" => $spec,
-        TEST_MUTATION_GENERATION          => $generation,
-        TEST_MUTATION_ROOT                => $root,
-        PERL5OPT                          => join( q{ }, _inherited('PERL5OPT'), '-M' . $run->{package} ),
-        PERL5LIB                          => join( q{:}, "$run->{work}/shim",    _inherited('PERL5LIB') ),
-    );
 }
 
 signature_for target_pairs => (
@@ -795,13 +778,13 @@ sub run_command ( $config, $source, $mutant, $command ) {
     my $run  = { config => $config, project => $root, root => $root, listener => sub { return } };
     my $work = sub {
         $run->{workspace} = Test::Mutation::Workspace::acquire($root);
-        _copy_project($run) unless $config->in_place;
+        _copy_project($run);
         my $where = $run->{root};
         Test::Mutation::Error::raise( 'source-changed', path => $source->path )
           if Test::Mutation::Source::read_bytes( "$where/" . $source->path ) ne $source->to_bytes( $source->text );
         _prepare_build( $run, [ $source->path ] );
         _prepare_work($run);
-        my ( undef, $spec, $stale ) = _write_mutant( $run, $source, $mutant, $where );
+        my ( undef, undef, $stale ) = _write_mutant( $run, $source, $mutant, $where );
         Test::Mutation::Error::raise( 'build-copy-not-updated', path => $stale, source => $source->path )
           if defined $stale;
         my $environment = Test::Mutation::Launch::test_command(
@@ -814,7 +797,7 @@ sub run_command ( $config, $source, $mutant, $command ) {
             env     => \%ENV,
         )->{env};
         delete $environment->@{qw(HARNESS_ACTIVE HARNESS_VERSION)};
-        local %ENV = ( %ENV, $environment->%*, $config->in_place ? _environment( $run, $spec, $where ) : () );
+        local %ENV = ( %ENV, $environment->%* );
         my $lease = Test::Mutation::Workspace::Processes::inherit( $run->{workspace}->directory . '/processes' );
 
         # A command that cannot start ends exec with one line of the tool, and the warning of Perl would add another.

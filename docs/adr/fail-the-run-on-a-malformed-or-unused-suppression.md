@@ -29,3 +29,4 @@ The analysis also considers mutants outside the selected profile.
 ## Confirmation
 
 `t/discovery/suppressions.t` and `xt/mutants/suppressions.t` compare the parser with an independent interpreter over every layout.
+Revisit the grammar when a supported Perl declaration introduces another scope for named routines.

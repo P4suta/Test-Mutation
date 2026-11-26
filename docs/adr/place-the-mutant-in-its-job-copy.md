@@ -31,3 +31,4 @@ The runner restores test-created changes between mutants and replays earlier ori
 
 Compare direct reads and child processes with patched source files.
 Test read-only copies, external links, interruptions, and a test whose setup fails twice.
+Revisit placement if a supported loader executes the original target from outside the private copy.

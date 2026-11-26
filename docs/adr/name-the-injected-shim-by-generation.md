@@ -26,5 +26,5 @@ Tests that count hooks subtract the hooks of their own process.
 
 ## Confirmation
 
-`mise run mutation-gate` runs the tool on its own sources, and the nested end-to-end tests pass in that run.
-`xt/release/self-mutation.t` fails when no test loads a mutant of `lib/Test/Mutation/Shim.pm`.
+`xt/literals.t` checks the generation-specific environment names.
+`xt/release/self-mutation.t` requires detected shim changes in a complete self-measurement.

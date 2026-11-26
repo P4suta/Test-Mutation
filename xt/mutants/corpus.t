@@ -105,7 +105,7 @@ subtest 'the walk rejects a module with a mutant that perl refuses and one that 
     is unanalyzed($summary), ['the tool makes no mutant of a file: the file has a carriage return without a line feed'],
       'the file that the tool leaves alone';
     is Gate::outcomes( sub { judged_ok( 'rejected', $summary, qw(a b b2 d e) ) } ),
-      [ 'pass', 'fail', ('pass') x 3, 'fail', 'pass', 'fail', ('pass') x 5 ],
+      [qw(pass fail pass fail fail pass pass)],
       'the three findings fail their gates, and every other gate passes';
 
     my $real = surveyed("$directory/Swap.pm");

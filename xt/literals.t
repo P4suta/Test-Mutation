@@ -6,11 +6,11 @@ use Library;
 use Sources;
 use Space;
 use Test::Mutation::Message;
+use Test::Mutation::Environment;
 use Test::Mutation::Status;
 
 # The messages, the lists of statuses, and the variables of the environment each belong in one table.
 # The catalogs hold the messages and the statuses, so a die statement with words of its own and a list of statuses are violations.
-# No table holds the variables yet, so the scan states where they stand, and each place is an open finding.
 
 my $value = "\x{2026}";
 
@@ -185,9 +185,18 @@ subtest 'the scan rejects a list of statuses outside the table' => sub {
 subtest 'the scan rejects a variable of the environment that the code names' => sub {
     my $code = "my \$a = \$ENV{GITHUB_ACTIONS};\nlocal \$ENV{TMPDIR} = \$t;\nmy \$b = \$ENV{ name() };\n"
       . "my \$c = \$world->{env}{NO_COLOR};\nmy \$d = \$env->{CI};\n# \$ENV{IN_A_COMMENT}\n";
-    is Sources::environment($code), [qw(CI GITHUB_ACTIONS NO_COLOR TMPDIR a-computed-name)],
+    is Sources::environment($code), [ qw(CI GITHUB_ACTIONS NO_COLOR TMPDIR), 'unresolved environment key: name()' ],
       'a read, a local value, a computed name, and the environment of a world';
-    is Sources::environment("my %env = ( PATH => 1 );\nmy \$text = 'ENV';\n"), [], 'no use of the environment';
+    is Sources::environment('delete @ENV{qw(TMPDIR TMP TEMP)}; $env{"TEST_MUTATION_SPEC_G$number"} = $spec;'),
+      [qw(TEMP TEST_MUTATION_SPEC_Gn TMP TMPDIR)], 'a slice and a numbered shim are closed sets of environment keys';
+    is Sources::environment('my %env = ( PATH => 1 );'), ['PATH'],
+      'a test-process environment assignment registers its field';
+    is Sources::environment('my $text = "ENV";'), [], 'unrelated text names no environment key';
+    is Sources::environment('my $key = "OPEN_$input"; my $value = $ENV{$key};'),
+      ['unresolved environment key: $key'], 'an unbounded interpolated key cannot enter the catalog';
+    is Sources::environment('my $value = $ENV{spec_variable()};'),
+      ['unresolved environment key: spec_variable()'],
+      'a dynamic accessor without its definition supplies no finite family';
 };
 
 my @files  = ( 'bin/mutation', Library::modules()->@* );
@@ -234,11 +243,13 @@ Gate::checked( 'names of the statuses in the run and in the schema', scalar @nam
 Gate::checked( 'files outside the catalog of the statuses',          $scanned,      at_least => 38 );
 
 # env: every variable of the environment that the code uses stands in a table, and the manual lists it.
+my %documented = map { $_->{name} => 1 } Test::Mutation::Environment::rows()->@*;
 my ( @unlisted, %variable );
 for my $file (@files) {
     for my $name ( Sources::environment( $code{$file} )->@* ) {
         $variable{$name} = 1;
-        push @unlisted, [ 'no table and no manual lists the variable', $name, $file ] if $manual !~ /\b\Q$name\E\b/;
+        push @unlisted, [ 'no table and no manual lists the variable', $name, $file ]
+          if !$documented{$name} || index( $manual, "C<$name>" ) < 0;
     }
 }
 Gate::findings( 'contract-env-source', Space::folded( \@unlisted, 'variables', 'files' ) );

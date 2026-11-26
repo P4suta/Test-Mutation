@@ -30,7 +30,6 @@ The site model lets another parser replace `PPI` without touching a mutator.
 
 ## Confirmation
 
-`t/assumptions/ppi-lossless.t` checks the round trip and token locations on a modern corpus.
-`t/unit/syntax-ppi.t` fixes the sites of class bodies.
-`t/unit/mutators.t` checks that each corpus mutant changes one span.
-Reconsider when the binding matures or misread regions dominate a report.
+`t/assumptions/ppi-lossless.t` checks tokens in modern syntax and the minimized load-time exception.
+`t/unit/mutators.t` checks single-span replacements.
+Reconsider when misread regions dominate a report.

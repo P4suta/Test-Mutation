@@ -15,6 +15,7 @@ The baseline command must also serve a later mutation run.
 Store the passing test's duration, observed source lines, breakable lines, external library paths and source digests with the fingerprint of its measured inputs.
 Mark an observation neutral when the test compiled no target.
 An interrupted or abnormal observation supplies no reusable fact.
+
 ## Alternatives
 
 Replaying every original test would reproduce any shared filesystem effects, but a change confined to one tested module would still cost a full baseline.
@@ -29,5 +30,6 @@ A mutation run still measures its sample of cached verdicts.
 
 ## Confirmation
 
-Verify the behavior by changing a test, a loaded target and a shared project input independently.
+Verify the behavior by changing a test, a loaded target, and a shared project input independently.
 Count the originals that run and the copies, scans and processes used by an unchanged baseline.
+Revisit reuse when an unchanged fingerprint yields different covered lines or outcomes in a fresh original run.

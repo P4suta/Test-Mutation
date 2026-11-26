@@ -19,11 +19,11 @@ A nonempty `NO_COLOR` disables color even with an explicit color option, as requ
 
 ## Alternatives
 
-A separate process could print while Perl is blocked, but would need its own signal handling and a channel for the latest counts.
+A separate process could print while Perl waits, but would need signal handling and a channel for completed counts.
 
 ## Consequences
 
-Logs retain complete lines and terminals update their current position in place.
+Logs keep complete lines and terminals update their current position in place.
 An uninterruptible system call can delay a tick.
 The command configures its two output streams once at startup.
 [Perl binmode](https://perldoc.perl.org/functions/binmode)

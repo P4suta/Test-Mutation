@@ -66,14 +66,23 @@ __END__
 
 =head1 NAME
 
-Test::Mutation - mutation testing for Perl that never rewrites a source file
+Test::Mutation - measure which changes a Perl test suite detects
 
 =head1 SYNOPSIS
 
+Run a measurement and get an identifier from the list.
+In the distributed Calc example, the arithmetic change in C<add> has the identifier shown below.
+
     mutation run
     mutation list
-    mutation show 4769d125ff17
-    mutation exec 4769d125ff17 -- prove -l t/sign.t
+    mutation show 6e3ea6bd4f6f
+    mutation exec 6e3ea6bd4f6f -- prove -l t/add.t
+
+The last command shows the failing addition test and returns its exit status.
+To apply one threshold after testing two shards, save their reports in separate directories.
+
+    mutation run --shard 1/2 --report-dir part-1
+    mutation run --shard 2/2 --report-dir part-2
     mutation merge part-1/mutation.json part-2/mutation.json
 
     use Test::Mutation;
@@ -89,29 +98,13 @@ Test::Mutation - mutation testing for Perl that never rewrites a source file
 Test::Mutation changes one small piece of a source file at a time and runs the tests that reach it.
 A test suite that keeps passing has missed the change, and the report shows where.
 
-The source files on disk stay as they are.
-Each test process loads a mutated copy through a hook in C<@INC>, so an interrupted run leaves nothing to restore.
+The default run builds the distribution in a private workspace and records which statements each unmodified test reaches.
+Each job places the selected replacement in its own copy and restores the copy before measuring another mutant.
+Child interpreters and executable Perl scripts can load the replacement from the filesystem.
+An unmodified test must pass before its failure can identify a detected mutant.
+C<--in-place> uses a module-loading hook for tests that need the original checkout.
 
-The tests run in copies of the project inside the temporary directory.
-A file that a test writes or removes under a mutant changes a copy, and the project stays as it was.
-Each mutant starts from the state that the unmodified run left, so no mutant sees what another one left behind.
-A copy leaves out C<.git>, the work directory, and the report directory, and it holds C<local> as a link.
-C<--in-place> runs the tests in the project itself, for tests that need the repository data.
-
-The unmodified sources run first through the same hook.
-That run times every test and records the lines it reaches, and later each mutant runs the tests that reach its statement.
-
-A mutant ends in one of these states.
-C<Killed> means a test failed.
-C<Survived> means every test that reached the mutant passed.
-C<NoCoverage> means no test loaded the mutated code.
-C<Timeout> means a test exceeded its time limit or printed past its output limit of 256 MiB, and no other test failed, which the score leaves out.
-After a timeout the run tries the next test, and the second timeout ends the work on the mutant.
-C<CompileError> means the mutant does not compile.
-C<NoVerdict> means the run could not decide, for example because a test loaded the original file around the hook.
-C<Ignored> means a comment suppressed the mutant, or the mutant compiles to code the run already knows.
-Every state but C<Killed> and C<Survived> comes with a reason, such as C<time-limit> or C<loaded-around-hook>.
-
+L<mutation/STATUSES> describes each result and its representation in the report schema.
 The score is the percentage of C<Killed> among C<Killed>, C<Survived>, and C<NoCoverage>.
 The file C<mutation.json> writes each state with its name in the report schema, so a viewer of the file computes the same score.
 A C<Timeout> is C<Ignored> there and a C<NoVerdict> is C<RuntimeError>, and the C<testMutation> key of each mutant keeps the state and its reason.
@@ -124,7 +117,8 @@ A mutant in a field or in an C<ADJUST> block skips the comparison, because L<B::
 C<mutation run --since origin/main> covers the changed lines, and C<--shard 2/4> covers one of four equal parts.
 C<mutation merge> reads the C<mutation.json> of every part and reports the whole run, with its score and its exit status.
 It refuses a set of files that misses a part or mixes two runs.
-C<--cache> reuses the results of an earlier run for every mutant whose file and tests are unchanged.
+The default cache reuses results when the interpreter, measurement settings, dependencies, environment, and measured sources and tests match.
+Each reused run measures a sample again and reports a disagreement as inconclusive.
 C<mutation_score_ok> asserts a score from a test file.
 
 =head1 CONFIGURATION
@@ -135,41 +129,15 @@ A file named C<mutation.toml> in the project directory changes the defaults, and
 A run writes its reports into C<mutation-report>, and C<--cache> keeps its results in C<.mutation>.
 Both directories belong in C<.gitignore>.
 
-A setting has one name: C<--min-score> on the command line, C<min-score> in the file, and C<min_score> in a call of the library.
+Use C<--min-score> on the command line, C<min-score> in the file, and C<min_score> in the Perl API.
+L<mutation/SETTINGS> lists the spelling and default for each supported setting.
 The file holds one key for each setting and no sections, and every setting but C<root> and C<config> has its key.
 A flag of the command line is C<true> or C<false> in the file, and C<--no-> before its name turns it off.
 The command line beats the file, and the file beats the default, each with the whole value of a setting.
 
-    jobs = 4
+    jobs = 2
     cache = true
-    cache-dir = ".mutation"
-    keep-work = false
-
-    source = ["lib/**/*.pm"]
-    source-exclude = ["lib/Generated/**"]
-    test = ["t/**/*.t"]
-    test-exclude = ["t/fixtures/**"]
-
-    perl = "/usr/bin/perl"
-    switch = ["-Ilib"]
-    timeout-factor = 4
-    timeout-floor = 10
-    baseline-timeout = 600
-    coverage = "line"
-    in-place = false
-    link = ["local"]
-
-    profile = "default"
-    enable = ["regex-anchor"]
-    disable = ["sub-body"]
-    equivalence = true
-    suppress-require-names = false
-    suppress-require-reason = false
-
-    report-dir = "mutation-report"
-    format = ["terminal", "json", "html"]
-    threshold-high = 80
-    threshold-low = 60
+    format = ["terminal", "json"]
     min-score = 70
 
 The C<extended> profile adds mutators for literals, fixed conditions, sort order, range bounds, and patterns.
@@ -193,6 +161,11 @@ A reason may follow after a colon and a space, and the report shows it with ever
 C<--suppress-require-names> requires each suppression to name at least one mutator.
 C<--suppress-require-reason> requires each suppression to give a reason.
 Both requirements default to off.
+
+A distribution can require a mutator name and an explanation for each suppression.
+
+    suppress-require-names = true
+    suppress-require-reason = true
 
 A comment that resembles these forms, such as C<# no mutate> or C<##no mutate>, must have one of them exactly.
 The run refuses such a comment in another form, an unknown mutator name, a C<## use mutate> without an open block, a second block inside an open one, a block that its file leaves open, and a C<## no mutate sub> before another statement.

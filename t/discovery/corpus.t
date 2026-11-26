@@ -9,7 +9,6 @@ use Oracle;
 use Test::Mutation::Host;
 
 # Every mutant of the corpus, of the fixtures, and of the tool itself stands before the oracles, with perl as the judge.
-# A violation is a defect of the tool, and it stays in the open findings until the work that removes it.
 
 my $OLDEST  = 36;
 my $workers = min( 8, Test::Mutation::Host::processors()->{count} );
@@ -46,7 +45,7 @@ sub judged_ok ( $scope, $summary ) {
 
 subtest 'the walk rejects a file that perl refuses as it stands' => sub {
     my $summary = Oracle::summary( [ [ 'lib/A.pm', 'problem', 'judge', 'perl refuses the original' ] ] );
-    is Gate::outcomes( sub { judged_ok( 'rejected', $summary ) } ), [ 'fail', ('pass') x 16 ],
+    is Gate::outcomes( sub { judged_ok( 'rejected', $summary ) } ), [ 'fail', ('pass') x 8 ],
       'a problem fails the walk, and the oracles find nothing in it';
 };
 

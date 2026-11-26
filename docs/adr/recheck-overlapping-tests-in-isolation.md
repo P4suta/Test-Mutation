@@ -20,12 +20,13 @@ An independent reproducible failure can still detect the mutant.
 
 ## Alternatives
 
-Serializing the entire measurement prevents independent tests from using the available jobs.
+Serial execution delays independent tests.
 Accepting the first failure can blame a mutant for an unavailable shared resource.
 
 ## Consequences
 
 A contested failure costs one verification.
+Reconsider serialization when differently named tests contend.
 Projects can declare resource constraints in advance to avoid the retry.
 
 A parallel rule in `t/testrules.yml` orders Test::Mutation's unit and shim tests before nested measurements.

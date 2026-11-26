@@ -6,7 +6,7 @@ date: 2026-11-26
 
 ## Context
 
-A failing test can encounter an invalid replacement or an exception raised by application code during compilation.
+A failing test can encounter an invalid replacement or an exception the target raises during compilation.
 A module can also require initialization that its tests normally provide.
 
 ## Decision
@@ -19,7 +19,7 @@ Report an invalid replacement as a tool defect and identify its file and cause i
 ## Alternatives
 
 Counting every loading failure as a detected mutation awards credit for invalid code.
-A syntax check of the changed file alone cannot identify a source that requires its application's initialization.
+Checking only the changed file hides failures that occur when the original needs its usual initialization.
 
 ## Consequences
 
@@ -28,3 +28,4 @@ A run that exposes invalid generated code can preserve its report for diagnosis.
 ## Confirmation
 
 The tests exercise each cause, imported and missing functions, and exceptions that resemble Perl diagnostics.
+Revisit classification if equivalent Perl diagnostics conceal different compilation failures.

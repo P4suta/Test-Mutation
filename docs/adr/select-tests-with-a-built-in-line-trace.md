@@ -28,6 +28,6 @@ Code inside the debugger callback leaves no trace, so a run of the tool on itsel
 
 ## Confirmation
 
-`t/shim/trace.t` fixes the recorded lines.
-`t/e2e/selection.t` checks that line and file selection detect the same mutants on every fixture.
-Reconsider when another statement runs without a recorded line.
+`t/shim/main-program.t` checks script lines and unexecuted statements.
+`t/e2e/selection.t` compares file and line selection on every fixture.
+Reconsider when execution lacks a recorded line.

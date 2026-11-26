@@ -5,7 +5,7 @@ use lib 't/lib';
 use Gate;
 
 # The fast tier runs every axis value once on each change, and the full tier adds the seeds and the products.
-# The open findings belong to the default seed, and DISCOVERY_SEED repeats a run on another one.
+# DISCOVERY_SEED selects a reproducible set of inputs.
 
 my $SEED = 1;
 
@@ -37,7 +37,7 @@ sub cases ( $fast, $more ) {
     return ( ( map { [ 'fast', $_ ] } $fast->@* ), ( full() ? map { [ 'full', $_ ] } $more->@* : () ) );
 }
 
-# The fast tier must find the same set on every run, so a finding that the full tier alone reaches has a list of its own.
+# Report each violation in the first tier that reaches it.
 sub report ( $harness, $found ) {
     my %fast = map { $_ => 1 } @{ $found->{fast} || [] };
     my $ok   = Gate::findings( "engine-$harness", [ sort keys %fast ] );

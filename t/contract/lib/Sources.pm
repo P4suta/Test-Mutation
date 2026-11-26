@@ -157,21 +157,41 @@ sub lists_of ( $code, $names ) {
 
 my $ENVIRONMENT_NAME = qr/[[:upper:]][[:upper:][:digit:]_]*/;
 
-sub _environment_name ($subscript) {
-    my ($name) = $subscript =~ /\A['"]?($ENVIRONMENT_NAME)['"]?\z/;
-    return defined $name ? $name : 'a-computed-name';
+sub _environment_names ( $key, $text ) {
+    my ($literal) = $key =~ /\A['"]?($ENVIRONMENT_NAME)['"]?\z/;
+    return $literal if defined $literal;
+    my ($prefix) = $key =~ /\A"(TEST_MUTATION_(?:SPEC|RECORD)_G)\$\w+"\z/;
+    return $prefix . 'n' if defined $prefix;
+    if ( $key =~ /\A(\w+)\(\)\z/ ) {
+        my $function = $1;
+        my ( $family, $base ) = $text =~
+          /sub\s+\Q$function\E\s*\{\s*return\s+\$GENERATION\s*\?\s*"(TEST_MUTATION_(?:SPEC|RECORD)_G)\$GENERATION"\s*:\s*'(TEST_MUTATION_(?:SPEC|RECORD))'\s*;\s*\}/s;
+        return ( $base, $family . 'n' ) if defined $family;
+    }
+    if ( $key =~ /\A'\s*[.]\s*(\$\w+)\s*[.]\s*'\z/ ) {
+        my $variable = $1;
+        my ($family) = $text =~ /my\s+\Q$variable\E\s*=\s*"(TEST_MUTATION_(?:SPEC|RECORD)_G)\$\w+"\s*;/;
+        return $family . 'n' if defined $family;
+    }
+    return "unresolved environment key: $key";
 }
 
-# The names of the environment that the code reads or sets, with a mark for a name that the code computes.
 sub environment ($code) {
     my $document = _document($code);
     $document->prune('PPI::Token::Comment');
     $document->prune('PPI::Token::Pod');
     my $text       = $document->serialize =~ s/^__END__\n.*//msr;
-    my @subscripts = $text                =~ /\$ENV\{\s*([^}]*?)\s*\}/g;
-    my @of_a_world = $text                =~ /(?:\$env|\{env\})(?:->)?\{($ENVIRONMENT_NAME)\}/g;
-    my %name       = map { $_ => 1 } @of_a_world, map { _environment_name($_) } @subscripts;
-    return [ sort keys %name ];
+    my @subscripts = $text                =~ /\$(?:ENV|env)\{\s*([^}]*?)\s*\}/g;
+    my @names      = $text                =~ /(?:\$env|\$inherited|\{env\})(?:->)?\{($ENVIRONMENT_NAME)\}/g;
+    push @names, _environment_names( $_, $text ) for @subscripts;
+    for my $slice ( $text =~ /\@ENV\{qw\(([^)]*)\)\}/g ) {
+        push @names, split q{ }, $slice;
+    }
+    for my $initial ( $text =~ /my\s+%env\s*=\s*[(]([^;]+)[)];/g ) {
+        push @names, $initial =~ /\b($ENVIRONMENT_NAME)\s*=>/g;
+    }
+    my %names = map { $_ => 1 } @names;
+    return [ sort keys %names ];
 }
 
 # The documentation of a file: its text, its verbatim paragraphs without their indent, and the texts of its code references.

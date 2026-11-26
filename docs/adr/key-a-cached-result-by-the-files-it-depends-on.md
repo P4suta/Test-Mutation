@@ -4,10 +4,12 @@ date: 2026-11-23
 ---
 # Key a cached result by the files it depends on
 
+[Proposed successor for cache identity](reuse-verdicts-by-the-inputs-that-produced-them.md)
+
 ## Context
 
 A second run on an unchanged project repeats every test.
-A stale result is worse than a slow run, so reuse needs a key that changes with every input.
+A changed input can invalidate a stored result.
 
 ## Decision
 

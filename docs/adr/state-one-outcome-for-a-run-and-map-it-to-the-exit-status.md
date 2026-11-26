@@ -24,7 +24,7 @@ A handler that dies at once can die inside a library that catches errors, or ins
 
 ## Consequences
 
-The command, merged shards, and the test assertion use `Outcome::of` to decide whether the requested threshold was met.
+The command, merged shards, and the test assertion use `Outcome::of` to decide whether the measured score meets the requested threshold.
 A shard defers its threshold until the complete measurement is available.
 The saved report records the selection so the distinction survives a round trip.
 

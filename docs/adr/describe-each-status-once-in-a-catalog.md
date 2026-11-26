@@ -24,7 +24,6 @@ An extra status breaks the pinned schema.
 ## Consequences
 
 A new status or reason is one row and a case that gives it.
-Reasons of later engine work wait as open findings.
 
 ## Confirmation
 

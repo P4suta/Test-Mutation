@@ -1,9 +1,13 @@
 use v5.36;
 use Test2::V0;
+use Cwd        ();
 use File::Temp ();
 use TOML::Tiny ();
-use lib 't/lib', 't/contract/lib', 't/e2e/lib';
-use Fixture qw(copy_of);
+use lib 't/lib', 't/contract/lib', 't/e2e/lib', 'xt/lib';
+use lib 't/shim/lib';
+use Manual;
+use ShimHarness qw(run_command);
+use Fixture     qw(copy_of ran);
 use Gate;
 use Library;
 use Sources;
@@ -18,7 +22,6 @@ use Test::Mutation::Types ();
 
 # S9, the documentation: every verbatim block and every code reference of the command and the library.
 # An example runs or matches a table, a reference names something that exists, and the manual names every row of the tables.
-# No section of the manual comes from a table yet, so each row that the manual leaves out is an open finding.
 
 my $project  = copy_of('calc');
 my @commands = Test::Mutation::Commands::rows()->@*;
@@ -79,10 +82,11 @@ sub uncompiled (@blocks) {
 # What a code reference names, where its form says so: a command line, a flag, or a status.
 sub unresolved ($reference) {
     my ( $first, @rest ) = split q{ }, $reference;
+    return if $usage{ $reference =~ s/ \[options\]//r };
     if ( $first eq 'mutation' ) {
         my ($command) = grep { !/\A-/ } @rest;
         return 'a command that no table names' if defined $command && !$word{$command} && $command !~ /[[:upper:]]/;
-        return 'a flag that no table names'    if grep { /\A--/ && !$flag{$_} } @rest;
+        return 'a flag that no table names'    if grep { /\A--.+/ && !$flag{$_} } @rest;
         return;
     }
     return $flag{$first} ? () : 'a flag that no table names' if $first =~ /\A--[[:lower:]][[:lower:]-]*[[:lower:]]\z/;
@@ -119,6 +123,23 @@ subtest 'the reader of the documentation rejects an example that the command ref
       'a reference that names nothing, and one whose form names no table';
 };
 
+subtest 'the generator rejects missing, repeated and stale sections' => sub {
+    my $skeleton = join "\n\n", map { "=head1 $_\n\n=for generated $_\n\n=for end generated $_" } Manual::sections();
+    my $manual   = Manual::render($skeleton);
+    is Manual::render($manual), $manual, 'rendering the reference twice preserves its bytes';
+    isnt $skeleton,             $manual, 'empty sections cannot pass the freshness check';
+    like dies { Manual::render( $manual =~ s/=for generated SETTINGS/=for generated OTHER/r ) }, qr/SETTINGS|OTHER/,
+      'a missing or renamed section fails';
+    like dies { Manual::render("$manual\n\n=for generated SETTINGS\n\n=for end generated SETTINGS") }, qr/SETTINGS/,
+      'a repeated section fails';
+    like dies { Manual::render( $manual =~ s/=for end generated STATUSES/=for end generated WRONG/r ) }, qr/STATUSES/,
+      'a mismatched ending fails';
+    my $stale = $manual =~ s/--jobs/--wrong/r;
+    isnt Manual::render($stale), $stale, 'an edited catalog entry must be regenerated';
+    my $installed = Sources::slurp('bin/mutation');
+    is Manual::render($installed), $installed, 'the distributed command contains the exact generated reference';
+};
+
 my @files = ( 'bin/mutation', Library::modules()->@* );
 my %read  = map { $_ => Sources::documentation( Sources::slurp($_) ) } @files;
 my ( @examples, @symbols,    %kinds );
@@ -149,12 +170,80 @@ Gate::checked( 'code references that a table resolves', $resolved,        at_lea
 
 # manual: the manual names every row of every table.
 my $manual = join q{}, map { $read{$_}{text} } 'bin/mutation', 'lib/Test/Mutation.pm';
-my @blocks = map { $read{$_}{blocks}->@* } 'bin/mutation', 'lib/Test/Mutation.pm';
-my %key;
-for my $block ( grep { kind($_) eq 'settings' } @blocks ) {
-    my ($data) = TOML::Tiny::from_toml($block);
-    $key{$_} = 1 for keys %{ $data || {} };
-}
+subtest 'public command examples run on the distributed Calc fixture' => sub {
+    my $root        = copy_of('calc');
+    my @blocks      = map { $read{$_}{blocks}->@* } 'bin/mutation', 'lib/Test/Mutation.pm';
+    my @invocations = map { split /\n/ } grep { kind($_) eq 'commands' } @blocks;
+    my %executed;
+    for my $example (@invocations) {
+        my ( undef, @words ) = split q{ }, $example;
+        $executed{ $words[0] } = 1;
+        my $failed_addition = $words[0] eq 'exec';
+        my $run             = ran( $failed_addition ? 1 : 0, $root, @words );
+        like $run->{stdout}, qr/Failed|FAIL/i,     'the replacement makes the example test fail' if $failed_addition;
+        like $run->{stdout}, qr/6e3ea6bd4f6f/,     'the list contains the documented identifier' if $words[0] eq 'list';
+        like $run->{stdout}, qr/Result: measured/, 'the shards combine into a scored run' if $words[0] eq 'merge';
+    }
+    is [ sort keys %executed ], [ sort map { $_->name } @commands ],
+      'the installed examples exercise every command in the catalog';
+};
+
+subtest 'the examples of the Perl API run as written' => sub {
+    my $root    = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    my $library = Cwd::abs_path('lib');
+    Fixture::write_file( "$root/lib/Total.pm",
+        "package Total;\nsub sum { my (\$a, \$b) = \@_; return \$a + \$b }\n1;\n" );
+    Fixture::write_file( "$root/t/sum.t", "use Test::More tests => 1;\nuse Total;\nis Total::sum(4, 3), 7;\n" );
+    my %roles;
+    for my $block ( grep { kind($_) eq 'perl' } $read{'lib/Test/Mutation.pm'}{blocks}->@* ) {
+        if ( $block =~ /## no mutate/ ) {
+            my $path = 'lib/SuppressionExample.pm';
+            Fixture::write_file( "$root/$path",
+                "package SuppressionExample;\nuse v5.36;\nmy \$base = 1;\n$block\n1;\n" );
+            my $mutants = Test::Mutation::mutants( root => $root, source => [$path], profile => 'extended' );
+            my %reasons = map { ( $_->suppression_reason // q{} ) => 1 } grep { $_->suppressed } @$mutants;
+            is [ sort keys %reasons ], [ q{}, 'the banner is cosmetic', 'the limit is fixed' ],
+              'the example exercises the line, named block and subroutine forms';
+            unlink "$root/$path" or die "remove $path: $!";
+            $roles{suppression}++;
+            next;
+        }
+        my $prelude = "use v5.36;\nuse Test::Mutation;\nmy \$directory = q{.};\n";
+        my ( $role, $after, $expected );
+        if ( $block =~ /mutation_score_ok\s*\(/ ) {
+            $role = 'assertion';
+            $prelude .= "use Test::More tests => 1;\n" unless $block =~ /use Test::More/;
+            $expected = qr/^1[.][.]1\nok 1 - (?:tests detect mutants|the mutation score is at least 80%)\n\z/;
+        }
+        elsif ( $block =~ /Test::Mutation::mutants\s*\(/ ) {
+            $role     = 'catalog';
+            $after    = 'say scalar grep { $_->mutator eq q{arithmetic} } @$mutants;';
+            $expected = qr/\A1\n\z/;
+        }
+        elsif ( $block =~ /Test::Mutation::run\s*\(/ ) {
+            $role     = 'measurement';
+            $after    = 'say $result->tally->{score};' unless $block =~ /printf/;
+            $expected = qr/\A100(?:[.]0%)?\n\z/;
+        }
+        else {
+            fail 'the public Perl example needs an observable outcome';
+            next;
+        }
+        my $script = Fixture::write_file( "$root/xt/example.pl", join "\n", $prelude, $block, $after // q{} );
+        my $result = run_command(
+            root    => $root,
+            command => [ $^X, "-I$library", $script ],
+            env     => { PERL5LIB => $ENV{PERL5LIB} }
+        );
+        is [ $result->{status}, $result->{signal} ], [ 0, 0 ], "the $role example exits successfully"
+          or diag $result->{stderr};
+        like $result->{stdout}, $expected, "the $role example produces the documented outcome";
+        $roles{$role}++;
+    }
+    is \%roles, { assertion => 2, catalog => 1, measurement => 2, suppression => 1 },
+      'both introductory examples, all public functions and the suppression example ran';
+};
+
 my @unnamed;
 for my $command (@commands) {
     push @unnamed, [ 'the manual names no row of the table', $command->name, 'commands' ]
@@ -167,7 +256,7 @@ for my $switch (@switches) {
 push @unnamed, map { [ 'the manual names no row of the table', $_->flag, 'flags' ] }
   grep { $manual !~ /(?<![\w-])\Q@{[ $_->flag ]}\E(?![\w-])/ } Space::flags()->@*;
 push @unnamed, map { [ 'the manual names no row of the table', $_->key, 'keys' ] }
-  grep { !$key{ $_->key } } grep { $_->offers('file') } @settings;
+  grep { index( $manual, 'The configuration key is C<' . $_->key . '>.' ) < 0 } grep { $_->offers('file') } @settings;
 push @unnamed,
   map { [ 'the manual names no row of the table', $_, 'statuses' ] } grep { $manual !~ /C<\Q$_\E>/ } @statuses;
 push @unnamed, map { [ 'the manual names no row of the table', $_->code, 'exit-statuses' ] }

@@ -12,23 +12,22 @@ mutation - measure how many mutants the tests of a Perl project detect
 
 =head1 SYNOPSIS
 
-    mutation [run] [PATH[:LINES]...] [options]
-    mutation baseline [options]
-    mutation list [PATH[:LINES]...] [options]
-    mutation show ID [options]
-    mutation exec ID [options] -- COMMAND [ARGUMENT...]
-    mutation merge FILE... [options]
-    mutation mutators [options]
+    mutation baseline
+    mutation run
+    mutation list
+    mutation help run
+
+Inspect the available mutators and configuration defaults when choosing how to measure a project.
+
+    mutation mutators
     mutation settings
-    mutation help [COMMAND]
-    mutation --help
-    mutation --version
 
 =head1 DESCRIPTION
 
-C<mutation> runs in the root of a distribution, or in the directory that C<--root> names.
-C<mutation --help> lists every option.
-L<Test::Mutation> describes the configuration file, the reports, and the limits.
+Run C<mutation> in a distribution or pass its directory with C<-C>.
+The terminal report names a change to inspect with C<mutation show> and the test that detected it when available.
+C<mutation exec> runs the requested command in a private project copy, including when the measurement configuration selects C<--in-place>.
+L<Test::Mutation> describes the Perl API.
 
 =head1 PROGRESS
 
@@ -60,6 +59,1301 @@ Selecting a build library sets C<PERL_DL_NONLAZY> for the test process.
 C<HARNESS_RULESFILE> selects the scheduling rules used by C<prove> when tests need exclusive access.
 C<TEST_MUTATION_ROOT> identifies the current test copy.
 C<TEST_MUTATION_GENERATION> selects its shim when a test starts another measurement.
+
+=head1 COMMANDS
+
+=for generated COMMANDS
+
+=over 4
+
+=item C<mutation [run] [PATH[:LINES]...] [options]>
+
+Measure how many mutants the tests detect (the default).
+
+=item C<mutation baseline [options]>
+
+Run the unmodified tests and report failures.
+
+=item C<mutation list [PATH[:LINES]...] [options]>
+
+Print the mutants without running a test.
+
+=item C<mutation show ID [options]>
+
+Print one mutant as a unified diff.
+
+=item C<mutation exec ID [options] -- COMMAND [ARGUMENT...]>
+
+Run a command with one mutant active.
+
+=item C<mutation merge FILE... [options]>
+
+Report one run from the mutation.json of every part of --shard.
+
+=item C<mutation mutators [options]>
+
+Print the name, the profile, and the description of every mutator.
+
+=item C<mutation settings>
+
+Print the available settings and their defaults.
+
+=item C<mutation help [COMMAND]>
+
+Show the usage and options of a command.
+
+=item C<mutation --help>
+
+Print this text.
+
+=item C<mutation --version>
+
+Print the version.
+
+=back
+
+=for end generated COMMANDS
+
+=head1 SETTINGS
+
+=for generated SETTINGS
+
+=over 4
+
+=item C<--root, -C>
+
+Run as if mutation had started in DIR.
+The Perl argument is C<root>.
+The default is C<.>.
+
+=item C<--config>
+
+Configuration file to read in place of mutation.toml.
+The Perl argument is C<config>.
+The default is mutation.toml when it exists.
+
+=item C<--jobs, -j>
+
+Test processes to run side by side.
+The configuration key is C<jobs>.
+The Perl argument is C<jobs>.
+The default is one less than the processors, and at least one.
+
+=item C<--github, --no-github>
+
+Write GitHub Actions annotations and a job summary.
+The configuration key is C<github>.
+The Perl argument is C<github>.
+The default is on inside GitHub Actions.
+
+=item C<--color, --no-color>
+
+Color the progress and the terminal report.
+The configuration key is C<color>.
+The Perl argument is C<color>.
+The default is on for a terminal without NO_COLOR.
+
+=item C<--min-score>
+
+Fail when the score is below N percent.
+The configuration key is C<min-score>.
+The Perl argument is C<min_score>.
+The default is none.
+
+=item C<--format>
+
+Report to write: terminal, json, or html; repeatable.
+The configuration key is C<format>.
+The Perl argument is C<format>.
+The default is terminal json html.
+
+=item C<--report-dir>
+
+Directory for the report files.
+The configuration key is C<report-dir>.
+The Perl argument is C<report_dir>.
+The default is mutation-report.
+
+=item C<--threshold-high>
+
+Score from which a report marks the result as good.
+The configuration key is C<threshold-high>.
+The Perl argument is C<threshold_high>.
+The default is 80.
+
+=item C<--threshold-low>
+
+Score below which a report marks the result as poor.
+The configuration key is C<threshold-low>.
+The Perl argument is C<threshold_low>.
+The default is 60.
+
+=item C<--perl>
+
+Interpreter that runs the tests.
+The configuration key is C<perl>.
+The Perl argument is C<perl>.
+The default is the running interpreter.
+
+=item C<--lib>
+
+Directory to search for Perl modules.
+The configuration key is C<lib>.
+The Perl argument is C<lib>.
+The default is lib, or blib for a distribution that builds.
+
+=item C<--switch>
+
+Switch of the interpreter of the tests; repeatable.
+The configuration key is C<switch>.
+The Perl argument is C<switch>.
+The default is none.
+
+=item C<--source>
+
+Files to mutate; repeatable.
+The configuration key is C<source>.
+The Perl argument is C<source>.
+The default is lib/**/*.pm and the Perl scripts of bin and script.
+
+=item C<--source-exclude>
+
+Files to leave unmutated; repeatable.
+The configuration key is C<source-exclude>.
+The Perl argument is C<source_exclude>.
+The default is none.
+
+=item C<--test>
+
+Test files; repeatable.
+The configuration key is C<test>.
+The Perl argument is C<test>.
+The default is t/**/*.t.
+
+=item C<--test-exclude>
+
+Test files to leave out; repeatable.
+The configuration key is C<test-exclude>.
+The Perl argument is C<test_exclude>.
+The default is none.
+
+=item C<--profile>
+
+Mutator profile: default or extended.
+The configuration key is C<profile>.
+The Perl argument is C<profile>.
+The default is default.
+
+=item C<--enable>
+
+Add a mutator; repeatable.
+The configuration key is C<enable>.
+The Perl argument is C<enable>.
+The default is none.
+
+=item C<--disable>
+
+Remove a mutator; repeatable.
+The configuration key is C<disable>.
+The Perl argument is C<disable>.
+The default is none.
+
+=item C<--equivalence, --no-equivalence>
+
+Leave out the mutants that compile to the code of the original.
+The configuration key is C<equivalence>.
+The Perl argument is C<equivalence>.
+The default is on.
+
+=item C<--suppress-require-names, --no-suppress-require-names>
+
+Require each suppression comment to name its mutators.
+The configuration key is C<suppress-require-names>.
+The Perl argument is C<suppress_require_names>.
+The default is off.
+
+=item C<--suppress-require-reason, --no-suppress-require-reason>
+
+Require each suppression comment to give a reason.
+The configuration key is C<suppress-require-reason>.
+The Perl argument is C<suppress_require_reason>.
+The default is off.
+
+=item C<--coverage>
+
+Select tests by line or by file.
+The configuration key is C<coverage>.
+The Perl argument is C<coverage>.
+The default is line.
+
+=item C<--timeout-factor>
+
+Time limit as a multiple of the unmodified duration.
+The configuration key is C<timeout-factor>.
+The Perl argument is C<timeout_factor>.
+The default is 4.
+
+=item C<--timeout-floor>
+
+Smallest time limit in seconds.
+The configuration key is C<timeout-floor>.
+The Perl argument is C<timeout_floor>.
+The default is 10.
+
+=item C<--baseline-timeout>
+
+Time limit in seconds for a test of the unmodified run.
+The configuration key is C<baseline-timeout>.
+The Perl argument is C<baseline_timeout>.
+The default is 600.
+
+=item C<--in-place, --no-in-place>
+
+Run the tests in the project itself, not in copies of it.
+The configuration key is C<in-place>.
+The Perl argument is C<in_place>.
+The default is off.
+
+=item C<--link>
+
+Path that a copy holds as a link to the project; repeatable.
+The configuration key is C<link>.
+The Perl argument is C<link>.
+The default is local.
+
+=item C<--keep-work, --no-keep-work>
+
+Keep the work directory after the run.
+The configuration key is C<keep-work>.
+The Perl argument is C<keep_work>.
+The default is off.
+
+=item C<--mutant>
+
+Rerun the named mutant and confirm a kill or survival with a second attempt (repeatable).
+The configuration key is C<mutant>.
+The Perl argument is C<mutant>.
+The default is none.
+
+=item C<--since>
+
+Cover the lines changed since a Git revision.
+The configuration key is C<since>.
+The Perl argument is C<since>.
+The default is none.
+
+=item C<--shard>
+
+Cover part K of N equal parts of the mutants.
+The configuration key is C<shard>.
+The Perl argument is C<shard>.
+The default is none.
+
+=item C<--cache, --no-cache>
+
+Reuse the results of an earlier run where the inputs are unchanged.
+The configuration key is C<cache>.
+The Perl argument is C<cache>.
+The default is on.
+
+=item C<--cache-dir>
+
+Directory for cached measurement results.
+The configuration key is C<cache-dir>.
+The Perl argument is C<cache_dir>.
+The default is .mutation.
+
+=back
+
+=for end generated SETTINGS
+
+=head1 STATUSES
+
+=for generated STATUSES
+
+=over 4
+
+=item C<Killed>
+
+A test that loaded the mutant failed.
+The report schema uses C<Killed>.
+
+=item C<Survived>
+
+Every test that loaded the mutant passed.
+The report schema uses C<Survived>.
+
+=item C<NoCoverage>
+
+No test loaded the mutant.
+The report schema uses C<NoCoverage>.
+
+=item C<Timeout>
+
+A test that loaded the mutant exceeded its time limit or printed past its output limit, and no test failed.
+The report schema uses C<Ignored>.
+
+=item C<CompileError>
+
+The mutated file fails to compile.
+The report schema uses C<CompileError>.
+
+=item C<NoVerdict>
+
+The run could not decide, for the cause that the reason names.
+The report schema uses C<RuntimeError>.
+
+=item C<Ignored>
+
+A comment suppressed the mutant, or it compiles to code that the run measured already.
+The report schema uses C<Ignored>.
+
+=item C<Pending>
+
+The run ended before the mutant.
+The report schema uses C<Pending>.
+
+=back
+
+=for end generated STATUSES
+
+=head1 EXIT STATUS
+
+=for generated EXIT STATUS
+
+=over 4
+
+=item C<status 0>
+
+The command did its work.
+
+=item C<status 1>
+
+The score is below the one that --min-score asks for.
+
+=item C<status 2>
+
+The command refuses its arguments, its configuration, or a file that they name.
+
+=item C<status 3>
+
+A test fails without a mutant.
+
+=item C<status 4>
+
+The run states no score.
+
+=item C<status 5>
+
+A file, Git, or a process kept the command from its work.
+
+=item C<status 6>
+
+An error inside mutation, which is a defect of the tool.
+
+=item C<status 125>
+
+Mutation exec failed apart from the command that it runs.
+
+=item C<status 126>
+
+The command of mutation exec exists, and the system refuses to run it.
+
+=item C<status 127>
+
+Mutation exec finds no command of the given name.
+
+=item C<status 129>
+
+The signal HUP ended the run.
+
+=item C<status 130>
+
+The signal INT ended the run.
+
+=item C<status 131>
+
+The signal QUIT ended the run.
+
+=item C<status 141>
+
+The signal PIPE ended the run.
+
+=item C<status 143>
+
+The signal TERM ended the run.
+
+=back
+
+=for end generated EXIT STATUS
+
+=head1 ENVIRONMENT
+
+=for generated ENVIRONMENT
+
+=over 4
+
+=item C<PATH>
+
+Looks up the selected Perl interpreter and programs invoked by the tests.
+
+=item C<PERL5LIB>
+
+Adds library directories inherited by Perl processes.
+
+=item C<PERL5OPT>
+
+Supplies inherited interpreter switches before the measurement shim loads.
+
+=item C<PERL_DL_NONLAZY>
+
+Requests eager XS symbol resolution for a build-library test.
+
+=item C<HARNESS_ACTIVE>
+
+Identifies a child test started by the harness.
+
+=item C<HARNESS_VERSION>
+
+Gives child tests the installed TAP harness version.
+
+=item C<HARNESS_RULESFILE>
+
+Selects the TAP harness scheduling rules for parallel and sequential tests.
+
+=item C<TMPDIR>
+
+Selects the temporary parent and points each running test at its private temporary directory.
+
+=item C<TMP>
+
+Can select the temporary parent on platforms where File::Spec reads TMP.
+
+=item C<TEMP>
+
+Can select the temporary parent on platforms where File::Spec reads TEMP.
+
+=item C<PWD>
+
+Names the working directory of the child test.
+
+=item C<NO_COLOR>
+
+Disables color when its value is nonempty.
+
+=item C<GITHUB_ACTIONS>
+
+Enables GitHub annotations by default when its value is true.
+
+=item C<GITHUB_STEP_SUMMARY>
+
+Receives the Markdown report for the current GitHub Actions step.
+
+=item C<TEST_MUTATION_ROOT>
+
+Identifies the measured project inside a running test.
+
+=item C<TEST_MUTATION_GENERATION>
+
+Selects the shim generation for a nested measurement.
+
+=item C<TEST_MUTATION_SPEC>
+
+Names the measurement instructions for the unnumbered shim.
+
+=item C<TEST_MUTATION_RECORD>
+
+Names the process record directory for the unnumbered shim.
+
+=item C<TEST_MUTATION_SPEC_Gn>
+
+Names the measurement instructions for shim generation n.
+
+=item C<TEST_MUTATION_RECORD_Gn>
+
+Names the process record directory for shim generation n.
+
+=item C<PERL_HASH_SEED>
+
+The compiler comparison uses a fixed seed for reproducible deparsing.
+
+=item C<PERL_PERTURB_KEYS>
+
+The compiler comparison uses a fixed hash traversal mode.
+
+=item C<OLDPWD>
+
+The previous shell working directory is excluded from the cache key.
+
+=item C<SHLVL>
+
+The shell nesting level is excluded from the cache key.
+
+=item C<_>
+
+The previous shell command is excluded from the cache key.
+
+=item C<GITHUB_RUN_ID>
+
+The cache key excludes the value assigned by the runner.
+
+=item C<GITHUB_RUN_NUMBER>
+
+The cache key excludes the value assigned by the runner.
+
+=item C<GITHUB_RUN_ATTEMPT>
+
+The cache key excludes the value assigned by the runner.
+
+=item C<RUNNER_TEMP>
+
+The cache key excludes the value assigned by the runner.
+
+=item C<RUNNER_TRACKING_ID>
+
+The cache key excludes the value assigned by the runner.
+
+=item C<CI_JOB_ID>
+
+The cache key excludes the value assigned by the runner.
+
+=item C<CI_PIPELINE_ID>
+
+The cache key excludes the value assigned by the runner.
+
+=back
+
+=for end generated ENVIRONMENT
+
+=head1 DIAGNOSTICS
+
+=for generated DIAGNOSTICS
+
+=over 4
+
+=item C<build-recipe-missing>
+
+C<XS sources need Makefile.PL or Build.PL; build the distribution separately and use -C to select its build directory>
+An XS distribution needs a configuration script in its source directory.
+
+=item C<build-product-stale>
+
+C<{path} needs a rebuild; run {command} before in-place measurement>
+An in-place build product predates its source.
+
+=item C<build-copy-not-updated>
+
+C<{path} in the private build did not update after changing {source}>
+The generated product kept its original contents after the mutant was installed.
+
+=item C<build-command-failed>
+
+C<{command} failed: {reason}>
+A command that builds the private distribution failed.
+
+=item C<command-unknown>
+
+C<unknown command {command}, did you mean {nearest}?>
+The first word or the command named in help has no matching command.
+
+=item C<in-place-observation>
+
+C<--in-place uses the module hook, which can miss absolute paths and child processes>
+A project run reports the observation limits of its module hook.
+
+=item C<path-selector-invalid>
+
+C<invalid path selection {path}: {reason}>
+A path operand must name a project source or directory and use positive, ascending line ranges.
+
+=item C<argument-unexpected>
+
+C<unexpected argument {argument}>
+The command line holds an operand, and the command takes none.
+
+=item C<show-without-identifier>
+
+C<show needs a mutant identifier>
+The command line of show names no mutant.
+
+=item C<exec-without-command>
+
+C<exec needs a mutant identifier and a command>
+The command line of exec names no mutant or no command to run.
+
+=item C<merge-without-report>
+
+C<merge needs the report of every part>
+The command line of merge names no report file.
+
+=item C<directory-closed>
+
+C<cannot enter {directory}: {reason}>
+The directory that --root names is absent, is no directory, or refuses the user.
+
+=item C<mutant-unknown>
+
+C<no mutant has the identifier {identifier}>
+No mutant of the project has an identifier that starts with the given text.
+
+=item C<mutant-ambiguous>
+
+C<more than one mutant has the identifier {identifier}>
+Several mutants have an identifier that starts with the given text.
+
+=item C<mutator-unknown>
+
+C<unknown mutator: {names}>
+A setting names a mutator that the tool lacks.
+
+=item C<prove-exec-unsupported>
+
+C<.proverc: --exec replaces the Perl interpreter needed to measure mutants>
+The project requests an external test executor in its prove configuration.
+
+=item C<glob-unmatched>
+
+C<{setting} pattern "{pattern}" matches no project file>
+An explicitly supplied include or exclude pattern must match a file in the project.
+
+=item C<interpreter-invalid>
+
+C<cannot use "{program}" as the Perl interpreter>
+The selected program must report Perl 5.10 or later to load the test shim.
+
+=item C<revision-unknown>
+
+C<no commit matches revision "{revision}">
+The revision passed to --since must identify a commit in the project repository.
+
+=item C<source-changed>
+
+C<{path} changed after analysis>
+The bytes of the copied source differ from the bytes used to generate its mutants.
+
+=item C<option-unknown>
+
+C<{option} names no option; the nearest is {nearest}>
+The command line holds an option that the command lacks, and the message names the option nearest to it.
+
+=item C<option-elsewhere>
+
+C<{option} is no option of {command}>
+The command line holds an option of another command.
+
+=item C<option-without-value>
+
+C<{option} needs a value>
+An option that takes a value stands at the end of the command line or before an option.
+
+=item C<option-with-value>
+
+C<{option} takes no value>
+An option that is on or off has a value after an equals sign.
+
+=item C<setting-unknown>
+
+C<{setting} names no setting; the nearest is {nearest}>
+The configuration file or a call of the library names a setting that the tool lacks.
+
+=item C<setting-invalid>
+
+C<{setting} takes {expects}, not {value}>
+A setting has a value outside its type, which the message states as the user wrote it.
+
+=item C<setting-outside-file>
+
+C<{setting} names the place of the file, so the file cannot hold it>
+The configuration file holds the directory of the project or the name of a configuration file.
+
+=item C<config-section>
+
+C<{file}: [{section}] is a section, and the file holds none>
+The configuration file holds a table, and its settings stand at its top level.
+
+=item C<settings-out-of-order>
+
+C<{first} lies above {second}>
+The low threshold of the reports lies above the high one.
+
+=item C<settings-exclusive>
+
+C<{first} and {second} exclude each other>
+Two settings that the user set cannot hold in one run.
+
+=item C<working-directory-gone>
+
+C<the working directory is gone, so --root must name the project>
+The process stands in a directory that no longer exists, and the command line names no project.
+
+=item C<input-unreadable>
+
+C<cannot read {path}: {reason}>
+A file that the user names, such as the configuration file or a report, cannot be read.
+
+=item C<input-malformed>
+
+C<{path}: {reason}>
+A file that the user names holds a text that the tool cannot use, for the reason that follows its name.
+
+=item C<merge-empty>
+
+C<merge needs at least one report>
+A merge got no report.
+
+=item C<merge-repeated-mutant>
+
+C<mutant {id} appears in more than one part>
+Two reports of a merge hold the same mutant.
+
+=item C<merge-part-size>
+
+C<{name} holds {held} mutants, and part {part} of {parts} has {expected}>
+A report of a merge holds another number of mutants than its part of the run has.
+
+=item C<merge-whole-run>
+
+C<{name} is the report of a whole run, not of a part>
+A report of a merge comes from a run without --shard.
+
+=item C<merge-without-inventory>
+
+C<{name} names no inventory>
+A report of a merge lacks the count and the digest of the mutants of its run.
+
+=item C<merge-failed-baseline>
+
+C<{name} has failing tests in its unmodified run, so its part measured nothing>
+A report of a merge comes from a part whose tests fail without a mutant.
+
+=item C<merge-other-split>
+
+C<{first} holds part {first_part} of {first_parts}, and {name} holds part {part} of {parts}>
+Two reports of a merge come from runs that split the mutants into different numbers of parts.
+
+=item C<merge-other-mutants>
+
+C<{name} covers other mutants than {first}>
+Two reports of a merge come from runs over different mutants.
+
+=item C<merge-repeated-part>
+
+C<{first} and {name} both hold part {part} of {parts}>
+Two reports of a merge hold the same part of the run.
+
+=item C<merge-missing-part>
+
+C<part {part} of {parts} is missing>
+The reports of a merge lack one part of the run.
+
+=item C<merge-missing-parts>
+
+C<parts {list} of {parts} are missing>
+The reports of a merge lack several parts of the run.
+
+=item C<report-not-json>
+
+C<the text is no JSON document>
+A report file holds a text that is no JSON object.
+
+=item C<report-without-facts>
+
+C<the report holds no facts of a mutation run>
+A report file is a JSON document that this tool did not write.
+
+=item C<report-invalid-value>
+
+C<the report is malformed: no valid value at {place}>
+A value of a report file has another type than the report format gives it.
+
+=item C<report-malformed>
+
+C<the report is malformed: {reason}>
+A report file holds facts that form no result of a run.
+
+=item C<report-location-outside>
+
+C<the report is malformed: a location lies outside the source of {path}>
+A mutant of a report file starts or ends outside the text of its source file.
+
+=item C<report-location-reversed>
+
+C<the report is malformed: a location ends before its start in {path}>
+A mutant of a report file ends before it starts.
+
+=item C<suppressions-invalid>
+
+C<invalid suppression comments: {list}>
+Comments of the analyzed files break the grammar of the suppression comments or suppress no mutant.
+
+=item C<suppression-malformed>
+
+C<{path}:{line}: "{comment}" differs from the grammar>
+A comment resembles a suppression comment and has another form than the grammar.
+
+=item C<suppression-mutator-unknown>
+
+C<{path}:{line}: unknown mutator {names}>
+A suppression comment names a mutator that the tool lacks.
+
+=item C<suppression-end-unopened>
+
+C<{path}:{line}: ## use mutate ends no open block>
+A comment ends a block of suppressed lines that no comment opened.
+
+=item C<suppression-block-nested>
+
+C<{path}:{line}: ## no mutate opens a block inside the block of line {open}>
+A comment opens a block of suppressed lines while an earlier block is still open.
+
+=item C<suppression-block-unclosed>
+
+C<{path}:{line}: ## no mutate opens a block that no ## use mutate ends>
+A block of suppressed lines is still open at the end of its file.
+
+=item C<suppression-sub-missing>
+
+C<{path}:{line}: ## no mutate sub stands before no named subroutine or method>
+The statement after a comment that suppresses a subroutine is no named subroutine or method.
+
+=item C<suppression-unused>
+
+C<{path}:{line}: "{comment}" suppresses no mutant>
+A suppression comment covers no mutant that a mutator of the tool makes.
+
+=item C<suppression-names-missing>
+
+C<{path}:{line}: "{comment}" names no mutator, and suppress-require-names asks for one>
+A suppression comment names no mutator, and the setting suppress-require-names asks for a name.
+
+=item C<suppression-reason-missing>
+
+C<{path}:{line}: "{comment}" gives no reason, and suppress-require-reason asks for one>
+A suppression comment gives no reason, and the setting suppress-require-reason asks for one.
+
+=item C<file-unreadable>
+
+C<cannot read {path}: {reason}>
+A file or a directory of the project or of the run cannot be read.
+
+=item C<file-unwritable>
+
+C<cannot write {path}: {reason}>
+A file of the run or of a report cannot be written.
+
+=item C<file-unclosable>
+
+C<cannot close {path}: {reason}>
+A file reports an error when it closes, so its content may be incomplete.
+
+=item C<file-unrenamable>
+
+C<cannot rename {path}: {reason}>
+A file that the tool wrote cannot take its final name.
+
+=item C<file-unremovable>
+
+C<cannot remove {path}: {reason}>
+A file or a directory of a copy cannot be removed.
+
+=item C<file-unlinkable>
+
+C<cannot link {path}: {reason}>
+A copy of the project cannot hold a link.
+
+=item C<file-uncopyable>
+
+C<cannot copy {source} to {target}: {reason}>
+A file of the project cannot be copied.
+
+=item C<file-time-unsettable>
+
+C<cannot set the time of {path}: {reason}>
+A copied file cannot take the time of its original.
+
+=item C<file-mode-unsettable>
+
+C<cannot set the mode of {path}: {reason}>
+A copied file or directory cannot take the mode of its original.
+
+=item C<directory-missing>
+
+C<cannot read {path}: no such directory>
+The directory to copy is absent.
+
+=item C<directory-uncreatable>
+
+C<cannot create {path}: {reason}>
+A directory of the run, of a copy, or of a report cannot be created.
+
+=item C<directory-unopenable>
+
+C<cannot open {path}: {reason}>
+A directory of a copy refuses the rights that the tool needs to change it.
+
+=item C<project-uncopyable>
+
+C<cannot copy the project: {reason}; --in-place runs the tests in the project itself>
+The copy of the project that the tests run in cannot be made.
+
+=item C<git-unstartable>
+
+C<cannot start git: {reason}>
+The git program cannot be started.
+
+=item C<git-failed>
+
+C<git {command} failed: {reason}>
+A git command failed, with the first line of its error.
+
+=item C<git-silent>
+
+C<git {command} failed>
+A git command failed and left no error to read.
+
+=item C<process-unstartable>
+
+C<cannot start a process: {reason}>
+The system refuses a new process for a test.
+
+=item C<pipe-unopenable>
+
+C<cannot open a pipe: {reason}>
+The system refuses the pipe that carries the output of a test.
+
+=item C<pipe-unclosable>
+
+C<cannot close a pipe: {reason}>
+The pipe that carries the output of a test reports an error when it closes.
+
+=item C<test-directory-closed>
+
+C<cannot run the test in {directory}: {reason}>
+The process of a test cannot enter the directory that the test runs in.
+
+=item C<test-streams-unset>
+
+C<cannot set the streams of the test: {reason}>
+The process of a test cannot open its standard streams.
+
+=item C<command-unstartable>
+
+C<cannot start {command}: {reason}>
+The interpreter of the tests cannot be started.
+
+=item C<command-not-runnable>
+
+C<cannot run {command}: {reason}>
+The command of mutation exec exists, and the system refuses to run it.
+
+=item C<command-not-found>
+
+C<cannot find {command}: {reason}>
+No program of the name that mutation exec runs exists at its path or on the search path.
+
+=item C<spec-unreadable>
+
+C<cannot read spec {path}: {reason}>
+A test process cannot read the file that names the mutants and the lines of its run.
+
+=item C<spec-unclosable>
+
+C<cannot close spec {path}: {reason}>
+A test process reports an error when it closes the file that names the mutants and the lines of its run.
+
+=item C<analysis-left-out-place>
+
+C<{path}: the analysis left out 1 place, which has no mutant>
+The analysis of a file left one place out, so the code there has no mutant.
+
+=item C<analysis-left-out-places>
+
+C<{path}: the analysis left out {count} places, which have no mutant>
+The analysis of a file left several places out, so the code there has no mutant.
+
+=item C<work-directory-stays>
+
+C<the work directory {path} stays, because a file in it resists removal>
+A test left a file in the work directory that the run cannot remove.
+
+=item C<cache-verdict-changed>
+
+C<the cached verdict for {id} differs from a fresh measurement, so every selected mutant was measured again>
+The stored verdicts were discarded after a verification sample disagreed.
+
+=item C<tests-unmatched>
+
+C<no test files match>
+The project has mutants and no test file to run.
+
+=item C<tests-conflict>
+
+C<the tests fail when they run side by side, so the mutants run one test at a time>
+The tests pass one at a time and fail side by side, so the run gives up the parallel jobs.
+
+=item C<conflicting-test>
+
+C<{test} passed alone after an overlapping failure, so later invocations run one at a time>
+The isolated repeat passed after simultaneous invocations of the same test interfered.
+
+=item C<loaded-around-hook>
+
+C<{test} loads {path} around the hook and cannot detect its mutants>
+A test reads a source file in a way that passes by the module that places the mutants.
+
+=item C<project-changed>
+
+C<the project changed while the mutants ran: {changes}>
+A mutant test changed the project in place and the runner restored the affected paths.
+
+=item C<decompiled-code-unstable>
+
+C<{path}: Perl decompiles the file to no stable text, so the run compares no compiled code of the file>
+The original file compiled without deparsed output, so the run skips the equivalence check for its mutants.
+
+=item C<syntax-check-failed>
+
+C<{path} does not pass a standalone syntax check, so its load failures count as compile errors>
+A source file fails a syntax check of its own, so a mutant that fails to load counts as a compile error.
+
+=item C<invalid-mutant>
+
+C<invalid mutant {id} in {path}>
+Perl rejected a replacement or a function that the replacement introduced.
+
+=item C<internal-error>
+
+C<internal error: {text}>
+An error that the tool did not foresee ended the command.
+
+=item C<message-slots>
+
+C<the message {id} takes the slots {expected}, and the call gives {given}>
+The code asks for a message with other values than its text holds.
+
+=item C<class-argument-unknown>
+
+C<the class {class} takes no argument {names}>
+The code builds a value with an argument that names none of its attributes.
+
+=item C<shim-unprepared>
+
+C<cannot prepare the shim for generation {generation}>
+The text of the shim lacks the lines that a run rewrites.
+
+=item C<shim-missing>
+
+C<cannot find {file}>
+The module search path holds no file of the shim.
+
+=item C<verdict-without-syntax-check>
+
+C<a load failure needs a syntax check>
+The verdict of a mutant got a failed load without the result of its syntax check.
+
+=item C<below-gate>
+
+C<the score {score}% is below the gate of {gate}%>
+The run measured a score below the one that --min-score asks for.
+
+=item C<baseline-failed>
+
+C<tests that fail without a mutant: {failed}>
+Tests fail in the unmodified run, so the run measured no mutant.
+
+=item C<inconclusive>
+
+C<the run states no score>
+The run ended without a score that the user can rely on.
+
+=item C<interrupted>
+
+C<interrupted by SIG{signal}>
+A signal ended the command before its work was done.
+
+=back
+
+=for end generated DIAGNOSTICS
+
+=head1 MUTATORS
+
+=for generated MUTATORS
+
+=over 4
+
+=item C<arithmetic>
+
+Replaces an arithmetic operator with its counterpart.
+The C<default> profile includes the mutator.
+
+=item C<comparison-boundary>
+
+Moves the boundary of a numeric or string comparison.
+The C<extended> profile includes the mutator.
+
+=item C<comparison-negation>
+
+Negates a numeric or string comparison.
+The C<default> profile includes the mutator.
+
+=item C<logical>
+
+Replaces a logical operator with its counterpart.
+The C<default> profile includes the mutator.
+
+=item C<bitwise>
+
+Replaces a bitwise operator with its counterpart or removes a complement.
+The C<default> profile includes the mutator.
+
+=item C<increment>
+
+Swaps increment and decrement.
+The C<default> profile includes the mutator.
+
+=item C<assignment>
+
+Replaces a compound assignment with its counterpart.
+The C<default> profile includes the mutator.
+
+=item C<loop-control>
+
+Swaps last and next, and turns redo into next.
+The C<default> profile includes the mutator.
+
+=item C<call-swap>
+
+Replaces a function with its counterpart.
+The C<extended> profile includes the mutator.
+
+=item C<boolean-literal>
+
+Swaps true and false.
+The C<default> profile includes the mutator.
+
+=item C<shift-pop>
+
+Swaps shift and pop.
+The C<extended> profile includes the mutator.
+
+=item C<list-order>
+
+Reverses a sort or removes an explicit reverse.
+The C<extended> profile includes the mutator.
+
+=item C<call-removal>
+
+Removes abs or int while keeping its argument.
+The C<default> profile includes the mutator.
+
+=item C<three-way>
+
+Swaps the operands of a three-way comparison.
+The C<default> profile includes the mutator.
+
+=item C<early-exit>
+
+Removes a guarded transfer of control.
+The C<default> profile includes the mutator.
+
+=item C<filter-negation>
+
+Negates the predicate of grep or first.
+The C<default> profile includes the mutator.
+
+=item C<regex-class>
+
+Complements a character class in a pattern.
+The C<extended> profile includes the mutator.
+
+=item C<literal-collection>
+
+Empties an array, hash, or word-list literal.
+The C<extended> profile includes the mutator.
+
+=item C<unary-minus>
+
+Removes a unary minus or the sign of a number.
+The C<default> profile includes the mutator.
+
+=item C<condition-negation>
+
+Negates a condition or swaps the branches of a conditional.
+The C<default> profile includes the mutator.
+
+=item C<predicate>
+
+Negates a test of definedness, existence, context, or a file.
+The C<default> profile includes the mutator.
+
+=item C<negation>
+
+Removes a logical negation.
+The C<default> profile includes the mutator.
+
+=item C<match>
+
+Negates a pattern match.
+The C<default> profile includes the mutator.
+
+=item C<return-value>
+
+Removes a return value or flips a literal 0 or 1.
+The C<default> profile includes the mutator.
+
+=item C<statement-removal>
+
+Removes an expression statement.
+The C<default> profile includes the mutator.
+
+=item C<sub-body>
+
+Removes the body of a subroutine.
+The C<default> profile includes the mutator.
+
+=item C<close-removal>
+
+Removes a close or closedir statement.
+The C<extended> profile includes the mutator.
+
+=item C<number-literal>
+
+Advances a numeric literal in its original base.
+The C<extended> profile includes the mutator.
+
+=item C<string-literal>
+
+Empties a string literal.
+The C<extended> profile includes the mutator.
+
+=item C<condition-fixed>
+
+Replaces a condition with a constant.
+The C<extended> profile includes the mutator.
+
+=item C<range-boundary>
+
+Lowers the upper bound of a range by one.
+The C<extended> profile includes the mutator.
+
+=item C<regex-anchor>
+
+Removes an anchor from a pattern.
+The C<extended> profile includes the mutator.
+
+=item C<regex-quantifier>
+
+Changes a quantifier in a pattern.
+The C<extended> profile includes the mutator.
+
+=item C<regex-flag>
+
+Removes a matching or substitution flag.
+The C<extended> profile includes the mutator.
+
+=back
+
+=for end generated MUTATORS
 
 =head1 AUTHOR
 

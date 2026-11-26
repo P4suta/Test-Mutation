@@ -62,6 +62,10 @@ run = "prove -l -j4 xt/discovery"
 description = "Measure the tests of Test::Mutation with its own command"
 run = "perl -Ilib bin/mutation"
 
+[tasks.manual]
+description = "Generate the reference sections of the installed mutation command"
+run = "perl xt/bin/generate-manual"
+
 [tasks.schema]
 description = "Fetch the report schema of the pinned viewer release"
 run = "curl --fail --silent --show-error --location --output xt/schema/mutation-testing-report-schema.json https://raw.githubusercontent.com/stryker-mutator/mutation-testing-elements/v3.9.0/packages/report-schema/src/mutation-testing-report-schema.json"
@@ -76,7 +80,7 @@ description = "Measure Test::Mutation with itself and check the release conditio
 run = [
   "perl -Ilib bin/mutation --no-cache --format terminal --format json --min-score 100",
   "prove -l xt/release",
-  "prove -l xt/mutants",
+  "mise run discover-mutants",
 ]
 
 [tasks.shim-mutation]
@@ -92,6 +96,12 @@ description = "Verify the complete self measurement, coverage, discovery, and pi
 run = [
   "mise run check",
   "mise run mutation-gate",
+  "mise run release-compatibility",
+]
+
+[tasks.release-compatibility]
+description = "Verify supported shim interpreters, coverage, engine behavior, and pinned distributions"
+run = [
   "mise run shim-mutation",
   "mise run coverage",
   "mise run discover",
@@ -116,7 +126,7 @@ run = [
 
 [tasks.dist]
 description = "Pack the distribution archive"
-run = ["perl Makefile.PL", "make manifest", "make dist"]
+run = ["perl Makefile.PL", "perl xt/bin/distribution-manifest", "make dist"]
 
 [tasks.audit]
 description = "Check the locked dependencies against the CPAN security advisories"

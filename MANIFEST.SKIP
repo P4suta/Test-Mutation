@@ -1,6 +1,6 @@
-^\.git
-^\.coderabbit\.yaml$
-^\.mutation/
+# The archived tests use the two Perl tool profiles from the checkout.
+^\.(?!perl(?:critic|tidy)rc$)
+(?:^|/)\.(?:DS_Store|_[^/]*)$
 ^local/
 ^mutation-report/
 ^blib/

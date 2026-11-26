@@ -49,7 +49,7 @@ subtest 'the rerun rejects a kill through a new call, a false file, and code tha
       ],
       'the false kills are findings, and an assertion, an exception, or a death while the file loads are none';
     is Gate::outcomes( sub { Gate::findings( 'mutants-kills-rejected', [ Kills::findings(@kills) ] ) } ),
-      [ 'fail', 'pass' ], 'a false kill outside the open findings fails the gate';
+      ['fail'], 'a false kill fails the gate';
 
     my $mutant = $kills[0]{mutant};
     my $called =

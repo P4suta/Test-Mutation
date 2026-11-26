@@ -587,7 +587,7 @@ subtest 'reusing and finishing a specification removes its disk observation and 
       'a neighboring job retains its observation';
 };
 
-subtest 'a command sees the mutant in its requested mode and restores the calling process' => sub {
+subtest 'a command runs the mutant in a private copy and restores the calling process' => sub {
     my $root    = Fixture::copy_of('calc');
     my $outside = File::Temp::tempdir( CLEANUP => 1 );
     my $caller  = Cwd::getcwd();
@@ -607,20 +607,21 @@ PERL
     delete @ENV{qw(HARNESS_ACTIVE HARNESS_VERSION)};
     my $generation = $ENV{TEST_MUTATION_GENERATION} || 0;
 
-    for my $inside ( 0, 1 ) {
-        my $config   = Test::Mutation::Settings::of_call( { root => $root, in_place => $inside } );
+    for my $in_place ( 0, 1 ) {
+        my $config   = Test::Mutation::Settings::of_call( { root => $root, in_place => $in_place } );
         my $selected = Test::Mutation::Select::resolve( config => $config );
         my ($mutant) = grep { $_->description eq 'replaced + with -' } $selected->mutants->@*;
         my $source   = $selected->sources->{ $mutant->path };
-        my $output   = "$outside/out-$inside";
+        my $output   = "$outside/out-$in_place";
         my $status =
           Test::Mutation::Runner::run_command( $config, $source, $mutant, [ $^X, '-Ilib', $program, $output ] );
         is Cwd::getcwd(), $caller, 'the library returns in the calling directory';
         is $status,       17,      'the exit status of the user command is preserved';
         my ( $directory, @values ) = split /\n/, Test::Mutation::Source::read_bytes($output);
-        is \@values, [ 2, 'absent', 'absent', $generation + $inside ],
+        is \@values, [ 2, 'absent', 'absent', $generation ],
           'the command inherits the caller environment and loads the requested mutant';
-        is $directory eq $root ? 1 : 0, $inside, 'the working directory matches the selected execution mode';
+        isnt $directory, Cwd::abs_path($root), 'the command runs outside the source checkout';
+        ok !-d $directory, 'the private project copy is removed after the command exits';
         is Test::Mutation::Source::read_bytes("$root/lib/Calc.pm"), $original,
           'the checkout preserves the unmodified source';
     }

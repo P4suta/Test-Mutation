@@ -29,5 +29,6 @@ The test time of the 103 library mutants rose from 1057 to 1618 seconds.
 
 ## Confirmation
 
-`t/unit/verdict.t` checks every pair of outcomes, and `t/e2e/runner.t` shows the change of status.
-Reconsider the limit of two when a measured run decides mutants at a third try.
+`t/unit/verdict.t` checks pairs of outcomes and the two-timeout limit.
+`t/e2e/repeated-verdicts.t` exercises conflicting attempts.
+Reconsider when a third test would decide the verdict.

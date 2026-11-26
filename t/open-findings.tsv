@@ -1,6 +1,0 @@
-contract-env-source	no table and no manual lists the variable; variables a-computed-name; files lib/Test/Mutation/Runner.pm lib/Test/Mutation/Shim.pm lib/Test/Mutation/Witness.pm	the manual that the tables generate
-contract-examples-manual	code that does not compile; kinds perl; files lib/Test/Mutation/Tree.pm	the manual that the tables generate
-contract-manual-manual	the manual names no row of the table; rows --baseline-timeout --cache-dir --coverage --disable --enable --equivalence --format --jobs --keep-work --link --mutant --perl --report-dir --source --source-exclude --switch --test --test-exclude --threshold-high --threshold-low --timeout-factor --timeout-floor; tables flags	the manual that the tables generate
-contract-manual-manual	the manual names no row of the table; rows 0 1 125 126 127 129 130 131 141 143 2 3 4 5 6; tables exit-statuses	the manual that the tables generate
-contract-manual-manual	the manual names no row of the table; rows Pending; tables statuses	the manual that the tables generate
-contract-manual-manual	the manual names no row of the table; rows mutant shard since; tables keys	the manual that the tables generate

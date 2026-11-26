@@ -32,7 +32,7 @@ subtest 'the walk rejects a snippet whose context loses the mutants of its expre
             Gate::findings( 'mutants-context-rejected', [ map { "the context loses: $_" } @lost ] );
         }
       ),
-      [ 'fail', 'pass' ], 'a finding outside the list fails the gate';
+      ['fail'], 'a finding fails the gate';
 };
 
 my @snippets = Snippets::chosen( Snippets::product( Snippets::sizes() ) );

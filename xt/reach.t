@@ -39,10 +39,14 @@ sub reached ( $proves, $file ) {
 # The commands of a task and of every task it depends on.
 sub commands ( $tasks, $name, $seen = {} ) {
     return if $seen->{$name}++;
-    my $task = $tasks->{$name} or die "no task is named $name\n";
-    my $run  = $task->{run};
-    return ( ( map { commands( $tasks, $_, $seen ) } @{ $task->{depends} || [] } ),
-        ref $run ? $run->@* : defined $run ? $run : () );
+    my $task     = $tasks->{$name} or die "no task is named $name\n";
+    my $run      = $task->{run};
+    my @commands = map { commands( $tasks, $_, $seen ) } @{ $task->{depends} || [] };
+    for my $command ( ref $run ? @$run : defined $run ? ($run) : () ) {
+        my ($nested) = $command =~ /\Amise run ([\w-]+)\z/;
+        push @commands, defined $nested ? commands( $tasks, $nested, $seen ) : $command;
+    }
+    return @commands;
 }
 
 sub slurp ($path) {
@@ -76,6 +80,14 @@ subtest 'the gate rejects a test file that no command reaches' => sub {
     );
     is [ commands( \%tasks, 'check' ) ], [ 'prove -lr t/unit', 'prove -l xt', 'prove -l xt/corpus' ],
       'the commands of a task and of the tasks it depends on, each once';
+    $tasks{'release-gate'} = { run => [ 'mise run check', 'mise run discovery', 'mise run check' ] };
+    $tasks{discovery}      = { run => 'prove -l xt/discovery' };
+    is [ commands( \%tasks, 'release-gate' ) ],
+      [ 'prove -lr t/unit', 'prove -l xt', 'prove -l xt/corpus', 'prove -l xt/discovery' ],
+      'a release reaches exactly the commands of its invoked tasks';
+    $tasks{'release-gate'}{run} = ['mise run absent'];
+    like dies { commands( \%tasks, 'release-gate' ) }, qr/no task is named absent/,
+      'a missing nested task cannot claim test coverage';
     like dies { commands( \%tasks, 'chek' ) }, qr/\Ano task is named chek/, 'an unknown task is refused';
 };
 
@@ -87,10 +99,21 @@ my $tasks = $data->{tasks};
 # The runs on real distributions need a container, so a task of their own belongs to the release gate.
 my $HEAVY   = qr{\Axt/(?:mutants|release|realworld)/};
 my $fast    = proves( commands( $tasks, 'check' ) );
-my $release = proves( map { commands( $tasks, $_ ) } qw(check mutation-gate realworld) );
+my $release = proves( commands( $tasks, 'release-gate' ) );
 
 my $workflow = CPAN::Meta::YAML->read_string( slurp('.github/workflows/check.yml') )->[0];
-my $driver   = proves( map { defined $_->{run} ? $_->{run} : () } $workflow->{jobs}{driver}{steps}->@* );
+is [ sort keys $workflow->{on}->%* ], [qw(merge_group pull_request)],
+  'the fast checks run for pull requests and merge queues';
+my $distribution = CPAN::Meta::YAML->read_string( slurp('.github/workflows/release-gate.yml') )->[0];
+is [ sort keys $distribution->{on}->%* ], ['workflow_dispatch'], 'the release checks run on manual dispatch';
+my @mac     = grep { $_->{'runs-on'} =~ /\Amacos-/ } values $distribution->{jobs}->%*;
+my @install = grep {
+    my %steps = map { $_->{run} => 1 } grep { defined $_->{run} } $_->{steps}->@*;
+    $steps{'mise run dist'} && $steps{'mise x -- make disttest'}
+} @mac;
+ok scalar @install, 'a macOS job builds and tests the unpacked distribution';
+
+my $driver = proves( map { defined $_->{run} ? $_->{run} : () } $workflow->{jobs}{driver}{steps}->@* );
 
 my @tests = grep { !m{\At/(?:fixtures|corpus)/} } map { Library::tests($_)->@* } 't', 'xt';
 my @heavy = grep { $_ =~ $HEAVY } @tests;

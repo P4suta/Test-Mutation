@@ -999,7 +999,6 @@ sub rules ($summary) {
     return @lines;
 }
 
-# The findings of one oracle, as the open findings list them.
 sub found ( $summary, $oracle ) {
     return [ sort keys( ( $summary->{findings}{$oracle} || {} )->%* ) ];
 }

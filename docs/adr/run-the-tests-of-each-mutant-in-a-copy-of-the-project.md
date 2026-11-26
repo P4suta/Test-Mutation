@@ -30,5 +30,6 @@ Tests that need the repository data fail in the copy, and the message names `--i
 
 ## Confirmation
 
-`t/e2e/runner.t` shows a mutant that creates a file: the project stays unchanged, and every mutant gets its verdict.
-Reconsider when the copies cost more than the tests.
+`t/unit/job-copy.t` checks private bytes and modes.
+`t/e2e/unmodified-pass.t` verifies restored test state.
+Reconsider when copying costs more than testing.

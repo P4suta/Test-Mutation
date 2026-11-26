@@ -15,7 +15,6 @@ use Test::Mutation::Verdict;
 
 # S10, the reasons: every reason that a status of the catalog may carry, and the cases of this file that make the run give it.
 # A run gives the reasons of the runner, and the verdict gives the ones that a run reaches only by chance.
-# A reason that no case gives yet is an open finding that names the part of the engine that will give it.
 
 my %given;
 

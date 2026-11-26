@@ -11,8 +11,8 @@ Two mutants of `CPAN-Audit` both passed and failed under serial `prove` runs wit
 
 ## Decision
 
-When a developer selects mutant identifiers, bypass cached verdicts and repeat each candidate for `Killed` or `Survived`.
-In copy mode both attempts start from the unmodified test run's final tree.
+For named mutants, bypass cached verdicts and confirm each candidate `Killed` or `Survived` verdict.
+Both copies start from the original run's final tree.
 Confirm `Killed` when the same test detects the change twice, and `Survived` when both attempts survive.
 Report conflicting observations as `NoVerdict` with the test and both outcomes, exclude the entry from the score and cache, and exit with status 4.
 
@@ -25,8 +25,8 @@ Repeating every candidate raised the measured `TOML-Tiny` shard time from 50–5
 
 Full runs keep their process count and can reuse confirmed verdicts.
 An inconclusive reproduction evicts the earlier verdict.
-Two agreeing observations cover the hash orders observed.
 
 ## Confirmation
 
 Exercise both orders of a pass and a failure, cache eviction, interruption, and the process count of a full run.
+Revisit the repetition count if independent runs disagree after two matching observations.

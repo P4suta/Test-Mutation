@@ -30,3 +30,4 @@ A distribution can test an installed command by its invocation path and see the 
 
 Exercise direct commands, nested sources, installed names, extracted programs, and unused subroutines.
 Check the command's name, source filename, line number, data handle, and interpreter line.
+Revisit device and inode matching if distinct command sources share an installed executable identity.

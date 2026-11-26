@@ -174,7 +174,7 @@ subtest 'the matrix rejects a mutant that no input tells from the original' => s
       ],
       'a mutator of the default profile above 2 percent is a finding, and one of the extended profile has no bound';
     is Gate::outcomes( sub { Gate::findings( 'mutants-c2-rejected', Matrix::over_bound($tally) ) } ),
-      [ 'fail', 'pass' ], 'and a finding outside the list fails the gate';
+      ['fail'], 'and a finding fails the gate';
     my ($varied) = Matrix::expressions( [ 0, 0, 2 ] );
     my ($fixed)  = Matrix::expressions( [ 0, 0, 1 ] );
     is [ $varied->{varied}, $fixed->{varied} ], [ 1, 0 ], 'a literal operand takes an expression out of the rate';

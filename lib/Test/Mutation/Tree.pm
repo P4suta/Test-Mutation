@@ -273,7 +273,6 @@ Test::Mutation::Tree - copy the files of a project and tell whether they changed
 =head1 SYNOPSIS
 
     my $before = Test::Mutation::Tree::snapshot( root => $root, skip => [ '.git', '.mutation' ] );
-    ...
     my $changes = Test::Mutation::Tree::changes( $before, Test::Mutation::Tree::snapshot( root => $root, skip => [ '.git', '.mutation' ] ) );
 
     Test::Mutation::Tree::copy( from => $root, to => $copy, skip => ['.git'], link => ['local'] );

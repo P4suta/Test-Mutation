@@ -13,7 +13,6 @@ use Test::Mutation::Exit;
 use Test::Mutation::Runner;
 
 # S1, the arguments: every form of every command with every way to write every flag.
-# The tables say what each line calls for, and each violation of today is an open finding.
 
 my $project = copy_of('calc');
 write_file( "$project/ci.toml", "\n" );

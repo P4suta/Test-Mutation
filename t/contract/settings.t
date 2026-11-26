@@ -11,7 +11,6 @@ use Test::Mutation::Config;
 use Test::Mutation::Settings;
 
 # S3, the surfaces: every sample of every setting on the command line, in the configuration file, and in a call.
-# One setting has one name and one meaning on all three, and each difference of today is an open finding.
 
 my $project = Space::tree();
 write_file( "$project/ci.toml",    "\n" );
@@ -139,7 +138,6 @@ subtest 'each surface refuses the names of the other surfaces' => sub {
 };
 
 # The settings of the contract that the plan of the tool states, each with its default in the words of the table.
-# A setting that the table lacks or words another way waits for the work that its open finding names.
 my %CONTRACT = (
     root                      => q{.},
     config                    => 'mutation.toml when it exists',

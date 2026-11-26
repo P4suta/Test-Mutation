@@ -438,7 +438,7 @@ my @ROWS = (
         'decompiled-code-unstable',
         'warning',
         '{path}: Perl decompiles the file to no stable text, so the run compares no compiled code of the file',
-        'Two decompilations of a file differ, so no mutant of the file counts as equal to the original code.'
+        'The original file compiled without deparsed output, so the run skips the equivalence check for its mutants.'
     ],
     [
         'syntax-check-failed',

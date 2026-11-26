@@ -10,13 +10,6 @@ use Library;
 # A gate that checks nothing passes for the wrong reason.
 # Every gate file therefore states how much it checked, and holds a subtest that feeds it a broken input.
 
-sub listed ($text) {
-    my $file = File::Temp->new;
-    print {$file} $text or die "write: $!";
-    close $file         or die "close: $!";
-    return $file;
-}
-
 subtest 'the count rejects a gate that checked too little' => sub {
     is Gate::outcomes( sub { Gate::checked( 'files', 3, at_least => 3 ) } ), ['pass'], 'a count at the floor passes';
     is Gate::outcomes( sub { Gate::checked( 'files', 2, at_least => 3 ) } ), ['fail'], 'a count below the floor fails';
@@ -24,24 +17,13 @@ subtest 'the count rejects a gate that checked too little' => sub {
     like dies { Gate::checked( 'files', 3 ) }, qr/\Achecked needs a floor/, 'a count without a floor is refused';
 };
 
-subtest 'the open findings reject a new finding and a stale line' => sub {
-    my $file =
-      listed("symbols\tlib/A.pm documents no x\tthe documentation slice\ngates\txt/a.t states no count\t#19\n");
-    my $at = sub (@found) {
-        return Gate::outcomes( sub { Gate::findings( 'symbols', \@found, file => $file->filename ) } );
+subtest 'the gate rejects every reported violation' => sub {
+    my $outcomes = sub (@found) {
+        return Gate::outcomes( sub { Gate::findings( 'symbols', \@found ) } );
     };
-    is $at->('lib/A.pm documents no x'), [ 'pass', 'pass' ], 'the listed finding alone passes';
-    is $at->( 'lib/A.pm documents no x', 'lib/B.pm documents no y' ), [ 'fail', 'pass' ], 'a new finding fails';
-    is $at->(), [ 'pass', 'fail' ], 'a listed finding that is gone fails';
-    is Gate::outcomes( sub { Gate::findings( 'pod', [], file => $file->filename ) } ), [ 'pass', 'pass' ],
-      'a gate without a listed finding passes when it finds nothing';
-
-    like dies { Gate::findings( 'symbols', [], file => listed("symbols\tno reason\n")->filename ) },
-      qr/\Aline 1 of \S+ needs a gate, a finding, and what removes it/, 'a line without its three fields is refused';
-    like dies { Gate::findings( 'symbols', [], file => listed("symbols\tx\t\n")->filename ) },
-      qr/needs a gate, a finding, and what removes it/, 'an empty field is refused';
-    like dies { Gate::findings( 'symbols', [], file => listed("symbols\tx\ta\nsymbols\tx\tb\n")->filename ) },
-      qr/\Aline 2 of \S+ repeats a finding/, 'a repeated finding is refused';
+    is $outcomes->(),                                                       ['pass'], 'an empty scan result passes';
+    is $outcomes->('lib/A.pm documents no x'),                              ['fail'], 'one violation fails';
+    is $outcomes->( 'lib/A.pm documents no x', 'lib/B.pm documents no y' ), ['fail'], 'multiple violations fail';
 };
 
 subtest 'the meta gate rejects a file without a count or a rejecting subtest' => sub {

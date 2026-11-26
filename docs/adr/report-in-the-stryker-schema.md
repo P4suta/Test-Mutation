@@ -7,7 +7,7 @@ date: 2026-11-22
 ## Context
 
 A mutation report needs a source view with every mutant in place.
-The Stryker projects publish a report schema and a viewer that tools for several languages share.
+The Stryker projects publish a report schema and viewer for mutation testing tools across languages.
 
 ## Decision
 
@@ -28,6 +28,6 @@ A newer viewer needs a manual update of the file and its digest.
 
 ## Confirmation
 
-`t/unit/report-json.t` fixes the mapping, which `report-a-timeout-as-ignored-in-the-schema-report` gives each status.
-`xt/report-schema.t` validates reports against the pinned schema file, and `t/unit/report-html.t` checks the digest and the escaping of the embedded data.
-A rendering check in a browser is still missing, so the decision stays proposed.
+`xt/report-schema.t` validates the pinned schema.
+`t/e2e/report-refresh.t` and `t/e2e/journeys.t` recover measured verdicts from JSON and standalone HTML.
+`t/unit/report-html.t` checks escaping and the viewer digest.

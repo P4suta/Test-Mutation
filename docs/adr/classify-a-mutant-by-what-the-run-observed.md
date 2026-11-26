@@ -26,8 +26,10 @@ The Stryker metrics count a timeout as detected, which credits a slow machine.
 ## Consequences
 
 A run with a mutant without a verdict, or without a valid mutant, exits with status 4.
-`describe-each-status-once-in-a-catalog` renames `RuntimeError` to `NoVerdict`, and `report-a-timeout-as-ignored-in-the-schema-report` gives the viewer our score.
+`describe-each-status-once-in-a-catalog` renames `RuntimeError` to `NoVerdict`, and `report-a-timeout-as-ignored-in-the-schema-report` makes the viewer display the command’s score.
 
 ## Confirmation
 
-`t/unit/verdict.t` enumerates every outcome with its status and reason, and `t/e2e/mechanics.t` fixes the statuses of each mechanism.
+`t/e2e/target-witness.t` checks child loads.
+`t/e2e/unmodified-pass.t` verifies the original before attributing failure.
+`t/unit/verdict.t` checks status and reason.

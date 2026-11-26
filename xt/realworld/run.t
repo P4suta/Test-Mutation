@@ -7,7 +7,6 @@ use Test::Mutation::Mutator::Catalog;
 
 # The release gate reads the records of a run of the tool on real distributions.
 # `mise run realworld` writes the records inside a container and then runs this file.
-# A record outside the expectation of its run is a finding, and the open findings name the ones that a slice removes.
 
 my $TABLE   = 'xt/realworld/distributions.toml';
 my $RECORDS = 'mutation-report/realworld.jsonl';
@@ -49,15 +48,12 @@ TOML
         },
     };
     my $at = sub ($records) {
-        return Gate::outcomes(
-            sub { Gate::findings( 'realworld', RealWorld::judged( [$run], $records ), file => '/dev/null' ) } );
+        return Gate::outcomes( sub { Gate::findings( 'realworld', RealWorld::judged( [$run], $records ) ) } );
     };
-    is $at->( { Example => $record } ), [ 'pass', 'pass' ], 'a record inside the expectation of its run passes';
-    is $at->( {} ),                     [ 'fail', 'pass' ], 'a run without a record fails';
-    is $at->( { Example => { $record->%*, sha256 => 'b' x 64 } } ), [ 'fail', 'pass' ],
-      'a record of another archive fails';
-    is $at->( { Example => $record, Other => $record } ), [ 'fail', 'pass' ],
-      'a record that names no run of the table fails';
+    is $at->( { Example => $record } ), ['pass'], 'a record inside the expectation of its run passes';
+    is $at->( {} ),                     ['fail'], 'a run without a record fails';
+    is $at->( { Example => { $record->%*, sha256 => 'b' x 64 } } ), ['fail'], 'a record of another archive fails';
+    is $at->( { Example => $record, Other => $record } ), ['fail'], 'a record that names no run of the table fails';
 };
 
 my $runs    = RealWorld::runs( slurp($TABLE) );
