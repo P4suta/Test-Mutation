@@ -486,6 +486,14 @@ sub _spec ( $run, $root, $name, $trace, $targets ) {
     for my $target ( $targets->@* ) {
         my @original = $root ne $run->{project} ? $run->{project} . substr( $target->[0], length $root ) : ();
         push @lines, join "\t", 'target', $target->@*, @original;
+        my $relative = substr $target->[0], length($root) + 1;
+        next unless defined $run->{copies};
+        push @lines, "extract\t$target->[0]"
+          if $run->{witness}{$relative} && defined $run->{witness}{$relative}{extract};
+        next unless $trace && $relative =~ m{\A(?:bin|script)/} && -f $target->[0];
+        my $headers = Test::Mutation::Workspace::Slot::twins( $root, $relative,
+            Test::Mutation::Source::read_bytes( $target->[0] ) );
+        push @lines, map { "command\t$target->[0]\t$root/$_" } sort keys %$headers;
     }
     _spew( $path, join q{}, map { "$_\n" } @lines );
     return $path;

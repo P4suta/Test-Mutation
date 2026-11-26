@@ -156,7 +156,7 @@ tests = ["make", "test"]
 options = []
 
 [CPAN-Audit.expect]
-mutants = [289, 353]
+mutants = [405, 495]
 warnings = []
 seconds = 60
 
@@ -175,7 +175,7 @@ test-exclude = ["t/cli/dist.t"]
 '''
 
 ["CPAN-Audit without the test outside its list".expect]
-mutants = [72, 90]
+mutants = [101, 125]
 score = [56, 71]
 warnings = []
 seconds = 120

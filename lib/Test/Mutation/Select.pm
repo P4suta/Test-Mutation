@@ -177,7 +177,10 @@ sub _files ( $config, $root, $name, $matches ) {
             }
         }
     }
-    return [ sort keys %found ];
+    my @files = sort keys %found;
+    @files = grep { !m{\A(?:bin|script)/} || Test::Mutation::Project::perl_script("$root/$_") } @files
+      if $name eq 'source' && !exists $config->specified->{source};
+    return \@files;
 }
 
 sub _interpreter ( $root, $name ) {

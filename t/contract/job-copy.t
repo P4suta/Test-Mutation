@@ -37,6 +37,14 @@ Test::Mutation::Workspace::Slot::place( $root, 'lib/Shared.pm', $original, $muta
 ok !-l "$root/lib/Shared.pm", 'an atomic replacement detaches a linked file';
 is Test::Mutation::Source::read_bytes("$outside/Shared.pm"),  $original, 'external bytes remain original';
 is Test::Mutation::Source::read_bytes("$root/lib/Shared.pm"), $mutant,   'the private file has the changed bytes';
+subtest 'invalid replacement bytes are rejected before a file is replaced' => sub {
+    my $tree = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    write_file( "$tree/Target.pm", $original );
+    like dies { Test::Mutation::Workspace::Slot::place( $tree, 'Target.pm', $original, [] ) },
+      qr/type constraint "Str"/, 'the placement boundary requires source bytes';
+    is Test::Mutation::Source::read_bytes("$tree/Target.pm"), $original, 'the private file retains the original bytes';
+};
+
 subtest 'built commands keep their installation-specific interpreter and source body' => sub {
     my $tree      = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
     my $source    = "#!/usr/bin/env perl\nprint 7;\n";

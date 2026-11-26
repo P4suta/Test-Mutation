@@ -4,7 +4,8 @@ use Cwd             ();
 use File::Basename  ();
 use File::Spec      ();
 use File::Temp      ();
-use Types::Standard qw(ArrayRef Str);
+use List::Util      qw(uniq);
+use Types::Standard qw(ArrayRef HashRef Str);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Error;
 use Test::Mutation::Source;
@@ -12,27 +13,39 @@ use Test::Mutation::Try;
 
 our $VERSION = '0.001';
 
-signature_for place => ( positional => [ Str, Str, Str, Str ], returns => ArrayRef [Str] );
+signature_for twins => ( positional => [ Str, Str, Str ], returns => HashRef [Str] );
 
-sub place ( $root, $path, $original, $mutant ) {
-    my %replace = ( $path => $mutant );
-    my @copies  = ("blib/$path");
-    push @copies, "blib/script/$1" if $path =~ m{\Abin/(.+)\z};
-    for my $copy (@copies) {
+sub twins ( $root, $path, $original ) {
+    my %headers;
+    my @copies = ("blib/$path");
+    if ( $path =~ m{\A(?:bin|script)/(.+)\z} ) {
+        my $relative = $1;
+        push @copies, "blib/script/$relative", 'blib/script/' . File::Basename::basename($relative);
+    }
+    for my $copy ( uniq @copies ) {
         next unless -f "$root/$copy";
         my $built = Test::Mutation::Source::read_bytes("$root/$copy");
         if ( $built eq $original ) {
-            $replace{$copy} = $mutant;
+            $headers{$copy} = q{};
         }
         elsif ( $copy =~ m{\Ablib/(?:bin|script)/} ) {
             my ( $head, $body ) = $built =~ /\A([#]![^\n]*\n)(.*)\z/s;
             my $source = $original =~ s/\A[#]![^\n]*\n//r;
-            $replace{$copy} = $mutant =~ s/\A[#]![^\n]*\n/$head/r if defined $body && $body eq $source;
+            $headers{$copy} = $head if defined $body && $body eq $source && $original =~ /\A[#]!/;
         }
     }
-    my @paths = ( $path, sort grep { $_ ne $path } keys %replace );
+    return \%headers;
+}
+
+signature_for place => ( positional => [ Str, Str, Str, Str ], returns => ArrayRef [Str] );
+
+sub place ( $root, $path, $original, $mutant ) {
+    my $headers = twins( $root, $path, $original );
+    my @paths   = ( $path, sort keys %$headers );
     for my $file (@paths) {
-        _replace( $root, $file, $replace{$file} );
+        my $bytes = $mutant;
+        $bytes =~ s/\A[#]![^\n]*\n/$headers->{$file}/ if $headers->{$file};
+        _replace( $root, $file, $bytes );
     }
     return \@paths;
 }
@@ -73,6 +86,10 @@ __END__
 Test::Mutation::Workspace::Slot - install a mutation in a private job tree
 
 =head1 FUNCTIONS
+
+=head2 twins
+
+Returns the relative paths of matching built files and any replacement interpreter line installed by the build.
 
 =head2 place
 

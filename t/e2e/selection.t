@@ -20,7 +20,7 @@ sub tests_run ($result) {
 opendir my $directory, 't/fixtures' or die "read t/fixtures: $!";
 my @fixtures = sort grep { !/\A[.]/ } readdir $directory;
 closedir $directory or die "close t/fixtures: $!";
-is \@fixtures, [qw(calc counter equivalent mechanics)], 'the fixtures';
+is \@fixtures, [qw(calc counter equivalent mechanics script)], 'the fixtures';
 
 for my $fixture (@fixtures) {
     next

@@ -1,0 +1,12 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+sub product { return $_[0] * $_[1] }
+my ( $a, $b ) = @ARGV;
+my $value = $a + $b;
+my $line = __LINE__;
+my $data = <DATA>;
+print join( q{|}, $value, $0, __FILE__, $line, $data );
+__DATA__
+payload

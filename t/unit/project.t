@@ -75,6 +75,33 @@ subtest 'files' => sub {
     }
 };
 
+subtest 'the default script set follows the selected interpreter' => sub {
+    my $root    = File::Temp::tempdir( CLEANUP => 1 );
+    my @scripts = (
+        [ 'direct',          "#!/usr/local/bin/perl5.38 -w\nexit;\n",                         1 ],
+        [ 'portable',        "#!/usr/bin/env -S perl -w\nexit;\n",                            1 ],
+        [ 'plain.pl',        "print 7;\n",                                                    1 ],
+        [ 'utf8.pl',         "\xEF\xBB\xBF#!/usr/bin/perl\nprint 7;\n",                       1 ],
+        [ 'marked-command',  "\xEF\xBB\xBF#!perl -w\nprint 7;\n",                             1 ],
+        [ 'marked-shell.pl', "\xEF\xBB\xBF#!/bin/sh\nexit 0\n",                               0 ],
+        [ 'binary.pl',       "\x00" . ( 'x' x 8192 ),                                         0 ],
+        [ 'shell.pl',        "#!/bin/sh\n# a perl program follows some other time\nexit 0\n", 0 ],
+        [ 'preamble.pl',     "#!/bin/sh\nexec perl -x \"\$0\"\n#!perl\nprint 7;\n",           1 ],
+        [ 'readme',          "useful example:\n#!perl\nprint 7;\n",                           0 ],
+        [ 'ambiguous',       "#!/opt/perl-helper/bin/sh\n",                                   0 ],
+    );
+    for my $script (@scripts) {
+        my ( $file, $bytes, $expected ) = @$script;
+        open my $out, '>:raw', "$root/$file" or die "open $file: $!";
+        print {$out} $bytes;
+        close $out or die "close $file: $!";
+        is Test::Mutation::Project::perl_script("$root/$file"), $expected, $file;
+    }
+    like dies { Test::Mutation::Project::perl_script( [] ) }, qr/type constraint "Str"/,
+      'script detection checks the supplied path';
+    is Test::Mutation::Project::perl_script($root), 0, 'directories cannot be commands';
+};
+
 subtest 'default_jobs leaves one processor free' => sub {
     is [ map { Test::Mutation::Project::default_jobs($_) } 1, 2, 3, 8 ], [ 1, 1, 2, 7 ],
       'one less, and never below one';

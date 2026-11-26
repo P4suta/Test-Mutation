@@ -137,8 +137,9 @@ my @ROWS = (
     [
         'source', undef, 'list', $GLOB, 'GLOB',
         'a list of globs',
-        sub { ['lib/**/*.pm'] },
-        'lib/**/*.pm', 'selection', 'Files to mutate; repeatable'
+        sub { [qw(lib/**/*.pm bin/**/* script/**/*)] },
+        'lib/**/*.pm and the Perl scripts of bin and script',
+        'selection', 'Files to mutate; repeatable'
     ],
     [
         'source-exclude', undef, 'list', $GLOB, 'GLOB',

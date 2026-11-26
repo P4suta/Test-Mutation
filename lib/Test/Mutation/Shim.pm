@@ -44,6 +44,12 @@ sub read_spec {
             push @{ $spec{targets} },
               { original => $fields[0], serve => $fields[1], defined $fields[2] ? ( outside => $fields[2] ) : () };
         }
+        elsif ( $key eq 'command' ) {
+            push @{ $spec{commands}{ $fields[0] } }, $fields[1];
+        }
+        elsif ( $key eq 'extract' ) {
+            $spec{extract}{ $fields[0] } = 1;
+        }
         else {
             $spec{$key} = $fields[0];
         }
@@ -90,6 +96,37 @@ sub activate {
     $STATE{trace} = _install_tracer() if $spec->{trace};
     $STATE{blind} = $spec->{trace} && !$STATE{trace};
     _record_handle();
+    _trace_main($spec) if $STATE{trace} && $STATE{placed};
+    return;
+}
+
+sub _trace_main {
+    my ($spec)     = @_;
+    my $candidates = $STATE{by_base}{ _basename($0) } or return;
+    my @main       = stat $0                          or return;
+    my $target;
+    for my $candidate ( @{$candidates} ) {
+        my $path = $candidate->{original};
+        next if $spec->{extract}{$path};
+        for my $file ( $path, @{ $spec->{commands}{$path} || [] } ) {
+            my @stat = stat $file or next;
+            $target = $candidate if $main[0] == $stat[0] && $main[1] == $stat[1];
+        }
+        last if $target;
+    }
+    return unless $target;
+    require Filter::Util::Call;
+    $target->{main} = $0;
+    $STATE{by_path}{$0} = $target;
+    _source_lines($0);
+    _trace_compile(1);
+    Filter::Util::Call::filter_add(
+        sub {
+            my $more = Filter::Util::Call::filter_read();
+            _trace_compile( $more > 0 && !/\A__(?:END|DATA)__\s*\z/ );
+            return $more;
+        }
+    );
     return;
 }
 
@@ -228,8 +265,11 @@ sub seen {
         _record( 'lines', $target->{original}, join q{,},
             map { $_ + $target->{line_shift} } _breakable_lines( $target->{tracing_file} ) );
     }
-    _record( ( $target->{served} || defined $target->{tracing_file} ) && !$STATE{blind} ? 'seen' : 'blind',
-        $target->{original} );
+    _record(
+        ( $target->{served} || defined $target->{main} || defined $target->{tracing_file} )
+          && !$STATE{blind} ? 'seen' : 'blind',
+        $target->{original}
+    );
     return 1;
 }
 
@@ -357,6 +397,10 @@ sub finish {
     for my $target ( grep { defined } @{ $STATE{targets} } ) {
         _record( 'outside', $target->{original} )
           if _loaded_from_disk( $target, $target->{outside_device}, $target->{outside_inode} );
+        if ( defined $target->{main} ) {
+            _record( 'lines', $target->{original}, join q{,}, _breakable_lines( $target->{main} ) );
+            next;
+        }
         if ( !$target->{served} ) {
             if ( $target->{witnessed} ) {
                 _record( 'lines', $target->{original}, join q{,},

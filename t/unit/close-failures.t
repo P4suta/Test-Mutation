@@ -27,6 +27,7 @@ BEGIN {
 use Test::Mutation::Cache;
 use Test::Mutation::Settings;
 use Test::Mutation::Host;
+use Test::Mutation::Project;
 use Test::Mutation::Tree;
 use Test::Mutation::Workspace::Slot;
 use Test::Mutation::Source;
@@ -51,6 +52,11 @@ my $recent = write_file( 'recent', 'contents whose digest is required' );
 like dies {
     failing_in( qr/::Tree::_signature\z/, sub { Test::Mutation::Tree::snapshot( root => $directory, skip => [] ) } )
 }, qr/cannot close \Q$recent\E/, 'a failed close invalidates the measured file signature';
+
+my $command = write_file( 'tool', "#!perl\n1;\n" );
+like dies {
+    failing_in( qr/::Project::perl_script\z/, sub { Test::Mutation::Project::perl_script($command) } )
+}, qr/\Acannot close \Q$command\E: /, 'script selection refuses a prefix whose handle failed to close';
 
 my $record = {
     inputs    => 'k',

@@ -97,7 +97,7 @@ subtest 'the default of every setting and its text' => sub {
         perl               => $^X,
         lib                => ['lib'],
         switch             => [],
-        source             => ['lib/**/*.pm'],
+        source             => [qw(lib/**/*.pm bin/**/* script/**/*)],
         'source-exclude'   => [],
         test               => ['t/**/*.t'],
         'test-exclude'     => [],
@@ -135,10 +135,11 @@ subtest 'the default of every setting and its text' => sub {
         my ( $here, $there ) = map { $text_of->( $setting->default->($_) ) } $facts, $other;
         next if $here ne $there;
         my $text =
-            $setting->kind eq 'flag' ? ( $here ? 'on' : 'off' )
-          : !length $here            ? 'none'
-          : $here eq $^X             ? 'the running interpreter'
-          :                            $here;
+            $setting->name eq 'source' ? 'lib/**/*.pm and the Perl scripts of bin and script'
+          : $setting->kind eq 'flag'   ? ( $here ? 'on' : 'off' )
+          : !length $here              ? 'none'
+          : $here eq $^X               ? 'the running interpreter'
+          :                              $here;
         is $setting->default_text, $text, 'the text of the default of ' . $setting->name;
         $count++;
     }
@@ -198,7 +199,7 @@ subtest 'one value of each type' => sub {
 subtest 'the nearest layer gives the whole value' => sub {
     my $default = resolved();
     is [ $default->jobs, $default->source, $default->min_score, $default->config, $default->root ],
-      [ 3, ['lib/**/*.pm'], undef, undef, $root ], 'the defaults, from the facts of the run';
+      [ 3, [qw(lib/**/*.pm bin/**/* script/**/*)], undef, undef, $root ], 'the defaults, from the facts of the run';
     my $file = layer( 'file', entry( 'jobs', 5, 'file' ), entry( 'source', ['src/**/*.pm'], 'file' ) );
     my $line = layer( 'line', entry( 'jobs', 2 ) );
     my $both = resolved( $file, $line );

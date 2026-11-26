@@ -123,7 +123,8 @@ C<mutation_score_ok> asserts a score from a test file.
 
 =head1 CONFIGURATION
 
-C<mutation run> works without configuration: it mutates C<lib/**/*.pm> and runs C<t/**/*.t> with C<-Ilib>.
+C<mutation run> measures modules in C<lib/> and Perl commands in C<bin/> and C<script/> with the tests under C<t/>.
+The default test library is C<lib/>.
 A file named C<mutation.toml> in the project directory changes the defaults, and C<--config> names another file.
 A run writes its reports into C<mutation-report>, and C<--cache> keeps its results in C<.mutation>.
 Both directories belong in C<.gitignore>.
@@ -223,14 +224,15 @@ Inside a run of the same project the assertion is a skip, so a copy under C<t/> 
 
 =head1 LIMITS
 
-A file that a test loads by absolute path, and a script that a test runs as a program, run unmutated.
-A child process in taint mode ignores C<PERL5OPT> and runs the original code.
-The run reports a test that loads a source file around the hook.
+The default run places the mutant in a private copy of the distribution.
+Perl scripts and child interpreters, including taint-mode children, can load the mutant directly from the copy.
+A test that loads the original path outside the copy can leave the verdict inconclusive.
+With C<--in-place>, the run uses the module loading hook and reports files that bypass it.
 A mutant runs with the rights of the tests.
 An absolute path, a link that points out of the project, and a linked directory such as C<local> lead a test out of its copy.
 With C<--in-place>, a mutant may create, change, or remove a file of the project.
 The run then reports such a change and gives no verdict to a mutant that a test broken by the change detected.
-C<mutation exec> runs its command in the project itself.
+C<mutation exec> runs its command in the project copy by default.
 Linux and macOS are supported.
 
 =head1 AUTHOR
