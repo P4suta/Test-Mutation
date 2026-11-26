@@ -20,7 +20,7 @@ subtest 'a first run identifies a missing assertion and a new test detects the s
     write_file( "$root/t/zero.t", $zero );
     my @options = ( '--jobs', 1, '--format', 'terminal', '--min-score', 100 );
     my $initial = ran( 1, $root, @options );
-    my ($id)    = $initial->{stdout} =~ /replaced \+ with -  \[([0-9a-f]{12})\]/;
+    my ($id)    = $initial->{stdout} =~ /^  ([0-9a-f]{12})  [^\n]+  replaced \+ with -  \[Survived\]$/m;
     ok $id, 'the report names the surviving arithmetic change';
     like ran( 0, $root, 'show', $id )->{stdout}, qr/return \$_\[0\] - \$_\[1\]/,
       'the patch shows the missing distinction';
@@ -34,9 +34,11 @@ subtest 'a first run identifies a missing assertion and a new test detects the s
 subtest 'run prints the summary and succeeds' => sub {
     my $root = copy_of('calc');
     my $run  = ran( 0, $root, 'run', '--jobs', 2 );
-    like $run->{stdout}, qr/^21 mutants: 15 killed, 3 survived, 3 no coverage$/m,            'the counts';
-    like $run->{stdout}, qr/^Score: 71\.4% \(15 of 21 valid mutants\)$/m,                    'the score';
-    like $run->{stdout}, qr/^  lib\/Calc\.pm:12:15  replaced > with >=  \[[0-9a-f]{12}\]$/m, 'a survived mutant';
+    like $run->{stdout}, qr/^21 mutants: 15 killed, 3 survived, 3 no coverage$/m, 'the counts';
+    like $run->{stdout}, qr/^Score: 71\.4% \(15 of 21 valid mutants\)$/m,         'the score';
+    like $run->{stdout},
+      qr/^  [0-9a-f]{12}  lib\/Calc\.pm:12:15  comparison-boundary  replaced > with >=  \[Survived\]$/m,
+      'a survived mutant';
     like $run->{stderr}, qr/^21 mutants in 1 file, 2 tests$/m, 'the analysis is announced on standard error';
 };
 
@@ -76,13 +78,14 @@ subtest 'a run that cannot judge a mutant exits with status 4 and one line that 
     write_file( "$root/lib/Slow.pm",
         "package Slow;\nuse strict;\nuse warnings;\nsub next_one { return \$_[0] + 1 }\n1;\n" );
     write_file( "$root/t/slow.t",
-            "use Test::More tests => 1;\nBEGIN { select undef, undef, undef, 0.6 }\n"
+            "use Test::More tests => 1;\n"
+          . q{BEGIN { sleep 30 if $ENV{"TEST_MUTATION_SPEC_G$ENV{TEST_MUTATION_GENERATION}"} =~ m{/mutants/} }} . "\n"
           . "use Slow;\nis Slow::next_one(2), 3, 'the next one';\n" );
-    my $run = ran( 4, $root, '--jobs', 2, '--format', 'terminal', '--timeout-factor', 0.1, '--timeout-floor', 0.1 );
+    my $run = ran( 4, $root, '--jobs', 2, '--format', 'terminal', '--timeout-factor', 4, '--timeout-floor', 1 );
     like $run->{stdout}, qr/^3 mutants: 3 no verdict$/m, 'every test ran out of time before it loaded a mutant';
     like $run->{stdout},
-      qr/^No verdict \(3\)\n.*^    t\/slow\.t exceeded its time limit before it loaded the mutant$/ms,
-      'the section of the mutants without a verdict names the test';
+      qr{^lib/Slow[.]pm\n.*?  \[NoVerdict\]\n.*?^    t/slow[.]t exceeded its time limit before it loaded the mutant$}ms,
+      'the file details identify the test that exceeded its limit before loading the mutant';
     like $run->{stderr}, qr/\nmutation: the run states no score\n\z/,
       'the last line of standard error names the outcome';
 };
@@ -229,29 +232,30 @@ subtest 'options choose the interpreter, the time limits, and the work directory
 subtest '--mutant limits the run to the named mutants' => sub {
     my $root = copy_of('calc');
     my ($id) =
-      ran( 0, $root, '--jobs', 2, '--format', 'terminal' )->{stdout} =~ /replaced > with >=  \[([0-9a-f]{12})\]/;
+      ran( 0, $root, '--jobs', 2, '--format', 'terminal' )->{stdout} =~
+      /^  ([0-9a-f]{12})  [^\n]+  replaced > with >=  \[Survived\]$/m;
     my $run = ran( 0, $root, '--jobs', 2, '--format', 'terminal', '--mutant', $id );
     like $run->{stdout}, qr/^1 mutant: 1 survived$/m, 'one mutant ran';
 };
 
 subtest 'GitHub Actions gets annotations and a job summary' => sub {
     my $root   = copy_of('calc');
-    my $format = ran( 0, $root, '--jobs', 2, '--format', 'github' );
-    like $format->{stdout},
+    my $format = ran( 0, $root, '--jobs', 2, '--format', 'terminal', '--github' );
+    like $format->{stderr},
       qr/^::warning file=lib\/Calc\.pm,line=12,col=15,endLine=12,endColumn=16,title=Survived::/m,
-      '--format github prints annotations';
-    unlike $format->{stdout}, qr/^Score:/m, 'and nothing else';
+      '--github prints annotations on standard error';
+    unlike $format->{stdout}, qr/^::warning/m, 'the terminal report is separate from workflow commands';
 
     local $ENV{GITHUB_ACTIONS}      = 'true';
     local $ENV{GITHUB_STEP_SUMMARY} = "$root/summary.md";
     my $detected = ran( 0, $root, '--jobs', 2 );
     like $detected->{stdout},       qr/^Score: 71\.4%/m,                 'the terminal report stays';
-    like $detected->{stdout},       qr/^::warning file=lib\/Calc\.pm,/m, 'annotations are added inside GitHub Actions';
+    like $detected->{stderr},       qr/^::warning file=lib\/Calc\.pm,/m, 'annotations are added inside GitHub Actions';
     like slurp("$root/summary.md"), qr/^Score: \*\*71\.4%\*\*/m,         'the job summary is appended';
 
     local $ENV{GITHUB_STEP_SUMMARY} = q{};
     my $unnamed = ran( 0, $root, '--jobs', 2 );
-    like $unnamed->{stdout}, qr/^::warning file=lib\/Calc\.pm,/m, 'and the annotations stay';
+    like $unnamed->{stderr}, qr/^::warning file=lib\/Calc\.pm,/m, 'and the annotations stay';
 };
 
 done_testing;

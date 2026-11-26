@@ -46,7 +46,7 @@ sub configured ( $file, %given ) {
 
 subtest 'one row for each setting, with one name on every surface' => sub {
     my @names = map { $_->name } Test::Mutation::Settings::rows()->@*;
-    is scalar(@names),                                           34, 'the settings';
+    is scalar(@names),                                           35, 'the settings';
     is [ grep { $names[$_] eq $names[ $_ - 1 ] } 1 .. $#names ], [], 'no name twice in a row';
     my $score = $row{'min-score'};
     is [ $score->flag, $score->key, $score->attribute ], [ '--min-score', 'min-score', 'min_score' ], 'the three names';
@@ -76,10 +76,10 @@ subtest 'each default has the type of its setting' => sub {
     ok $row{source}->value_type->check( [] ),       'a list may be empty';
     is $row{jobs}->default->( { processors => 1, env => {} } ), 1, 'one job for one processor';
     is $row{jobs}->default->( { processors => 8, env => {} } ), 7, 'and one less than the processors';
-    is $row{format}->default->( { processors => 1, env => { GITHUB_ACTIONS => 'true' } } ),
-      [qw(terminal json html github)], 'GitHub Actions adds its report';
-    is [ map { $row{format}->default->( { processors => 1, env => { GITHUB_ACTIONS => $_ } } ) } 'false', undef ],
-      [ [qw(terminal json html)], [qw(terminal json html)] ], 'and any other value leaves it out';
+    is $row{format}->default->( { env => { GITHUB_ACTIONS => 'true' } } ), [qw(terminal json html)],
+      'the report formats';
+    is [ map { $row{github}->default->( { env => { GITHUB_ACTIONS => $_ } } ) } 'true', 'false', undef ],
+      [ 1, 0, 0 ], 'only GitHub Actions turns on annotations and the job summary';
 };
 
 subtest 'the default of every setting and its text' => sub {
@@ -90,6 +90,7 @@ subtest 'the default of every setting and its text' => sub {
         config             => undef,
         jobs               => 3,
         color              => 0,
+        github             => 0,
         'min-score'        => undef,
         format             => [qw(terminal json html)],
         'report-dir'       => 'mutation-report',
@@ -145,7 +146,7 @@ subtest 'the default of every setting and its text' => sub {
         is $setting->default_text, $text, 'the text of the default of ' . $setting->name;
         $count++;
     }
-    is $count, 26, 'the defaults that stay the same on the two projects';
+    is $count, 27, 'the defaults that stay the same on the two projects';
 };
 
 subtest 'the interactions that the table declares' => sub {
@@ -335,7 +336,7 @@ subtest 'a call of the library' => sub {
     is refused( sub { $call->( source => 'lib' ) } ), [ 'setting-invalid', 'source takes a list of globs, not lib' ],
       'one value for a list';
     is refused( sub { $call->( format => [ 'json', 'pdf' ] ) } ),
-      [ 'setting-invalid', 'format takes a list of terminal, json, html, and github, not [json, pdf]' ],
+      [ 'setting-invalid', 'format takes a list of terminal, json, and html, not [json, pdf]' ],
       'a list with a value outside the type';
     is refused( sub { $call->( jobs => [2] ) } ),
       [ 'setting-invalid', 'jobs takes a whole number above zero, not [2]' ],

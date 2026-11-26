@@ -30,6 +30,7 @@ use Test::Mutation::Report::GitHub;
 use Test::Mutation::Report::Html;
 use Test::Mutation::Report::Json;
 use Test::Mutation::Report::Patch;
+use Test::Mutation::Report::Results;
 use Test::Mutation::Report::Live;
 use Test::Mutation::Report::Terminal;
 use Test::Mutation::Runner;
@@ -278,11 +279,9 @@ sub _carried_out ( $invocation, $world ) {
     }
     my ( $command, $directory ) = $invocation->@{qw(command directory)};
     if ( defined $directory ) {
-
-        # A relative entry of the module search path names another place after the change of directory.
-        @INC = map { ref $_ ? $_ : File::Spec->rel2abs($_) } @INC;    ## no critic (Variables::RequireLocalizedPunctuationVars)
-        chdir _under( $world->{cwd}, $directory )
-          or Test::Mutation::Error::raise( 'directory-closed', directory => $directory, reason => "$!" );
+        my $reason = _closed( _under( $world->{cwd}, $directory ) );
+        Test::Mutation::Error::raise( 'directory-closed', directory => $directory, reason => $reason )
+          if defined $reason;
     }
 
     if ( $command eq 'version' ) {
@@ -356,7 +355,8 @@ sub _report ( $result, $config, $world, $listener = sub { return } ) {
         $result,
         color => _color( $config, $world, $world->{out_tty} ),
         low   => $config->threshold_low,
-        high  => $config->threshold_high
+        high  => $config->threshold_high,
+        floor => $config->min_score
     ) if $wanted{terminal};
 
     my @formats = grep { $wanted{$_} } qw(json html);
@@ -365,7 +365,7 @@ sub _report ( $result, $config, $world, $listener = sub { return } ) {
         $listener->( 'report_written', { path => $_ } ) for @written;
         print { $world->{out} } 'Reports: ', join( ', ', @written ), "\n";
     }
-    _report_to_github( $result, $world, $config->root ) if $wanted{github};
+    _report_to_github( $result, $world, $config ) if $config->github;
     return;
 }
 
@@ -391,6 +391,16 @@ sub _file_reports ( $result, $config, $formats ) {
 sub _refresh_report ( $directory, $result ) {
     return $result if defined $result->shard                 || !defined $result->catalog_digest;
     return $result unless exists $result->selection->{paths} || exists $result->selection->{mutants};
+    return _previous_report(
+        $directory,
+        sub ($prior) {
+            my $combined = Test::Mutation::Merge::refresh( $prior, $result );
+            return $combined == $result ? undef : $combined;
+        }
+    ) || $result;
+}
+
+sub _previous_report ( $directory, $select ) {
     my @reports;
     for my $format (qw(json html)) {
         my $path = "$directory/$FILE_REPORT{$format}[0]";
@@ -410,17 +420,19 @@ sub _refresh_report ( $directory, $result ) {
         }
         my $parsed = Test::Mutation::Try::attempt( sub { Test::Mutation::Report::Json::parse($text) } );
         next unless exists $parsed->{value};
-        my $combined = Test::Mutation::Merge::refresh( $parsed->{value}, $result );
-        return $combined if $combined != $result;
+        my $selected = $select->( $parsed->{value} );
+        return $selected if defined $selected;
     }
-    return $result;
+    return;
 }
 
-sub _report_to_github ( $result, $world, $root ) {
-    print { $world->{out} } Test::Mutation::Report::GitHub::annotations($result);
+sub _report_to_github ( $result, $world, $config ) {
     my $path = $world->{env}{GITHUB_STEP_SUMMARY};
-    return if !defined $path || !length $path;
-    _write( File::Spec->rel2abs( $path, $root ), $path, '>>', Test::Mutation::Report::GitHub::summary($result) );
+    if ( defined $path && length $path ) {
+        _write( File::Spec->rel2abs( $path, $config->root ),
+            $path, '>>', Test::Mutation::Report::GitHub::summary( $result, $config->min_score ) );
+    }
+    print { $world->{err} } Test::Mutation::Report::GitHub::annotations($result);
     return;
 }
 
@@ -461,19 +473,40 @@ sub _concluded ( $result, $floor, $world ) {
     return $code;
 }
 
-sub _heading ($mutant) {
-    my $place = sprintf '%s:%d:%d', $mutant->path, $mutant->from->@*;
-    return join q{  }, $mutant->id, $place, $mutant->mutator, $mutant->description;
+sub _list ( $invocation, $world ) {
+    my $selected = $invocation->{selection};
+    my $analysis =
+      $selected
+      ? { mutants => $selected->mutants, sources => $selected->sources }
+      : Test::Mutation::Runner::analyze( $invocation->{config} );
+    my $previous = _previous_entries( $invocation->{config}, $analysis->{sources}, $analysis->{mutants} );
+    for my $mutant ( $analysis->{mutants}->@* ) {
+        my $entry = $previous->{ $mutant->id };
+        say { $world->{out} } Test::Mutation::Report::Results::heading($mutant), _suppression($mutant),
+          $entry ? "  [$entry->{status}]" : q{};
+    }
+    say { $world->{out} } _plural( scalar $analysis->{mutants}->@*, 'mutant' );
+    return 0;
 }
 
-sub _list ( $invocation, $world ) {
-    my @mutants =
-        $invocation->{selection}
-      ? $invocation->{selection}->mutants->@*
-      : Test::Mutation::Runner::analyze( $invocation->{config} )->{mutants}->@*;
-    say { $world->{out} } _heading($_), _suppression($_) for @mutants;
-    say { $world->{out} } _plural( scalar @mutants, 'mutant' );
-    return 0;
+sub _previous_entries ( $config, $sources, $mutants ) {
+    my $directory = File::Spec->rel2abs( $config->report_dir, $config->root );
+    my %wanted    = map { $_->id => 1 } $mutants->@*;
+    my %entries;
+    _previous_report(
+        $directory,
+        sub ($prior) {
+            my %same = map { $_ => 1 }
+              grep { exists $prior->sources->{$_} && $prior->sources->{$_} eq $sources->{$_}->text }
+              keys $sources->%*;
+            for my $entry ( $prior->entries->@* ) {
+                my $mutant = $entry->{mutant};
+                $entries{ $mutant->id } = $entry if $same{ $mutant->path } && delete $wanted{ $mutant->id };
+            }
+            return keys %wanted ? undef : \%entries;
+        }
+    );
+    return \%entries;
 }
 
 sub _suppression ($mutant) {
@@ -487,7 +520,14 @@ sub _suppression ($mutant) {
 sub _show ( $invocation, $world ) {
     my $analysis = Test::Mutation::Runner::analyze( $invocation->{config} );
     my $mutant   = Test::Mutation::Select::by_id( $analysis->{mutants}, $invocation->{operands}[0] );
-    say { $world->{out} } _heading($mutant);
+    my $previous = _previous_entries( $invocation->{config}, $analysis->{sources}, [$mutant] )->{ $mutant->id };
+    say { $world->{out} } Test::Mutation::Report::Results::heading($mutant);
+    say { $world->{out} } 'Last result: ', $previous ? $previous->{status} : 'unmeasured';
+    if ($previous) {
+        say { $world->{out} } 'Reached by: ',
+          $previous->{covered_by}->@* ? join( ', ', $previous->{covered_by}->@* ) : 'no test';
+        say { $world->{out} } "Killed by: $previous->{by}" if defined $previous->{by};
+    }
     print { $world->{out} } Test::Mutation::Report::Patch::render(
         text   => $analysis->{sources}{ $mutant->path }->text,
         mutant => $mutant
@@ -503,8 +543,8 @@ sub _exec ( $invocation, $world ) {
     return Test::Mutation::Runner::run_command( $config, $analysis->{sources}{ $mutant->path }, $mutant, \@command );
 }
 
-sub _read_report ($path) {
-    open my $handle, '<:encoding(UTF-8)', $path
+sub _read_report ( $path, $root ) {
+    open my $handle, '<:encoding(UTF-8)', File::Spec->rel2abs( $path, $root )
       or Test::Mutation::Error::raise( 'input-unreadable', path => $path, reason => "$!" );
     local $/ = undef;
     my $text = readline $handle;
@@ -518,7 +558,7 @@ sub _read_report ($path) {
 sub _merge ( $invocation, $world ) {
     my $config = $invocation->{config};
     my $result = Test::Mutation::Merge::merge(
-        [ map { { name => $_, result => _read_report($_) } } $invocation->{operands}->@* ] );
+        [ map { { name => $_, result => _read_report( $_, $config->root ) } } $invocation->{operands}->@* ] );
     Test::Mutation::Select::outputs( $config, $world->{env}{GITHUB_STEP_SUMMARY} );
     _report( $result, $config, $world );
     return _concluded( $result, $config->min_score, $world );
@@ -579,6 +619,6 @@ The function dies on an error that no check of the arguments foresees.
 
 Carries a plan out and returns the exit status.
 A plan to refuse prints its text.
-A plan to act enters the directory, runs the command, and prints to the streams of the world.
+A plan to act resolves paths against the project directory and prints to the streams of the world.
 
 =cut

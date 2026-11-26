@@ -84,7 +84,9 @@ subtest 'the document has the required top-level fields' => sub {
     is $document->{projectRoot}, '/project', 'project root';
     is $document->{framework}, { name => 'Test::Mutation', version => Test::Mutation::Report::Json->VERSION },
       'framework';
-    is [ sort keys $document->{files}->%* ], ['lib/Calc.pm'], 'files with mutants';
+    is [ sort keys $document->{files}->%* ], [qw(lib/Calc.pm lib/Unmutated.pm)], 'every analyzed source';
+    is $document->{files}{'lib/Unmutated.pm'}, { language => 'perl', source => "1;\n", mutants => [] },
+      'an analyzed file can contain no mutations';
 };
 
 subtest 'a file carries its language, source, and mutants' => sub {

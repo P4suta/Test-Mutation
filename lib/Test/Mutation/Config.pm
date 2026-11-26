@@ -16,6 +16,7 @@ has specified => ( is => 'ro', isa => HashRef [Str], required => 1 );
 has root             => ( is => 'ro', isa => $TYPE{root},             required => 1 );
 has config           => ( is => 'ro', isa => $TYPE{config},           required => 1 );
 has jobs             => ( is => 'ro', isa => $TYPE{jobs},             required => 1 );
+has github           => ( is => 'ro', isa => $TYPE{github},           required => 1 );
 has color            => ( is => 'ro', isa => $TYPE{color},            required => 1 );
 has min_score        => ( is => 'ro', isa => $TYPE{min_score},        required => 1 );
 has format           => ( is => 'ro', isa => $TYPE{format},           required => 1 );
@@ -89,6 +90,10 @@ The number of test processes that run side by side.
 =head2 min_score
 
 The score below which the run fails, or nothing.
+
+=head2 github
+
+Write workflow annotations and the GitHub Actions job summary.
 
 =head2 color
 

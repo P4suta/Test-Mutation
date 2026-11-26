@@ -35,10 +35,12 @@ subtest 'the assertion fails below the minimum and shows the undetected mutants'
     );
     my ( $status, $output ) = run_test( $root, 'xt/strict.t' );
     isnt $status, 0, 'the test fails';
-    like $output, qr/^not ok 1 - strong tests$/m,                    'the given name';
-    like $output, qr/^# returned 0$/m,                               'the assertion returns false';
+    like $output, qr/^not ok 1 - strong tests$/m,          'the given name';
+    like $output, qr/^# Gate: failed [(]minimum 90%[)]$/m, 'the assertion reports the same gate as the command';
+    like $output, qr/^# returned 0$/m,                     'the assertion returns false';
     like $output, qr/^# Score: 71\.4% \(15 of 21 valid mutants\)$/m, 'the diagnostics state the score';
-    like $output, qr/^#   lib\/Calc\.pm:12:15  replaced > with >=/m, 'and list a survived mutant';
+    like $output, qr{^#   [0-9a-f]{12}  lib/Calc[.]pm:12:15  comparison-boundary  replaced > with >=  \[Survived\]$}m,
+      'and list a survived mutant';
 };
 
 subtest 'settings pass through to the run' => sub {
@@ -64,7 +66,8 @@ subtest 'the assertion reads mutation.toml, and a setting overrides the file' =>
     is $status, 0, 'the excluded file leaves the score above the minimum' or diag $output;
     ( $status, $output ) = run_test( $project, 'xt/override.t' );
     isnt $status, 0, 'the setting brings the untested file back';
-    like $output, qr/^#   lib\/Extra\.pm:/m, 'and the diagnostics list its mutants';
+    like $output, qr{^#   [0-9a-f]{12}  lib/Extra[.]pm:\d+:\d+  .*  \[NoCoverage\]$}m,
+      'and the diagnostics list its mutants';
 
     write_file( "$project/mutation.toml", "[source\n" );
     ( $status, $output ) = run_test( $project, 'xt/file.t' );

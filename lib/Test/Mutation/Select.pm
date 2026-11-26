@@ -253,7 +253,7 @@ sub outputs ( $config, $summary ) {
             _writable_file($target) if -e $target || -l $target;
         }
     }
-    if ( $wanted{github} && defined $summary && length $summary ) {
+    if ( $config->github && defined $summary && length $summary ) {
         my $path = File::Spec->rel2abs( $summary, $config->root );
         _writable_file($path);
     }

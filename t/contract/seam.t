@@ -120,15 +120,15 @@ subtest 'the plan takes the processors and the environment from its world' => su
     };
     is [ map { $jobs->($_) } 1, 2, 4, 8 ], [ 1, 1, 3, 7 ],
       'the jobs are one less than the processors, and at least one';
-    my $formats = sub ($env) { plan_of( ['list'], env => $env )->{config}->format };
-    is $formats->( { GITHUB_ACTIONS => 'true' } ), [qw(terminal json html github)], 'GitHub Actions adds its report';
+    my $github = sub ($env) { plan_of( ['list'], env => $env )->{config}->github };
+    is $github->( { GITHUB_ACTIONS => 'true' } ), 1, 'GitHub Actions enables annotations and the summary';
     is [
-        map { $formats->($_) } {},
+        map { $github->($_) } {},
         { GITHUB_ACTIONS => 'false' },
         { GITHUB_ACTIONS => undef },
         { GITHUB_ACTIONS => '1' }
       ],
-      [ map { [qw(terminal json html)] } 1 .. 4 ], 'and any other value leaves it out';
+      [ 0, 0, 0, 0 ], 'only the documented value enables GitHub output';
     my $called = 0;
     plan_of( [$_], processors => sub { $called++; { count => 4, source => 'online' } } )
       for qw(--version --help mutators);
@@ -213,13 +213,14 @@ subtest 'carrying out a refusal prints its text and returns its status' => sub {
     is [ keys %column ], [ $longest + 4 ], 'the lines of help line up two spaces after the longest option';
 };
 
-subtest 'carrying out a plan enters the directory and prints to the streams of the world' => sub {
+subtest 'carrying out a plan resolves its paths and prints to the streams of the world' => sub {
     my $listed = World::observe( [ 'list', '--shard', '1/21' ], cwd => $root );
     like [ $listed->@{qw(exit stdout stderr)} ],
       [ 0, qr/\A[0-9a-f]{12}  lib\/Calc[.]pm:5:10  sub-body  [^\n]+\n1 mutant\n\z/, q{} ],
       'list prints to the output of the world';
     my ($id) = $listed->{stdout} =~ /\A([0-9a-f]{12})/;
-    like World::observe( [ 'show', $id ], cwd => $root )->{stdout}, qr/\A$id  [^\n]+\n--- lib\/Calc[.]pm\n/, 'show';
+    like World::observe( [ 'show', $id ], cwd => $root )->{stdout},
+      qr/\A$id  [^\n]+\nLast result: unmeasured\n--- lib\/Calc[.]pm\n/, 'show';
     is [ World::observe( [ 'show', 'zzzz' ], cwd => $root )->@{qw(exit stdout stderr)} ],
       [ 2, q{}, "mutation: no mutant has the identifier zzzz\n" ], 'an identifier without a mutant';
     is [ World::observe( [ 'exec', 'zzzz', '--', 'true' ], cwd => $root )->@{qw(exit stdout stderr)} ],
@@ -240,10 +241,9 @@ subtest 'carrying out a plan enters the directory and prints to the streams of t
         local *Test::Mutation::Runner::analyze = sub { @inc = @INC; $entered = Cwd::getcwd(); die ['no text'] };
         local @INC                             = ( 'relative/entry', @INC );
         is Test::Mutation::CLI::execute( $plan, $world ), 6, 'an error that is no text ends the command with status 6';
-        chdir $here or die "chdir: $!";
     }
-    is [ $inc[0], $entered ], [ "$here/relative/entry", $root ],
-      'the command enters the directory, and a relative entry of the search path names its place in full';
+    is [ $inc[0], $entered ], [ 'relative/entry', $here ],
+      'the command resolves the project without changing the working directory or the library search path';
     is $text, "mutation: internal error: ARRAY\n", 'the error has its line, which names the type of the value';
     $text = q{};
     seek $errors, 0, 0 or die "seek: $!";
@@ -324,7 +324,7 @@ subtest 'a run reports its progress to the errors of the world and its result to
     is $log->{stderr},
       "4 processors online\n3 mutants in 1 file, 1 test\nThe unmodified run passed: 1 test, 2 jobs\n"
       . "[1/3] 1 killed\n[2/3] 1 killed, 1 survived\n[3/3] 2 killed, 1 survived\n", 'a log gets one line for each step';
-    like $log->{stdout}, qr/\A3 mutants: 2 killed, 1 survived\nScore: 66[.]7% \(2 of 3 valid mutants\)\n/, 'the report';
+    like $log->{stdout}, qr/^3 mutants: 2 killed, 1 survived\nScore: 66[.]7% \(2 of 3 valid mutants\)\n/m, 'the report';
     is $log->{exit}, 0, 'and the run succeeds';
     is $run->( [ '--format', 'terminal' ], err_tty => 1 )->{stderr},
       "4 processors online\n3 mutants in 1 file, 1 test\nThe unmodified run passed: 1 test, 2 jobs\n"
@@ -339,10 +339,10 @@ subtest 'a run reports its progress to the errors of the world and its result to
     is [ map { $run->( [ '--format', 'terminal', '--min-score', $_ ] )->{exit} } 66, 67 ], [ 0, 1 ], 'the gate decides';
 
     my $summary = "$elsewhere/summary.md";
-    my $github  = $run->( [ '--format', 'github' ], env => { GITHUB_STEP_SUMMARY => $summary } );
-    like $github->{stdout}, qr/\A::warning file=lib\/Sample[.]pm,line=2,/, 'the annotations go to the output';
+    my $github  = $run->( [ '--format', 'terminal', '--github' ], env => { GITHUB_STEP_SUMMARY => $summary } );
+    like $github->{stderr}, qr/^::warning file=lib\/Sample[.]pm,line=2,/m, 'the annotations go to standard error';
     ok -s $summary, 'and the summary goes to the file that the environment of the world names';
-    my $unnamed = $run->( [ '--format', 'github' ], env => { GITHUB_STEP_SUMMARY => q{} } );
+    my $unnamed = $run->( [ '--format', 'terminal', '--github' ], env => { GITHUB_STEP_SUMMARY => q{} } );
     is $unnamed->{exit}, 0, 'an empty name writes no summary';
 
     my $reports = $run->( [ '--format', 'json', '--report-dir', "$elsewhere/out" ] );

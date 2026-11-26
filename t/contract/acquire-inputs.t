@@ -109,7 +109,7 @@ subtest 'a child that cannot execute the interpreter terminates at the version p
 subtest 'the usable report destinations are checked before a test starts' => sub {
     my $json    = config( format => ['json'] );
     my $html    = config( format => ['html'] );
-    my $summary = config( format => ['github'] );
+    my $summary = config( format => [], github => 1 );
     mkdir "$output/mutation.json" or die $!;
     is refused( sub { checked($json) } ), 'file-unwritable', 'a directory cannot be a JSON report';
     is checked($html),                    undef,             'a format that was left out needs no usable destination';
@@ -122,6 +122,10 @@ subtest 'the usable report destinations are checked before a test starts' => sub
       'a regular file cannot be the parent of a job summary';
     is checked( $summary, 'reports/summary' ),            undef, 'a writable parent can receive a new summary';
     is refused( sub { checked( $summary, 'reports' ) } ), 'file-unwritable', 'a job summary must be a file';
+    is checked( config( format => ['terminal'], github => 0 ), 'lib/Addition.pm/summary' ), undef,
+      'a disabled job summary leaves its destination alone';
+    is checked( $summary, undef ), undef, 'the job can run without a summary destination';
+    is checked( $summary, q{} ),   undef, 'an empty destination leaves the job summary unwritten';
     symlink 'reports', "$project/valid" or die $!;
     is checked( config( format => ['json'], report_dir => 'valid/nested' ) ), undef,
       'an existing directory link is usable';

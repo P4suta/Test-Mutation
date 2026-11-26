@@ -17,7 +17,7 @@ my %TYPE = (
     Percent    => { number => 1, valid => [ 50, 0, 100, '99.5' ], invalid => [ -1, '100.5', 'x', 'inf' ] },
     Coverage   => { valid => [ 'file', 'line' ], invalid => ['branch'] },
     Profile    => { valid => [ 'extended', 'default' ], invalid => ['nonesuch'] },
-    Format     => { valid => [ 'json', 'terminal', 'html', 'github' ], invalid => ['pdf'] },
+    Format     => { valid => [ 'json', 'terminal', 'html' ], invalid => ['pdf'] },
     Shard      => { valid => [ '2/3', '1/1' ], invalid => [ '0/3', '4/3', '2', 'a/b' ] },
     Boolean    => { valid => [ 1, 0 ], invalid => ['yes'] },
     Directory  => { valid => [ 'out', 'reports/here' ] },

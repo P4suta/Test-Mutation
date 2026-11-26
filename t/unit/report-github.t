@@ -95,4 +95,22 @@ subtest 'the summary states the score and the count of every status' => sub {
       qr/^Score: \*\*100\.0%\*\* \(1 of 1 valid mutant\)$/m, 'one valid mutant';
 };
 
+subtest 'annotations are bounded independently of the complete summary' => sub {
+    my @entries;
+    for my $status (qw(Survived Timeout)) {
+        push @entries,
+          map { entry( $status, mutant => { id => sprintf( '%012x', @entries + $_ ), path => 'lib/A|B.pm' } ) } 1 .. 12;
+    }
+    my $result   = result( \@entries );
+    my $commands = Test::Mutation::Report::GitHub::annotations($result);
+    is scalar( () = $commands =~ /^::warning /mg ), 10, 'ten warnings';
+    is scalar( () = $commands =~ /^::notice /mg ),  10, 'ten notices';
+    my $summary = Test::Mutation::Report::GitHub::summary( $result, 85 );
+    like $summary, qr/Gate: .*85%/, 'the summary includes the threshold decision';
+    for my $entry (@entries) {
+        like $summary, qr/\Q@{[ $entry->{mutant}->id ]}\E/, 'even a mutant beyond the annotation limit is listed';
+    }
+    unlike $summary, qr/\| lib\/A\|B[.]pm \|/, 'a pipe in a filename cannot split a table cell';
+};
+
 done_testing;

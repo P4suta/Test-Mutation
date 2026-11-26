@@ -90,8 +90,14 @@ subtest 'the selection carries matching files, mutants and the bytes that produc
     is Raised::error( sub { Test::Mutation::Select::resolve( config => $explicit ) } )->[1], 'glob-unmatched',
       'writing the default pattern explicitly requires a match';
     my $as_output = sub ( $format, $directory, $summary = undef ) {
-        my $config =
-          Test::Mutation::Settings::of_call( { root => $project, format => [$format], report_dir => $directory } );
+        my $config = Test::Mutation::Settings::of_call(
+            {
+                root       => $project,
+                format     => [ $format eq 'github' ? () : $format ],
+                github     => $format eq 'github',
+                report_dir => $directory
+            }
+        );
         return Test::Mutation::Select::resolve( config => $config, reports => 1, summary => $summary );
     };
     is Raised::error( sub { $as_output->( 'json', 'lib/Example.pm/reports' ) } )->[1], 'directory-uncreatable',

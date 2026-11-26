@@ -93,7 +93,9 @@ subtest '--root runs the command as if it had started in the named directory' =>
 
     my $library = Cwd::abs_path('lib');
     local $ENV{PERL5LIB} = join q{:}, grep { $_ ne $library } split /:/, defined $ENV{PERL5LIB} ? $ENV{PERL5LIB} : q{};
-    my $relative = ran_from( 'lib', 0, Cwd::getcwd(), '--root', $root, '--jobs', 2, '--format', 'terminal' );
+    my $reported = copy_of('calc');
+    my $relative = ran_from( 'lib', 0, Cwd::getcwd(), '--root', $reported, '--jobs', 2 );
+    ok -s "$reported/mutation-report/mutation.html", 'the bundled viewer resolves when the library path is relative';
     like $relative->{stdout}, qr/^Score: 71\.4%/m, 'and the run measures the project';
 };
 
@@ -175,6 +177,7 @@ subtest 'show prints a mutant as a patch' => sub {
     is [ split /\n/, $run->{stdout} ],
       [
         "$id  lib/Calc.pm:12:15  comparison-boundary  replaced > with >=",
+        'Last result: unmeasured',
         '--- lib/Calc.pm',
         '+++ lib/Calc.pm',
         '@@ -10,5 +10,5 @@',

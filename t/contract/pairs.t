@@ -7,6 +7,7 @@ use Invariants;
 use Samples;
 use Space;
 use World;
+use Test::Mutation::Report::GitHub;
 use Test::Mutation::Runner;
 
 # S2, the pairs: every two settings on one command line of `run`, under every state of the environment.
@@ -46,11 +47,11 @@ subtest 'the comparison of a pair rejects a setting that the other one changes' 
       'a plan that is refused';
     my $hosted = planned( { env => { GITHUB_ACTIONS => 'true' } } );
     is Space::differences( $base, $hosted ),
-      ['format: the table says terminal json html, the surface terminal json html github'],
+      ['github: the table says 0, the surface 1'],
       'a variable of the environment that changes a setting';
     is Space::differences( Space::declared_defaults( {} ),
         Space::declared_defaults( { env => { GITHUB_ACTIONS => 'true' } } ) ),
-      ['format: the table says terminal json html, the surface terminal json html github'],
+      ['github: the table says 0, the surface 1'],
       'and the default of the table that depends on it';
     is Space::flag_words( ( grep { $_->flag eq '--equivalence' } @flags )[0] ), ['--no-equivalence'],
       'a flag that is on by default has its negated form in a pair';
@@ -148,9 +149,14 @@ subtest 'the output of a run under every state of the environment' => sub {
         my $styled = $facts->{out_tty} && !length $facts->{env}{NO_COLOR};
         is !!( $observation->{stdout} =~ /\e\[\d+m/ ), !!$styled,     "color under $environment->{label}";
         is !!( $observation->{stderr} =~ /\r/ ), !!$facts->{err_tty}, "terminal updates under $environment->{label}";
+        my $hosted   = defined $facts->{env}{GITHUB_ACTIONS} && $facts->{env}{GITHUB_ACTIONS} eq 'true';
+        my @commands = $observation->{stderr} =~ /^(::(?:warning|notice) [^\n]*\n)/mg;
+        is join( q{}, @commands ), $hosted ? Test::Mutation::Report::GitHub::annotations($result) : q{},
+          "the requested annotations under $environment->{label}";
 
         for my $stream (qw(stdout stderr)) {
             my $rendered = $observation->{$stream} =~ s/\e\[\d+m//gr;
+            $rendered =~ s/^::(?:warning|notice) [^\n]*\n//mg if $stream eq 'stderr';
             $rendered =~ s/\r/\n/g;
             $rendered =~ s/\n+/\n/g;
             my $plain = $output{plain}{$stream} =~ s/\n+/\n/gr;

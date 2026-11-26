@@ -24,7 +24,7 @@ use Test::Mutation::Status;
 my @statuses  = Test::Mutation::Status::rows()->@*;
 my %status_of = map { $_->word => $_->name } @statuses;
 my $format    = Samples::type('Format');
-my @formats   = sort $format->{valid}->@*;
+my @formats   = sort ( 'github', $format->{valid}->@* );
 my @sets      = Space::result_sets()->@*;
 my @shapes    = Space::shapes()->@*;
 my $failure   = [ { test => 't/sample.t', output => "not ok 1\n", errors => q{} } ];
@@ -67,14 +67,15 @@ my %document_of = (
 # The counts that each format states, by status, or nothing for a report without counts.
 my %stated = (
     terminal => sub ($result) {
-        my ($summary) = Test::Mutation::Report::Terminal::render( $result, color => 0 ) =~ /\A\d+ mutants?(:[^\n]*)?\n/
+        my ($summary) = Test::Mutation::Report::Terminal::render( $result, color => 0 ) =~ /^\d+ mutants?(:[^\n]*)?\n/m
           or return;
         return { map { /(\d+) (.+)\z/ ? ( $status_of{$2} => $1 ) : () } split /, /, defined $summary ? $summary : q{} };
     },
     json   => sub ($result) { return document_counts( $document_of{json}->($result) ) },
     html   => sub ($result) { return document_counts( $document_of{html}->($result) ) },
     github => sub ($result) {
-        my ( $heads, $values ) = ( split /\n/, Test::Mutation::Report::GitHub::summary($result) )[ -3, -1 ];
+        my ( $heads, $values ) =
+          Test::Mutation::Report::GitHub::summary($result) =~ /^([|] Killed [|][^\n]*)\n[|][^\n]*\n([|][^\n]*)$/m;
         my @heads  = map  { $status_of{ lc $_ } } grep { length } split /\s*[|]\s*/, $heads;
         my @values = grep { length } split /\s*[|]\s*/, $values;
         return { map { $heads[$_] => $values[$_] } 0 .. $#heads };
@@ -243,9 +244,7 @@ for my $shape (@shapes) {
         my $again = read_again($result);
         my @lost  = Invariants::round_trip( facts($result), facts($again) );
 
-        # The report file holds the sources of its mutants, so a source without a mutant has no place in it.
-        my %held = $names->@* ? $result->sources->%* : ();
-        push @lost, 'the text of a source changes' if Space::differences( \%held, $again->sources )->@*;
+        push @lost, 'the text of a source changes' if Space::differences( $result->sources, $again->sources )->@*;
         push @lost, 'the signal of the run changes'
           if ( defined $signal ? $signal : 'none' ) ne ( defined $again->interrupted ? $again->interrupted : 'none' );
         violation( 'round-trip', $_, $shape->{label}, 'json' ) for @lost;
@@ -254,7 +253,7 @@ for my $shape (@shapes) {
 
 is $count,       @shapes * @formats * ( 2 * @sets + 1 ), 'every result in every shape and every format';
 is scalar @sets, 2 + 2 * @statuses,                      'no status, every status, and each status alone and left out';
-is [ sort keys $seen{format}->%* ], \@formats,                            'every format of the settings table';
+is [ sort keys $seen{format}->%* ], \@formats,                            'every report format and the GitHub summary';
 is [ sort keys $seen{shape}->%* ],  [ sort map { $_->{label} } @shapes ], 'every shape';
 Gate::checked( 'reports', $count, at_least => 800 );
 

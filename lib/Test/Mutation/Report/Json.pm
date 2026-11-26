@@ -96,11 +96,10 @@ signature_for document => (
 );
 
 sub document ( $result, $arg ) {
-    my %files;
+    my %files = map { $_ => { language => 'perl', source => $result->sources->{$_}, mutants => [] } }
+      keys $result->sources->%*;
     for my $entry ( $result->entries->@* ) {
-        my $path = $entry->{mutant}->path;
-        $files{$path} = { language => 'perl', source => $result->sources->{$path}, mutants => [] } if !$files{$path};
-        push $files{$path}{mutants}->@*, _mutant($entry);
+        push $files{ $entry->{mutant}->path }{mutants}->@*, _mutant($entry);
     }
     return {
         schemaVersion => '2',
@@ -335,7 +334,7 @@ Returns the report as JSON text with sorted keys.
 Rebuilds the L<Test::Mutation::Result> that a report describes.
 The status and the reason of each mutant come from its C<testMutation> key, which has to agree with the name of the schema.
 The spans and the original text of the mutants come from the sources in the report.
-The rebuilt result holds the sources that have mutants, and it names the failing tests of the unmodified run without their output.
+The rebuilt result includes every analyzed source and names the failing tests of the unmodified run.
 The function dies when the text is no report that Test::Mutation wrote.
 
 =cut

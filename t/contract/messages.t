@@ -322,7 +322,8 @@ unlink "$scratch/gone.rec" or die "unlink: $!";
 {
     no warnings 'redefine';
     local *Test::Mutation::Runner::run = sub { return Samples::result( statuses => ['Survived'] ) };
-    printed( [ 'run', '--format', 'github' ], env => { GITHUB_STEP_SUMMARY => "$tree/absent/summary.md" } );
+    printed( [ 'run', '--format', 'terminal', '--github' ],
+        env => { GITHUB_STEP_SUMMARY => "$tree/absent/summary.md" } );
 }
 {
     my %named = ( config => { value => 'ci.toml', spelled => '--config', surface => 'line' } );

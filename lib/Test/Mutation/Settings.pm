@@ -29,7 +29,7 @@ my $PERCENT    = _type( 'Percent',    StrictNum, sub { $_ >= 0                  
 my $SHARD      = _type( 'Shard',      Str,       sub { m{\A([1-9][0-9]*)/([1-9][0-9]*)\z} && $1 <= $2 } );
 my $COVERAGE   = _type( 'Coverage',   Enum [qw(line file)] );
 my $PROFILE    = _type( 'Profile',    Enum [qw(default extended)] );
-my $FORMAT     = _type( 'Format',     Enum [qw(terminal json html github)] );
+my $FORMAT     = _type( 'Format',     Enum [qw(terminal json html)] );
 my $BOOLEAN    = _type( 'Boolean',    Bool );
 my $DIRECTORY  = _type( 'Directory',  Str );
 my $FILE       = _type( 'File',       Str );
@@ -80,6 +80,13 @@ my @ROWS = (
         'Test processes to run side by side'
     ],
     [
+        'github', undef, 'flag', $BOOLEAN, undef,
+        'true or false',
+        sub ($facts) { _inside_github_actions( $facts->{env} ) },
+        'on inside GitHub Actions',
+        'report', 'Write GitHub Actions annotations and a job summary'
+    ],
+    [
         'color', undef, 'flag', $BOOLEAN, undef,
         'true or false',
         sub ($facts) { return $facts->{terminal} && !length( $facts->{env}{NO_COLOR} ) ? 1 : 0 },
@@ -91,16 +98,11 @@ my @ROWS = (
         undef,       'none', 'report', 'Fail when the score is below N percent'
     ],
     [
-        'format',
-        undef,
-        'list',
-        $FORMAT,
-        'NAME',
-        'a list of terminal, json, html, and github',
-        sub ($facts) { [ qw(terminal json html), _inside_github_actions( $facts->{env} ) ? 'github' : () ] },
-        'terminal json html, and github inside GitHub Actions',
-        'report',
-        'Report to write: terminal, json, html, github; repeatable'
+        'format', undef, 'list', $FORMAT, 'NAME',
+        'a list of terminal, json, and html',
+        sub { [qw(terminal json html)] },
+        'terminal json html',
+        'report', 'Report to write: terminal, json, or html; repeatable'
     ],
     [
         'report-dir',      undef,    'value', $DIRECTORY, 'DIR', 'a directory', sub { 'mutation-report' },

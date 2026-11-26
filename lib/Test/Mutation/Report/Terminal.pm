@@ -1,8 +1,9 @@
 package Test::Mutation::Report::Terminal;
 use v5.36;
-use Types::Standard qw(Bool InstanceOf Num Optional Str);
+use Types::Standard qw(Bool InstanceOf Maybe Num Optional Str);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Status;
+use Test::Mutation::Report::Results;
 
 our $VERSION = '0.001';
 
@@ -10,24 +11,30 @@ my $LISTED_TESTS = 3;
 
 signature_for render => (
     head    => [ InstanceOf ['Test::Mutation::Result'] ],
-    named   => [ color => Bool, high => Optional [Num], low => Optional [Num] ],
+    named   => [ color => Bool, high => Optional [Num], low => Optional [Num], floor => Optional [ Maybe [Num] ] ],
     returns => Str,
 );
 
 sub render ( $result, $arg ) {
-    my @blocks =
-      $result->baseline_failures->@*
-      ? _baseline($result)
-      : (
-        _summary( $result, $arg ),
-        map { _section( $result, $_->name, $_->heading ) }
-          grep { defined $_->heading } Test::Mutation::Status::rows()->@*
-      );
+    my $files  = Test::Mutation::Report::Results::files($result);
+    my @blocks = ( join( "\n", Test::Mutation::Report::Results::decision( $result, $arg->floor )->@* ) );
+    if ( $result->baseline_failures->@* ) {
+        push @blocks, _baseline($result);
+    }
+    else {
+        push @blocks, _summary( $result, $arg );
+        if (@$files) {
+            push @blocks, join "\n", map { join q{  }, $_->@* } Test::Mutation::Report::Results::columns(),
+              map { $_->{cells} } @$files;
+        }
+        push @blocks, map { _section( $result, $_ ) } @$files;
+    }
     my @notes = (
         ( map { "warning: $_" } $result->warnings->@* ),
         ( map { "skipped $_->{path}: $_->{problem}" } $result->problems->@* ),
     );
     push @blocks, join "\n", @notes if @notes;
+    push @blocks, Test::Mutation::Report::Results::next_step( $result, $arg->floor );
     return join( "\n\n", @blocks ) . "\n";
 }
 
@@ -70,15 +77,15 @@ sub _colored ( $text, $score, $arg ) {
     return "\e[${code}m$text\e[0m";
 }
 
-sub _section ( $result, $status, $title ) {
-    my @entries = grep { $_->{status} eq $status } $result->entries->@*;
-    return if !@entries;
-    return join "\n", sprintf( '%s (%d)', $title, scalar @entries ), map { _entry( $result, $_ ) } @entries;
+sub _section ( $result, $file ) {
+    my @listed = grep { defined Test::Mutation::Status::of( $_->{status} )->heading } $file->{entries}->@*;
+    return if !@listed;
+    return join "\n", $file->{path}, map { _entry( $result, $_ ) } @listed;
 }
 
 sub _entry ( $result, $entry ) {
     my $mutant = $entry->{mutant};
-    my @lines = ( sprintf '  %s:%d:%d  %s  [%s]', $mutant->path, $mutant->from->@*, $mutant->description, $mutant->id );
+    my @lines  = ( '  ' . Test::Mutation::Report::Results::heading($mutant) . "  [$entry->{status}]" );
     push @lines, map { "    $_" } _change( $result->sources->{ $mutant->path }, $mutant );
 
     my @tests = $entry->{covered_by}->@*;
@@ -134,7 +141,7 @@ Test::Mutation::Report::Terminal - render a result as text for a terminal
 
 Returns the report as one string.
 The summary counts every status with the word of L<Test::Mutation::Status>, states the score, and names the number of tests, jobs, and seconds.
-A section follows for each status with a heading in the catalog: the mutants that survived, had no coverage, timed out, or have no verdict.
+The file table counts all outcomes, and the details group changes that need attention by source path.
 Each mutant shows its place, its change, the tests that reached it, and the sentence about its case.
 When the unmodified run fails, the report shows the failing tests with their output in place of the summary.
 A test that a limit ended names the reason of the limit beside its name.

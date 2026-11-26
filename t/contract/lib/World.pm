@@ -33,23 +33,15 @@ sub observe ( $argv, %fact ) {
     open my $out_handle, '>:encoding(UTF-8)', \$out or die "out: $!";
     open my $err_handle, '>:encoding(UTF-8)', \$err or die "err: $!";
     my $world = { facts(%fact), out => $out_handle, err => $err_handle };
-    my $here  = Cwd::getcwd();
     my ( @warnings, $exit );
     local $SIG{__WARN__} = sub ($text) { push @warnings, $text };
 
-    # The command stands in its project, and the harness enters it for the command.
-    # An entry of the search path that counts from the directory of the harness keeps its place.
-    local @INC = map { ref $_ ? $_ : File::Spec->rel2abs($_) } @INC;
     my $plan  = eval { Test::Mutation::CLI::plan( argv => $argv, world => $world ) };
     my $died  = $plan ? undef : "$@";
     my $cheap = $plan && ( $plan->{refused} || $plan->{command} =~ /\A(?:help|version|mutators)\z/ );
     if ( $plan && ( $run eq 'all' || $cheap ) ) {
-        if ( defined $world->{cwd} ) {
-            chdir $world->{cwd} or die "chdir $world->{cwd}: $!";
-        }
         $exit = eval { Test::Mutation::CLI::execute( $plan, $world ) };
         $died = "$@" if !defined $exit;
-        chdir $here or die "chdir $here: $!";
     }
     close $out_handle or die "out: $!";
     close $err_handle or die "err: $!";

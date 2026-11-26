@@ -32,7 +32,8 @@ subtest 'a mutant that loops forever times out' => sub {
       'statuses';
     my ($slow) = grep { $_->{mutant}->path eq 'lib/Loop.pm' && $_->{mutant}->description eq 'replaced > with <=' }
       $result->entries->@*;
-    ok $slow->{duration} < 1, 'a failure ends a test before a later endless loop runs';
+    is [ $slow->@{qw(status by)} ], [ 'Killed', 't/loop.t' ],
+      'the test stops at its failing assertion before the later endless loop can time out';
 };
 
 subtest 'a mutant that fails at compile time is a compile error' => sub {

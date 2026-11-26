@@ -70,7 +70,7 @@ subtest 'the resolution of the settings builds every configuration' => sub {
 };
 
 subtest 'the settings table names a flag and a key for every setting' => sub {
-    is scalar( Space::flags()->@* ),                                34,                'the settings with a flag';
+    is scalar( Space::flags()->@* ),                                35,                'the settings with a flag';
     is [ map { $_->name } grep { !$_->offers('file') } @settings ], [qw(root config)], 'the settings outside the file';
 };
 
@@ -116,22 +116,26 @@ subtest 'the status table names every status and what each report does with it' 
         my $result       = Samples::result( statuses => [$name] );
         my $tally        = Test::Mutation::Score::tally( [$name] );
         my $report       = Test::Mutation::Report::Terminal::render( $result, color => 0 );
-        my ($word)       = $report                                                        =~ /\A1 mutant: 1 ([^\n]+)\n/;
-        my ($heading)    = $report                                                        =~ /^(\S[^\n]*) [(]1[)]$/m;
+        my ($word)       = $report =~ /^1 mutant: 1 ([^\n]+)\n/m;
+        my ($listed)     = $report =~ /^  [0-9a-f]+  [^\n]*  \[(\w+)\]$/m;
         my ($progress)   = Test::Mutation::Report::Progress::line( 1, 1, { $name => 1 } ) =~ /\A\[1\/1\] 1 (.+)\z/;
         my ($annotation) = Test::Mutation::Report::GitHub::annotations($result)           =~ /\A::(\w+) /;
         my ($mutant)     = map { $_->{mutants}->@* }
           values Test::Mutation::Report::Json::document( $result, high => 80, low => 60 )->{files}->%*;
         is {
             word       => $word,
-            heading    => $heading,
+            listed     => $listed,
             role       => !$tally->{valid}  ? 'outside' : $tally->{score} ? 'detected' : 'undetected',
             progress   => defined $progress ? 1 : 0,
             annotation => $annotation,
             cached     => Space::cache_keeps($name),
             schema     => $mutant->{status},
           },
-          { map { $_ => $status->$_ } qw(word heading role progress annotation cached schema) }, "the facts of $name";
+          {
+            ( map { $_ => $status->$_ } qw(word role progress annotation cached schema) ),
+            listed => defined $status->heading ? $name : undef
+          },
+          "the facts of $name";
         is $mutant->{testMutation}{status}, $name,
           "the report file keeps the status $name beside the name of the schema";
         is $progress, $status->word, "the progress line counts $name with the same word" if defined $progress;

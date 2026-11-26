@@ -56,7 +56,7 @@ sub mutation_score_ok ($settings) {
     my $outcome = Test::Mutation::Outcome::of( $result, $minimum );
     my $reached = $outcome->{exit}->code == Test::Mutation::Exit::of('success') ? 1 : 0;
     $builder->ok( $reached, $name );
-    $builder->diag( Test::Mutation::Report::Terminal::render( $result, color => 0 ) ) if !$reached;
+    $builder->diag( Test::Mutation::Report::Terminal::render( $result, color => 0, floor => $minimum ) ) if !$reached;
     return $reached;
 }
 

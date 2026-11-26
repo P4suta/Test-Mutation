@@ -135,13 +135,13 @@ my $flood = "use Small;\nmy \$next = Small::next_one(2);\ndefined \$next or die 
     is of_status( measured( project( 'lib/Small.pm' => $module, 't/flood.t' => $flood ) ), 'lib/Small.pm', 'Timeout' ),
       ['Timeout output-limit'], 'an output limit after the load';
 }
-my $slow = "use Test::More tests => 1;\nBEGIN { select undef, undef, undef, 0.6 }\n"
+my $slow =
+    "use Test::More tests => 1;\n"
+  . q{BEGIN { sleep 30 if $ENV{"TEST_MUTATION_SPEC_G$ENV{TEST_MUTATION_GENERATION}"} =~ m{/mutants/} }} . "\n"
   . "use Small;\nis Small::next_one(2), 3, 'the next one';\n";
 is of_status(
-    measured( project( 'lib/Small.pm' => $module, 't/slow.t' => $slow ), timeout_factor => 0.1, timeout_floor => 0.1 ),
-    'lib/Small.pm',
-    'NoVerdict'
-  ),
+    measured( project( 'lib/Small.pm' => $module, 't/slow.t' => $slow ), timeout_factor => 4, timeout_floor => 1 ),
+    'lib/Small.pm', 'NoVerdict' ),
   ['NoVerdict unstable-test'], 'a time limit before the load';
 
 # A mutant that dies while it compiles, a source that fails a syntax check of its own, and a test that loads around the hook.

@@ -1,6 +1,8 @@
 use v5.36;
 use Test2::V0;
 use Test::Mutation::Mutant;
+use Test::Mutation::Report::GitHub;
+use Test::Mutation::Report::Results;
 use Test::Mutation::Report::Terminal;
 use Test::Mutation::Result;
 use Test::Mutation::Status;
@@ -80,11 +82,12 @@ subtest 'the summary of a part names the part and the size of the whole run' => 
 
 subtest 'a survived mutant shows its place, change, and tests' => sub {
     my $text = Test::Mutation::Report::Terminal::render( result( [ entry('Survived') ] ), color => 0 );
-    like $text, qr/^Survived \(1\)$/m,                                             'section heading';
-    like $text, qr/^  lib\/Calc\.pm:3:15  replaced > with >=  \[abcdefabcdef\]$/m, 'place, description, identifier';
-    like $text, qr/^    -     return \$n > 0 \? 1 : 0;$/m,                         'the original line';
-    like $text, qr/^    \+     return \$n >= 0 \? 1 : 0;$/m,                       'the mutated line';
-    like $text, qr/^    reached by t\/sign\.t$/m,                                  'the tests that reached it';
+    like $text, qr/^lib\/Calc[.]pm$/m, 'source section heading';
+    like $text, qr/^  abcdefabcdef  lib\/Calc[.]pm:3:15  comparison  replaced > with >=  \[Survived\]$/m,
+      'place, description, identifier';
+    like $text, qr/^    -     return \$n > 0 \? 1 : 0;$/m,   'the original line';
+    like $text, qr/^    \+     return \$n >= 0 \? 1 : 0;$/m, 'the mutated line';
+    like $text, qr/^    reached by t\/sign\.t$/m,            'the tests that reached it';
 };
 
 subtest 'a mutant that spans lines shows its first line' => sub {
@@ -117,12 +120,12 @@ subtest 'sections appear for the statuses that need attention' => sub {
         color => 0,
     );
     unlike $text, qr/^Killed \(/m,                                       'killed mutants are not listed';
-    like $text,   qr/^No coverage \(1\)$/m,                              'no coverage section';
+    like $text,   qr/\[NoCoverage\]$/m,                                  'no coverage section';
     like $text,   qr/^    reached by no test$/m,                         'a mutant without tests says so';
-    like $text,   qr/^No verdict \(1\)$/m,                               'a section for the mutants without a verdict';
+    like $text,   qr/\[NoVerdict\]$/m,                                   'a section for the mutants without a verdict';
     like $text,   qr/^    t\/a\.t loaded the target without the hook$/m, 'the sentence about the case';
-    like $text,   qr/^    parse$/m, 'the compile error identifies a rejected Perl source';
-    is [ $text =~ /^(\S[^\n]*) [(]\d+[)]$/mg ], [ 'No coverage', 'Compile errors', 'No verdict' ],
+    like $text,   qr/^    parse$/m,                                      'the reported compile error names its cause';
+    is [ $text =~ /^  abcdefabcdef  [^\n]*  \[(\w+)\]$/mg ], [qw(NoCoverage NoVerdict CompileError)],
       'the statuses without a heading in the catalog have no section';
     like $text, qr/^6 mutants: 1 killed, 1 no coverage, 1 compile error, 1 no verdict, 1 ignored, 1 pending$/m,
       'the summary counts every status in the order of the catalog';
@@ -157,7 +160,7 @@ subtest 'a failing unmodified run shows the lines that explain the failure' => s
         color => 0
     );
     is $text,
-      "The unmodified run fails, so no mutant ran.\n  t/add.t\n    not ok 3 - adds\n    1..4\n    #   Failed test 'adds'\n",
+      "Result: baseline-failed\n\nThe unmodified run fails, so no mutant ran.\n  t/add.t\n    not ok 3 - adds\n    1..4\n    #   Failed test 'adds'\n\nNext: mutation baseline\n",
       'the passing assertions and the plan of a subtest are left out';
 
     my $copied = Test::Mutation::Report::Terminal::render(
@@ -169,9 +172,9 @@ subtest 'a failing unmodified run shows the lines that explain the failure' => s
         color => 0
     );
     is $copied,
-        "The unmodified run fails, so no mutant ran.\n  t/add.t\n    not ok 1\n"
+        "Result: baseline-failed\n\nThe unmodified run fails, so no mutant ran.\n  t/add.t\n    not ok 1\n"
       . "The tests ran in a copy of the project, which holds no .git directory.\n"
-      . "--in-place runs them in the project itself.\n",
+      . "--in-place runs them in the project itself.\n\nNext: mutation baseline\n",
       'a run in copies names the other place for the tests';
 
     my $limited = Test::Mutation::Report::Terminal::render(
@@ -181,7 +184,8 @@ subtest 'a failing unmodified run shows the lines that explain the failure' => s
         ),
         color => 0
     );
-    is $limited, "The unmodified run fails, so no mutant ran.\n  t/slow.t (time-limit)\n    1..1\n",
+    is $limited,
+      "Result: baseline-failed\n\nThe unmodified run fails, so no mutant ran.\n  t/slow.t (time-limit)\n    1..1\n\nNext: mutation baseline\n",
       'a test that a limit ended names the reason of the limit';
 };
 
@@ -209,18 +213,24 @@ subtest 'the whole report keeps its order' => sub {
         color => 0,
     );
     my $change = "    -     return \$n > 0 ? 1 : 0;\n    +     return \$n >= 0 ? 1 : 0;\n";
-    my $place  = "  lib/Calc.pm:3:15  replaced > with >=  [abcdefabcdef]\n$change";
+    my $place  = '  abcdefabcdef  lib/Calc.pm:3:15  comparison  replaced > with >=';
     is $text,
       join( "\n",
+        "Result: interrupted\n",
         "4 mutants: 1 killed, 1 survived, 1 no coverage, 1 timeout\nScore: 33.3% (1 of 3 valid mutants)\n"
           . "Timeouts are inconclusive and count toward neither side.\nThe run was interrupted by SIGINT.\n"
           . "1 test, 2 jobs, 3.5 s, 2 results from the cache\n",
-        "Survived (1)\n$place    reached by t/a.t, t/b.t, t/c.t and 2 more\n",
-        "No coverage (1)\n$place    reached by no test\n",
-        "Timeout (1)\n$place    reached by t/sign.t\n    slow\n",
+        'File  Score  Killed  Survived  No coverage  Other',
+        'lib/Bad.pm  none  0  0  0  -',
+        "lib/Calc.pm  33.3%  1  1  1  1 timeout\n",
+        'lib/Calc.pm',
+        "$place  [Survived]\n$change    reached by t/a.t, t/b.t, t/c.t and 2 more",
+        "$place  [NoCoverage]\n$change    reached by no test",
+        "$place  [Timeout]\n$change    reached by t/sign.t\n    slow\n",
         "warning: first warning\nwarning: second warning\nskipped lib/Bad.pm: unreadable\n",
+        "Next: rerun the interrupted measurement\n",
       ),
-      'summary, sections, and notes';
+      'outcome, summary, file scores, changes, notes and next step';
 
     my $failed = Test::Mutation::Report::Terminal::render(
         result(
@@ -232,7 +242,8 @@ subtest 'the whole report keeps its order' => sub {
         ),
         color => 0,
     );
-    is $failed, "The unmodified run fails, so no mutant ran.\n  t/a.t\n    not ok 1\n    died\n  t/b.t\n    not ok 2\n",
+    is $failed,
+      "Result: baseline-failed\n\nThe unmodified run fails, so no mutant ran.\n  t/a.t\n    not ok 1\n    died\n  t/b.t\n    not ok 2\n\nNext: mutation baseline\n",
       'baseline failures';
 };
 
@@ -259,6 +270,86 @@ subtest 'the color follows the thresholds at their boundaries' => sub {
     is $at->( 4, high => 90 ),            33, 'a higher high threshold';
     is $at->( 4, high => 90, low => 85 ), 31, 'a higher low threshold';
     is $at->( 2, high => 50, low => 40 ), 33, 'a lower pair of thresholds';
+};
+
+subtest 'the source summary and the next command describe the same survivor' => sub {
+    my $report = Test::Mutation::Report::Terminal::render(
+        result( [ entry('Killed'), entry('Survived') ] ),
+        color => 0,
+        floor => 80
+    );
+    like $report, qr/^Result: measured$/m,                  'the measured outcome';
+    like $report, qr/^Gate: .+80%/m,                        'the requested gate';
+    like $report, qr/^lib\/Calc[.]pm  50[.]0%  1  1  0  /m, 'the file score, killed, survived and uncovered counts';
+    like $report, qr/^  abcdefabcdef  lib\/Calc[.]pm:3:15  comparison  replaced > with >=  \[Survived\]/m,
+      'the file details identify the place and mutator';
+    like $report, qr/^Next: mutation show abcdefabcdef$/m, 'the command addresses the displayed survivor';
+};
+
+subtest 'the terminal and the job summary give the same threshold decision and next step' => sub {
+    my $half    = result( [ entry('Survived'), entry('Killed') ] );
+    my $empty   = result( [] );
+    my $narrow  = result( [], selection => { since => 'HEAD' } );
+    my $problem = result( [], problems  => [ { path => 'lib/Missing.pm', problem => 'cannot read the file' } ] );
+    my $signal  = result(
+        [],
+        interrupted       => 'TERM',
+        baseline_failures => [ { test => 't/sign.t', output => "not ok 1\n", errors => q{} } ]
+    );
+    my $show  = 'mutation show abcdefabcdef';
+    my $merge = 'merge the shard reports with mutation merge FILE...';
+    for my $case (
+        [ $half,    50, 'measured',     'passed',              $show ],
+        [ $half,    51, 'measured',     'failed',              $show ],
+        [ $empty,   0,  'nothing',      'unavailable',         'mutation list' ],
+        [ $narrow,  0,  'nothing',      'no mutants selected', 'mutation list' ],
+        [ $problem, 0,  'inconclusive', 'unavailable', 'resolve the reported source problems and rerun mutation' ],
+        [ $signal,  0,  'interrupted',  'unavailable', 'rerun the interrupted measurement' ],
+        [ result( [ entry('Killed') ], shard => '1/2' ), 100, 'measured', 'deferred until merge', $merge ],
+        [ result( [], shard => '2/2' ),                  100, 'nothing',  'deferred until merge', $merge ],
+      )
+    {
+        my ( $result, $floor, $outcome, $gate, $next ) = @$case;
+        for my $text (
+            Test::Mutation::Report::Terminal::render( $result, color => 0, floor => $floor ),
+            Test::Mutation::Report::GitHub::summary( $result, $floor ),
+          )
+        {
+            is [ $text =~ /^(?:Result|Gate|Next): (.*)$/mg ],
+              [ $outcome, "$gate (minimum $floor%)", $next ],
+              "the $outcome report gives the $gate decision with its next step";
+        }
+    }
+};
+
+subtest 'the file table keeps empty sources and source problems alongside measured files' => sub {
+    my $killed  = entry('Killed');
+    my $problem = { path => 'lib/Missing.pm', problem => 'cannot read the file' };
+    my $result  = result(
+        [$killed],
+        sources  => { 'lib/Calc.pm' => $source, 'lib/Empty.pm' => q{} },
+        problems => [ $problem, $problem, { %$problem, path => 'lib/Calc.pm' } ],
+    );
+    is Test::Mutation::Report::Results::files($result),
+      [
+        { path => 'lib/Calc.pm',    entries => [$killed], cells => [ 'lib/Calc.pm',    '100.0%', 1, 0, 0, '-' ] },
+        { path => 'lib/Empty.pm',   entries => [],        cells => [ 'lib/Empty.pm',   'none',   0, 0, 0, '-' ] },
+        { path => 'lib/Missing.pm', entries => [],        cells => [ 'lib/Missing.pm', 'none',   0, 0, 0, '-' ] },
+      ],
+      'each path has one row with its own data';
+};
+
+subtest 'report formatting checks inputs at the public boundary' => sub {
+    my $result = result( [] );
+    isa_ok dies { Test::Mutation::Report::Results::heading($result) }, ['Error::TypeTiny'],
+      'a heading requires a mutant';
+    isa_ok dies { Test::Mutation::Report::Results::files( [] ) }, ['Error::TypeTiny'], 'file rows require a result';
+    isa_ok dies { Test::Mutation::Report::Results::columns('extra') }, ['Error::TypeTiny'],
+      'columns takes no arguments';
+    isa_ok dies { Test::Mutation::Report::Results::decision( $result, 50, 80 ) }, ['Error::TypeTiny'],
+      'a decision takes a single threshold';
+    isa_ok dies { Test::Mutation::Report::Results::next_step( $result, 'invalid' ) }, ['Error::TypeTiny'],
+      'a next step checks its threshold';
 };
 
 done_testing;
