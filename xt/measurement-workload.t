@@ -19,5 +19,17 @@ subtest 'the lookup budget rejects slow or memory-intensive measurements' => sub
       'fewer trials cannot establish the median';
 };
 
+subtest 'the small workload exercises the same four measurements and five lookups' => sub {
+    open my $results, q{-|}, $^X, 'xt/bin/benchmark-measurement', '--smoke' or die "start the workload: $!";
+    my $text = join q{}, readline $results;
+    ok close($results), 'the workload completed' or diag $text;
+    like $text, qr/^workload\tmutants\tseconds\tpeak_MiB\ttests_started$/m, 'the units accompany the readings';
+    for my $state (qw(cold warm source-change test-change)) {
+        like $text, qr/^$state\t12\t\d+\.\d+\t[1-9]\d*\.\d+\t\d+$/m, "$state measured twelve mutants";
+    }
+    is scalar( () = $text =~ /^show-\d\t1\t\d+\.\d+\t[1-9]\d*\.\d+\t0$/mg ), 5, 'five single-mutant lookups ran';
+    like $text, qr/^show median \d+\.\d+ s, peak \d+\.\d+ MiB$/m, 'the aggregate uses the five actual readings';
+};
+
 Gate::checked( 'lookup trials', scalar @samples, at_least => 5 );
 done_testing;

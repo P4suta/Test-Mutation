@@ -62,6 +62,10 @@ run = "prove -l -j4 xt/discovery"
 description = "Measure the tests of Test::Mutation with its own command"
 run = "perl -Ilib bin/mutation"
 
+[tasks.benchmark-measurement]
+description = "Measure cold and warm runs and five indexed lookups among 8,064 mutants on macOS"
+run = "perl xt/bin/benchmark-measurement"
+
 [tasks.manual]
 description = "Generate the reference sections of the installed mutation command"
 run = "perl xt/bin/generate-manual"
