@@ -1204,7 +1204,7 @@ The C<default> profile includes the mutator.
 =item C<bitwise>
 
 Replaces a bitwise operator with its counterpart or removes a complement.
-The C<default> profile includes the mutator.
+The C<extended> profile includes the mutator.
 
 =item C<increment>
 

@@ -266,9 +266,8 @@ subtest 'operator families' => sub {
         [ '^^',  '||' ]
       ],
       'logical, with the exclusive or of both precedences';
-    is $in_module->(
-        'my $m = $a & $b | $c ^ $d << 1 >> 2; $e &= 1; $f |= 2; $g ^= 3; $h <<= 1; my $n = ~$i;', 'bitwise'
-      ),
+    my $bitwise = sub ($code) { return $in_module->( $code, 'bitwise', enable => ['bitwise'] ) };
+    is $bitwise->('my $m = $a & $b | $c ^ $d << 1 >> 2; $e &= 1; $f |= 2; $g ^= 3; $h <<= 1; my $n = ~$i;'),
       [
         [ q{&},  q{|} ],
         [ q{|},  q{&} ],
@@ -282,10 +281,10 @@ subtest 'operator families' => sub {
         [ q{~},  q{} ],
       ],
       'bitwise operators, their assignments, and the complement';
-    is $in_module->( 'use feature q(bitwise); my $s = $a &. $b |. $c ^. $d; $e &.= $f; my $t = ~.$g;', 'bitwise' ),
+    is $bitwise->('use feature q(bitwise); my $s = $a &. $b |. $c ^. $d; $e &.= $f; my $t = ~.$g;'),
       [ [ '&.', '|.' ], [ '|.', '&.' ], [ '^.', '&.' ], [ '&.=', '|.=' ], [ '~.', q{} ] ],
       'and their string forms';
-    is $in_module->( 'my @bits = ( 1 << 0, 0x20 >> 0, 1 << 2, $mask >> 0, 2 << 0 + $n );', 'bitwise' ),
+    is $bitwise->('my @bits = ( 1 << 0, 0x20 >> 0, 1 << 2, $mask >> 0, 2 << 0 + $n );'),
       [ [ '<<', '>>' ], [ '>>', '<<' ], [ '<<', '>>' ] ],
       'only shifts of a literal by a literal zero have the same result in either direction';
     is $in_module->( 'my @n = ( -$x, - $y, -1, 2 - 1, -bare => 1, $z ** -0.5 );', 'unary-minus' ),
@@ -633,7 +632,7 @@ subtest 'selection' => sub {
     is scalar(@extended), scalar( Test::Mutation::Mutator::Catalog::mutators()->@* ),
       'the extended profile holds every mutator';
     ok scalar(@default) < scalar(@extended), 'the default profile is a subset';
-    is [ grep { $_ eq 'comparison-boundary' || $_ eq 'call-swap' } @default ], [],
+    is [ grep { $_ eq 'comparison-boundary' || $_ eq 'call-swap' || $_ eq 'bitwise' } @default ], [],
       'mutators above the measured structural equivalence limit require an explicit selection';
     is [
         grep { $_ eq 'arithmetic' }

@@ -71,7 +71,7 @@ my @OPERATOR_FAMILIES = (
     },
     {
         name        => 'bitwise',
-        profile     => 'default',
+        profile     => 'extended',
         description => 'Replaces a bitwise operator with its counterpart or removes a complement',
         role        => 'binary',
         table       => {

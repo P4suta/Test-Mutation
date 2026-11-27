@@ -1,6 +1,6 @@
 use v5.36;
 use Test2::V0;
-use List::Util qw(max min sum0);
+use List::Util qw(min sum0);
 use lib 't/lib';
 use Capability;
 use Gate;
@@ -59,7 +59,6 @@ subtest 'the walk rejects no file for the perl that it asks for' => sub {
 my @files  = map  { Library::modules($_)->@* } 't/corpus', 't/fixtures', 'lib';
 my %wanted = map  { $_ => wanted_perl($_) } @files;
 my @modern = grep { $wanted{$_} > $OLDEST } @files;
-my $newest = max( $OLDEST, @wanted{@modern} );
 my $total  = judged_ok( 'corpus', surveyed( grep { $wanted{$_} <= $OLDEST } @files ) );
 Gate::checked( 'files',                               scalar @files,      at_least => 50 );
 Gate::checked( 'mutants',                             $total->{mutants},  at_least => 4500 );
@@ -71,9 +70,9 @@ Gate::checked( 'changes that the tool refused',       $total->{refusals}, at_lea
 
 # The class syntax needs Perl 5.38, and one file of the corpus asks for Perl 5.40.
 Gate::checked( 'files for a newer perl', scalar @modern, at_least => 3 );
-my $needed = sprintf '5.%03d', $newest;
-if ( Capability::has( 'class', $] >= $needed, "some files of the corpus and of the fixtures need Perl 5.$newest" ) ) {
-    my $modern = judged_ok( 'modern', surveyed(@modern) );
+my @supported = grep { $] >= sprintf '5.%03d', $wanted{$_} } @modern;
+if ( Capability::has( 'class', scalar @supported, 'the class fixtures need Perl 5.38' ) ) {
+    my $modern = judged_ok( 'modern', surveyed(@supported) );
     Gate::checked( 'mutants of the modern files that perl judged', $modern->{judged}, at_least => 40 );
 }
 

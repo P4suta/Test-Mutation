@@ -26,7 +26,7 @@ options = ["--shard", "1/4"]
 
 [TOML-Tiny.expect]
 mutants = [153, 153]
-score = [79.4, 79.5]
+score = [76.1, 76.2]
 warnings = []
 seconds = 300
 

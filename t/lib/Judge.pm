@@ -99,7 +99,7 @@ sub _verdict ( $sound, $errors, $report, $code ) {
     };
 }
 
-# Perl compiled the unit when it ended with status zero and said so, whatever the unit printed before.
+# A BEGIN block can exit before the compiler reaches the unit, even when an older perl prints syntax OK.
 sub compiled ( $judge, $bytes, @wants ) {
     my $directory = $judge->{directory};
     my %path      = map { $_ => "$directory/$_" } qw(unit stderr result deparse);
@@ -107,7 +107,7 @@ sub compiled ( $judge, $bytes, @wants ) {
     _spew( $path{unit}, $bytes );
     my ( $answer, $status ) = split /\t/, _ask( $judge, 'compile', $path{unit}, join q{,}, @wants );
     my $errors = _slurp( $path{stderr} );
-    my $sound  = $answer eq 'done' && $status == 0 && $errors =~ s/^- syntax OK\n\z//m ? 1 : 0;
+    my $sound  = $answer eq 'done' && $status == 0 && -f $path{result} && $errors =~ s/^- syntax OK\n\z//m ? 1 : 0;
     my $verdict =
       _verdict( $sound, $errors, $sound ? _slurp( $path{result} ) : q{}, $sound ? _slurp( $path{deparse} ) : q{} );
     $verdict->{timed_out} = 1 if $answer eq 'timeout';

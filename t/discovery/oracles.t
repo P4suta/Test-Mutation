@@ -154,11 +154,12 @@ subtest 'the compile oracle rejects a mutator that emits a closing brace' => sub
             return { replacement => '}', description => 'replaced + with }' };
         }
     );
-    my $judgement = Oracle::judgement( $source, Oracle::generated( $source, [$brace] )->{mutants}, wants => ['calls'] );
+    my $unit      = Oracle::text_source( 'lib/Sample.pm', "package Sample;\nuse strict;\nsub total { 2 + 1 }\n1;\n" );
+    my $judgement = Oracle::judgement( $unit, Oracle::generated( $unit, [$brace] )->{mutants}, wants => ['calls'] );
     is $judgement->{problem}, undef, 'perl accepts the original';
-    is classes( Oracle::refused( $source, $judgement ) ), ['brace yields code that perl refuses'],
+    is classes( Oracle::refused( $unit, $judgement ) ), ['brace yields code that perl refuses'],
       'the mutant with one brace too many is refused';
-    is classes( Oracle::unresolved( $source, $judgement ) ), [], 'and a refused mutant calls nothing';
+    is classes( Oracle::unresolved( $unit, $judgement ) ), [], 'and a refused mutant calls nothing';
     $checked += $judgement->{verdicts}->@*;
 };
 

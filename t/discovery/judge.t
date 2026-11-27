@@ -59,7 +59,7 @@ subtest 'the walker names every call without a subroutine' => sub {
 
 subtest 'the judge rejects a swap to a name that the unit never imports' => sub {
     my $judge = Judge::start();
-    my $unit  = "use strict;\nuse List::Util qw(max);\nsub largest { return max(\@_) }\n1;\n";
+    my $unit  = "use strict;\nuse List::Util qw(max);\nsub largest { max(\@_) }\n1;\n";
     is judged( $judge, $unit, 'calls' )->{calls}, [], 'the imported name resolves';
     is judged( $judge, $unit =~ s/max[(]/min(/r, 'calls' ),
       hash { field compiled => 1; field calls => ['main::min']; etc },
@@ -88,6 +88,7 @@ subtest 'the judge rejects a unit that perl refuses' => sub {
     like $death->{diagnostics}, qr/\Ano\nBEGIN failed--compilation aborted at - line 1/,
       'the diagnostics name the block';
     is judged( $judge, "BEGIN { exit 0 }\n}\n" )->{compiled}, 0, 'an exit during compilation hides no error';
+    is judged( $judge, q{} )->{compiled},                     1, 'the compiler reaches the end of an empty unit';
     is judged( $judge, "use strict;\nsub f { return \$missing }\n1;\n", 'calls' )->{compiled}, 0,
       'an undeclared variable, with the walker at work';
     is judged( $brief, "BEGIN { sleep 60 while 1 }\n1;\n" ), hash { field compiled => 0; field timed_out => 1; etc },

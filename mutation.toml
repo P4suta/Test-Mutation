@@ -1,4 +1,4 @@
-enable = ["close-removal"]
+enable = ["bitwise", "close-removal"]
 test-exclude = ["t/fixtures/**"]
 source = [
   "lib/**/*.pm",
