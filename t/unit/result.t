@@ -57,6 +57,16 @@ subtest 'tally' => sub {
     ok abs( $tally->{score} - 200 / 3 ) < 1e-9, 'score';
 };
 
+subtest 'the public assessment applies the threshold to this scope' => sub {
+    my $report = result( [qw(Killed Survived)], min_score => 75 );
+    is $report->assessment,
+      { $report->tally->%*, minimum => 75, outcome => 'measured', gate => 'failed', exitCode => 1 },
+      'the API includes the same tally and exit status as the command';
+    my $part = result( ['Survived'], min_score => 75, shard => '1/2' )->assessment;
+    is [ $part->@{qw(score gate exitCode)} ], [ 0, 'deferred until merge', 0 ],
+      'a shard records its deferred threshold';
+};
+
 subtest 'conclusive' => sub {
     ok result( [qw(Killed Survived)] )->conclusive,       'valid mutants and nothing wrong';
     ok result( [] )->conclusive,                          'no mutant at all';

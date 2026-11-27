@@ -5,6 +5,7 @@ use Type::Params    qw(signature_for);
 use Test::Mutation::Exit;
 use Test::Mutation::Message;
 use Test::Mutation::Status;
+use Test::Mutation::Types qw(Assessment);
 
 our $VERSION = '0.001';
 
@@ -51,6 +52,28 @@ sub of ( $result, $floor ) {
     return _decision( 'measured', 'success' );
 }
 
+signature_for assessment =>
+  ( positional => [ InstanceOf ['Test::Mutation::Result'], Maybe [Num] ], returns => Assessment );
+
+sub assessment ( $result, $floor ) {
+    my $outcome = of( $result, $floor );
+    my $exit    = $outcome->{exit}->name;
+    my $gate =
+       !defined $floor                ? undef
+      : defined $result->shard        ? 'deferred until merge'
+      : $exit eq 'below-gate'         ? 'failed'
+      : $exit ne 'success'            ? 'unavailable'
+      : $outcome->{name} eq 'nothing' ? 'no mutants selected'
+      :                                 'passed';
+    return {
+        $result->tally->%*,
+        outcome  => $outcome->{name},
+        gate     => $gate,
+        minimum  => defined $floor ? 0 + $floor : undef,
+        exitCode => $outcome->{exit}->code
+    };
+}
+
 sub _decision ( $name, $exit, $diagnostic = undef ) {
     return {
         name       => $name,
@@ -76,5 +99,9 @@ Returns the outcome name, its exit catalog entry and an optional diagnostic.
 An interruption or failing original test takes priority over the mutant verdicts.
 A shard defers its score threshold until the parts have been merged.
 A whole project with no score fails a requested threshold, while an empty narrowed selection succeeds.
+
+=head2 assessment
+
+Returns the measured counts, score, outcome and threshold decision with their exit code.
 
 =cut

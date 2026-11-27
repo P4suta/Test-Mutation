@@ -2,7 +2,7 @@ package Test::Mutation::Types;
 use v5.36;
 use Type::Library -base,
   -declare =>
-  qw(Analysis Directive Dropped Entry Facts Heredoc Names Observations PathSelection ReportSelection Reason Refusal Rejected StatusName Suppression TaskRecord TestObservation);
+  qw(Analysis Assessment Directive Dropped Entry Facts Heredoc Names Observations PathSelection ReportSelection Reason Refusal Rejected StatusName Suppression TaskRecord TestObservation);
 use Type::Utils     qw(as declare where);
 use Types::Standard qw(ArrayRef Bool Dict Enum HashRef InstanceOf Int Maybe Num Optional Str StrMatch Tuple);
 use Test::Mutation::Status;
@@ -17,6 +17,18 @@ declare ReportSelection,
     since      => Optional [Str],
     mutants    => Optional [ ArrayRef [Str] ],
     undetected => Optional [Bool]
+  ];
+
+declare Assessment,
+  as Dict [
+    counts   => HashRef [Int],
+    total    => Int,
+    valid    => Int,
+    score    => Maybe [Num],
+    minimum  => Maybe [Num],
+    outcome  => Str,
+    gate     => Maybe [Str],
+    exitCode => Int
   ];
 
 declare StatusName, as Enum [ Test::Mutation::Status::names()->@* ];

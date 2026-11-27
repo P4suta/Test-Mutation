@@ -142,8 +142,9 @@ sub run ( $config, $notify, $options = {} ) {
     );
     my $measurement = Test::Mutation::Result->new(
         $result->%*,
-        warnings => [ sort keys $run->{warnings}->%* ],
-        finished => Time::HiRes::time()
+        min_score => $config->min_score,
+        warnings  => [ sort keys $run->{warnings}->%* ],
+        finished  => Time::HiRes::time()
     );
     $listener->( 'finished', $measurement->tally );
     Test::Mutation::Store::History::record( $config, $measurement,

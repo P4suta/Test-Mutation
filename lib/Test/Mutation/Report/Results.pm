@@ -80,17 +80,9 @@ sub overview ($result) {
 signature_for decision => ( positional => [ $RESULT, Maybe [Num] ], returns => ArrayRef [Str] );
 
 sub decision ( $result, $floor ) {
-    my $outcome = Test::Mutation::Outcome::of( $result, $floor );
-    my @lines   = ("Result: $outcome->{name}");
-    return \@lines unless defined $floor;
-    my $exit = $outcome->{exit}->name;
-    my $gate =
-        defined $result->shard        ? 'deferred until merge'
-      : $exit eq 'below-gate'         ? 'failed'
-      : $exit ne 'success'            ? 'unavailable'
-      : $outcome->{name} eq 'nothing' ? 'no mutants selected'
-      :                                 'passed';
-    push @lines, "Gate: $gate (minimum $floor%)";
+    my $assessment = Test::Mutation::Outcome::assessment( $result, $floor );
+    my @lines      = ("Result: $assessment->{outcome}");
+    push @lines, "Gate: $assessment->{gate} (minimum $floor%)" if defined $floor;
     return \@lines;
 }
 
