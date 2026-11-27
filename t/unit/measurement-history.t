@@ -49,9 +49,23 @@ Test::Mutation::Store::History::record( $config, $empty, 1 );
 is Test::Mutation::Store::History::undetected($config), [], 'a completed empty scope is distinct from missing history';
 my $merged =
   Test::Mutation::Result->new( $whole->%*, entries => [ $whole->entries->[0] ], started => 80, finished => 90 );
-Test::Mutation::Store::History::record( $config, $merged, 1 );
+my $merged_at = { completed => 107, measured => { $first->id => $merged->finished } };
+Test::Mutation::Store::History::record( $config, $merged, 1, $merged_at );
 is Test::Mutation::Store::History::undetected($config), [ $gap->( $whole->entries->[0] ) ],
   'merging older observed parts establishes the latest completed scope';
+is Test::Mutation::Store::History::entries( $config, { $file => $source }, [$first] )->{ $first->id }{finished}, 105,
+  'merging an older shard preserves the date of the newer individual observation';
+
+subtest 'a merge keeps the finish time of each part for inspection' => sub {
+    my $other   = Test::Mutation::Settings::of_call( { root => File::Temp::tempdir( CLEANUP => 1 ) } );
+    my @mutants = map { $_->{mutant} } $whole->entries->@*;
+    my %dates   = map { $mutants[$_]->id => 89 + $_ / 2 } keys @mutants;
+    Test::Mutation::Store::History::record( $other, $whole, 1, { completed => 108, measured => \%dates } );
+    my $saved = Test::Mutation::Store::History::entries( $other, { $file => $source }, \@mutants );
+    is {
+        map { $_ => $saved->{$_}{finished} } keys %$saved
+    }, \%dates, 'each inspected mutant dates from its own shard';
+};
 my $off = Test::Mutation::Settings::of_call( { root => $root, cache => 0 } );
 is Test::Mutation::Store::History::undetected($off), undef, 'disabling the cache bypasses saved history';
 subtest 'read-only history stays available and fresh observations are private' => sub {
@@ -64,7 +78,7 @@ subtest 'read-only history stays available and fresh observations are private' =
     ok -f $private, 'the private writer starts from a snapshot of the indexed checkout';
     is Test::Mutation::Store::History::undetected($reader), [ $gap->( $whole->entries->[0] ) ],
       'the private snapshot includes the completed scope';
-    Test::Mutation::Store::History::record( $reader, $empty, 1 );
+    Test::Mutation::Store::History::record( $reader, Test::Mutation::Result->new( $empty->%*, finished => 108 ), 1 );
     is Test::Mutation::Store::History::undetected($reader), [], 'a private measurement supersedes the imported scope';
     chmod oct('755'), $root or die "chmod: $!";
     is Test::Mutation::Store::History::undetected($config), [ $gap->( $whole->entries->[0] ) ],

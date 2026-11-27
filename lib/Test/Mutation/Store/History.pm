@@ -2,7 +2,7 @@ package Test::Mutation::Store::History;
 use v5.36;
 use Cwd              ();
 use Cpanel::JSON::XS ();
-use Types::Standard  qw(ArrayRef Bool Dict HashRef InstanceOf Maybe Num Str Undef);
+use Types::Standard  qw(ArrayRef Bool Dict HashRef InstanceOf Maybe Num Optional Str Undef);
 use Type::Params     qw(signature_for);
 use Test::Mutation::Diff;
 use Test::Mutation::Store;
@@ -15,11 +15,14 @@ my $CONFIG = InstanceOf ['Test::Mutation::Config'];
 my $JSON   = Cpanel::JSON::XS->new->canonical;
 
 signature_for record => (
-    positional => [ $CONFIG, InstanceOf ['Test::Mutation::Result'], Bool ],
-    returns    => Undef,
+    positional => [
+        $CONFIG, InstanceOf ['Test::Mutation::Result'],
+        Bool,    Optional [ Maybe [ Dict [ completed => Num, measured => HashRef [Num] ] ] ]
+    ],
+    returns => Undef,
 );
 
-sub record ( $config, $result, $anchor ) {
+sub record ( $config, $result, $anchor, $merge = undef ) {
     return unless $config->cache;
     my $db       = Test::Mutation::Store::database( Test::Mutation::Store::path($config) );
     my $complete = !defined $result->shard && !defined $result->interrupted && !$result->baseline_failures->@*;
@@ -30,9 +33,10 @@ sub record ( $config, $result, $anchor ) {
         sub {
             $db->do(
                 'INSERT INTO measurement(project,finished,anchor,complete) VALUES (?,?,?,?)',
-                undef, $project, $result->finished,
-                $anchor && $complete ? 1 : 0,
-                $complete            ? 1 : 0
+                undef, $project,
+                $merge               ? $merge->{completed} : $result->finished,
+                $anchor && $complete ? 1                   : 0,
+                $complete            ? 1                   : 0
             );
             my $run   = $db->sqlite_last_insert_rowid;
             my $write = $db->prepare('INSERT INTO observation VALUES (?,?,?,?,?,?,?)');
@@ -41,8 +45,13 @@ sub record ( $config, $result, $anchor ) {
                 my ( $mutant, %facts ) = ( $entry->{mutant}, $entry->%* );
                 delete $facts{mutant};
                 my $path = $mutant->path;
+                my $id   = $mutant->id;
                 $facts{lines} = $mutant->line_span;
-                $write->execute( $run, $order++, $mutant->id, $path, $sources{$path}, $entry->{status},
+                if ($merge) {
+                    my $observed = $merge->{measured}{$id};
+                    $facts{measured} = 0 + ( $observed // $result->finished );
+                }
+                $write->execute( $run, $order++, $id, $path, $sources{$path}, $entry->{status},
                     $JSON->encode( \%facts ) );
             }
             return 1;
@@ -75,14 +84,15 @@ WITH measured AS (
     SELECT project FROM measurement WHERE project = ? LIMIT 1
 ), latest AS (
     SELECT found.id, found.status, json_extract(found.data, '$.covered_by') AS covered,
-           json_extract(found.data, '$.by') AS detector, measurement.finished
+           json_extract(found.data, '$.by') AS detector,
+           coalesce(json_extract(found.data, '$.measured'), measurement.finished) AS finished
     FROM json_each(?) files CROSS JOIN json_each(files.value) requested
     CROSS JOIN observation found JOIN measurement USING(run)
     WHERE found.rowid = (
         SELECT prior.rowid FROM observation prior JOIN measurement seen USING(run)
         WHERE prior.id = requested.value AND prior.source = files.key AND prior.status <> 'Pending'
           AND seen.project = (SELECT project FROM measured)
-        ORDER BY seen.finished DESC, seen.run DESC LIMIT 1
+        ORDER BY coalesce(json_extract(prior.data, '$.measured'), seen.finished) DESC, seen.run DESC LIMIT 1
     )
 )
 SELECT latest.* FROM measured LEFT JOIN latest ON 1
@@ -164,7 +174,8 @@ Test::Mutation::Store::History - keep dated observations and the last completed 
 =head2 record
 
 Records the measured entries and finish time atomically.
-A true final argument makes a completed run the scope of the next search for undetected changes.
+A true third argument makes a completed run the scope of the next search for undetected changes.
+For a merge, an optional fourth argument supplies the completion time and the measurement time for each mutant identifier.
 
 =head2 undetected
 
