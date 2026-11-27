@@ -1795,7 +1795,8 @@ sub _save_observation ( $run, $cache, $entry ) {
         code => $run->{code_of_mutant}{ $mutant->id },
         exists $entry->{observations} ? ( observations => $entry->{observations} ) : ()
     };
-    Test::Mutation::Store::save( $cache->{path}, { $mutant->id => $record } );
+    my $checkpoint = $cache->{checkpoint} ||= Test::Mutation::Store::checkpoints( $cache->{path} );
+    $checkpoint->( $mutant->id, $record );
     return;
 }
 

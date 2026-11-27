@@ -207,14 +207,8 @@ sub _update ( $db, $updates, $inventory, $sources, $changes ) {
             else { $db->do( 'DELETE FROM original WHERE id = ?', undef, $test ) }
         }
     }
-    my $write = $db->prepare('INSERT OR REPLACE INTO verdict VALUES (?,?,?,?)');
-    for my $id ( keys %$updates ) {
-        my $record = $updates->{$id};
-        if ( Test::Mutation::Status::of( $record->{status} )->cached ) {
-            $write->execute( $id, $record->@{qw(path source)}, $JSON->encode($record) );
-        }
-        else { $db->do( 'DELETE FROM verdict WHERE id = ?', undef, $id ) }
-    }
+    my $write = _verdict_writer($db);
+    $write->( $_, $updates->{$_} ) for keys %$updates;
     if ( defined $inventory ) {
         $db->do('CREATE TEMP TABLE eligible (id TEXT PRIMARY KEY)');
         my $keep = $db->prepare('INSERT OR IGNORE INTO eligible VALUES (?)');
@@ -226,6 +220,31 @@ sub _update ( $db, $updates, $inventory, $sources, $changes ) {
         $db->do( 'DELETE FROM verdict WHERE path = ? AND source <> ?', undef, $file, $sources->{$file} );
     }
     return ( $db->selectrow_array('SELECT count(*) FROM verdict') )[0];
+}
+
+sub _verdict_writer ($db) {
+    my $put    = $db->prepare('INSERT OR REPLACE INTO verdict VALUES (?,?,?,?)');
+    my $remove = $db->prepare('DELETE FROM verdict WHERE id = ?');
+    return sub ( $id, $record ) {
+        if ( Test::Mutation::Status::of( $record->{status} )->cached ) {
+            $put->execute( $id, $record->@{qw(path source)}, $JSON->encode($record) );
+        }
+        else { $remove->execute($id) }
+        return;
+    };
+}
+
+signature_for checkpoints => ( positional => [Str], returns => CodeRef );
+
+sub checkpoints ($path) {
+    return sub ( $id, $record ) { save( $path, { $id => $record } ); return }
+      unless $path =~ /[.]sqlite\z/;
+    my $write = _verdict_writer( database($path) );
+    return sub ( $id, $record ) {
+        Str->assert_valid($id);
+        $RECORD->assert_valid($record);
+        return $write->( $id, $record );
+    };
 }
 
 sub _identified ($data) {
@@ -351,6 +370,11 @@ A write uses a temporary snapshot that lasts for the life of the configuration.
 =head2 transaction
 
 Runs a database update and commits its return value with the completed work.
+
+=head2 checkpoints
+
+Returns a writer that commits one verdict at a time for the duration of a measurement.
+Each call takes a mutant identifier and its observation.
 
 =head2 format_version
 
