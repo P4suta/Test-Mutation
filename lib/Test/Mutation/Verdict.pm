@@ -31,7 +31,8 @@ my %COMPILE_DETAIL = (
     'compile-phase' => 'the mutant does not compile',
     standalone      => 'the original source fails a syntax check of its own',
 );
-my %OUTSIDE_TEST = map { $_ => 1 } qw(same-code-as-original suppressed slot-not-restored build-copy-not-updated);
+my %OUTSIDE_TEST =
+  map { $_ => 1 } qw(same-code-as-original suppressed slot-not-restored build-copy-not-updated project-changed);
 
 signature_for start => ( positional => [], returns => $STATE );
 
