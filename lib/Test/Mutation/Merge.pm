@@ -2,7 +2,7 @@ package Test::Mutation::Merge;
 use v5.36;
 use Digest::SHA     ();
 use List::Util      qw(all any first max mesh_longest min sum0 uniq);
-use Types::Standard qw(ArrayRef Dict InstanceOf Str);
+use Types::Standard qw(ArrayRef Dict InstanceOf Maybe Num Str);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Error;
 use Test::Mutation::Result;
@@ -11,11 +11,15 @@ use Test::Mutation::Verdict;
 our $VERSION = '0.001';
 
 signature_for merge => (
-    positional => [ ArrayRef [ Dict [ name => Str, result => InstanceOf ['Test::Mutation::Result'] ] ] ],
-    returns    => InstanceOf ['Test::Mutation::Result'],
+    positional => [
+        ArrayRef [ Dict [ name => Str, result => InstanceOf ['Test::Mutation::Result'] ] ],
+        Maybe [Num],
+        { default => undef }
+    ],
+    returns => InstanceOf ['Test::Mutation::Result'],
 );
 
-sub merge ($reports) {
+sub merge ( $reports, $floor = undef ) {
     Test::Mutation::Error::raise('merge-empty') if !$reports->@*;
     my @parts   = _parts($reports);
     my @results = map { $_->{result} } @parts;
@@ -56,11 +60,15 @@ sub merge ($reports) {
         $active{$name}   = 1 unless $test->{neutral};
         $duration{$name} = max( $test->{duration}, exists $duration{$name} ? $duration{$name} : () );
     }
-    my %problem = map { $_->{path} => $_ } reverse map { $_->problems->@* } @results;
+    my %problem     = map { $_->{path} => $_ } reverse map { $_->problems->@* } @results;
+    my $first_floor = $results[0]->min_score;
+    $floor //= $first_floor
+      if defined $first_floor && all { defined $_->min_score && $_->min_score == $first_floor } @results;
     return Test::Mutation::Result->new(
-        root    => $results[0]->root,
-        sources => { map { $_->sources->%* } @results },
-        tests   => [
+        min_score => $floor,
+        root      => $results[0]->root,
+        sources   => { map { $_->sources->%* } @results },
+        tests     => [
             map { { name => $_, duration => $duration{$_}, $active{$_} ? () : ( neutral => 1 ) } } sort keys %duration
         ],
         entries            => Test::Mutation::Verdict::conclude_inventory( \@entries ),

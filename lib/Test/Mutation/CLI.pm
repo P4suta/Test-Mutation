@@ -359,7 +359,7 @@ sub _report ( $result, $config, $world, $listener = sub { return } ) {
         color => _color( $config, $world, $world->{out_tty} ),
         low   => $config->threshold_low,
         high  => $config->threshold_high,
-        floor => $config->min_score
+        floor => $result->min_score
     ) if $wanted{terminal};
 
     my @formats = grep { $wanted{$_} } qw(json html);
@@ -431,7 +431,7 @@ sub _report_to_github ( $result, $world, $config ) {
             File::Spec->rel2abs( $path, $config->root ),
             $path, '>>',
             sub ( $write, $used ) {
-                $write->( Test::Mutation::Report::GitHub::summary( $result, $config->min_score, \@reports, $used ) );
+                $write->( Test::Mutation::Report::GitHub::summary( $result, $result->min_score, \@reports, $used ) );
             }
         );
     }
@@ -583,11 +583,12 @@ sub _read_report ( $path, $root ) {
 sub _merge ( $invocation, $world ) {
     my $config = $invocation->{config};
     my $result = Test::Mutation::Merge::merge(
-        [ map { { name => $_, result => _read_report( $_, $config->root ) } } $invocation->{operands}->@* ] );
+        [ map { { name => $_, result => _read_report( $_, $config->root ) } } $invocation->{operands}->@* ],
+        $config->min_score );
     Test::Mutation::Select::outputs( $config, $world->{env}{GITHUB_STEP_SUMMARY} );
     _report( $result, $config, $world );
     Test::Mutation::Store::History::record( $config, $result, 1 );
-    return _concluded( $result, $config->min_score, $world );
+    return _concluded( $result, $result->min_score, $world );
 }
 
 sub _mutators ( $invocation, $world ) {

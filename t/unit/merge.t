@@ -76,6 +76,12 @@ sub merged (@parts) {
 my @first = ( entry( 1, 'Killed' ),  entry( 3, 'Survived' ), entry( 5, 'Killed' ) );
 my @rest  = ( entry( 2, 'Timeout' ), entry( 4, 'Killed' ),   entry( 6, 'NoCoverage' ) );
 
+subtest 'merging applies a common deferred threshold' => sub {
+    my $result = merged( part( '1/2', \@first, min_score => 90 ), part( '2/2', \@rest, min_score => 90 ) );
+    is [ $result->assessment->@{qw(minimum gate exitCode)} ], [ 90, 'failed', 1 ],
+      'the combined score decides the threshold shared by the shard reports';
+};
+
 subtest 'the parts of one run merge into the result of the whole run' => sub {
     my $whole = merged(
         part(

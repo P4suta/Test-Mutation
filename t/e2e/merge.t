@@ -43,7 +43,10 @@ subtest 'the merge command reports the whole run from the reports of its parts' 
 };
 
 subtest 'the merged score meets the threshold of a run' => sub {
-    ran( 1, $root, 'merge', @reports, '--min-score', 100, '--format', 'terminal' );
+    ran( 1, $root, 'merge', @reports, '--min-score', 100, @options, '--report-dir', 'whole' );
+    my $result = Test::Mutation::Report::Json::parse( slurp("$root/whole/mutation.json") );
+    is [ $result->assessment->@{qw(minimum gate exitCode)} ], [ 100, 'failed', 1 ],
+      'merging records the decision made at the requested threshold';
 };
 
 subtest 'duplicate compiled code across shard boundaries has one verdict in inventory order' => sub {
