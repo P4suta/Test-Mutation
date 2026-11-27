@@ -93,9 +93,10 @@ sub project ( $root, $skip, $links ) {
     return { digest => $digest, outputs => \@outputs };
 }
 
-signature_for copied => ( positional => [ Str, ArrayRef [Str], ArrayRef [Str], Str ], returns => Str );
+signature_for workspace =>
+  ( positional => [ Str, ArrayRef [Str], ArrayRef [Str], Optional [ Maybe [Str] ] ], returns => Str );
 
-sub copied ( $root, $skip, $links, $original ) {
+sub workspace ( $root, $skip, $links, $original = undef ) {
     return _tree( $root, $skip, undef, $links, $original );
 }
 
@@ -272,9 +273,10 @@ An optional true third argument omits generated mutation reports and directories
 Returns the input digest and the published output paths to omit from an isolated copy.
 Linked project inputs retain their visible contents.
 
-=head2 copied
+=head2 workspace
 
-Hashes the prepared inputs and verifies that each configured link leads back to its project path.
+Hashes the visible project inputs using the configured links.
+When given the original root, verifies that each link in the copy leads back to its project path.
 
 =head2 interpreter
 

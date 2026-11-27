@@ -138,4 +138,43 @@ subtest 'a shard verifies the prepared inputs before running a test' => sub {
     }
 };
 
+subtest 'cache entries describe the input bytes actually run in the copy' => sub {
+    specification(0);
+    my %settings     = ( root => $root, cache => 1, test => ['t/add.t'], jobs => 1 );
+    my $first_result = Test::Mutation::run(
+        %settings,
+        on_event => sub ( $name, $data ) {
+            specification(1) if $name eq 'copy_finished';
+            return;
+        }
+    );
+    is subtraction($first_result), 'Survived', 'the first measurement used the copied zero';
+    my $baseline = Test::Mutation::Runner::run(
+        Test::Mutation::Settings::of_call( \%settings ),
+        sub (@) { return },
+        { baseline_only => 1 }
+    );
+    is $baseline->stats->{baseline_tests}, 1, 'the passing original for zero cannot be reused for one';
+    my $later = Test::Mutation::run(%settings);
+    is subtraction($later), 'Killed', 'the later measurement of one cannot reuse the old subtraction verdict';
+    for my $relative (qw(t/add.t lib/Calc.pm)) {
+        my $path  = "$root/$relative";
+        my $bytes = Test::Mutation::Source::read_bytes($path);
+        Test::Mutation::run(
+            %settings,
+            on_event => sub ( $name, $data ) {
+                write_file( $path, "$bytes\n# changed checkout\n" ) if $name eq 'copy_finished';
+                return;
+            }
+        );
+        my $current = Test::Mutation::Runner::run(
+            Test::Mutation::Settings::of_call( \%settings ),
+            sub (@) { return },
+            { baseline_only => 1 }
+        );
+        is $current->stats->{baseline_tests}, 1,
+          "changing the original $relative after copying invalidates its cached test";
+    }
+};
+
 done_testing;

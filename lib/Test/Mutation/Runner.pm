@@ -481,8 +481,9 @@ sub _measurement_digest ( $run, $selection ) {
     else {
         my $view = Test::Mutation::Store::Key::project( $project, \@skip, $config->link );
         $run->{report_outputs} = $view->{outputs};
-        $project_digest        = $view->{digest};
-        $run->{copy_inputs}    = { project => $project_digest, tests => \%tests, separate => \@separate };
+        $project_digest = $view->{digest};
+        $run->{copy_inputs} =
+          { project => $project_digest, tests => \%tests, sources => $selection->digests, separate => \@separate };
     }
     return Test::Mutation::Store::Key::digest(
         $VERSION,
@@ -515,9 +516,17 @@ sub _verify_copy_inputs ($run) {
           if !-f $path || Test::Mutation::Store::Key::file($path) ne $expected->{tests}{$test};
     }
     my $digest =
-      Test::Mutation::Store::Key::copied( $root, $expected->{separate}, $run->{config}->link, $run->{project} );
+      Test::Mutation::Store::Key::workspace( $root, $expected->{separate}, $run->{config}->link, $run->{project} );
     Test::Mutation::Error::raise( 'measurement-inputs-changed', path => $run->{project} )
       if $digest ne $expected->{project};
+    if ( $run->{config}->cache ) {
+        my @separate = ( keys $run->{sources}->%*, $run->{test_paths}->@* );
+        my $cache_digest =
+          Test::Mutation::Store::Key::workspace( $root, \@separate, $run->{config}->link, $run->{project} );
+        Test::Mutation::Error::raise( 'measurement-inputs-changed', path => $run->{project} )
+          if defined $expected->{cache_project} && $cache_digest ne $expected->{cache_project};
+        $expected->{cache_project} = $cache_digest;
+    }
     return;
 }
 
@@ -1737,7 +1746,6 @@ sub _fingerprint ( $run, $baseline ) {
     my $config    = $run->{config};
     my @targets   = sort keys $run->{sources}->%*;
     my @tests     = sort keys $baseline->{tests}->%*;
-    my @skip      = ( _input_exclusions($run), @{ $run->{report_outputs} || [] } );
     my %include   = map { $_ => 1 } map { @{ $baseline->{tests}{$_}{includes} || [] } } @tests;
     my @libraries = map { ( $_, Test::Mutation::Store::Key::tree( $_, [] ) ) } sort keys %include;
     my @launch    = (
@@ -1755,17 +1763,21 @@ sub _fingerprint ( $run, $baseline ) {
         @targets
     );
     return Test::Mutation::Store::Key::digest(
-        $VERSION,
-        Test::Mutation::Store::format_version(),
-        _module_text($SHIM_FILE),
-        _module_text($COMPILER_FILE),
-        _module_text('Test/Mutation/Witness.pm'),
-        Test::Mutation::Store::Key::interpreter( $run->{perl} ),
-        Test::Mutation::Store::Key::digest(@libraries),
-        Test::Mutation::Store::Key::digest(@launch),
-        Test::Mutation::Store::Key::environment( \%ENV ),
-        Test::Mutation::Store::Key::tree( $run->{project}, [ @skip, @targets, $run->{test_paths}->@* ] ),
+        $VERSION,                                         Test::Mutation::Store::format_version(),
+        _module_text($SHIM_FILE),                         _module_text($COMPILER_FILE),
+        _module_text('Test/Mutation/Witness.pm'),         Test::Mutation::Store::Key::interpreter( $run->{perl} ),
+        Test::Mutation::Store::Key::digest(@libraries),   Test::Mutation::Store::Key::digest(@launch),
+        Test::Mutation::Store::Key::environment( \%ENV ), _cache_project( $run, \@targets ),
     );
+}
+
+sub _cache_project ( $run, $targets ) {
+    my $inputs = $run->{copy_inputs};
+    return $inputs->{cache_project} if $inputs && defined $inputs->{cache_project};
+    my @skip = ( _input_exclusions($run), @{ $run->{report_outputs} || [] }, @$targets, $run->{test_paths}->@* );
+    return Test::Mutation::Store::Key::tree( $run->{project}, \@skip ) unless $inputs;
+    $inputs->{cache_project} = Test::Mutation::Store::Key::workspace( $run->{project}, \@skip, $run->{config}->link );
+    return $inputs->{cache_project};
 }
 
 sub _cache_path ($run) {
@@ -1775,11 +1787,13 @@ sub _cache_path ($run) {
 sub _original_key ( $run, $shared, $test, $record ) {
     my @paths = sort keys $record->{files}->%*;
     return if grep { !exists $run->{sources}{$_} } @paths;
-    return Test::Mutation::Store::Key::digest(
-        $shared, $test,
-        Test::Mutation::Store::Key::file("$run->{project}/$test"),
-        map { ( $_, Test::Mutation::Store::Key::file("$run->{project}/$_") ) } @paths
-    );
+    my $inputs      = $run->{copy_inputs};
+    my $test_digest = $inputs ? $inputs->{tests}{$test} : Test::Mutation::Store::Key::file("$run->{project}/$test");
+    my @digests =
+      map { ( $_, $inputs ? $inputs->{sources}{$_} : Test::Mutation::Store::Key::file("$run->{project}/$_") ) } @paths;
+    return unless defined $test_digest;
+    return if grep { !defined } @digests;
+    return Test::Mutation::Store::Key::digest( $shared, $test, $test_digest, @digests );
 }
 
 sub _save_originals ( $run, $baseline ) {
