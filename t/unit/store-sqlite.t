@@ -72,6 +72,29 @@ subtest 'an unreadable cached verdict is measured again without losing its neigh
     $connection->do( 'UPDATE verdict SET data = ? WHERE id = ?', undef, 'null', 'missing' );
     is Test::Mutation::Store::load($path), { intact => $record }, 'only the intact verdict can be reused';
 };
+
+subtest 'a damaged build setting preserves independently recorded baseline observations' => sub {
+    my $path  = "$directory/build/measurement.sqlite";
+    my $build = [ 'perl', 'Makefile.PL' ];
+    my $tests = { 't/sum.t' => { inputs => 'measured', includes => [], duration => 1, files => {}, breakable => {} } };
+    Test::Mutation::Store::save( $path, {}, undef, {}, { build => $build, tests => $tests } );
+    is Test::Mutation::Store::originals($path), { build => $build, tests => $tests }, 'valid build arguments survive';
+    my $connection = Test::Mutation::Store::database($path);
+    for my $case (
+        [ 'broken JSON'   => '{' ],
+        [ 'object'        => '{}' ],
+        [ 'nested object' => '["perl",{}]' ],
+        [ 'null argument' => '["perl",null]' ]
+      )
+    {
+        my ( $fault, $value ) = @$case;
+        $connection->do( q{UPDATE setting SET data = ? WHERE id = 'build'}, undef, $value );
+        my $saved;
+        my $error = dies { $saved = Test::Mutation::Store::originals($path) };
+        is [ $error, $saved ], [ undef, { build => [], tests => $tests } ], "the baseline survives $fault";
+    }
+};
+
 subtest 'concurrent writers publish only committed observations' => sub {
     my $path = "$directory/concurrent/measurement.sqlite";
     pipe my $start, my $signal or die "pipe: $!";

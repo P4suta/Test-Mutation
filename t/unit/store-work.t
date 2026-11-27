@@ -96,4 +96,13 @@ subtest 'an unfinished mutant keeps the timestamp of its last verdict' => sub {
     is [ $past->@{qw(status finished)} ], [ 'Killed', $warm->finished ],
       'the unfinished rerun preserves the last measured status and finish time';
 };
+
+subtest 'a damaged build setting allows the next measurement to finish' => sub {
+    my $config = Test::Mutation::Settings::of_call( { root => $root } );
+    my $db     = Test::Mutation::Store::database( Test::Mutation::Store::path($config) );
+    $db->do( q{UPDATE setting SET data = ? WHERE id = 'build'}, undef, '{' );
+    my $run = World::observe( [ 'run', '--jobs', 1, '--format', 'terminal' ], cwd => $root );
+    is $run->{exit}, 0, 'the baseline and mutation tests finish after reading malformed build arguments';
+};
+
 done_testing;

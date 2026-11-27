@@ -25,6 +25,7 @@ my $JSON = Cpanel::JSON::XS->new->canonical;
 fieldhash my %private;
 
 my $FORMAT   = 5;
+my $BUILD    = ArrayRef [Str];
 my $LINES    = HashRef [Bool];
 my $ORIGINAL = Dict [
     inputs    => Str,
@@ -33,8 +34,8 @@ my $ORIGINAL = Dict [
     files     => HashRef [ Dict [ traced => Bool, hits => $LINES ] ],
     breakable => HashRef [$LINES]
 ];
-my $ORIGINALS = Dict [ build => ArrayRef [Str], tests => HashRef [$ORIGINAL] ];
-my $CHANGES   = Dict [ build => ArrayRef [Str], tests => HashRef [ Maybe [$ORIGINAL] ], reset => Optional [Bool] ];
+my $ORIGINALS = Dict [ build => $BUILD, tests => HashRef [$ORIGINAL] ];
+my $CHANGES   = Dict [ build => $BUILD, tests => HashRef [ Maybe [$ORIGINAL] ], reset => Optional [Bool] ];
 my $RECORD    = (
     Dict [
         inputs          => Str,
@@ -94,9 +95,17 @@ sub originals ($path) {
         return _originals( _read( File::Spec->catfile( File::Basename::dirname($path), 'cache.json' ) ) )
           unless $db;
         my ($build) = $db->selectrow_array("SELECT data FROM setting WHERE id = 'build'");
-        return { build => defined $build ? $JSON->decode($build) : [], tests => _stored( $db, 'original' ) };
+        return { build => _decoded( $build, $BUILD ) || [], tests => _stored( $db, 'original' ) };
     }
     return _originals( _read($path) );
+}
+
+sub _decoded ( $text, $type ) {
+    return unless defined $text;
+    my $parsed = Test::Mutation::Try::attempt( sub { [ $JSON->decode($text) ] } );
+    return unless $parsed->{value};
+    my $record = $parsed->{value}[0];
+    return $type->check($record) ? $record : undef;
 }
 
 sub _stored ( $db, $table, $ids = undef ) {
@@ -107,10 +116,8 @@ sub _stored ( $db, $table, $ids = undef ) {
     my %records;
     my $type = $table eq 'verdict' ? $RECORD : $ORIGINAL;
     while ( my $row = $read->fetchrow_arrayref ) {
-        my $parsed = Test::Mutation::Try::attempt( sub { [ $JSON->decode( $row->[1] ) ] } );
-        next unless $parsed->{value};
-        my $record = $parsed->{value}[0];
-        $records{ $row->[0] } = $record if $type->check($record);
+        my $record = _decoded( $row->[1], $type );
+        $records{ $row->[0] } = $record if defined $record;
     }
     return \%records;
 }
@@ -288,7 +295,7 @@ sub _identified ($data) {
 sub _originals ($data) {
     my $build = $data->{build};
     return {
-        build => ( ArrayRef [Str] )->check($build) ? $build : [],
+        build => $BUILD->check($build) ? $build : [],
         tests => _validated( $data->{tests}, $ORIGINAL ),
     };
 }
