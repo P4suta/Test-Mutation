@@ -73,6 +73,21 @@ subtest 'planning a path run leaves the catalog to execution' => sub {
     is World::observe( [ 'list', 'lib/Calc.pm:12' ], cwd => $project )->{exit}, 0, 'the measured range can be listed';
     is $parsed, 0, 'the next lookup reads the warm file analysis';
 };
+
+subtest 'queries can use a read-only project with an uninitialized history' => sub {
+    my $project = copy_of('calc');
+    my $store   = write_file( "$project/.mutation/measurement.sqlite", q{} );
+    chmod oct('444'), $store or die "protect $store: $!";
+    my $list = World::observe( [ 'list', 'lib/Calc.pm' ], cwd => $project );
+    is $list->{exit}, 0, 'the catalog can be listed without initializing its history';
+    my $id    = $list->{plan}{selection}->mutants->[0]->id;
+    my $shown = World::observe( [ 'show', $id ], cwd => $project );
+    like $shown->{stdout}, qr/^Last result: unmeasured$/m, 'show displays a mutant without recorded observations';
+    my $rerun = World::observe( [ 'run', '--undetected' ], cwd => $project );
+    like $rerun->{stderr}, qr/no completed measurement/, 'the empty history reports that no measurement is available';
+    is -s $store, 0, 'querying history leaves the empty file untouched';
+};
+
 my $root = copy_of('equivalent');
 write_file( "$root/lib/Other.pm", 'package Other; sub inc { return $_[0] + 1 } 1;' );
 my $config = Test::Mutation::Settings::of_call( { root => $root, jobs => 1 } );

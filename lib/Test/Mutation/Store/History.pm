@@ -61,9 +61,8 @@ signature_for entries => (
 );
 
 sub entries ( $config, $sources, $mutants ) {
-    my $path = Test::Mutation::Store::path( $config, 0 );
-    return unless $config->cache && -f $path;
-    my $db      = Test::Mutation::Store::database($path);
+    return unless $config->cache;
+    my $db      = Test::Mutation::Store::read_database( Test::Mutation::Store::path( $config, 0 ) ) or return;
     my $project = Cwd::abs_path( $config->root );
     my ( %digests, %requested );
     for my $mutant (@$mutants) {
@@ -116,9 +115,8 @@ signature_for undetected_scope => (
 );
 
 sub undetected_scope ( $config, $filters ) {
-    my $path = Test::Mutation::Store::path( $config, 0 );
-    return unless $config->cache && -f $path;
-    my $db      = Test::Mutation::Store::database($path);
+    return unless $config->cache;
+    my $db      = Test::Mutation::Store::read_database( Test::Mutation::Store::path( $config, 0 ) ) or return;
     my $project = Cwd::abs_path( $config->root );
     my $rows    = $db->selectall_arrayref( <<'SQL', { Slice => {} }, $project );
 WITH scope AS (
