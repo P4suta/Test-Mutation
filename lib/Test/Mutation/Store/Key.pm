@@ -1,6 +1,6 @@
 package Test::Mutation::Store::Key;
 use v5.36;
-use Config          ();
+use Config          qw(%Config);
 use Cwd             ();
 use Digest::SHA     ();
 use Encode          ();
@@ -37,7 +37,7 @@ sub environment ( $env, $project = undef ) {
       keys %$env;
     my %values = %$env;
     if ( defined $project ) {
-        my $separator = $Config::Config{path_sep};
+        my $separator = $Config{path_sep};
         for my $name ( grep { defined $values{$_} } qw(PATH PERL5LIB PERLLIB) ) {
             $values{$name} = digest(
                 map { index( "$_/", "$project/" ) == 0 ? ( 'project', substr( $_, length $project ) ) : ( 'path', $_ ) }

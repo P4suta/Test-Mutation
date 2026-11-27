@@ -134,12 +134,11 @@ subtest 'a part that is unsafe side by side or interrupted marks the whole' => s
 };
 
 subtest 'the ordered test observations decide the final verdicts' => sub {
-    my $pass  = { test => 't/a.t', result => 'pass', served => 1, load_failed => 0, bypassed => 0, syntax => undef };
-    my $fail  = { $pass->%*, result => 'fail' };
-    my $whole = merged(
-        part( '1/2', [ { $first[0]->%*, observations => [ [$pass] ] },          @first[ 1, 2 ] ] ),
-        part( '2/2', [ { $rest[0]->%*,  observations => [ [$pass], [$fail] ] }, @rest[ 1, 2 ] ] ),
-    );
+    my $pass   = { test => 't/a.t', result => 'pass', served => 1, load_failed => 0, bypassed => 0, syntax => undef };
+    my $fail   = { $pass->%*, result => 'fail' };
+    my $loaded = { $first[0]->%*, observations => [ [$pass] ] };
+    my $repeat = { $rest[0]->%*,  observations => [ [$pass], [$fail] ] };
+    my $whole  = merged( part( '1/2', [ $loaded, @first[ 1, 2 ] ] ), part( '2/2', [ $repeat, @rest[ 1, 2 ] ] ) );
     is [ $whole->entries->[0]->@{qw(status reason tests_run)} ], [ 'Survived', undef, 1 ],
       'the loaded target and the passing test determine survival';
     is [ $whole->entries->[1]->@{qw(status reason tests_run)} ], [ 'NoVerdict', 'unstable-test', 2 ],

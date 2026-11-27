@@ -31,6 +31,7 @@ my %COMPILE_DETAIL = (
     'compile-phase' => 'the mutant does not compile',
     standalone      => 'the original source fails a syntax check of its own',
 );
+my %OUTSIDE_TEST = map { $_ => 1 } qw(same-code-as-original suppressed slot-not-restored build-copy-not-updated);
 
 signature_for start => ( positional => [], returns => $STATE );
 
@@ -174,9 +175,7 @@ sub conclude_inventory ($entries) {
 sub _observed_verdict ($entry) {
     my $attempts = $entry->{observations};
     return $entry if !$attempts || !$attempts->@* || $entry->{status} eq 'Pending';
-    return $entry
-      if defined $entry->{reason}
-      && $entry->{reason} =~ /\A(?:same-code-as-original|suppressed|slot-not-restored|build-copy-not-updated)\z/;
+    return $entry if defined $entry->{reason} && $OUTSIDE_TEST{ $entry->{reason} };
     my @states;
     for my $attempt (@$attempts) {
         my $state = start();

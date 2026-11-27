@@ -1,7 +1,7 @@
 use v5.36;
 use Test2::V0;
 use File::Temp  ();
-use Config      ();
+use Config      qw(%Config);
 use Cwd         ();
 use Digest::SHA ();
 use Time::HiRes ();
@@ -40,8 +40,7 @@ isnt Test::Mutation::Store::Key::environment( { ANSWER => q{} } ), Test::Mutatio
 
 subtest 'search paths inside a checkout compare by their relative names' => sub {
     my $input = sub ( $root, @dirs ) {
-        return Test::Mutation::Store::Key::environment( { PERL5LIB => join( $Config::Config{path_sep}, @dirs ) },
-            $root );
+        return Test::Mutation::Store::Key::environment( { PERL5LIB => join( $Config{path_sep}, @dirs ) }, $root );
     };
     my $first = $input->( '/a', '/shared', '/a', '/a/lib' );
     is $input->( '/b', '/shared', '/b', '/b/lib' ), $first, 'relocating the checkout keeps the search path';
