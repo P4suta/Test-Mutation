@@ -15,6 +15,7 @@ The same mutant identifiers can also occur in runs with different tests.
 
 Keep the test observations and compiler comparison with each measured mutant.
 Bind the measurement to its sources, tests, execution settings, interpreter, and dependencies.
+Reuse a detection when every covering test through its first failure matches.
 Interleave the shards, verify the digest of the resulting sequence, and apply the same duplicate rule as a whole run.
 Keep the first undetected mutant with each compiled digest in each source file.
 

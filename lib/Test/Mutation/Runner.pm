@@ -1724,10 +1724,14 @@ sub _verdict_key ( $cache, $mutant, $tests, $status, $killer ) {
     my $mutation =
       Test::Mutation::Store::Key::digest( $mutant->id, $mutant->replacement, $cache->{targets}{ $mutant->path } );
     return Test::Mutation::Store::Key::digest( $cache->{shared}, $mutation, 'none' ) if $status eq 'NoCoverage';
-    my @needed = sort @$tests;
+    my @needed = @$tests;
     if ( $status eq 'Killed' ) {
-        return unless defined $killer && exists $cache->{facts}{$killer} && grep { $_ eq $killer } @needed;
-        return Test::Mutation::Store::Key::digest( $cache->{facts}{$killer}, $mutation );
+        return unless defined $killer && exists $cache->{facts}{$killer};
+        my ($index) = grep { $needed[$_] eq $killer } 0 .. $#needed;
+        return unless defined $index;
+        return Test::Mutation::Store::Key::digest( $cache->{facts}{$killer}, $mutation ) if !$index;
+        splice @needed, $index + 1;
+        $mutation = Test::Mutation::Store::Key::digest( $mutation, 'through-detector' );
     }
     return if grep { !exists $cache->{facts}{$_} } @needed;
     return Test::Mutation::Store::Key::digest( $mutation, map { ( $_, $cache->{facts}{$_} ) } @needed );
