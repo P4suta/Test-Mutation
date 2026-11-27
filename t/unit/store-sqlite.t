@@ -10,7 +10,13 @@ use Test::Mutation::Store;
 
 my $directory = File::Temp::tempdir( CLEANUP => 1 );
 my $database  = "$directory/measurement.sqlite";
-my $record    = {
+subtest 'an empty lookup leaves the project tree untouched' => sub {
+    my $missing = "$directory/absent/measurement.sqlite";
+    is Test::Mutation::Store::load($missing),      {},                           'a new checkout has no saved verdicts';
+    is Test::Mutation::Store::originals($missing), { build => [], tests => {} }, 'the baseline lookup is empty';
+    ok !-e "$directory/absent", 'looking for reusable records creates no directory';
+};
+my $record = {
     inputs    => 'input',
     path      => 'lib/Sum.pm',
     source    => 'source',

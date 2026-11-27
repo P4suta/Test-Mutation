@@ -73,7 +73,10 @@ sub sample ( $ids, $seed ) {
 signature_for load => ( positional => [Str], returns => HashRef [$RECORD] );
 
 sub load ($path) {
-    return _stored( database($path), 'verdict' ) if $path =~ /[.]sqlite\z/;
+    if ( $path =~ /[.]sqlite\z/ ) {
+        return _stored( database($path), 'verdict' ) if -f $path;
+        return _identified( _read( File::Spec->catfile( File::Basename::dirname($path), 'cache.json' ) ) );
+    }
     return _validated( _read($path)->{mutants}, $RECORD );
 }
 
@@ -81,6 +84,8 @@ signature_for originals => ( positional => [Str], returns => $ORIGINALS );
 
 sub originals ($path) {
     if ( $path =~ /[.]sqlite\z/ ) {
+        return _originals( _read( File::Spec->catfile( File::Basename::dirname($path), 'cache.json' ) ) )
+          unless -f $path;
         my $db = database($path);
         my ($build) = $db->selectrow_array("SELECT data FROM setting WHERE id = 'build'");
         return { build => defined $build ? $JSON->decode($build) : [], tests => _stored( $db, 'original' ) };
@@ -181,10 +186,8 @@ sub database ( $path, $legacy = undef ) {
                 'CREATE TABLE candidate (analysis TEXT, ordinal INTEGER, id TEXT, data TEXT NOT NULL, PRIMARY KEY(analysis,id))'
             );
             $db->do('CREATE INDEX catalog_order ON candidate(analysis,ordinal)');
-            my $old      = _read( $legacy // "$directory/cache.json" );
-            my $verdicts = _validated( $old->{mutants}, $RECORD );
-            my $matching = { map { $_ => $verdicts->{$_} } grep { defined $verdicts->{$_}{source} } keys %$verdicts };
-            _update( $db, $matching, undef, {}, _originals($old) );
+            my $old = _read( $legacy // "$directory/cache.json" );
+            _update( $db, _identified($old), undef, {}, _originals($old) );
             $db->do('PRAGMA user_version = 1');
             return 1;
         }
@@ -223,6 +226,11 @@ sub _update ( $db, $updates, $inventory, $sources, $changes ) {
         $db->do( 'DELETE FROM verdict WHERE path = ? AND source <> ?', undef, $file, $sources->{$file} );
     }
     return ( $db->selectrow_array('SELECT count(*) FROM verdict') )[0];
+}
+
+sub _identified ($data) {
+    my $verdicts = _validated( $data->{mutants}, $RECORD );
+    return { map { $_ => $verdicts->{$_} } grep { defined $verdicts->{$_}{source} } keys %$verdicts };
 }
 
 sub _originals ($data) {
