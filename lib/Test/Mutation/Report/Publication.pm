@@ -4,7 +4,7 @@ use Cwd             ();
 use Digest::SHA     ();
 use Fcntl           qw(O_CREAT O_EXCL O_NOFOLLOW O_NONBLOCK O_RDONLY O_RDWR SEEK_SET S_ISREG);
 use File::Spec      ();
-use Types::Standard qw(Dict HashRef Maybe Optional Str StrMatch Undef);
+use Types::Standard qw(ArrayRef Dict HashRef Maybe Optional Str StrMatch Undef);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Error;
 
@@ -21,6 +21,12 @@ sub _seal ( $relative, @digests ) {
     my $path = length $relative ? $relative : q{.};
     utf8::encode($path) if utf8::is_utf8($path);
     return Digest::SHA::sha256_hex( join "\0", $path, @digests );
+}
+
+signature_for names => ( positional => [], returns => ArrayRef [Str] );
+
+sub names () {
+    return [ $NAME, @FILES ];
 }
 
 signature_for outputs => ( positional => [ Str, Str ], returns => HashRef [ Maybe [Str] ] );
@@ -79,6 +85,10 @@ __END__
 Test::Mutation::Report::Publication - identify unchanged reports at their published paths
 
 =head1 FUNCTIONS
+
+=head2 names
+
+Returns the names a publisher can change while holding its directory lock.
 
 =head2 record
 

@@ -4,6 +4,7 @@ use Config          qw(%Config);
 use Cwd             ();
 use Digest::SHA     ();
 use Encode          ();
+use Fcntl           qw(LOCK_SH O_RDONLY);
 use Time::HiRes     ();
 use Types::Standard qw(ArrayRef Bool Dict HashRef Maybe Optional Slurpy Str);
 use Type::Params    qw(signature_for);
@@ -81,6 +82,7 @@ signature_for project => (
 sub project ( $root, $skip, $links ) {
     require Test::Mutation::Report::Publication;
     my $reports = { names => [], targets => {}, links => { map { $_ => 1 } @$links } };
+    $reports->{candidates} = { map { $_ => 1 } Test::Mutation::Report::Publication::names()->@* };
     my $digest  = _tree( $root, $skip, $reports );
     my @targets = keys $reports->{targets}->%*;
     my @outputs = grep {
@@ -104,47 +106,77 @@ sub _walk ( $state, $relative, $reports ) {
     my $identity  = join q{/}, @inode;
     return if $state->{parents}{$identity};
     local $state->{parents}{$identity} = 1;
-    opendir my $dir, $directory
-      or Test::Mutation::Error::raise( 'directory-unopenable', path => $directory, reason => "$!" );
-    my @names = sort grep { $_ ne q{.} && $_ ne q{..} } readdir $dir;
-    closedir $dir or Test::Mutation::Error::raise( 'file-unclosable', path => $directory, reason => "$!" );
+    my ( $names, $observed ) = _directory_files( $directory, $relative, $reports, $state->{skip} );
+    my $only_reports = @$names > 0;
 
-    my $only_reports = @names > 0;
-    my $published    = $reports ? Test::Mutation::Report::Publication::outputs( $directory, $relative ) : {};
-    for my $name (@names) {
+    for my $name (@$names) {
         my $path   = length $relative ? "$relative/$name" : $name;
-        my $output = !$state->{skip}{$path} && _node( $state, $path, $name, $published, $reports );
+        my $output = !$state->{skip}{$path} && _node( $state, $path, $observed->{$name}, $reports );
         $only_reports = 0 unless $output;
     }
     return $only_reports;
 }
 
-sub _node ( $state, $path, $name, $published, $reports ) {
+sub _directory_files ( $directory, $relative, $reports, $skip ) {
+    my $lock;
+    if ($reports) {
+        sysopen $lock, $directory, O_RDONLY
+          or Test::Mutation::Error::raise( 'directory-unopenable', path => $directory, reason => "$!" );
+        flock $lock, LOCK_SH or Test::Mutation::Error::raise( 'file-unreadable', path => $directory, reason => "$!" );
+    }
+    opendir my $dir, $directory
+      or Test::Mutation::Error::raise( 'directory-unopenable', path => $directory, reason => "$!" );
+    my @names = sort grep { $_ ne q{.} && $_ ne q{..} } readdir $dir;
+    closedir $dir or Test::Mutation::Error::raise( 'file-unclosable', path => $directory, reason => "$!" );
+    return ( \@names, {} ) unless $reports;
+    my %observed;
+    my $prefix     = length $relative ? "$relative/" : q{};
+    my @candidates = grep { $reports->{candidates}{$_} && !$skip->{"$prefix$_"} } @names;
+
+    if (@candidates) {
+        my $expected = Test::Mutation::Report::Publication::outputs( $directory, $relative );
+        for my $name (@candidates) {
+            my $path = "$directory/$name";
+            next if -l $path || !-f $path;
+            my $mode   = ( stat $path )[2] & oct '111';
+            my $digest = file($path);
+            my $output =
+              !$mode && exists $expected->{$name} && ( !defined $expected->{$name} || $digest eq $expected->{$name} );
+            $observed{$name} = [ $output, $mode, $digest ];
+        }
+    }
+    close $lock or Test::Mutation::Error::raise( 'file-unclosable', path => $directory, reason => "$!" );
+    return ( \@names, \%observed );
+}
+
+sub _node ( $state, $path, $observed, $reports ) {
     my $root     = $state->{root};
     my $absolute = "$root/$path";
     my $files    = $state->{files};
     my $linked   = $reports && $reports->{links}{$path};
+    if ($observed) {
+        if ( $observed->[0] && !$linked ) {
+            push $reports->{names}->@*, $path;
+            return 1;
+        }
+        push @$files, 'file', $path, $observed->@[ 1, 2 ];
+        return 0;
+    }
     if ( -l $absolute ) {
         push @$files, 'link', $path, readlink $absolute;
         _link_target( $state, $reports, $absolute ) if $reports;
         $linked = 1;
     }
     $reports = undef if $linked;
-    my ( $output, $digest ) = $reports ? _published( $published, $name, $absolute ) : ();
-    unless ($output) {
-        if ( -d $absolute ) {
-            my $offset = @$files;
-            push @$files, 'directory', $path;
-            local $state->{skip} = $linked ? {} : $state->{skip};
-            return 0 unless _walk( $state, $path, $reports );
-            splice @$files, $offset;
-        }
-        else {
-            push @$files, 'file', $path, ( ( stat $absolute )[2] & oct '111' ), $digest || file($absolute)
-              if -f $absolute;
-            return 0;
-        }
+    if ( !-d $absolute ) {
+        push @$files, 'file', $path, ( ( stat $absolute )[2] & oct '111' ), file($absolute) if -f $absolute;
+        return 0;
     }
+    my $offset = @$files;
+    push @$files, 'directory', $path;
+    local $state->{skip} = $linked ? {} : $state->{skip};
+    return 0 unless _walk( $state, $path, $reports );
+    splice @$files, $offset;
     push $reports->{names}->@*, $path;
     return 1;
 }
@@ -156,15 +188,6 @@ sub _link_target ( $state, $reports, $absolute ) {
     my $identity = join q{/}, ( stat $absolute )[ 0, 1 ];
     $reports->{targets}{ substr $target, 1 + length $root } = 1 unless $state->{parents}{$identity};
     return;
-}
-
-sub _published ( $published, $name, $path ) {
-    return ( 0, undef ) if !exists $published->{$name} || -l $path || !-f $path;
-    return ( 0, undef ) if ( stat $path )[2] & oct '111';
-    my $expected = $published->{$name};
-    return ( 1, undef ) unless defined $expected;
-    my $digest = file($path);
-    return ( $digest eq $expected, $digest );
 }
 
 signature_for interpreter => ( positional => [Str], returns => Str );

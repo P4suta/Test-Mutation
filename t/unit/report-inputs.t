@@ -2,6 +2,7 @@ use v5.36;
 use Test2::V0;
 use Cwd              ();
 use Digest::SHA      ();
+use Fcntl            qw(LOCK_EX LOCK_NB O_RDONLY);
 use File::Copy       ();
 use File::Temp       ();
 use IO::Socket::UNIX ();
@@ -26,6 +27,59 @@ subtest 'project data can describe a mutation framework' => sub {
         write_file( $path, $content =~ s/operand":0/operand":1/r );
         isnt tree(), $before, "changed $format input changes the measurement";
     }
+};
+
+subtest 'a concurrent publication presents one version of the record and report' => sub {
+    my $directory = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    my $path      = "$directory/mutation.json";
+    my $publish   = sub ($bytes) {
+        write_file( $path, $bytes );
+        Test::Mutation::Report::Publication::record( $directory, $directory,
+            { 'mutation.json' => Digest::SHA::sha256_hex($bytes) } );
+        return;
+    };
+    require Test::Mutation::Report::Publication;
+    $publish->('first');
+    my $before = tree($directory);
+    my $file   = \&Test::Mutation::Store::Key::file;
+    my ( $during, $attempted, $updated );
+    {
+        no warnings 'redefine';
+        local *Test::Mutation::Store::Key::file = sub ($observed) {
+            if ( $observed eq $path && !$attempted++ ) {
+                sysopen my $writer, $directory, O_RDONLY or die "open report directory: $!";
+                if ( flock $writer, LOCK_EX | LOCK_NB ) {
+                    $publish->('replacement');
+                    $updated = 1;
+                }
+                close $writer or die "close report directory: $!";
+            }
+            return $file->($observed);
+        };
+        $during = tree($directory);
+    }
+    $publish->('replacement') unless $updated;
+    ok $attempted, 'the publisher attempts to replace the report while the reader checks its bytes';
+    is [ $during, tree($directory) ], [ ($before) x 2 ], 'both observations contain only generated files';
+    write_file( $path, 'user change' );
+    isnt tree($directory), $before, 'a user edit after publication is still measured';
+    opendir my $dir, $directory or die "open directory: $!";
+    is [ sort grep { $_ ne q{.} && $_ ne q{..} } readdir $dir ], [qw(.test-mutation-outputs mutation.json)],
+      'a reader leaves no lock or other file in the project';
+    closedir $dir or die "close directory: $!";
+};
+
+subtest 'an explicitly excluded report needs no content read' => sub {
+    my $directory = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    my $path      = write_file( "$directory/mutation.json", 'ignored input' );
+    my $file      = \&Test::Mutation::Store::Key::file;
+    no warnings 'redefine';
+    local *Test::Mutation::Store::Key::file = sub ($candidate) {
+        die "read excluded input" if $candidate eq $path;
+        return $file->($candidate);
+    };
+    ok lives { Test::Mutation::Store::Key::project( $directory, ['mutation.json'], [] ) },
+      'an excluded name is never opened for hashing';
 };
 
 subtest 'only published bytes at their recorded paths leave the project input' => sub {
