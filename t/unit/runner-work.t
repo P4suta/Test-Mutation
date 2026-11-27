@@ -85,21 +85,24 @@ subtest 'compilation retains the selected interpreter, file and working tree' =>
 };
 
 subtest 'every original compiler observation records the result before the job continues' => sub {
-    my $path = $mutants[0]->path;
+    my $path   = $mutants[0]->path;
+    my $inputs = { '/external/modules' => 'de' x 32 };
     for my $case ( [ 0, 'code', 'hash' ], [ 0, q{}, q{} ], [ 0, '0', 'hash' ], [ 2, 'compiler output', q{} ], ) {
         my ( $exit, $output, $digest ) = @$case;
         my $run    = {};
         my $result = {
-            exit       => $exit,
-            signal     => 0,
-            timed_out  => 0,
-            overflowed => 0,
-            duration   => 2.5,
-            output     => $output,
-            digest     => 'hash'
+            compiler_inputs => $inputs,
+            exit            => $exit,
+            signal          => 0,
+            timed_out       => 0,
+            overflowed      => 0,
+            duration        => 2.5,
+            output          => $output,
+            digest          => 'hash'
         };
         my $task = {
             payload => {
+                compile  => 1,
                 job      => {},
                 kind     => 'code-original',
                 original => $path,
@@ -109,7 +112,8 @@ subtest 'every original compiler observation records the result before the job c
         no warnings 'redefine';
         local *Test::Mutation::Runner::_after_code = sub { return 'handled' };    ## no critic (Variables::ProtectPrivateVars)
         is Test::Mutation::Runner::_after_task( $run, {}, $task, $result ), 'handled', 'the job can resume';
-        is $run->{original_compile}{$path}, { passed => $exit ? 0 : 1, duration => 2.5, code => $digest },
+        is $run->{original_compile}{$path},
+          { passed => $exit ? 0 : 1, duration => 2.5, code => $digest, inputs => $inputs },
           'syntax and equivalence share the same completed original compiler observation';
         my $shared = $run->{original_compile}{$path};
         delete $task->{payload}{original};
