@@ -3,13 +3,15 @@ use Test2::V0;
 use CPAN::Meta::YAML ();
 use Cwd              ();
 use ExtUtils::MM     ();
+use File::Basename   ();
 use File::Copy       ();
 use File::Path       ();
 use File::Temp       ();
 use JSON::PP         ();
 use lib 't/lib', 't/e2e/lib';
-use Fixture qw(write_file);
+use Fixture qw(copy_of write_file);
 use Gate;
+use Test::Mutation::Source ();
 
 my $workflow    = CPAN::Meta::YAML->read('.github/workflows/release-gate.yml')->[0];
 my $jobs        = $workflow->{jobs};
@@ -48,9 +50,9 @@ sub step ( $job, $pattern ) {
     return $entry ? $entry->{run} : q{};
 }
 
-sub invocation ( $script, $shard ) {
+sub invocation ( $script, $shard, $directory = $project ) {
     my $previous = Cwd::getcwd();
-    chdir $project or die "enter $project: $!";
+    chdir $directory or die "enter $directory: $!";
     local %ENV = (
         %ENV,
         PATH             => "$scratch/bin:$ENV{PATH}",
@@ -63,11 +65,12 @@ sub invocation ( $script, $shard ) {
         MISE_JOB_VALUE   => "host-$shard",
         CI_PROJECT_FLAGS => "part-$shard",
     );
-    open my $output, q{-|}, '/bin/sh', '-eu', '-c', $script or die "start the step: $!";
+    open my $output, q{-|}, '/bin/sh', '-eu', '-c', "exec 2>&1\n$script" or die "start the step: $!";
     chomp( my @words = readline $output );
-    my $closed = close $output;
+    close $output;
+    my $exit = $? >> 8;
     chdir $previous or die "return to $previous: $!";
-    return $closed ? \@words : [];
+    return { exit => $exit, lines => \@words };
 }
 
 subtest 'the release rejects mutable sources and controllers outside main' => sub {
@@ -204,14 +207,34 @@ subtest 'the release test rejects shard numbers in the measured environment' => 
     my $script = step( $jobs->{'self-measurement'}, qr/--shard\b/ );
     for my $part ( 1, 2 ) {
         my $expected = [
-            '--no-cache', '--shard', "$part/8", '--format', 'json', 42, 'LC_ALL=C',
+            '--no-cache', '--shard', "$part/8", '--format', 'json', '--format', 'terminal', 42, 'LC_ALL=C',
             "PATH=$tools/$installed/perl/bin:$project/local/bin:/usr/bin:/bin",
             "PERL5LIB=$project/local/lib/perl5", 'TZ=UTC'
         ];
         my $leaking = $script =~ s/LC_ALL=C/SHARD=$part LC_ALL=C/r;
-        isnt invocation( $leaking, $part ), $expected, 'inheriting the scheduler index changes the measured inputs';
-        is invocation( $script, $part ),    $expected, "shard $part passes its index only as a command argument";
+        isnt invocation( $leaking, $part ), { exit => 0, lines => $expected },
+          'inheriting the scheduler index changes the measured inputs';
+        is invocation( $script, $part ), { exit => 0, lines => $expected },
+          "shard $part passes its index only as a command argument";
     }
+};
+
+subtest 'a failed baseline keeps its test name and TAP in the shard log' => sub {
+    my $fixture = copy_of('calc');
+    symlink File::Basename::dirname($^X) . '/../lib', "$tools/$installed/perl/lib"
+      or die "link the runtime libraries: $!";
+    for my $path (qw(bin lib/Test local)) {
+        symlink Cwd::abs_path($path), "$fixture/$path" or die "link $path to the test checkout: $!";
+    }
+    write_file( "$fixture/t/broken.t", 'print "1..1\nnot ok 1 - unmodified assertion\n";' );
+    my $run = invocation( step( $jobs->{'self-measurement'}, qr/--shard\b/ ), 3, $fixture );
+    is $run->{exit}, 3, 'the measurement step retains the baseline failure status';
+    my $log = join "\n", $run->{lines}->@*;
+    like $log, qr{^  t/broken\.t$}m,                      'the log names the failed test';
+    like $log, qr/^\s*not ok 1 - unmodified assertion$/m, 'the log shows the failed assertion';
+    my $json = Test::Mutation::Source::read_bytes("$fixture/mutation-report/mutation.json");
+    is JSON::PP::decode_json($json)->{testMutation}{baselineFailures}, ['t/broken.t'],
+      'the JSON report records the same baseline failure';
 };
 
 Gate::checked( 'release jobs', scalar keys %$jobs, at_least => 4 );

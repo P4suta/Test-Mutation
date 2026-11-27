@@ -142,7 +142,7 @@ jobs:
           IFS= read -r executable < "$RUNNER_TEMP/self-runtime/perl-path"
           perl="$MISE_DATA_DIR/$executable"
           env -i LC_ALL=C TZ=UTC PATH="${perl%/*}:$PWD/local/bin:/usr/bin:/bin" PERL5LIB="$PWD/local/lib/perl5" \
-            "$perl" -Ilib bin/mutation --no-cache --shard "$SHARD/$SHARDS" --format json
+            "$perl" -Ilib bin/mutation --no-cache --shard "$SHARD/$SHARDS" --format json --format terminal
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: self-mutation-${{ matrix.shard }}
