@@ -62,9 +62,15 @@ if ( $command eq 'api' ) {
         for my $file ( $name, "$name.sha256" ) {
             if ( -f "$root/$file" ) {
                 say asset_row( $file, $id );
+                if ( -f "$root/$file.complete" ) {
+                    write_file( $file,         read_file("$file.complete") );
+                    write_file( "$file.label", $source );
+                    unlink "$root/$file.complete", "$root/$file.state";
+                }
             }
             ++$id;
         }
+        write_file( 'draft', 'false' ) if unlink "$root/publish-after-list";
         exit 0;
     }
     if ( $path =~ m{/releases/assets/(10|11)\z} ) {

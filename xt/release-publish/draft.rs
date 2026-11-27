@@ -263,6 +263,12 @@ impl Candidate {
     fn prepare_release(&self) -> Result<Release> {
         let release = self.inspect_release()?;
         if let Some(starter) = release.starter {
+            let current = self.inspect_release()?;
+            match &current.starter {
+                None => return Ok(current),
+                Some(observed) if *observed == starter => {}
+                Some(_) => return Err("the incomplete release asset changed".into()),
+            }
             let path = format!("repos/{REPO}/releases/assets/{}", starter.id);
             output("gh", &["api", "--method", "DELETE", &path])?;
             return self.read_release();

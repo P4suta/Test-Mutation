@@ -124,6 +124,32 @@ subtest 'staging recovers an interrupted reservation before one submission' => s
     is read_file("$remote/$name.sha256.deleted"), 11, 'only the incomplete receipt was removed';
 };
 
+subtest 'a completed upload wins over an earlier incomplete observation' => sub {
+    for my $receipt ( 0, 1 ) {
+        local %ENV = setup();
+        my $remote = $ENV{FAKE_REMOTE};
+        my $file   = $receipt ? "$name.sha256" : $name;
+        invoke('stage') if $receipt;
+        write_file( "$remote/$file.interrupt", 1 );
+        is invoke( $receipt ? 'claim' : 'stage' ), undef, 'the previous request was interrupted';
+        write_file( "$remote/$file.complete", $receipt ? "$digest  $name\n" : $bytes );
+        my $expected = $receipt ? 'reconcile' : 'prepare';
+        like invoke('stage'), qr/^action=\Q$expected\E$/m, 'the completed asset determines the next action';
+        ok !-e "$remote/$file.deleted", 'the completed upload keeps its asset ID and bytes';
+    }
+};
+
+subtest 'a published draft cannot lose an incomplete asset' => sub {
+    local %ENV = setup();
+    my $remote = $ENV{FAKE_REMOTE};
+    write_file( "$remote/$name.interrupt", 1 );
+    is invoke('stage'), undef, 'the archive upload was interrupted';
+    write_file( "$remote/publish-after-list", 1 );
+    is invoke('stage'), undef, 'publication stops cleanup of an earlier draft observation';
+    ok -e "$remote/$name",          'the public asset remains in place';
+    ok !-e "$remote/$name.deleted", 'the workflow sent no delete request';
+};
+
 subtest 'recovery keeps the original verified bytes' => sub {
     local %ENV = setup();
     invoke('stage');
