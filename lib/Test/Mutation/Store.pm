@@ -210,14 +210,16 @@ sub _update ( $db, $updates, $inventory, $sources, $changes ) {
     my $write = _verdict_writer($db);
     $write->( $_, $updates->{$_} ) for keys %$updates;
     if ( defined $inventory ) {
-        $db->do('CREATE TEMP TABLE eligible (id TEXT PRIMARY KEY)');
-        my $keep = $db->prepare('INSERT OR IGNORE INTO eligible VALUES (?)');
-        $keep->execute($_) for @$inventory;
-        $db->do('DELETE FROM verdict WHERE id NOT IN (SELECT id FROM eligible)');
-        $db->do('DROP TABLE eligible');
+        $db->do( 'DELETE FROM verdict WHERE id NOT IN (SELECT value FROM json_each(?))',
+            undef, $JSON->encode($inventory) );
     }
-    for my $file ( keys %$sources ) {
-        $db->do( 'DELETE FROM verdict WHERE path = ? AND source <> ?', undef, $file, $sources->{$file} );
+    if (%$sources) {
+        $db->do( <<'SQL', undef, $JSON->encode($sources) );
+DELETE FROM verdict WHERE rowid IN (
+    SELECT saved.rowid FROM json_each(?) current JOIN verdict saved ON saved.path = current.key
+    WHERE saved.source <> current.value
+)
+SQL
     }
     return ( $db->selectrow_array('SELECT count(*) FROM verdict') )[0];
 }
