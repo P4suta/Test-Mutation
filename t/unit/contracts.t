@@ -2,12 +2,14 @@ use v5.36;
 use Test2::V0;
 use lib 't/lib';
 use Library;
+use Test::Mutation::CompilerInputs ();
 
 # Every public subroutine checks its arguments before its body runs.
 # The function definitions also describe the public surface when a type declaration is missing.
 
 my @files = grep { $_ ne 'lib/Test/Mutation/Shim.pm' } Library::modules()->@*;
 my $count = 0;
+my @load_warnings;
 
 for my $file (@files) {
     open my $handle, '<:encoding(UTF-8)', $file or die "read $file: $!";
@@ -15,7 +17,7 @@ for my $file (@files) {
     close $handle or die "close $file: $!";
 
     my $package = Library::package_of($file);
-    require $file =~ s{\Alib/}{}r;
+    push @load_warnings, warnings { require $file =~ s{\Alib/}{}r }->@*;
 
     while ( $code =~ /^sub ([a-z]\w*) \(\s*(\$(?:class|self)\b)?/mg ) {
         my ( $name, $method ) = ( $1, $2 );
@@ -31,5 +33,6 @@ for my $file (@files) {
 }
 
 ok $count >= 50, "the public functions reject invalid arguments ($count)";
+is \@load_warnings, [], 'the contract check loads every driver module without warnings';
 
 done_testing;
