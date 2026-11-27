@@ -1,11 +1,38 @@
 use v5.36;
 use Test2::V0;
+use File::Temp ();
 use lib 't/e2e/lib', 't/contract/lib';
 use Fixture qw(copy_of write_file);
 use World;
 use Test::Mutation::Runner;
 use Test::Mutation::Settings;
 use Test::Mutation::Store::History;
+
+subtest 'a cached identifier is resolved against the current source and settings' => sub {
+    my $project = File::Temp::tempdir( CLEANUP => 1 );
+    my $source  = "package Example;\nsub sum { return \$_[0] + \$_[1] }\n1;\n";
+    my $first   = write_file( "$project/lib/Unit71.pm", $source );
+    my $config  = Test::Mutation::Settings::of_call( { root => $project } );
+    Test::Mutation::Select::resolve( config => $config );
+    my $show = sub (@options) { return World::observe( [ 'show', '1917', @options ], cwd => $project ) };
+    like $show->()->{stdout}, qr/1917052cc06c/, 'the prefix identifies the measured file';
+    my $second = write_file( "$project/lib/Unit314.pm", $source );
+    is [ $show->()->@{qw(exit stderr)} ], [ 2, "mutation: more than one mutant has the identifier 1917\n" ],
+      'a new file makes the same prefix ambiguous';
+    unlink $first or die "remove $first: $!";
+    like $show->()->{stdout}, qr/1917d1188d5e/, 'a removed file leaves only the new candidate';
+    Test::Mutation::Select::resolve( config => $config );
+    my ( $accessed, $modified ) = ( stat $second )[ 8, 9 ];
+    write_file( $second, $source =~ s/[+]/-/r );
+    utime $accessed, $modified, $second or die "restore the source timestamp: $!";
+    is [ $show->()->@{qw(exit stderr)} ], [ 2, "mutation: no mutant has the identifier 1917\n" ],
+      'a same-size edit at the recorded time invalidates the identifier';
+    write_file( $second, $source );
+    like $show->( '--test', 't/missing.t' )->{stderr}, qr/pattern "t\/missing[.]t" matches no project file/,
+      'a missing configured test still fails the lookup';
+    like $show->( '--perl', './absent-perl' )->{stderr}, qr/cannot use "[.]\/absent-perl" as the Perl interpreter/,
+      'a missing configured interpreter still fails the lookup';
+};
 
 subtest 'planning a path run leaves the catalog to execution' => sub {
     my $project = copy_of('calc');
