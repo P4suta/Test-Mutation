@@ -8,6 +8,7 @@ const { buildStrategy } = require("release-please/build/src/factory");
 const { parseConventionalCommits } = require("release-please/build/src/commit");
 const { Version } = require("release-please/build/src/version");
 const { TagName } = require("release-please/build/src/util/tag-name");
+const { perlVersion } = require("./version.cjs");
 require("./strategy.cjs");
 const root = path.resolve(__dirname, "../..");
 const files = execFileSync("git", ["ls-files", "lib"], {
@@ -18,6 +19,9 @@ const files = execFileSync("git", ["ls-files", "lib"], {
 	.split("\n")
 	.filter((file) => file.endsWith(".pm"));
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
+const firstChanges =
+	"Revision history for Test-Mutation\n\n0.001\n    - Measure Perl modules.\n";
+const firstModule = "package Test::Mutation;\nour $VERSION = '0.001';\n1;\n";
 const repo = {
 	repository: { owner: "P4suta", repo: "Test-Mutation" },
 	findFilesByGlobAndRef: async (pattern, ref) => {
@@ -53,19 +57,19 @@ test("bootstrap dates the authored Changes and includes all distributed modules"
 	);
 	const ch = proposal.updates
 		.find((u) => u.path === "Changes")
-		.updater.updateContent(read("Changes"));
+		.updater.updateContent(firstChanges);
 	assert.match(ch, /^0\.001 +\d{4}-\d{2}-\d{2}$/m);
 	assert.equal(
 		ch.replace(/^0\.001 +\d{4}-\d{2}-\d{2}$/m, "0.001"),
-		read("Changes"),
+		firstChanges,
 	);
 	for (const u of proposal.updates.filter((u) => u.path !== "Changes"))
-		assert.equal(u.updater.updateContent(read(u.path)), read(u.path));
+		assert.equal(u.updater.updateContent(firstModule), firstModule);
 });
 test("a fix after v0.1.0 advances every package and prepends a dated native entry", async () => {
 	const proposal = await proposed("fix: compare an uncovered mutant", "0.1.0");
 	assert.equal(proposal.version.toString(), "0.1.1");
-	const changes = read("Changes").replace(/^0\.001$/m, "0.001  2026-01-01");
+	const changes = firstChanges.replace(/^0\.001$/m, "0.001  2026-01-01");
 	for (const u of proposal.updates) {
 		if (u.path === "Changes") {
 			const newText = u.updater.updateContent(changes);
@@ -75,7 +79,7 @@ test("a fix after v0.1.0 advances every package and prepends a dated native entr
 			assert.doesNotMatch(newText, /^#/m);
 		} else {
 			assert.match(
-				u.updater.updateContent(read(u.path)),
+				u.updater.updateContent(firstModule),
 				/^our \$VERSION = '0\.001001';$/m,
 			);
 			assert.throws(
@@ -88,6 +92,28 @@ test("a fix after v0.1.0 advances every package and prepends a dated native entr
 			);
 		}
 	}
+});
+test("checked-in packages and Changes match the distribution manifest", () => {
+	const version = JSON.parse(read(".release-please-manifest.json"))["."];
+	const initial = JSON.parse(read("release-please-config.json")).packages["."][
+		"initial-version"
+	];
+	const expected = perlVersion(version === "0.0.0" ? initial : version);
+	for (const file of files) {
+		const declarations = [
+			...read(file).matchAll(/^our \$VERSION = '([^']+)';$/gm),
+		];
+		assert.deepEqual(
+			declarations.map((match) => match[1]),
+			[expected],
+			file,
+		);
+	}
+	const heading = read("Changes").match(
+		/^(\d+\.\d+)(?:\s+(\d{4}-\d{2}-\d{2}))?[ \t]*$/m,
+	);
+	assert.equal(heading[1], expected);
+	if (version !== "0.0.0") assert.ok(heading[2]);
 });
 test("feature and breaking releases follow upstream semantic versioning", async () => {
 	assert.equal(
