@@ -132,6 +132,26 @@ subtest 'a pending checkpoint leaves a silent test under its deadline' => sub {
     is \@checkpoints,        [], 'the final checkpoint completes before the pool returns';
 };
 
+subtest 'draining more data does not retry a busy database at the same instant' => sub {
+    my $noisy = script( 'checkpoint-output.t', 'print STDERR "x" x 2_000_000; print "1..1\nok 1\n";' );
+    my @queue = ( task( $noisy, output_limit => 3_000_000 ) );
+    my ( @checkpoints, @attempts, $result );
+    my $clock = ManualClock->new;
+    Test::Mutation::Pool::run(
+        jobs        => 1,
+        clock       => $clock,
+        checkpoints => \@checkpoints,
+        next        => sub {
+            my $task = shift @queue or return;
+            push @checkpoints, sub ($may_wait) { push @attempts, $clock->now if !$may_wait; return $may_wait };
+            return $task;
+        },
+        done => sub ( $task, $got ) { $result = $got; return },
+    );
+    is $result->{passed}, 1,   'the noisy test finishes while the checkpoint is pending';
+    is \@attempts,        [0], 'all reads at the same instant share one write attempt';
+};
+
 subtest 'a test that ignores the request to end meets force when its grace ends and no earlier' => sub {
     my $deaf    = qq{\$SIG{TERM} = 'IGNORE';\n$NOTED$PLAN};
     my $patient = gated( 'within-grace.t', $deaf, $OK );

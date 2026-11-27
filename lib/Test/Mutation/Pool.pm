@@ -78,7 +78,7 @@ sub run ($arg) {
     my $turns = sub {
         while (1) {
             Test::Mutation::Signals::check();
-            $exhausted = 0 if _flush( $checkpoints, !keys $pool->{slots}->%* );
+            $exhausted = 0 if _flush( $pool, $checkpoints );
             my $waiting = @$checkpoints;
             while ( !@$checkpoints && !$exhausted && keys $pool->{slots}->%* < $arg->jobs ) {
                 my $task = $arg->next->();
@@ -114,12 +114,16 @@ sub run ($arg) {
     );
 }
 
-sub _flush ( $checkpoints, $may_wait ) {
+sub _flush ( $pool, $checkpoints ) {
+    return 0 unless @$checkpoints;
+    my $may_wait = !keys $pool->{slots}->%*;
+    return 0 if !$may_wait && defined $pool->{checkpoint_retry} && $pool->{clock}->now < $pool->{checkpoint_retry};
     my $completed = 0;
     while ( @$checkpoints && $checkpoints->[0]->($may_wait) ) {
         shift @$checkpoints;
         $completed++;
     }
+    $pool->{checkpoint_retry} = @$checkpoints ? $pool->{clock}->now + $CHECKPOINT_RETRY : undef;
     return $completed;
 }
 
