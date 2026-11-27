@@ -1,7 +1,8 @@
 package Test::Mutation::Report::Json;
 use v5.36;
-use JSON::PP        ();
-use Types::Standard qw(ArrayRef CodeRef Dict Enum HashRef InstanceOf Int Maybe Num Optional Str StrMatch Tuple Undef);
+use Cpanel::JSON::XS ();
+use JSON::PP         ();
+use Types::Standard  qw(ArrayRef CodeRef Dict Enum HashRef InstanceOf Int Maybe Num Optional Str StrMatch Tuple Undef);
 use Types::Common::Numeric qw(PositiveInt PositiveOrZeroInt);
 use Type::Params           qw(signature_for);
 use Test::Mutation::Error;
@@ -247,7 +248,9 @@ sub stream ( $result, $arg ) {
 signature_for parse => ( positional => [Str], returns => InstanceOf ['Test::Mutation::Result'] );
 
 sub parse ($text) {
-    my $read = Test::Mutation::Try::attempt( sub { return [ JSON::PP->new->decode($text) ] } );
+    my $read = Test::Mutation::Try::attempt( sub { return [ Cpanel::JSON::XS->new->decode($text) ] } );
+    Test::Mutation::Error::raise( 'report-malformed', reason => 'a JSON object repeats a field name' )
+      if $read->{error} && $read->{error} =~ /\ADuplicate keys not allowed/;
     my ($document) = ( $read->{value} || [] )->@*;
     Test::Mutation::Error::raise('report-not-json')      if ref $document ne 'HASH';
     Test::Mutation::Error::raise('report-without-facts') if !exists $document->{testMutation};

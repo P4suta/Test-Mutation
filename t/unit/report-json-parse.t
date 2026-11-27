@@ -113,6 +113,15 @@ sub refusal ($change) {
     return Raised::message( sub { Test::Mutation::Report::Json::parse($changed) } );
 }
 
+subtest 'conflicting JSON fields are refused before deciding a verdict' => sub {
+    for my $change ( sub ($t) { $t =~ s/"jobs" : 3/"jobs" : 1, "jobs" : 3/r },
+        sub ($t) { $t =~ s/"status" : "Killed"/"status" : "Survived", "status" : "Killed"/r } )
+    {
+        is refusal($change), 'the report is malformed: a JSON object repeats a field name',
+          'a repeated field has no unambiguous value';
+    }
+};
+
 subtest 'a value of the wrong type is refused with its place in the report' => sub {
     my $mutant = q{->{"files"}->{"lib/Calc.pm"}->{"mutants"}->[0]};
     my %cases  = (
