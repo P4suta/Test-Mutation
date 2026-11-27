@@ -34,7 +34,7 @@ for my $format (qw(json html)) {
     is {
         map { $_->{mutant}->id => $_->{status} } $saved->entries->@*
     }, { $id => 'Killed' }, "the $format report scores only the named mutant";
-    is $saved->tally->{score}, 100, "the stronger test gives the selected $format measurement a full score";
+    is $saved->tally->{score},       100,   "the stronger test gives the selected $format measurement a full score";
     is $saved->selection->{mutants}, [$id], 'the most recent selection survives serialization';
 }
 
