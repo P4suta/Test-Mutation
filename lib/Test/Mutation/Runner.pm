@@ -1271,31 +1271,36 @@ sub _measurement_jobs ( $run, $mutants, $baseline, $cache, $entries ) {
         tests     => { map { $_ => { $baseline->{tests}{$_}->%{qw(duration files)} } } keys $baseline->{tests}->%* },
     );
 
-    # Each mutant has one entry under its identifier, so the result keeps the order of the analysis.
-    my @jobs;
-    for my $mutant ( $mutants->@* ) {
-        if ( $mutant->suppressed ) {
-            $entries->{ $mutant->id } = _suppressed($mutant);
-            next;
-        }
+    my $tests_for = sub ($mutant) {
         my $tests = $coverage->tests_for($mutant);
         $tests = [ sort keys $baseline->{tests}->%* ] if !$tests->@* && exists $run->{stale}{ $mutant->path };
         $tests = [ map { $_->filename } Test::Mutation::Schedule::queue( $run->{rules}, $tests )->get_all ]
           if $run->{rules};
         my $killer = $run->{sample_killers}{ $mutant->id };
-        $tests = [$killer] if defined $killer;
-        my $job = {
-            mutant   => $mutant,
-            tests    => $tests,
-            index    => 0,
-            verdict  => Test::Mutation::Verdict::start(),
-            duration => 0
-        };
-        $entries->{ $mutant->id } = _reused_entry( $run, $cache, $job ) if $cache;
-        push @jobs, $job unless $entries->{ $mutant->id };
+        return defined $killer ? [$killer] : $tests;
+    };
+    for my $mutant ( $mutants->@* ) {
+        my $id = $mutant->id;
+        if    ( $mutant->suppressed ) { $entries->{$id} = _suppressed($mutant) }
+        elsif ( $cache && $cache->{records}{$id} ) {
+            $entries->{$id} = _reused_entry( $run, $cache, $mutant, $tests_for->($mutant) );
+        }
     }
-
-    return @jobs;
+    my $position = 0;
+    return sub {
+        while ( $position < @$mutants ) {
+            my $mutant = $mutants->[ $position++ ];
+            next if $entries->{ $mutant->id };
+            return {
+                mutant   => $mutant,
+                tests    => $tests_for->($mutant),
+                index    => 0,
+                verdict  => Test::Mutation::Verdict::start(),
+                duration => 0
+            };
+        }
+        return;
+    };
 }
 
 sub _check_reused ( $run, $cache, $baseline, $entries ) {
@@ -1332,7 +1337,7 @@ sub _check_reused ( $run, $cache, $baseline, $entries ) {
 sub _mutants ( $run, $mutants, $baseline, $sample_only = 0 ) {
     my $cache = !$sample_only && $run->{config}->cache ? _open_cache( $run, $baseline ) : undef;
     my %entry_of;
-    my @jobs = _measurement_jobs( $run, $mutants, $baseline, $cache, \%entry_of );
+    my $next_job = _measurement_jobs( $run, $mutants, $baseline, $cache, \%entry_of );
     if ( $cache && $run->{reused} ) {
         my $interrupted = _check_reused( $run, $cache, $baseline, \%entry_of );
         if ( $run->{cache_mismatch} && keys $run->{reused_originals}->%* ) {
@@ -1343,16 +1348,16 @@ sub _mutants ( $run, $mutants, $baseline, $sample_only = 0 ) {
         }
         if ( $run->{cache_mismatch} || $interrupted ) {
             %entry_of = ();
-            @jobs     = _measurement_jobs( $run, $mutants, $baseline, undef, \%entry_of );
+            $next_job = _measurement_jobs( $run, $mutants, $baseline, undef, \%entry_of );
         }
         if ($interrupted) {
             $run->{reused} = 0;
             $entry_of{ $_->{mutant}->id } = $_ for @$interrupted;
-            _pending_jobs( \@jobs, \%entry_of );
+            _pending_jobs( $next_job, \%entry_of );
             return [ map { $entry_of{ $_->id } } @$mutants ];
         }
     }
-    _execute_jobs( $run, $baseline, \@jobs, \%entry_of );
+    _execute_jobs( $run, $baseline, $next_job, \%entry_of );
 
     my @entries = map { $entry_of{ $_->id } } $mutants->@*;
     _save_cache( $run, $cache, \@entries ) if $cache;
@@ -1364,14 +1369,13 @@ sub _mutants ( $run, $mutants, $baseline, $sample_only = 0 ) {
     return Test::Mutation::Verdict::conclude_inventory( \@entries );
 }
 
-sub _execute_jobs ( $run, $baseline, $jobs, $entries ) {
-    my @waiting  = @$jobs;
+sub _execute_jobs ( $run, $baseline, $next_job, $entries ) {
+    my %unfinished;
     my $schedule = { ready => [], active => {}, retrying => {}, locked => {}, compatible => {} };
-    my $occupied = 0;
     my $finish   = sub ($job) {
         _release( $run, $job );
         $entries->{ $job->{mutant}->id } = _finish( $run, $job );
-        $occupied--;
+        delete $unfinished{ $job->{mutant}->id };
         return;
     };
     my $measure = sub {
@@ -1380,9 +1384,9 @@ sub _execute_jobs ( $run, $baseline, $jobs, $entries ) {
                 while (1) {
                     my $prepared = _take_ready( $schedule, $run->{rules} );
                     return $prepared if $prepared;
-                    return           if $occupied >= $run->{jobs};
-                    my $job = shift @waiting or return;
-                    $occupied++;
+                    return           if keys %unfinished >= $run->{jobs};
+                    my $job = $next_job->() or return;
+                    $unfinished{ $job->{mutant}->id } = $job;
                     my $task = $job->{tests}->@* ? _next_test( $run, $job, $baseline ) : _next_code( $run, $job );
                     if ($task) { push $schedule->{ready}->@*, $task }
                     else       { $finish->($job) }
@@ -1415,12 +1419,12 @@ sub _execute_jobs ( $run, $baseline, $jobs, $entries ) {
     my $error = $attempt->{error};
     die $error if !$INTERRUPTION->check($error);    ## no critic (ErrorHandling::RequireCarping)
     $run->{interrupted} = $error->signal;
-    _pending_jobs( $jobs, $entries );
+    _pending_jobs( $next_job, $entries, values %unfinished );
     return;
 }
 
-sub _pending_jobs ( $jobs, $entries ) {
-    for my $job ( grep { !$entries->{ $_->{mutant}->id } } $jobs->@* ) {
+sub _pending_jobs ( $next_job, $entries, @unfinished ) {
+    while ( my $job = @unfinished ? pop @unfinished : $next_job->() ) {
         my $tests_run = $job->{verdict}{tests};
         $tests_run += $job->{first}{tests} if $job->{first};
         $entries->{ $job->{mutant}->id } = _entry( $job->{mutant}, 'Pending', 'interrupted', 'the run was interrupted',
@@ -1694,17 +1698,15 @@ sub _verdict_key ( $cache, $mutant, $tests, $status, $killer ) {
     return Test::Mutation::Store::Key::digest( $mutation, map { ( $_, $cache->{facts}{$_} ) } @needed );
 }
 
-sub _reused_entry ( $run, $cache, $job ) {
+sub _reused_entry ( $run, $cache, $mutant, $tests ) {
     return if $run->{config}->mutant->@*;
-    my $mutant = $job->{mutant};
     my $record = $cache->{records}{ $mutant->id } or return;
-    return if $record->{status} eq 'NoCoverage' && $job->{tests}->@*;
-    my $key = _verdict_key( $cache, $mutant, $job->{tests}, $record->{status}, $record->{by} );
+    return if $record->{status} eq 'NoCoverage' && $tests->@*;
+    my $key = _verdict_key( $cache, $mutant, $tests, $record->{status}, $record->{by} );
     return unless defined $key && $key eq $record->{inputs};
     $run->{code_of_mutant}{ $mutant->id } = $record->{code} if defined $record->{code};
     $run->{reused}++;
-    my $entry =
-      _entry( $mutant, $record->@{qw(status reason detail by)}, $job->{tests}, $record->@{qw(tests_run duration)} );
+    my $entry = _entry( $mutant, $record->@{qw(status reason detail by)}, $tests, $record->@{qw(tests_run duration)} );
     $entry->{observations} = $record->{observations} if exists $record->{observations};
     return $entry;
 }
