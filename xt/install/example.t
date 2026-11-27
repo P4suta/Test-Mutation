@@ -32,10 +32,11 @@ $installer = Cwd::abs_path($installer);
 my $scratch = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
 my $prefix  = "$scratch/install";
 my $project = "$scratch/project";
-File::Path::make_path( $project, "$scratch/tmp" );
+File::Path::make_path( $project, "$scratch/home", "$scratch/tmp" );
 my $bin         = File::Basename::dirname( Cwd::abs_path($^X) );
 my %environment = (
     PATH            => join( $Config{path_sep}, "$prefix/bin", $bin, qw(/usr/bin /bin /usr/sbin /sbin) ),
+    HOME            => "$scratch/home",
     PERL5LIB        => "$prefix/lib/perl5",
     PERL_CPANM_HOME => "$scratch/cpanm",
     TMPDIR          => "$scratch/tmp",
@@ -64,6 +65,11 @@ sub addition () {
     return $entries[0];
 }
 
+my $effective_home = q{my $home = $ENV{HOME} // (getpwuid $<)[7]; print $home if -d $home && -w _};
+my $home_status    = run_in_project( $^X, '-e', $effective_home );
+is [ $home_status, read_text("$scratch/command.log") ], [ 0, "$scratch/home" ],
+  'the installer and its subprocesses use a private home directory'
+  or bail_out('the home directory is not isolated');
 my $installed = run_in_project( $^X, $installer, '--from', 'https://cpan.metacpan.org', '-L', $prefix, $archive );
 if ($installed) {
     diag read_text("$scratch/command.log");
