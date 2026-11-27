@@ -46,4 +46,30 @@ like $stale->{stderr}, qr/\Q$id\E.*mutation run lib\/Totals\.pm/,
   'a missing historical mutant names the file to measure';
 unlike $stale->{stderr}, qr/Baseline \(/, 'a stale identifier is diagnosed before testing';
 
+subtest 'the latest merged scope supplies uncovered changes to the recheck' => sub {
+    my $root = File::Temp::tempdir( CLEANUP => 1 );
+    for my $name (qw(Sum Unused)) {
+        write_file( "$root/lib/$name.pm", "package $name;\nsub add { return \$_[0] + \$_[1] }\n1;\n" );
+    }
+    write_file( "$root/t/original.t", "use Test::More tests => 1;\npass 'original test';\n" );
+    ran( 0, $root, 'run', 'lib/Unused.pm', @options );
+    for my $part ( 1, 2 ) {
+        ran( 0, $root, 'run', 'lib/Sum.pm', '--shard', "$part/2", '--report-dir', "part$part", '--format', 'json' );
+    }
+    ran( 0, $root, 'merge', 'part2/mutation.json', 'part1/mutation.json', '--format', 'json' );
+    my $file      = "$root/mutation-report/mutation.json";
+    my $read      = sub { Test::Mutation::Report::Json::parse( Test::Mutation::Source::read_bytes($file) ) };
+    my @uncovered = map { $_->{mutant}->id } grep { $_->{status} eq 'NoCoverage' } $read->()->entries->@*;
+    ok @uncovered, 'the merged scope has uncovered changes';
+    write_file( "$root/t/new.t", "use Test::More tests => 1;\nuse Sum;\nis Sum::add(4, 1), 5;\n" );
+    ran( 0, $root, 'run', '--undetected', '--min-score', 100, '--format', 'json' );
+    my $checked = $read->();
+    is [ map { $_->{mutant}->id } $checked->entries->@* ], \@uncovered, 'the merge replaces the preceding file scope';
+
+    for my $entry ( $checked->entries->@* ) {
+        is [ $entry->{mutant}->path, $entry->@{qw(status by tests_run)} ],
+          [ 'lib/Sum.pm', 'Killed', 't/new.t', 2 ], 'the new covering test detects the change twice';
+    }
+};
+
 done_testing;
