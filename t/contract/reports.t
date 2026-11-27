@@ -176,6 +176,24 @@ subtest 'publishing a measurement streams its own scope regardless of earlier re
     }
 };
 
+subtest 'GitHub uses the remaining space in a shared step summary' => sub {
+    my $root   = Space::scratch();
+    my $file   = "$root/step.md";
+    my @args   = ( 'run', '--github', '--format', 'json', '--report-dir', 'saved' );
+    my $sample = Samples::result( statuses => ['Survived'] );
+    no warnings 'redefine';
+    local *Test::Mutation::Runner::run = sub { return $sample };
+    my $first = World::observe( \@args, cwd => $root, env => { GITHUB_STEP_SUMMARY => $file } );
+    is $first->{exit}, 0, 'the summary is written';
+    like Test::Mutation::Source::read_bytes($file), qr{saved/mutation[.]json}, 'the summary points to the actual file';
+    my $limit = 1024 * 1024;
+    write_file( $file, 'x' x ( $limit - 80 ) );
+    my $repeat = World::observe( \@args, cwd => $root, env => { GITHUB_STEP_SUMMARY => $file } );
+    is $repeat->{exit}, 0, 'a nearly full summary keeps its measurement outcome';
+    ok -s $file <= $limit, 'the append respects the bytes already present';
+    like Test::Mutation::Source::read_bytes($file), qr/Undetected: 1/, 'the compact summary still reports the gap';
+};
+
 my $count = 0;
 my %seen;
 for my $shape (@shapes) {

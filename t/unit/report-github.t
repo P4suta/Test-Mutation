@@ -1,5 +1,6 @@
 use v5.36;
 use Test2::V0;
+use Encode ();
 use Test::Mutation::Mutant;
 use Test::Mutation::Report::GitHub;
 use Test::Mutation::Result;
@@ -95,7 +96,7 @@ subtest 'the summary states the score and the count of every status' => sub {
       qr/^Score: \*\*100\.0%\*\* \(1 of 1 valid mutant\)$/m, 'one valid mutant';
 };
 
-subtest 'annotations are bounded independently of the complete summary' => sub {
+subtest 'the summary names a sample of the gaps and the full report' => sub {
     my @entries;
     for my $status (qw(Survived Timeout)) {
         push @entries,
@@ -105,12 +106,22 @@ subtest 'annotations are bounded independently of the complete summary' => sub {
     my $commands = Test::Mutation::Report::GitHub::annotations($result);
     is scalar( () = $commands =~ /^::warning /mg ), 10, 'ten warnings';
     is scalar( () = $commands =~ /^::notice /mg ),  10, 'ten notices';
-    my $summary = Test::Mutation::Report::GitHub::summary( $result, 85 );
-    like $summary, qr/Gate: .*85%/, 'the summary includes the threshold decision';
-    for my $entry (@entries) {
-        like $summary, qr/\Q@{[ $entry->{mutant}->id ]}\E/, 'even a mutant beyond the annotation limit is listed';
-    }
-    unlike $summary, qr/\| lib\/A\|B[.]pm \|/, 'a pipe in a filename cannot split a table cell';
+    my $summary = Test::Mutation::Report::GitHub::summary( $result, 85, ['artifacts/mutation.json'] );
+    like $summary,   qr/Gate: .*85%/,               'the summary includes the threshold decision';
+    like $summary,   qr/^Undetected: 12$/m,         'the full count excludes timeouts';
+    like $summary,   qr/000000000001/,              'the first undetected change is included';
+    unlike $summary, qr/00000000000c/,              'the sample leaves room for the report location';
+    like $summary,   qr{artifacts/mutation[.]json}, 'the summary names the published file';
+    unlike $summary, qr/\| lib\/A\|B[.]pm \|/,      'a pipe in a filename cannot split a table cell';
+};
+
+subtest 'the step limit counts encoded bytes' => sub {
+    my $huge    = "\x{65e5}" x 400_000;
+    my $saved   = result( [ entry( 'Survived', mutant => { description => $huge } ) ] );
+    my $summary = Test::Mutation::Report::GitHub::summary( $saved, 90, ['reports/mutation.html'] );
+    cmp_ok length( Encode::encode( 'UTF-8', $summary ) ), '<=', 1024 * 1024, 'the Markdown fits one step';
+    like $summary, qr/^Undetected: 1$/m,        'the count survives an oversized example';
+    like $summary, qr{reports/mutation[.]html}, 'the file location survives an oversized example';
 };
 
 done_testing;

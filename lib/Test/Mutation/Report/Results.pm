@@ -1,5 +1,6 @@
 package Test::Mutation::Report::Results;
 use v5.36;
+use List::Util      qw(sum0);
 use Types::Standard qw(ArrayRef Dict InstanceOf Maybe Num Str);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Outcome;
@@ -48,6 +49,32 @@ signature_for columns => ( positional => [], returns => ArrayRef [Str] );
 
 sub columns () {
     return [ 'File', 'Score', ( map { ucfirst $_->word } @scored ), 'Other' ];
+}
+
+signature_for overview => ( positional => [$RESULT], returns => ArrayRef [Str] );
+
+sub overview ($result) {
+    my $selection = $result->selection;
+    my @scope;
+    push @scope, 'previously undetected mutants' if $selection->{undetected};
+    if ( !$selection->{undetected} && $selection->{mutants} ) {
+        my @names = $selection->{mutants}->@*;
+        push @scope, @names == 1 ? "mutant $names[0]" : scalar(@names) . ' selected mutants';
+    }
+    push @scope, "changes since $selection->{since}" if defined $selection->{since};
+    for my $path ( sort keys %{ $selection->{paths} || {} } ) {
+        my @lines = map { $_->[0] == $_->[1] ? $_->[0] : join q{-}, @$_ } $selection->{paths}{$path}->@*;
+        push @scope, @lines ? $path . q{:} . join( q{,}, @lines ) : $path;
+    }
+    my $scope = @scope ? join( ', ', @scope ) : 'configured sources';
+    $scope = 'shard ' . $result->shard . " of $scope" if defined $result->shard;
+    my $counts = $result->tally->{counts};
+    my $gaps   = sum0 map { $counts->{ $_->name } } grep { $_->role eq 'undetected' } @scored;
+    my $observed =
+        $result->baseline_failures->@* ? 'unknown (original tests failed)'
+      : defined $result->interrupted   ? "$gaps observed before interruption"
+      :                                  $gaps;
+    return [ "Scope: $scope", "Undetected: $observed" ];
 }
 
 signature_for decision => ( positional => [ $RESULT, Maybe [Num] ], returns => ArrayRef [Str] );
@@ -104,6 +131,10 @@ Returns the file paths in order, their entries and the cells of the score table.
 =head2 columns
 
 Returns the column headings of the file table.
+
+=head2 overview
+
+Returns the selected sources, lines, or identifiers and the number of observed gaps.
 
 =head2 decision
 

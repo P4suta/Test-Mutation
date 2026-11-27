@@ -67,6 +67,20 @@ subtest 'the summary counts every status and states the score' => sub {
     like $text, qr/^1 test, 2 jobs, 3\.5 s$/m,                                    'the run facts';
 };
 
+subtest 'the scope and the gaps precede their evidence' => sub {
+    my $selected = result( [ entry('Survived'), entry('NoCoverage') ],
+        selection => { paths => { 'lib/Calc.pm' => [ [ 3, 3 ], [ 8, 10 ] ] } } );
+    my $text = Test::Mutation::Report::Terminal::render( $selected, color => 0 );
+    like $text, qr{\AScope: lib/Calc[.]pm:3,8-10\nUndetected: 2\n},
+      'the heading identifies the measured lines and gap count';
+    like $text, qr{reached by t/sign.t\n    Recheck: mutation run --mutant abcdefabcdef},
+      'the command follows the test evidence';
+    like $text, qr{Exercise the mutated line in a test}, 'an uncovered change suggests how to reach it';
+    my $since = result( [], selection => { since => 'HEAD~2' } );
+    like Test::Mutation::Report::Terminal::render( $since, color => 0 ), qr/\AScope: changes since HEAD~2\n/,
+      'the revision stays visible';
+};
+
 subtest 'the summary of a part names the part and the size of the whole run' => sub {
     my %part = ( shard => '2/4', inventory => { mutants => 7, digest => 'ab' x 32 } );
     my $text =
@@ -160,7 +174,7 @@ subtest 'a failing unmodified run shows the lines that explain the failure' => s
         color => 0
     );
     is $text,
-      "Result: baseline-failed\n\nThe unmodified run fails, so no mutant ran.\n  t/add.t\n    not ok 3 - adds\n    1..4\n    #   Failed test 'adds'\n\nNext: mutation baseline\n",
+      "Scope: configured sources\nUndetected: unknown (original tests failed)\nResult: baseline-failed\n\nThe unmodified run fails, so no mutant ran.\n  t/add.t\n    not ok 3 - adds\n    1..4\n    #   Failed test 'adds'\n\nNext: mutation baseline\n",
       'the passing assertions and the plan of a subtest are left out';
 
     my $copied = Test::Mutation::Report::Terminal::render(
@@ -172,7 +186,7 @@ subtest 'a failing unmodified run shows the lines that explain the failure' => s
         color => 0
     );
     is $copied,
-        "Result: baseline-failed\n\nThe unmodified run fails, so no mutant ran.\n  t/add.t\n    not ok 1\n"
+      "Scope: configured sources\nUndetected: unknown (original tests failed)\nResult: baseline-failed\n\nThe unmodified run fails, so no mutant ran.\n  t/add.t\n    not ok 1\n"
       . "The tests ran in a copy of the project, which holds no .git directory.\n"
       . "--in-place runs them in the project itself.\n\nNext: mutation baseline\n",
       'a run in copies names the other place for the tests';
@@ -185,7 +199,7 @@ subtest 'a failing unmodified run shows the lines that explain the failure' => s
         color => 0
     );
     is $limited,
-      "Result: baseline-failed\n\nThe unmodified run fails, so no mutant ran.\n  t/slow.t (time-limit)\n    1..1\n\nNext: mutation baseline\n",
+      "Scope: configured sources\nUndetected: unknown (original tests failed)\nResult: baseline-failed\n\nThe unmodified run fails, so no mutant ran.\n  t/slow.t (time-limit)\n    1..1\n\nNext: mutation baseline\n",
       'a test that a limit ended names the reason of the limit';
 };
 
@@ -216,17 +230,17 @@ subtest 'the whole report keeps its order' => sub {
     my $place  = '  abcdefabcdef  lib/Calc.pm:3:15  comparison  replaced > with >=';
     is $text,
       join( "\n",
-        "Result: interrupted\n",
+        "Scope: configured sources\nUndetected: 2 observed before interruption\nResult: interrupted\n",
         "4 mutants: 1 killed, 1 survived, 1 no coverage, 1 timeout\nScore: 33.3% (1 of 3 valid mutants)\n"
           . "Timeouts are inconclusive and count toward neither side.\nThe run was interrupted by SIGINT.\n"
           . "1 test, 2 jobs, 3.5 s, 2 results from the cache\n",
+        'lib/Calc.pm',
+        "$place  [Survived]\n$change    reached by t/a.t, t/b.t, t/c.t and 2 more\n    Recheck: mutation run --mutant abcdefabcdef",
+        "$place  [NoCoverage]\n$change    reached by no test\n    Exercise the mutated line in a test.\n    Recheck: mutation run --mutant abcdefabcdef",
+        "$place  [Timeout]\n$change    reached by t/sign.t\n    slow\n",
         'File  Score  Killed  Survived  No coverage  Other',
         'lib/Bad.pm  none  0  0  0  -',
         "lib/Calc.pm  33.3%  1  1  1  1 timeout\n",
-        'lib/Calc.pm',
-        "$place  [Survived]\n$change    reached by t/a.t, t/b.t, t/c.t and 2 more",
-        "$place  [NoCoverage]\n$change    reached by no test",
-        "$place  [Timeout]\n$change    reached by t/sign.t\n    slow\n",
         "warning: first warning\nwarning: second warning\nskipped lib/Bad.pm: unreadable\n",
         "Next: rerun the interrupted measurement\n",
       ),
@@ -243,7 +257,7 @@ subtest 'the whole report keeps its order' => sub {
         color => 0,
     );
     is $failed,
-      "Result: baseline-failed\n\nThe unmodified run fails, so no mutant ran.\n  t/a.t\n    not ok 1\n    died\n  t/b.t\n    not ok 2\n\nNext: mutation baseline\n",
+      "Scope: configured sources\nUndetected: unknown (original tests failed)\nResult: baseline-failed\n\nThe unmodified run fails, so no mutant ran.\n  t/a.t\n    not ok 1\n    died\n  t/b.t\n    not ok 2\n\nNext: mutation baseline\n",
       'baseline failures';
 };
 

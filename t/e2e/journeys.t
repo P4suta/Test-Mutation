@@ -27,20 +27,23 @@ my $change       = 'a07c204622f4  lib/Totals.pm:2:24  arithmetic  replaced + wit
 my $columns      = 'File  Score  Killed  Survived  No coverage  Other';
 my $reports      = 'Reports: mutation-report/mutation.json, mutation-report/mutation.html';
 my $first_report = <<'REPORT';
+Scope: configured sources
+Undetected: 1
 Result: measured
 
 3 mutants: 2 killed, 1 survived
 Score: 66.7% (2 of 3 valid mutants)
 1 test, 1 job, TIME s
 
-File  Score  Killed  Survived  No coverage  Other
-lib/Totals.pm  66.7%  2  1  0  -
-
 lib/Totals.pm
   a07c204622f4  lib/Totals.pm:2:24  arithmetic  replaced + with -  [Survived]
     - sub sum { return $_[0] + $_[1] }
     + sub sum { return $_[0] - $_[1] }
     reached by t/sum.t
+    Recheck: mutation run --mutant a07c204622f4
+
+File  Score  Killed  Survived  No coverage  Other
+lib/Totals.pm  66.7%  2  1  0  -
 
 Next: mutation show a07c204622f4
 Reports: mutation-report/mutation.json, mutation-report/mutation.html
@@ -64,22 +67,26 @@ is elapsed( $first->{stdout} ), $first_report, 'the complete first report names 
 ok -s "$project/mutation-report/mutation.json" && -s "$project/mutation-report/mutation.html",
   'both offline reports exist';
 my $shown = ran( 0, $project, 'show', $id )->{stdout};
-is $shown, "$change\nLast result: Survived\nReached by: t/sum.t\n$patch",
+my ($stamp) = $shown =~ /^Measured at: (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)$/m;
+ok defined $stamp, 'show records the measurement time in UTC';
+is $shown, "$change\nLast result: Survived\nMeasured at: $stamp\nReached by: t/sum.t\n$patch",
   'the survivor, the reaching test and the exact patch';
-like ran( 0, $project, 'list', 'lib/Totals.pm' )->{stdout}, qr/^\Q$id\E  .*  \[Survived\]$/m,
+like ran( 0, $project, 'list', 'lib/Totals.pm' )->{stdout}, qr/^\Q$id\E  .*  \[Survived\] \Q$stamp\E$/m,
   'the list identifies the measured survivor';
 
 ran( 0, $project, '--mutant', 'b2a980f5c057', '--shard', '1/1', '--format', 'html' );
 utime 1, 1, "$project/mutation-report/mutation.json" or die $!;
 is ran( 0, $project, 'show', $id )->{stdout}, $shown,
   'an unrelated newer shard preserves the last measurement of the selected mutant';
-like ran( 0, $project, 'list' )->{stdout}, qr/^\Q$id\E  .*  \[Survived\]$/m,
+like ran( 0, $project, 'list' )->{stdout}, qr/^\Q$id\E  .*  \[Survived\] \Q$stamp\E$/m,
   'the list finds each verdict across saved formats';
 
 local $ENV{GITHUB_STEP_SUMMARY} = "$project/summary.md";
 my @gate = ( '--github', '--min-score', 100, '--since', 'HEAD', '--no-cache' );
 my $gate = ran( 1, $project, @gate );
-is elapsed( $gate->{stdout} ), $first_report =~ s/Result: measured\n/Result: measured\nGate: failed (minimum 100%)\n/r,
+is elapsed( $gate->{stdout} ),
+  $first_report =~ s/Scope: configured sources/Scope: changes since HEAD/r =~
+  s/Result: measured\n/Result: measured\nGate: failed (minimum 100%)\n/r,
   'the complete changed-line report gives the failing gate';
 like $gate->{stderr}, qr/^::warning file=lib\/Totals[.]pm,.*[(]\Q$id\E[)]$/m,
   'the pull request points to the same survivor';
@@ -87,16 +94,19 @@ like $gate->{stderr}, qr/^::warning file=lib\/Totals[.]pm,.*[(]\Q$id\E[)]$/m,
 write_file( "$project/t/positive.t", "use Test::More tests => 1;\nuse Totals;\nis Totals::sum(4, 1), 5;\n" );
 my $narrow = ran( 0, $project, '--mutant', $id );
 is elapsed( $narrow->{stdout} ),
-  "Result: measured\n\n1 mutant: 1 killed\nScore: 100.0% (1 of 1 valid mutant)\n2 tests, 1 job, TIME s\n\n"
+  "Scope: mutant $id\nUndetected: 0\nResult: measured\n\n1 mutant: 1 killed\nScore: 100.0% (1 of 1 valid mutant)\n2 tests, 1 job, TIME s\n\n"
   . "$columns\nlib/Totals.pm  100.0%  1  0  0  -\n\nNext: mutation run --min-score 100\n$reports\n",
   'the focused measurement reports precisely the repaired survivor';
 unlink "$project/mutation-report/mutation.json" or die $!;
-is ran( 0, $project, 'show', $id )->{stdout},
-  "$change\nLast result: Killed\nReached by: t/positive.t, t/sum.t\nKilled by: t/positive.t\n$patch",
+my $killed = ran( 0, $project, 'show', $id )->{stdout};
+my ($killed_at) = $killed =~ /^Measured at: (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)$/m;
+ok defined $killed_at, 'the focused measurement records its own time';
+is $killed,
+  "$change\nLast result: Killed\nMeasured at: $killed_at\nReached by: t/positive.t, t/sum.t\nKilled by: t/positive.t\n$patch",
   'the HTML report carries the killing test and the complete patch after a narrow rerun';
 my $passed = ran( 0, $project, @gate );
 is elapsed( $passed->{stdout} ),
-  "Result: measured\nGate: passed (minimum 100%)\n\n3 mutants: 3 killed\nScore: 100.0% (3 of 3 valid mutants)\n2 tests, 1 job, TIME s\n\n"
+  "Scope: changes since HEAD\nUndetected: 0\nResult: measured\nGate: passed (minimum 100%)\n\n3 mutants: 3 killed\nScore: 100.0% (3 of 3 valid mutants)\n2 tests, 1 job, TIME s\n\n"
   . "$columns\nlib/Totals.pm  100.0%  3  0  0  -\n\nNext: rerun mutation when the source or tests change\n$reports\n",
   'the full changed-line report passes after the test is strengthened';
 unlike $passed->{stderr}, qr/^::warning/m, 'the passing job leaves no survivor annotation';
@@ -106,6 +116,8 @@ close $summary or die $!;
 my $job = <<'SUMMARY';
 ## Mutation testing
 
+Scope: changes since HEAD
+Undetected: 1
 Result: measured
 Gate: failed (minimum 100%)
 
@@ -115,27 +127,22 @@ Score: **66.7%** (2 of 3 valid mutants)
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 2 | 1 | 0 | 0 | 0 | 0 | 0 | 0 |
 
-### Files
+### Undetected changes
 
-| File | Score | Killed | Survived | No coverage | Other |
-| --- | --- | --- | --- | --- | --- |
-| lib/Totals.pm | 66.7% | 2 | 1 | 0 | - |
+| ID | Location | Change | Status |
+| --- | --- | --- | --- |
+| a07c204622f4 | lib/Totals.pm:2:24 | replaced + with - | Survived |
 
-### Mutants
-
-| ID | Location | Mutator | Description | Status |
-| --- | --- | --- | --- | --- |
-| b2a980f5c057 | lib/Totals.pm:2:10 | sub-body | removed the body of sum | Killed |
-| 6f7767472916 | lib/Totals.pm:2:18 | return-value | removed the return value | Killed |
-| a07c204622f4 | lib/Totals.pm:2:24 | arithmetic | replaced + with - | Survived |
+Detailed reports: mutation-report/mutation.json, mutation-report/mutation.html
 
 Next: mutation show a07c204622f4
 SUMMARY
 my $green =
-  $job =~ s/Gate: failed/Gate: passed/r =~ s/66[.]7%/100.0%/gr =~ s/2 of 3/3 of 3/r =~
-  s/[|] 2 [|] 1 [|]/| 3 | 0 |/gr =~ s/with - [|] Survived/with - | Killed/r =~
+  $job =~ s/Undetected: 1/Undetected: 0/r =~ s/Gate: failed/Gate: passed/r =~ s/66[.]7%/100.0%/r =~
+  s/2 of 3/3 of 3/r =~ s/[|] 2 [|] 1 [|]/| 3 | 0 |/r =~
+  s/\n### Undetected changes\n.*?\n\nDetailed reports:/\nDetailed reports:/sr =~
   s/Next: mutation show a07c204622f4/Next: rerun mutation when the source or tests change/r;
-is $decisions, $job . $green, 'both job summaries retain every file and mutant in the failing and passing gates';
+is $decisions, $job . $green, 'both job summaries name the score, remaining gaps and complete reports';
 write_file( "$project/lib/Totals.pm", $source . "# Changed after the last measurement.\n" );
 like ran( 0, $project, 'show', $id )->{stdout}, qr/^Last result: unmeasured$/m,
   'a different source cannot borrow the saved verdict';

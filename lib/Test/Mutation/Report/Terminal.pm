@@ -17,17 +17,21 @@ signature_for render => (
 
 sub render ( $result, $arg ) {
     my $files  = Test::Mutation::Report::Results::files($result);
-    my @blocks = ( join( "\n", Test::Mutation::Report::Results::decision( $result, $arg->floor )->@* ) );
+    my @blocks = (
+        join( "\n",
+            Test::Mutation::Report::Results::overview($result)->@*,
+            Test::Mutation::Report::Results::decision( $result, $arg->floor )->@* )
+    );
     if ( $result->baseline_failures->@* ) {
         push @blocks, _baseline($result);
     }
     else {
         push @blocks, _summary( $result, $arg );
+        push @blocks, map { _section( $result, $_ ) } @$files;
         if (@$files) {
             push @blocks, join "\n", map { join q{  }, $_->@* } Test::Mutation::Report::Results::columns(),
               map { $_->{cells} } @$files;
         }
-        push @blocks, map { _section( $result, $_ ) } @$files;
     }
     my @notes = (
         ( map { "warning: $_" } $result->warnings->@* ),
@@ -92,8 +96,13 @@ sub _entry ( $result, $entry ) {
     my $more  = @tests > $LISTED_TESTS ? sprintf ' and %d more', @tests - $LISTED_TESTS : q{};
     splice @tests, $LISTED_TESTS if $more;
     push @lines, '    reached by ' . ( @tests ? join( ', ', @tests ) . $more : 'no test' );
-    push @lines, "    $entry->{reason}" if $entry->{status} eq 'CompileError';
-    push @lines, "    $entry->{detail}" if defined $entry->{detail};
+    push @lines, "    $entry->{reason}"                     if $entry->{status} eq 'CompileError';
+    push @lines, "    $entry->{detail}"                     if defined $entry->{detail};
+    push @lines, '    Exercise the mutated line in a test.' if $entry->{status} eq 'NoCoverage';
+    push @lines, '    Check that the original test gives the same result on repeated runs.'
+      if $entry->{status} eq 'NoVerdict' && $entry->{reason} =~ /\A(?:unstable|conflicting)-test\z/;
+    push @lines, '    Recheck: mutation run --mutant ' . $mutant->id
+      if Test::Mutation::Status::of( $entry->{status} )->role eq 'undetected' || $entry->{status} eq 'NoVerdict';
     return @lines;
 }
 

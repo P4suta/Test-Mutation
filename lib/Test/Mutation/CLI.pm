@@ -425,9 +425,15 @@ sub _previous_report ( $directory, $select ) {
 sub _report_to_github ( $result, $world, $config ) {
     my $path = $world->{env}{GITHUB_STEP_SUMMARY};
     if ( defined $path && length $path ) {
-        _write( File::Spec->rel2abs( $path, $config->root ),
+        my @reports = map { File::Spec->catfile( $config->report_dir, $FILE_REPORT{$_}[0] ) }
+          grep { exists $FILE_REPORT{$_} } $config->format->@*;
+        _write(
+            File::Spec->rel2abs( $path, $config->root ),
             $path, '>>',
-            sub ($write) { $write->( Test::Mutation::Report::GitHub::summary( $result, $config->min_score ) ) } );
+            sub ( $write, $used ) {
+                $write->( Test::Mutation::Report::GitHub::summary( $result, $config->min_score, \@reports, $used ) );
+            }
+        );
     }
     print { $world->{err} } Test::Mutation::Report::GitHub::annotations($result);
     return;
@@ -435,18 +441,20 @@ sub _report_to_github ( $result, $world, $config ) {
 
 # Writes a text to a file, which an error names as the user knows it.
 sub _write ( $path, $name, $mode, $produce ) {
-    my $write_to = sub ($handle) {
+    my $write_to = sub ( $handle, @context ) {
         $produce->(
             sub ($chunk) {
                 print {$handle} $chunk
                   or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
-            }
+            },
+            @context
         );
     };
     if ( $mode eq '>>' ) {
         open my $file, '>>:encoding(UTF-8)', $path
           or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
-        $write_to->($file);
+        flock $file, LOCK_EX or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
+        $write_to->( $file, -s $file );
         close $file or Test::Mutation::Error::raise( 'file-unclosable', path => $name, reason => "$!" );
         return;
     }
