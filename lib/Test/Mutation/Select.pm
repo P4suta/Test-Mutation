@@ -330,41 +330,33 @@ sub _file_reader ( $config, $mutators, $options ) {
         $config->suppress_require_reason,
         map { $_->name } @$mutators
     );
-    return sub ( $path, $digest, $source ) {
-        my $identity = Test::Mutation::Store::Key::digest( $conditions, $path, $digest );
-        if ($db) {
-            my $file = Test::Mutation::Store::Analysis::read_file( $db, $identity, $options->{prefixes} );
-            return $file if $file;
+    return sub ( $batch, $visit ) {
+        my @identities = map { Test::Mutation::Store::Key::digest( $conditions, $_->@{qw(path digest)} ) } @$batch;
+        my $saved = $db ? Test::Mutation::Store::Analysis::read_files( $db, \@identities, $options->{prefixes} ) : {};
+        for my $index ( keys @$batch ) {
+            my ( $path, $source ) = $batch->[$index]->@{qw(path source)};
+            my $identity = $identities[$index];
+            my $file     = $saved->{$identity};
+            unless ($file) {
+                $file = _analyze_file( $config, $source->(), $mutators, $others, $options->{version} );
+                push $options->{pending}->@*, [ $identity, $file ] if $config->cache && !$options->{read_only};
+            }
+            $visit->( $path, $source, $file );
         }
-        my $file = _analyze_file( $config, $source->(), $mutators, $others, $options->{version} );
-        push $options->{pending}->@*, [ $identity, $file ] if $config->cache && !$options->{read_only};
-        return $file;
+        return;
     };
 }
 
 sub _analysis ( $config, $files, $mutators, $options ) {
-    my ( $root, $paths, $changed ) = $options->@{qw(root paths changed)};
-    my $read    = _file_reader( $config, $mutators, $options );
+    my ( $paths, $changed ) = $options->@{qw(paths changed)};
     my %wanted  = map { $_         => 1 } $options->{prefixes}->@*;
     my %lengths = map { length($_) => 1 } keys %wanted;
-    my ( %sources, %digests, %left_out, @mutants, @problems, @rejected, @refusals );
-    for my $path ( $files->@* ) {
-        my $selected = ( !$changed || $changed->{$path} ) && ( !$paths || exists $paths->{$path} );
-        next unless $selected || $config->cache || $options->{report_inputs};
-        my $bytes = Test::Mutation::Source::read_bytes("$root/$path");
-        my $decoded;
-        my $source = sub { return $decoded ||= Test::Mutation::Source->from_bytes( path => $path, bytes => $bytes ) };
-        $digests{$path} = Digest::SHA::sha256_hex($bytes);
-        next unless $selected;
-        if ( $options->{baseline_only} ) {
-            $sources{$path} = $source->();
-            next;
-        }
-        my $file = $read->( $path, $digests{$path}, $source );
+    my ( %sources, %left_out, @mutants, @problems, @rejected, @refusals );
+    my $visit = sub ( $path, $source, $file ) {
         push @refusals, $file->{refusals}->@*;
         if ( defined $file->{problem} ) {
             push @problems, { path => $path, problem => $file->{problem} };
-            next;
+            return;
         }
         my $candidates = $file->{mutants};
         if (%wanted) {
@@ -380,7 +372,9 @@ sub _analysis ( $config, $files, $mutators, $options ) {
         push @mutants, grep { !$paths || !$paths->{$path}->@* || _in_changed_lines( $paths->{$path}, $_ ) }
           grep { !$changed || _in_changed_lines( $changed->{$path}, $_ ) } @$candidates;
         push @rejected, map { { path => $path, $_->%* } } $file->{rejected}->@*;
-    }
+        return;
+    };
+    my $digests = _read_sources( $config, $files, $mutators, $options, \%sources, $visit );
 
     # A run with a broken comment would measure other mutants than the comments ask for, so it measures none.
     Test::Mutation::Error::raise( 'suppressions-invalid', list => join q{; }, map { $_->{text} } @refusals )
@@ -391,8 +385,36 @@ sub _analysis ( $config, $files, $mutators, $options ) {
         unanalyzed => \@problems,
         rejected   => \@rejected,
         left_out   => \%left_out,
-        digests    => \%digests
+        digests    => $digests
     };
+}
+
+sub _read_sources ( $config, $files, $mutators, $options, $sources, $visit ) {
+    my ( $root, $paths, $changed ) = $options->@{qw(root paths changed)};
+    my ( @batch, %digests, $read );
+    my $bytes_held = 0;
+    for my $path ( $files->@* ) {
+        my $selected = ( !$changed || $changed->{$path} ) && ( !$paths || exists $paths->{$path} );
+        next unless $selected || $config->cache || $options->{report_inputs};
+        my $bytes = Test::Mutation::Source::read_bytes("$root/$path");
+        my $decoded;
+        my $source = sub { return $decoded ||= Test::Mutation::Source->from_bytes( path => $path, bytes => $bytes ) };
+        $digests{$path} = Digest::SHA::sha256_hex($bytes);
+        next unless $selected;
+        if ( $options->{baseline_only} ) {
+            $sources->{$path} = $source->();
+            next;
+        }
+        $read ||= _file_reader( $config, $mutators, $options );
+        push @batch, { path => $path, digest => $digests{$path}, source => $source };
+        $bytes_held += length $bytes;
+        next if @batch < 64 && $bytes_held < 1024 * 1024;
+        $read->( \@batch, $visit );
+        @batch      = ();
+        $bytes_held = 0;
+    }
+    $read->( \@batch, $visit ) if @batch;
+    return \%digests;
 }
 
 sub _analyze_file ( $config, $source, $mutators, $others, $version ) {

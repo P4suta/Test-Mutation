@@ -1,7 +1,7 @@
 package Test::Mutation::Store::Analysis;
 use v5.36;
 use JSON::PP        ();
-use Types::Standard qw(ArrayRef Dict InstanceOf Int Maybe Str Tuple Undef);
+use Types::Standard qw(ArrayRef Dict HashRef InstanceOf Int Maybe Str Tuple Undef);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Mutant;
 use Test::Mutation::Store;
@@ -21,25 +21,42 @@ my $FILE = Dict [
 signature_for read_file => ( positional => [ InstanceOf ['DBI::db'], Str, ArrayRef [Str] ], returns => Maybe [$FILE] );
 
 sub read_file ( $db, $identity, $prefixes ) {
-    my ($text) = $db->selectrow_array( 'SELECT facts FROM analysis WHERE identity = ?', undef, $identity );
-    return unless defined $text;
-    my $facts = $JSON->decode($text);
-    my $rows;
-    if (@$prefixes) {
-        my %rows;
-        my $select = $db->prepare('SELECT ordinal,data FROM candidate WHERE analysis = ? AND id GLOB ?');
-        for my $prefix ( grep { /\A[0-9a-f]{1,12}\z/ } @$prefixes ) {
-            $select->execute( $identity, "$prefix*" );
-            $rows{ $_->[0] } = $_->[1] for $select->fetchall_arrayref->@*;
-        }
-        $rows = [ map { $rows{$_} } sort { $a <=> $b } keys %rows ];
+    return read_files( $db, [$identity], $prefixes )->{$identity};
+}
+
+signature_for read_files => (
+    positional => [ InstanceOf ['DBI::db'], ArrayRef [Str], ArrayRef [Str] ],
+    returns    => HashRef [$FILE],
+);
+
+sub read_files ( $db, $identities, $prefixes ) {
+    return {} unless @$identities;
+    my $slots   = join ',', ('?') x @$identities;
+    my $catalog = $db->prepare("SELECT identity,facts FROM analysis WHERE identity IN ($slots)");
+    $catalog->execute(@$identities);
+    my %files;
+    while ( my ( $id, $text ) = $catalog->fetchrow_array ) {
+        $files{$id} = { $JSON->decode($text)->%*, mutants => [] };
     }
-    else {
-        $rows =
-          $db->selectcol_arrayref( 'SELECT data FROM candidate WHERE analysis = ? ORDER BY ordinal', undef, $identity );
+    my @patterns = map { "$_*" } grep { /\A[0-9a-f]{1,12}\z/ } @$prefixes;
+    return \%files if !%files || ( @$prefixes && !@patterns );
+    my @hits = sort keys %files;
+    my $hits = join ',', ('?') x @hits;
+    my %rows;
+    do {
+        my @group  = splice @patterns, 0, 64;
+        my $filter = @group ? ' AND (' . join( ' OR ', ('id GLOB ?') x @group ) . ')' : q{};
+        my $select = $db->prepare("SELECT analysis,ordinal,data FROM candidate WHERE analysis IN ($hits)$filter");
+        $select->execute( @hits, @group );
+        while ( my ( $id, $ordinal, $data ) = $select->fetchrow_array ) { $rows{$id}{$ordinal} = $data }
+    } while (@patterns);
+    for my $id ( keys %rows ) {
+        $files{$id}{mutants} = [
+            map  { Test::Mutation::Mutant->new( $JSON->decode( $rows{$id}{$_} ) ) }
+            sort { $a <=> $b } keys $rows{$id}->%*
+        ];
     }
-    $facts->{mutants} = [ map { Test::Mutation::Mutant->new( $JSON->decode($_) ) } @$rows ];
-    return $facts;
+    return \%files;
 }
 
 signature_for publish => ( positional => [ Str, ArrayRef [ Tuple [ Str, $FILE ] ] ], returns => Undef );
@@ -81,6 +98,10 @@ Test::Mutation::Store::Analysis - index generated mutants by file analysis and i
 
 Returns the facts for a matching analysis and the mutants matching the requested prefixes in inventory order.
 An empty prefix list selects the whole file.
+
+=head2 read_files
+
+Returns the matching file analyses by identity with candidates in inventory order.
 
 =head2 publish
 

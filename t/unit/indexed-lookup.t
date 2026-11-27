@@ -31,6 +31,21 @@ write_file( "$root/mutation-report/mutation.json",
     Test::Mutation::Report::Json::render( $result, low => 60, high => 80 ) );
 my ($entry) = grep { $_->{status} eq 'Survived' } $result->entries->@*;
 my $id = $entry->{mutant}->id;
+subtest 'lookup reads the current file identities in one group' => sub {
+    my @queries;
+    my $database = Test::Mutation::Store->can('database');
+    no warnings 'redefine';
+    local *Test::Mutation::Store::database = sub (@arguments) {
+        my $connection = $database->(@arguments);
+        $connection->sqlite_trace( sub ($sql) { push @queries, $sql if $sql =~ /\bFROM (?:analysis|candidate)\b/i } );
+        return $connection;
+    };
+    for my $arguments ( [ 'show', $id ], ['list'], [ 'run', '--mutant', $id, '--jobs', 1, '--format', 'terminal' ] ) {
+        @queries = ();
+        is World::observe( $arguments, cwd => $root )->{exit}, 0, "$arguments->[0] reads existing file analyses";
+        is scalar @queries, 2, "$arguments->[0] uses one catalog query and one candidate query across both files";
+    }
+};
 subtest 'a new lookup process loads only the code it uses' => sub {
     my $probe = <<'PERL';
 END { print "loaded $_\n" for sort keys %INC }
