@@ -115,14 +115,17 @@ sub _walk ( $root, $relative, $skip, $parents, $files, $omit_reports ) {
 
 sub _report ($path) {
     open my $input, '<:raw', $path or return;
-    my $found = _report_framework($input);
+    my $found = _report_framework( $input, $path );
     close $input or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
     return $found;
 }
 
-sub _report_framework ($input) {
+sub _report_framework ( $input, $path ) {
     my $prior = q{};
-    while ( read $input, my $chunk, 8192 ) {
+    while (1) {
+        my $count = sysread $input, my $chunk, 8192;
+        Test::Mutation::Error::raise( 'file-unreadable', path => $path, reason => "$!" ) unless defined $count;
+        last                                                                             unless $count;
         my $text = $prior . $chunk;
         return 1 if $text =~ /"framework" \s* : \s* \{ \s* "name" \s* : \s* "Test::Mutation"/x;
         $prior = substr $text, -128;
