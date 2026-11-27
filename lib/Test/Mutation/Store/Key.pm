@@ -123,17 +123,19 @@ sub _node ( $state, $path, $name, $published, $reports ) {
     my $root     = $state->{root};
     my $absolute = "$root/$path";
     my $files    = $state->{files};
+    my $linked   = $reports && $reports->{links}{$path};
     if ( -l $absolute ) {
         push @$files, 'link', $path, readlink $absolute;
         _link_target( $state, $reports, $absolute ) if $reports;
-        $reports = undef;
+        $linked = 1;
     }
-    $reports = undef if $reports && $reports->{links}{$path};
+    $reports = undef if $linked;
     my ( $output, $digest ) = $reports ? _published( $published, $name, $absolute ) : ();
     unless ($output) {
         if ( -d $absolute ) {
             my $offset = @$files;
             push @$files, 'directory', $path;
+            local $state->{skip} = $linked ? {} : $state->{skip};
             return 0 unless _walk( $state, $path, $reports );
             splice @$files, $offset;
         }

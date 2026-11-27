@@ -288,6 +288,17 @@ subtest 'a verdict depends on a complete original test and its external include 
         write_file( "$project/spec/operand", 'other' );
         isnt $fingerprint->( [] ), $stored, 'in-place cached observations depend on data inside the report directory';
     }
+    {
+        local $run->{config} =
+          Test::Mutation::Settings::of_call( { root => $project, link => ['linked'], report_dir => 'linked/reports' } );
+        write_file( "$project/linked/reports/value", 'first' );
+        my $cache_key   = $fingerprint->( [] );
+        my $project_key = Test::Mutation::Store::Key::project( $project, ['linked/reports'], ['linked'] )->{digest};
+        write_file( "$project/linked/reports/value", 'other' );
+        isnt $fingerprint->( [] ), $cache_key, 'a linked directory exposes report data to cached tests';
+        isnt Test::Mutation::Store::Key::project( $project, ['linked/reports'], ['linked'] )->{digest}, $project_key,
+          'shard inputs include report data nested under an explicitly linked directory';
+    }
     ok $workspace->release(0), 'the original test observation releases its workspace';
 };
 

@@ -502,8 +502,13 @@ sub _measurement_digest ( $run, $selection ) {
 
 sub _input_exclusions ($run) {
     my $config = $run->{config};
-    return '.git', _inside( $run->{project}, $config->cache_dir ),
-      ( $config->in_place ? () : _inside( $run->{project}, $config->report_dir ) );
+    my @skip   = ( '.git', _inside( $run->{project}, $config->cache_dir ) );
+    return @skip if $config->in_place;
+    push @skip, _inside( $run->{project}, $config->report_dir );
+    return grep {
+        my $path = $_;
+        !grep { index( $path, "$_/" ) == 0 } $config->link->@*;
+    } @skip;
 }
 
 sub _copy_exclusions ($run) {

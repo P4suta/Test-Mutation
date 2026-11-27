@@ -70,17 +70,35 @@ my $operand = -d 'history/part' ? 1 : 0;
 is Calc::add( 4, $operand ), 4 + $operand, 'the project directory determines the operand';
 PERL
     write_file( "$root/t/history.t", $program );
-    my %settings        = ( test => ['t/history.t'], cache => 0 );
+    my %settings = ( test => ['t/history.t'], cache => 0 );
     my ($before_report) = run_fixture( $root, %settings );
-    my $report          = Test::Mutation::Report::Json::render( $before_report, high => 80, low => 60 );
+    run_fixture( $root, %settings, cache => 1 );
+    my $report = Test::Mutation::Report::Json::render( $before_report, high => 80, low => 60 );
     write_file( "$previous/mutation.json", $report );
     Test::Mutation::Report::Publication::record( $root, $previous,
         { 'mutation.json' => Digest::SHA::sha256_hex($report) } );
     my ($published) = run_fixture( $root, %settings );
     is $published->measurement_digest, $before_report->measurement_digest, 'the only new files are generated reports';
     is subtraction($published), subtraction($before_report), 'a reported directory cannot change an isolated verdict';
+    my ($cached) = run_fixture( $root, %settings, cache => 1 );
+    ok $cached->reused, 'a published directory hidden from the tests preserves the earlier cached verdicts';
     my ($visible) = run_fixture( $root, %settings, in_place => 1, jobs => 1 );
     is subtraction($visible), 'Killed', 'an in-place test can observe the actual report directory';
+    my ($linked) = run_fixture( $root, %settings, link => ['history'] );
+    is subtraction($linked), 'Killed', 'a directory explicitly linked to the project keeps its published reports';
+    symlink 'history/part/mutation.json', "$root/operand.json" or die "link input: $!";
+    write_file( "$root/t/linked.t", <<'PERL' );
+use Test::More tests => 1;
+use JSON::PP;
+use Calc;
+open my $input, '<:raw', 'operand.json' or die $!;
+local $/;
+my $operand = decode_json( readline $input )->{framework}{name} eq 'Test::Mutation' ? 1 : 0;
+is Calc::add( 4, $operand ), 4 + $operand, 'a linked report supplies the operand';
+PERL
+    my ($alias) = run_fixture( $root, %settings, test => ['t/linked.t'] );
+    is subtraction($alias), 'Killed', 'a relative symlink to the published bytes keeps its target in the copy';
+    unlink "$root/operand.json" or die "unlink input: $!";
     write_file( "$previous/operand", 'data' );
     my ($ordinary) = run_fixture( $root, %settings );
     isnt $ordinary->measurement_digest, $published->measurement_digest, 'a regular sibling remains a project input';
