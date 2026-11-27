@@ -33,6 +33,16 @@ is ids($file), [ map { $_->id } @alpha ], 'a file rechecks only gaps measured in
 my $range = run_scope( '--undetected', 'lib/Alpha.pm:3' );
 is ids($range), [ map { $_->id } @third ], 'a line range rechecks only its measured gaps';
 is $range->selection->{paths}, { 'lib/Alpha.pm' => [ [ 3, 3 ] ] }, 'the report preserves the requested range';
+subtest 'explicit identifiers intersect the historical scope before sharding' => sub {
+    my @chosen = @alpha[ 1, 3 ];
+    my @named  = map { ( '--mutant', substr( $_->id, 0, 8 ) ) } @chosen;
+    is ids( run_scope( '--undetected', @named ) ), [ map { $_->id } @chosen ],
+      'the named prefixes select only the two requested gaps';
+    is ids( run_scope( '--undetected', 'lib/Alpha.pm', @named, '--shard', '2/2' ) ), [ $chosen[1]->id ],
+      'shard ordinals are assigned after intersecting the file and named gaps';
+    my $unknown = ran( 2, $root, 'run', '--undetected', '--mutant', '123456789abc' );
+    like $unknown->{stderr}, qr/123456789abc/, 'an unknown explicit identifier is diagnosed';
+};
 subtest 'Git line selection intersects the historical scope' => sub {
     Capability::need( 'git', length qx{git --version 2>/dev/null}, 'the test needs the git command' );
     my @git = (
@@ -49,5 +59,14 @@ subtest 'Git line selection intersects the historical scope' => sub {
       'only saved gaps on changed lines are remeasured';
     is ids( run_scope( '--undetected', '--since', 'HEAD', 'lib/Beta.pm' ) ), [],
       'disjoint Git and file scopes yield an empty measurement';
+};
+subtest 'a stale gap is diagnosed only inside its requested scope' => sub {
+    my $stale = $alpha[0];
+    write_file( "$root/lib/Alpha.pm", "package Alpha;\nsub sum { return 0 }\nsub total { return 0 }\n1;\n" );
+    my @beta = grep { $_->path eq 'lib/Beta.pm' } @gaps;
+    is ids( run_scope( '--undetected', 'lib/Beta.pm' ) ), [ map { $_->id } @beta ],
+      'stale gaps in a different file leave the selected file measurable';
+    my $refused = ran( 2, $root, 'run', '--undetected', 'lib/Alpha.pm:2', '--mutant', substr( $stale->id, 0, 8 ) );
+    like $refused->{stderr}, qr/mutation run lib\/Alpha\.pm/, 'an explicitly named stale prefix identifies its file';
 };
 done_testing;

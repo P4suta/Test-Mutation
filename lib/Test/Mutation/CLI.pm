@@ -37,8 +37,8 @@ use Test::Mutation::Runner;
 use Test::Mutation::Store::History;
 use Test::Mutation::Select;
 use Test::Mutation::Settings;
-use Test::Mutation::Store::History;
-use POSIX ();
+use Test::Mutation::Types qw(PathSelection);
+use POSIX                 ();
 use Test::Mutation::Signals;
 use Test::Mutation::Tree;
 use Test::Mutation::Try;
@@ -87,6 +87,7 @@ my $INVOCATION = $REFUSED | Dict [
     config     => Maybe [ InstanceOf ['Test::Mutation::Config'] ],
     operands   => ArrayRef [Str],
     selection  => Optional [ InstanceOf ['Test::Mutation::Selection'] ],
+    paths      => Optional [PathSelection],
     topic      => Optional [Str],
     processors => Maybe [ Dict [ count => PositiveInt, source => Str ] ],
 ];
@@ -231,6 +232,10 @@ sub _planned ( $argv, $world ) {
     if ( $row->operands eq 'paths' && $plan{operands}->@* ) {
         my $first = $plan{operands}[0];
         _unknown_command($first) if $parsed->{implicit} && $first !~ m{[./:]} && !-e _under( $inside, $first );
+        if ( $command eq 'run' && $plan{config}->undetected ) {
+            $plan{paths} = Test::Mutation::Select::operand_paths( $plan{config}, $plan{operands} );
+            return \%plan;
+        }
         $plan{selection} = Test::Mutation::Select::resolve(
             config    => $plan{config},
             operands  => $plan{operands},
@@ -313,7 +318,8 @@ sub _run ( $invocation, $world ) {
     my $config   = $invocation->{config};
     my $listener = _progress( $invocation, $world );
     my $options  = { reports => 1, summary => $world->{env}{GITHUB_STEP_SUMMARY} };
-    $options = { selection => $invocation->{selection} } if $invocation->{selection};
+    $options->{paths} = $invocation->{paths}                      if exists $invocation->{paths};
+    $options          = { selection => $invocation->{selection} } if $invocation->{selection};
     my $result = Test::Mutation::Runner::run( $config, $listener, $options );
     _report( $result, $config, $world, $listener );
     return _concluded( $result, $config->min_score, $world );

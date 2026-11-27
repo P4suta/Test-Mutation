@@ -159,14 +159,26 @@ sub _recheck ( $config, $options ) {
     my $changed = defined $config->since ? Test::Mutation::Git::changed( $config->root, $config->since ) : undef;
     my $gaps    = Test::Mutation::Store::History::undetected( $config, [ grep { defined } $paths, $changed ] );
     Test::Mutation::Error::raise('measurement-history-missing') unless defined $gaps;
-    my @ids       = map { $_->{id} } @$gaps;
+    my $historical = { map { $_->{id} => $_->{path} } @$gaps };
+    my @ids        = map { $_->{id} } @$gaps;
+    if ( $config->mutant->@* ) {
+        my $explicit = Test::Mutation::Select::resolve(
+            config           => $config,
+            paths            => $paths,
+            changed          => $changed,
+            historical_paths => $historical,
+            read_only        => 1
+        );
+        my %wanted = map { $_ => 1 } map { @$_ } values $explicit->matches->{mutant}->%*;
+        @ids = grep { $wanted{$_} } @ids;
+    }
     my $named     = Test::Mutation::Settings::for_mutants( $config, \@ids );
     my $selection = Test::Mutation::Select::resolve(
         config           => $named,
         reports          => $options->{reports} || 0,
         summary          => $options->{summary},
         changed          => $changed,
-        historical_paths => { map { $_->{id} => $_->{path} } @$gaps },
+        historical_paths => $historical,
         paths            => @ids ? $paths : {}
     );
     return (

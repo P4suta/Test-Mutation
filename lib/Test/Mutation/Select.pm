@@ -89,6 +89,15 @@ signature_for resolve => (
     returns => InstanceOf ['Test::Mutation::Selection'],
 );
 
+signature_for operand_paths => (
+    positional => [ InstanceOf ['Test::Mutation::Config'], ArrayRef [Str] ],
+    returns    => PathSelection
+);
+
+sub operand_paths ( $config, $operands ) {
+    return paths( $config->root, $operands, _files( $config, $config->root, 'source', {} ) );
+}
+
 sub resolve ($arg) {
     my $config = $arg->config;
     my $root   = $config->root;
@@ -173,11 +182,16 @@ sub _named ( $arg, $prefixes, $mutants, $matches ) {
     for my $prefix (@$prefixes) {
         Test::Mutation::Error::raise( 'mutant-unknown', identifier => $prefix )
           if !$arg->identifiers && length($prefix) < 4;
-        Test::Mutation::Error::raise(
-            'mutant-history-stale',
-            identifier => $prefix,
-            path       => $arg->historical_paths->{$prefix}
-        ) if exists $arg->historical_paths->{$prefix} && !$exact{$prefix};
+        if ( !$exact{$prefix} && keys $arg->historical_paths->%* && !grep { index( $_->id, $prefix ) == 0 } @$mutants )
+        {
+            my @stale = grep { index( $_, $prefix ) == 0 } keys $arg->historical_paths->%*;
+            Test::Mutation::Error::raise( 'mutant-ambiguous', identifier => $prefix ) if @stale > 1;
+            Test::Mutation::Error::raise(
+                'mutant-history-stale',
+                identifier => $stale[0],
+                path       => $arg->historical_paths->{ $stale[0] }
+            ) if @stale;
+        }
         my $id = ( $exact{$prefix} || by_id( $mutants, $prefix ) )->id;
         $wanted{$id} = 1;
         $matches->{mutant}{$prefix} = [$id];
@@ -420,6 +434,10 @@ Test::Mutation::Select - resolve source path and line operands against a project
 
 Resolves the configured globs, changed lines, path operands, suppressions, mutant prefixes, and shard in order.
 Returns a L<Test::Mutation::Selection> before the runner acquires a workspace.
+
+=head2 operand_paths
+
+Resolves path and line operands against the configured source files.
 
 =head2 by_id
 
