@@ -102,4 +102,19 @@ PERL
     unlike $detail, qr/^Killed by:/m,           'an unreached mutant has no detecting test';
 };
 
+subtest 'an HTML report alone supplies the last verdict without a cache' => sub {
+    my $copy = copy_of('calc');
+    write_file( "$copy/mutation-report/mutation.json/marker", "existing directory\n" );
+    my ($added) = grep { $_->mutator eq 'arithmetic' && $_->original eq '+' } $selected->mutants->@*;
+    my $id      = $added->id;
+    my $run = World::observe( [ 'run', '--mutant', $id, '--format', 'html', '--no-cache', '--jobs', 1 ], cwd => $copy );
+    is $run->{exit}, 0, 'an unavailable JSON destination leaves the HTML measurement usable';
+    ok -f "$copy/mutation-report/mutation.json/marker", 'the existing directory keeps its contents';
+    ok !-e "$copy/.mutation/measurement.sqlite",        'the measurement produced no SQLite history';
+    my $detail = World::observe( [ 'show', $id ], cwd => $copy );
+    is $detail->{exit}, 0, 'show can read the standalone report';
+    like $detail->{stdout}, qr/^Last result: Killed$/m,   'the HTML report supplies the verdict';
+    like $detail->{stdout}, qr/^Killed by: t\/add[.]t$/m, 'the HTML report identifies the detecting test';
+};
+
 done_testing;
