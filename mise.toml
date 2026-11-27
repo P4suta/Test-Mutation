@@ -100,6 +100,9 @@ run = [
   "mise run check",
   "mise run mutation-gate",
   "mise run release-compatibility",
+  "mise run dist",
+  "make disttest",
+  "mise run verify-install",
 ]
 
 [tasks.release-compatibility]
@@ -130,6 +133,10 @@ run = [
 [tasks.dist]
 description = "Pack the distribution archive"
 run = ["perl Makefile.PL", "perl xt/bin/distribution-manifest", "make dist"]
+
+[tasks.verify-install]
+description = "Install the distribution archive in an empty prefix and confirm a repaired test gap"
+run = "prove -lv xt/install"
 
 [tasks.audit]
 description = "Check the locked dependencies against the CPAN security advisories"
