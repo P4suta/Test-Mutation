@@ -38,25 +38,39 @@ sub read_files ( $db, $identities, $prefixes ) {
     while ( my ( $id, $text ) = $catalog->fetchrow_array ) {
         $files{$id} = { $JSON->decode($text)->%*, mutants => [] };
     }
-    my @patterns = map { "$_*" } grep { /\A[0-9a-f]{1,12}\z/ } @$prefixes;
-    return \%files if !%files || ( @$prefixes && !@patterns );
-    my @hits = sort keys %files;
-    my $hits = join ',', ('?') x @hits;
-    my %rows;
-    do {
-        my @group  = splice @patterns, 0, 64;
-        my $filter = @group ? ' AND (' . join( ' OR ', ('id GLOB ?') x @group ) . ')' : q{};
-        my $select = $db->prepare("SELECT analysis,ordinal,data FROM candidate WHERE analysis IN ($hits)$filter");
-        $select->execute( @hits, @group );
-        while ( my ( $id, $ordinal, $data ) = $select->fetchrow_array ) { $rows{$id}{$ordinal} = $data }
-    } while (@patterns);
-    for my $id ( keys %rows ) {
+    my $rows = _candidate_rows( $db, [ sort keys %files ], $prefixes );
+    for my $id ( keys %$rows ) {
         $files{$id}{mutants} = [
-            map  { Test::Mutation::Mutant->new( $JSON->decode( $rows{$id}{$_} ) ) }
-            sort { $a <=> $b } keys $rows{$id}->%*
+            map  { Test::Mutation::Mutant->new( $JSON->decode( $rows->{$id}{$_} ) ) }
+            sort { $a <=> $b } keys $rows->{$id}->%*
         ];
     }
     return \%files;
+}
+
+sub _candidate_rows ( $db, $analyses, $prefixes ) {
+    return {} unless @$analyses;
+    my $hits = join ',', ('?') x @$analyses;
+    my %rows;
+    my $read = sub ( $filter, @parameters ) {
+        my $select = $db->prepare("SELECT analysis,ordinal,data FROM candidate WHERE analysis IN ($hits)$filter");
+        $select->execute( @$analyses, @parameters );
+        while ( my ( $id, $ordinal, $data ) = $select->fetchrow_array ) { $rows{$id}{$ordinal} = $data }
+        return;
+    };
+    $read->(q{}) unless @$prefixes;
+    my %wanted = map  { $_ => 1 } grep { /\A[0-9a-f]{1,12}\z/ } @$prefixes;
+    my @exact  = grep { length($_) == 12 } keys %wanted;
+    while (@exact) {
+        my @ids = splice @exact, 0, 500;
+        $read->( ' AND id IN (' . join( ',', ('?') x @ids ) . ')', @ids );
+    }
+    my @patterns = map { "$_*" } grep { length($_) < 12 } keys %wanted;
+    while (@patterns) {
+        my @group = splice @patterns, 0, 64;
+        $read->( ' AND (' . join( ' OR ', ('id GLOB ?') x @group ) . ')', @group );
+    }
+    return \%rows;
 }
 
 signature_for publish => ( positional => [ Str, ArrayRef [ Tuple [ Str, $FILE ] ] ], returns => Undef );
