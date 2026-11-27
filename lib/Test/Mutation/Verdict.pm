@@ -4,7 +4,7 @@ use Types::Standard qw(ArrayRef Bool Dict Enum Int Maybe Optional Str);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Message;
 use Test::Mutation::Status;
-use Test::Mutation::Types qw(Entry Reason StatusName);
+use Test::Mutation::Types qw(Entry Reason StatusName TestObservation);
 
 our $VERSION = '0.001';
 
@@ -26,18 +26,6 @@ my $TIMEOUTS_TRIED = 2;
 my %LIMIT  = ( timeout => 'time-limit', overflow => 'output-limit' );
 my $RESULT = Enum [ qw(pass fail), keys %LIMIT ];
 
-# A syntax check passes, or it fails with the kind of compile error that it found.
-my $OUTCOME = Dict [
-    test         => Str,
-    result       => $RESULT,
-    served       => Bool,
-    load_failed  => Bool,
-    bypassed     => Bool,
-    anomaly      => Optional [ Maybe [ Dict [ reason => Reason, detail => Str ] ] ],
-    invalid_call => Optional [ Maybe [Str] ],
-    read_check   => Optional [ Enum [qw(pass fail timeout overflow compile-error)] ],
-    syntax       => Maybe [ Enum [ 'ok', Test::Mutation::Status::of('CompileError')->reasons->@* ] ],
-];
 my %COMPILE_DETAIL = (
     parse           => 'Perl rejected the generated replacement',
     'compile-phase' => 'the mutant does not compile',
@@ -59,7 +47,7 @@ sub start () {
     };
 }
 
-signature_for step => ( positional => [ $STATE, $OUTCOME ], returns => $STATE );
+signature_for step => ( positional => [ $STATE, TestObservation ], returns => $STATE );
 
 sub step ( $state, $outcome ) {
     return $state if defined $state->{status};

@@ -11,7 +11,7 @@ use Test::Mutation::Result;
 use Test::Mutation::Source;
 use Test::Mutation::Status;
 use Test::Mutation::Try;
-use Test::Mutation::Types qw(Reason ReportSelection StatusName);
+use Test::Mutation::Types qw(Observations Reason ReportSelection StatusName);
 
 our $VERSION = '0.001';
 
@@ -53,6 +53,7 @@ my $MUTANT   = (
             suppressed     => $FLAG,
             comparable     => $FLAG,
             compiledDigest => Optional [ StrMatch [qr/\A[0-9a-f]{64}\z/] ],
+            observations   => Optional [Observations],
         ],
     ]
 )->where( sub { _consistent($_) } );
@@ -183,6 +184,7 @@ sub _mutant ($entry) {
             suppressed => _boolean( $mutant->suppressed ),
             comparable => _boolean( $mutant->comparable ),
             defined $entry->{compiled_digest} ? ( compiledDigest => $entry->{compiled_digest} ) : (),
+            exists $entry->{observations}     ? ( observations   => $entry->{observations} )    : (),
         },
     );
     $mutant{statusReason} = $entry->{detail} if defined $entry->{detail};
@@ -339,6 +341,7 @@ sub _entry ( $source, $mutant ) {
         tests_run  => $mutant->{testsCompleted},
         duration   => $duration / $MILLISECONDS,
         defined $extra->{compiledDigest} ? ( compiled_digest => $extra->{compiledDigest} ) : (),
+        exists $extra->{observations}    ? ( observations    => $extra->{observations} )   : (),
     };
 }
 

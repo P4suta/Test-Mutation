@@ -1559,6 +1559,7 @@ sub _after_task ( $run, $baseline, $task, $result ) {
     return $check if $check;
 
     if ( $kind !~ /\Acode-/ ) {
+        push $job->{observations}[ $job->{first} ? 1 : 0 ]->@*, $job->{outcome};
         $job->{verdict} = Test::Mutation::Verdict::step( $job->{verdict}, $job->{outcome} );
         $job->{index}++;
         return _next_test( $run, $job, $baseline )
@@ -1702,8 +1703,10 @@ sub _reused_entry ( $run, $cache, $job ) {
     return unless defined $key && $key eq $record->{inputs};
     $run->{code_of_mutant}{ $mutant->id } = $record->{code} if defined $record->{code};
     $run->{reused}++;
-    return _entry( $mutant, $record->@{qw(status reason detail by)}, $job->{tests},
-        $record->@{qw(tests_run duration)} );
+    my $entry =
+      _entry( $mutant, $record->@{qw(status reason detail by)}, $job->{tests}, $record->@{qw(tests_run duration)} );
+    $entry->{observations} = $record->{observations} if exists $record->{observations};
+    return $entry;
 }
 
 sub _save_cache ( $run, $cache, $entries ) {
@@ -1717,7 +1720,9 @@ sub _save_cache ( $run, $cache, $entries ) {
             inputs => $key,
             path   => $mutant->path,
             source => $cache->{targets}{ $mutant->path },
-            $entry->%{qw(status reason detail by tests_run duration)}, code => $run->{code_of_mutant}{ $mutant->id }
+            $entry->%{qw(status reason detail by tests_run duration)},
+            code => $run->{code_of_mutant}{ $mutant->id },
+            exists $entry->{observations} ? ( observations => $entry->{observations} ) : ()
         };
     }
     my $inventory = $run->{narrowed} ? undef : [ map { $_->{mutant}->id } @$entries ];
@@ -2012,6 +2017,7 @@ sub _finish ( $run, $job ) {
     }
     my $entry =
       _entry( $mutant, $status, $reason, $detail, $verdict->{by}, $job->{tests}, $verdict->{tests}, $job->{duration} );
+    $entry->{observations} = $job->{observations} || [];
     $run->{listener}->( 'mutant', $entry );
     return $entry;
 }

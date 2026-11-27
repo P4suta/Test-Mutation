@@ -32,6 +32,12 @@ subtest 'a mutant that compiles to the code of the original is ignored' => sub {
     is $result->tally->{score}, 6 / 8 * 100, 'ignored mutants leave the score';
     my ($cached) = run_fixture($root);
     ok $cached->reused > 0, 'the second measurement reuses stored verdicts';
+
+    for my $measurement ( $result, $cached ) {
+        my ($detected) = grep { $_->{status} eq 'Killed' } $measurement->entries->@*;
+        is [ map { [ $_->@{qw(test result served)} ] } @{ $detected->{observations}[0] || [] } ],
+          [ [ 't/fold.t', 'fail', 1 ] ], 'measured and reused verdicts identify the observed test failure';
+    }
     is [ map { [ $_->{mutant}->id, $_->@{qw(status reason detail)} ] } $cached->entries->@* ],
       [ map { [ $_->{mutant}->id, $_->@{qw(status reason detail)} ] } $result->entries->@* ],
       'cached compiler results identify the same original and duplicate mutants as a fresh run';

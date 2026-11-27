@@ -14,7 +14,7 @@ use Test::Mutation::Store::Key;
 use Test::Mutation::Status;
 use Test::Mutation::Tree;
 use Test::Mutation::Try;
-use Test::Mutation::Types qw(Reason StatusName);
+use Test::Mutation::Types qw(Observations Reason StatusName);
 
 our $VERSION = '0.001';
 
@@ -33,16 +33,17 @@ my $ORIGINALS = Dict [ build => ArrayRef [Str], tests => HashRef [$ORIGINAL] ];
 my $CHANGES   = Dict [ build => ArrayRef [Str], tests => HashRef [ Maybe [$ORIGINAL] ], reset => Optional [Bool] ];
 my $RECORD    = (
     Dict [
-        inputs    => Str,
-        path      => Optional [Str],
-        source    => Optional [Str],
-        status    => StatusName,
-        reason    => Maybe [Reason],
-        detail    => Maybe [Str],
-        by        => Maybe [Str],
-        tests_run => Int,
-        duration  => Num,
-        code      => Maybe [Str],
+        inputs       => Str,
+        path         => Optional [Str],
+        source       => Optional [Str],
+        status       => StatusName,
+        reason       => Maybe [Reason],
+        detail       => Maybe [Str],
+        by           => Maybe [Str],
+        tests_run    => Int,
+        duration     => Num,
+        code         => Maybe [Str],
+        observations => Optional [Observations],
     ]
 )->where(
     sub {

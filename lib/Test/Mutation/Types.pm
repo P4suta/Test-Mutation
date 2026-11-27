@@ -2,7 +2,7 @@ package Test::Mutation::Types;
 use v5.36;
 use Type::Library -base,
   -declare =>
-  qw(Analysis Directive Dropped Entry Facts Heredoc Names PathSelection ReportSelection Reason Refusal Rejected StatusName Suppression TaskRecord);
+  qw(Analysis Directive Dropped Entry Facts Heredoc Names Observations PathSelection ReportSelection Reason Refusal Rejected StatusName Suppression TaskRecord TestObservation);
 use Type::Utils     qw(as declare where);
 use Types::Standard qw(ArrayRef Bool Dict Enum HashRef InstanceOf Int Maybe Num Optional Str StrMatch Tuple);
 use Test::Mutation::Status;
@@ -37,6 +37,21 @@ declare TaskRecord,
     errors      => ArrayRef [Str],
   ];
 
+declare TestObservation,
+  as Dict [
+    test         => Str,
+    result       => Enum [qw(pass fail timeout overflow)],
+    served       => Bool,
+    load_failed  => Bool,
+    bypassed     => Bool,
+    anomaly      => Optional [ Maybe [ Dict [ reason => Reason, detail => Str ] ] ],
+    invalid_call => Optional [ Maybe [Str] ],
+    read_check   => Optional [ Enum [qw(pass fail timeout overflow compile-error)] ],
+    syntax       => Maybe [ Enum [ 'ok', Test::Mutation::Status::of('CompileError')->reasons->@* ] ],
+  ];
+
+declare Observations, as ArrayRef [ ArrayRef [TestObservation], 0, 2 ];
+
 declare Entry,
   as Dict [
     mutant          => InstanceOf ['Test::Mutation::Mutant'],
@@ -48,6 +63,7 @@ declare Entry,
     tests_run       => Int,
     duration        => Num,
     compiled_digest => Optional [ StrMatch [qr/\A[0-9a-f]{64}\z/] ],
+    observations    => Optional [Observations],
   ],
   where { Test::Mutation::Status::fits( $_->{status}, $_->{reason} ) };
 
@@ -173,6 +189,8 @@ C<Rejected> names a change that the generator refused, with the mutator, the lin
 C<Analysis> is the result for one file: the sites, the suppressions, the places left out, the here-documents, the names, and the problem that kept the whole file from the analysis.
 
 C<StatusName> is the name of a status of L<Test::Mutation::Status>, and C<Reason> is a reason that some status may carry.
+C<TestObservation> describes one test outcome and the evidence that the test loaded its target.
+C<Observations> keeps the outcomes in execution order and groups them by the first attempt and its confirmation.
 C<Entry> is the result of one mutant: the mutant, its status, the reason that its status calls for, a sentence about the case, the deciding test, the selected tests, the number of tests that ran, and the time they took.
 The verdict, the result, the reports, and the cache share these types, so a status outside the catalog or a reason of another status fails at the first of them.
 
