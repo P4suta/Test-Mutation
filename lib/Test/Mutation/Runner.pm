@@ -1688,7 +1688,7 @@ sub _changed_paths ( $run, $changes ) {
 sub _after_task ( $run, $baseline, $task, $result ) {
     my $job  = $task->{payload}{job};
     my $kind = $task->{payload}{kind};
-    _remember_compiler_inputs( $run, $job, $task->{payload}{tmp}, $result ) if $task->{payload}{compile};
+    _remember_compiler_inputs( $run, $job, $task, $result ) if $task->{payload}{compile};
     if ( defined( my $path = $task->{payload}{original} ) ) {
         my $ok = _compiled($result);
         $run->{original_compile}{$path} = {
@@ -1696,6 +1696,7 @@ sub _after_task ( $run, $baseline, $task, $result ) {
             passed   => $ok ? 1 : 0,
             duration => $result->{duration},
             code     => $ok && length $result->{output} ? $result->{digest} : q{},
+            opaque   => $result->{opaque_reads},
         };
     }
     _discard( $task->{payload}{tmp} ) if $kind ne 'test';
@@ -1911,6 +1912,7 @@ sub _next_code ( $run, $job ) {
         return;
     }
     if ( !length $original->{code} ) {
+        return if $original->{opaque};
         _warn( $run, Test::Mutation::Message::warning( 'decompiled-code-unstable', path => $path ) );
         return;
     }
@@ -2140,17 +2142,38 @@ sub _compiler_inputs ( $run, $tmp ) {
     return \%inputs;
 }
 
-sub _remember_compiler_inputs ( $run, $job, $tmp, $result ) {
-    $result->{compiler_inputs} = _compiler_inputs( $run, $tmp ) unless exists $result->{compiler_inputs};
+sub _remember_compiler_inputs ( $run, $job, $task, $result ) {
+    my $payload = $task->{payload};
+    $result->{compiler_inputs} = _compiler_inputs( $run, $payload->{tmp} ) unless exists $result->{compiler_inputs};
     my $inputs = $result->{compiler_inputs};
     if ( defined $inputs ) {
         $run->{compiler_inputs}{$_} = $job->{compiler_inputs}{$_} = $inputs->{$_} for keys %$inputs;
     }
     else {
+        if ( length $task->{env}{TEST_MUTATION_COMPILER_READS} ) {
+            $result->{opaque_reads} = 1;
+            if ( defined $payload->{original} ) {
+                $result->{observed_code} =
+                  Test::Mutation::Store::Key::digest( _compiled($result) ? $result->{digest} : 'compile-failed' )
+                  unless exists $result->{observed_code};
+                $run->{compiler_inputs}{"deparse:$payload->{original}"} = $result->{observed_code};
+            }
+        }
         $result->{digest}        = q{};
         $job->{unbound_compiler} = 1;
     }
     return;
+}
+
+sub _compiler_read_operands ( $run, $job, $original ) {
+    my $mutant = $job->{mutant};
+    my $source = $run->{sources}{ $mutant->path };
+    my $text   = $source->text;
+    return q{} unless $text =~ /\b(?:BEGIN|UNITCHECK|CHECK)\b/;
+    $text = $source->replace_span( $mutant->start, $mutant->end, $mutant->replacement ) unless $original;
+    my $reads = Test::Mutation::Syntax::PPI::compile_reads($text);
+    return q{?} unless defined $reads;
+    return join q{,}, map { substr( $_->[0], 0, 1 ) . unpack( 'H*', $source->to_bytes( $_->[1] ) ) } @$reads;
 }
 
 sub _hint_line ($line) {
@@ -2184,7 +2207,8 @@ sub _compile_task ( $run, $job, $kind, $file, $switch ) {
             $launch->{env}->%*,
             PERL_HASH_SEED                => '0',
             PERL_PERTURB_KEYS             => '0',
-            TEST_MUTATION_COMPILER_INPUTS => "$tmp/inputs"
+            TEST_MUTATION_COMPILER_INPUTS => "$tmp/inputs",
+            TEST_MUTATION_COMPILER_READS  => _compiler_read_operands( $run, $job, $original ),
         },
         cwd             => $job->{tests}->@* ? $root : $tmp,
         lease           => $run->{workspace}->directory . '/processes',
@@ -2222,7 +2246,7 @@ sub _finish ( $run, $job ) {
         my %inputs = ( %{ $original && $original->{inputs} || {} }, %{ $job->{compiler_inputs} || {} } );
         $run->{compiler_of_mutant}{ $mutant->id } = \%inputs if %inputs;
     }
-    my $code = defined $job->{code} ? $job->{code} : q{};
+    my $code = !$run->{unbound_compiler}{ $mutant->id } && defined $job->{code} ? $job->{code} : q{};
     my ( $status, $reason, $detail ) = $verdict->@{qw(status reason detail)};
     if ( defined $job->{restore_error} ) {
         ( $status, $reason, $detail ) = ( 'NoVerdict', 'slot-not-restored', $job->{restore_error} );

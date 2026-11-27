@@ -586,6 +586,10 @@ Selects the shim generation for a nested measurement.
 
 The driver sets the path where a standalone Perl compiler records additional library inputs.
 
+=item C<TEST_MUTATION_COMPILER_READS>
+
+Names the file operands that the target Perl resolves during compilation.
+
 =item C<TEST_MUTATION_SPEC>
 
 Names the measurement instructions for the unnumbered shim.

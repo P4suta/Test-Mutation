@@ -120,6 +120,60 @@ PERL
       qr/measurement inputs differ/, 'a fresh compiler identifies the library by its search path';
 };
 
+subtest 'data opened during compilation identifies cached and merged verdicts' => sub {
+    my $idle = <<'PERL';
+package Idle;
+BEGIN {
+    open my $input, '<', $ENV{TEST_PROJECT_TABLE} or die $!;
+    my $number = 0 + <$input>;
+    close $input or die $!;
+    require constant;
+    constant->import('LIMIT', $number);
+}
+sub small { return $_[0] < LIMIT }
+sub large { return $_[0] > LIMIT }
+1;
+PERL
+    for my $checkout (qw(data-first data-second)) {
+        write_file( "$area/$checkout/lib/Idle.pm", $idle );
+        write_file( "$area/$checkout/t/pass.t",    "use Test::More tests => 1; pass 'ready';\n" );
+    }
+    local $ENV{TEST_PROJECT_TABLE} = "$area/limit";
+    write_file( "$area/limit", "3\n" );
+    my $prior = shard( 'data-first',  1, cache => 1 );
+    my $other = shard( 'data-second', 2, cache => 1 );
+    ok + ( grep { defined $_->{compiled_digest} } $other->{result}->entries->@* ),
+      'a known input permits code comparison';
+    ok lives { Test::Mutation::Merge::merge( [ $prior, $other ] ) }, 'equal external data can be combined';
+    write_file( "$area/limit", "7\n" );
+    my $warm = shard( 'data-second', 2, cache => 1 );
+    is $warm->{result}->reused, 0, 'changed compiler data invalidates cached verdicts';
+    like dies { Test::Mutation::Merge::merge( [ $prior, $warm ] ) }, qr/measurement inputs differ/,
+      'a cached shard must agree with the previous external data';
+    like dies { Test::Mutation::Merge::merge( [ $prior, shard( 'data-second', 2 ) ] ) }, qr/measurement inputs differ/,
+      'a fresh shard must agree with the previous external data';
+
+    $idle =~
+      s{(BEGIN \{)\n(    open[^\n]+)\$ENV\{TEST_PROJECT_TABLE\}}{$1\n    my \$path = \$ENV{TEST_PROJECT_TABLE};\n$2\$path};
+    for my $checkout (qw(data-first data-second)) {
+        write_file( "$area/$checkout/lib/Idle.pm", $idle );
+    }
+    my $opaque = shard( 'data-first',  1, cache => 1 );
+    my $peer   = shard( 'data-second', 2, cache => 1 );
+    is $opaque->{result}->compiler_inputs, $peer->{result}->compiler_inputs,
+      'an unchanged opaque source has the same compilation in both checkouts';
+    ok !( grep { defined $_->{compiled_digest} } $peer->{result}->entries->@* ),
+      'an indirect compiler input leaves the observed test verdict in place';
+    ok + ( grep { $_->{status} eq 'NoCoverage' } $peer->{result}->entries->@* ),
+      'the untouched target keeps its actual lack of test coverage';
+    ok lives { Test::Mutation::Merge::merge( [ $opaque, $peer ] ) }, 'equal observations from opaque sources can merge';
+    write_file( "$area/limit", "11\n" );
+    my $changed = shard( 'data-second', 2, cache => 1 );
+    is $changed->{result}->reused, 0, 'a source with opaque compiler reads is measured again';
+    like dies { Test::Mutation::Merge::merge( [ $opaque, $changed ] ) }, qr/measurement inputs differ/,
+      'different observed compilations of one opaque source reject the merge';
+};
+
 my $wrapped = shard( 'first', 1, perl => 'tools/perl' );
 ok lives { Test::Mutation::Merge::merge( [ $wrapped, shard( 'second', 2, perl => 'tools/perl' ) ] ) },
   'identical project-relative interpreters work in separate checkouts';
