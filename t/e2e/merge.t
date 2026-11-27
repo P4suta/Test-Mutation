@@ -57,10 +57,11 @@ subtest 'duplicate compiled code across shard boundaries has one verdict in inve
     like $_->{stdout}, qr/^Score: 75[.]0% \(6 of 8 valid mutants\)$/m,
       'six kills and two distinct survivors pass the same threshold'
       for $single, $merged;
-    my @observed = map {
-        my $result = Test::Mutation::Report::Json::parse( slurp("$fold/$_/mutation.json") );
-        [ map { [ $_->{mutant}->id, $_->@{qw(status reason detail by)} ] } $result->entries->@* ]
-    } qw(single merged);
+    my @observed;
+    for my $directory (qw(single merged)) {
+        my $result = Test::Mutation::Report::Json::parse( slurp("$fold/$directory/mutation.json") );
+        push @observed, [ map { [ $_->{mutant}->id, $_->@{qw(status reason detail by)} ] } $result->entries->@* ];
+    }
     is $observed[1], $observed[0], 'the same mutant stays and each duplicate names the same representative';
 };
 

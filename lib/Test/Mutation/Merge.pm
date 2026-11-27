@@ -76,6 +76,7 @@ sub merge ($reports) {
         selection          => $results[0]->selection,
         catalog_digest     => $results[0]->catalog_digest,
         measurement_digest => $results[0]->measurement_digest,
+        dependency_digest  => ( first { defined } map { $_->dependency_digest } @results ),
         started            => min( map { $_->started } @results ),
         finished           => max( map { $_->finished } @results ),
         stats              => _work(@results),
@@ -127,11 +128,6 @@ sub _parts ($reports) {
         my ( $part, $of ) = split m{/}, $result->shard;
         Test::Mutation::Error::raise( 'input-malformed', path => $name, reason => "invalid shard $part/$of" )
           if $part > $of;
-        Test::Mutation::Error::raise(
-            'input-malformed',
-            path   => $name,
-            reason => 'measurement inputs are missing, rerun every shard before merging'
-        ) unless defined $result->measurement_digest;
         $whole ||=
           { name => $name, part => $part, of => $of, inputs => $result->measurement_digest, $result->inventory->%* };
         Test::Mutation::Error::raise(
@@ -145,11 +141,7 @@ sub _parts ($reports) {
         ) if $of != $whole->{of};
         Test::Mutation::Error::raise( 'merge-other-mutants', name => $name, first => $whole->{name} )
           if $result->inventory->{digest} ne $whole->{digest} || $result->inventory->{mutants} != $whole->{mutants};
-        Test::Mutation::Error::raise(
-            'input-malformed',
-            path   => $name,
-            reason => "measurement inputs differ from $whole->{name}, rerun every shard with the same inputs"
-        ) if $result->measurement_digest ne $whole->{inputs};
+        _check_inputs( $whole, $name, $result );
         Test::Mutation::Error::raise(
             'merge-repeated-part',
             first => $parts[ $part - 1 ]{name},
@@ -165,6 +157,24 @@ sub _parts ($reports) {
     Test::Mutation::Error::raise( 'merge-missing-part', part => $last, parts => $whole->{of} ) if !@missing;
     my $list = join @missing > 1 ? ', ' : q{ }, @missing, "and $last";
     return Test::Mutation::Error::raise( 'merge-missing-parts', list => $list, parts => $whole->{of} );
+}
+
+sub _check_inputs ( $whole, $name, $result ) {
+    my $dependencies = $result->dependency_digest;
+    Test::Mutation::Error::raise(
+        'input-malformed',
+        path   => $name,
+        reason => 'measurement inputs are missing, rerun every shard before merging'
+    ) if !defined $result->measurement_digest || ( $result->tests->@* && !defined $dependencies );
+    Test::Mutation::Error::raise(
+        'input-malformed',
+        path   => $name,
+        reason => "measurement inputs differ from $whole->{name}, rerun every shard with the same inputs"
+      )
+      if $result->measurement_digest ne $whole->{inputs}
+      || ( defined $dependencies && defined $whole->{dependencies} && $dependencies ne $whole->{dependencies} );
+    $whole->{dependencies} = $dependencies if defined $dependencies;
+    return;
 }
 
 1;

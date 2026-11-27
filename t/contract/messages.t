@@ -124,6 +124,7 @@ sub part ( $shard, %arg ) {
             statuses           => ['Killed'],
             shard              => $shard,
             measurement_digest => 'c' x 64,
+            dependency_digest  => 'd' x 64,
             inventory          => { mutants => 2, digest => 'a' x 64 },
             %arg
         )

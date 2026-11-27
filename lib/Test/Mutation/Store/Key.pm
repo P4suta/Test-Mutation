@@ -5,7 +5,7 @@ use Cwd             ();
 use Digest::SHA     ();
 use Encode          ();
 use Time::HiRes     ();
-use Types::Standard qw(ArrayRef HashRef Maybe Slurpy Str);
+use Types::Standard qw(ArrayRef Bool HashRef Maybe Optional Slurpy Str);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Error;
 
@@ -14,7 +14,7 @@ our $VERSION = '0.001';
 my %last_file;
 my %volatile = map { $_ => 1 } qw(
   PWD OLDPWD SHLVL _ TMPDIR HARNESS_ACTIVE HARNESS_VERSION
-  GITHUB_RUN_ID GITHUB_RUN_NUMBER GITHUB_RUN_ATTEMPT GITHUB_STEP_SUMMARY
+  GITHUB_RUN_ID GITHUB_RUN_NUMBER GITHUB_RUN_ATTEMPT GITHUB_STEP_SUMMARY GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STATE
   RUNNER_TEMP RUNNER_TRACKING_ID CI_JOB_ID CI_PIPELINE_ID
   TEST_MUTATION_ROOT TEST_MUTATION_GENERATION TEST_MUTATION_SPEC TEST_MUTATION_RECORD
 );
@@ -54,17 +54,17 @@ sub file ($path) {
     return $value;
 }
 
-signature_for tree => ( positional => [ Str, ArrayRef [Str] ], returns => Str );
+signature_for tree => ( positional => [ Str, ArrayRef [Str], Optional [Bool] ], returns => Str );
 
-sub tree ( $root, $skip ) {
+sub tree ( $root, $skip, $omit_reports = 0 ) {
     return digest('absent') unless -d $root;
     my %skip = map { $_ => 1 } @$skip;
     my @files;
-    _walk( $root, q{}, \%skip, {}, \@files );
+    _walk( $root, q{}, \%skip, {}, \@files, $omit_reports );
     return digest(@files);
 }
 
-sub _walk ( $root, $relative, $skip, $parents, $files ) {
+sub _walk ( $root, $relative, $skip, $parents, $files, $omit_reports ) {
     my $directory = length $relative ? "$root/$relative" : $root;
     my @inode     = ( stat $directory )[ 0, 1 ];
     my $identity  = join q{/}, @inode;
@@ -75,25 +75,64 @@ sub _walk ( $root, $relative, $skip, $parents, $files ) {
     my @names = sort grep { $_ ne q{.} && $_ ne q{..} } readdir $dir;
     closedir $dir or Test::Mutation::Error::raise( 'file-unclosable', path => $directory, reason => "$!" );
 
+    my $start    = @$files;
+    my $reported = 0;
     for my $name (@names) {
         my $path = length $relative ? "$relative/$name" : $name;
         next if $skip->{$path};
         my $absolute = "$root/$path";
+        if ( $omit_reports && $name =~ /\Amutation[.](?:json|html)\z/ && -f $absolute && _report($absolute) ) {
+            $reported = 1;
+            next;
+        }
+        my $offset = @$files;
         push @$files, 'link', $path, readlink $absolute if -l $absolute;
         if ( -d $absolute ) {
             push @$files, 'directory', $path;
-            _walk( $root, $path, $skip, $parents, $files );
+            if ( _walk( $root, $path, $skip, $parents, $files, $omit_reports ) ) {
+                splice @$files, $offset;
+                $reported = 1;
+            }
         }
         elsif ( -f $absolute ) {
             push @$files, 'file', $path, ( ( stat $absolute )[2] & oct '111' ), file($absolute);
         }
     }
-    return;
+    return $reported && @$files == $start;
+}
+
+sub _report ($path) {
+    open my $input, '<:raw', $path or return;
+    my $found = _report_framework($input);
+    close $input or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
+    return $found;
+}
+
+sub _report_framework ($input) {
+    my $prior = q{};
+    while ( read $input, my $chunk, 8192 ) {
+        my $text = $prior . $chunk;
+        return 1 if $text =~ /"framework" \s* : \s* \{ \s* "name" \s* : \s* "Test::Mutation"/x;
+        $prior = substr $text, -128;
+    }
+    return 0;
 }
 
 signature_for interpreter => ( positional => [Str], returns => Str );
 
 sub interpreter ($program) {
+    my ( $path, $actual, $configuration ) = _interpreter($program);
+    return digest( $path, file($path), $actual, file($actual), $configuration );
+}
+
+signature_for interpreter_build => ( positional => [Str], returns => Str );
+
+sub interpreter_build ($program) {
+    my ( $path, $actual, $configuration ) = _interpreter($program);
+    return digest( file($path), file($actual), $configuration );
+}
+
+sub _interpreter ($program) {
     my $path = Cwd::abs_path($program);
     my ( $actual, $configuration );
     if ( $path eq Cwd::abs_path($^X) ) {
@@ -109,7 +148,7 @@ sub interpreter ($program) {
         Test::Mutation::Error::raise( 'interpreter-invalid', program => $program )
           unless length($configuration) && -f $actual;
     }
-    return digest( $path, file($path), $actual, file($actual), $configuration );
+    return ( $path, $actual, $configuration );
 }
 
 1;
@@ -138,9 +177,14 @@ Hashes the bytes of a regular file.
 
 Hashes relative names, executable bits, symlinks and contents below a directory.
 The caller can exclude inputs that have separate keys.
+An optional true third argument omits generated mutation reports and directories containing only those reports.
 
 =head2 interpreter
 
 Hashes both the selected executable and the Perl binary and configuration it runs.
+
+=head2 interpreter_build
+
+Identifies the selected executable, the Perl binary, and the compiled configuration across checkout locations.
 
 =cut

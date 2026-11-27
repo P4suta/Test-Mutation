@@ -55,6 +55,7 @@ sub part ( $shard, $entries, %fields ) {
         parallel_safe      => 1,
         shard              => $shard,
         measurement_digest => 'cd' x 32,
+        dependency_digest  => 'ef' x 32,
         inventory          => { mutants => 6, digest => $digest },
         started            => 100,
         finished           => 110,

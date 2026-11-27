@@ -401,7 +401,7 @@ sub _measure ( $run, $started ) {
         inventory          => $selection->inventory,
         selection          => $selection->selection,
         catalog_digest     => $selection->catalog_digest,
-        measurement_digest => _measurement_digest( $run, $selection ),
+        measurement_digest => scalar _available_digest( sub { _measurement_digest( $run, $selection ) } ),
         started            => $started,
     );
 
@@ -435,10 +435,21 @@ sub _measure ( $run, $started ) {
 }
 
 sub _measurement_digest ( $run, $selection ) {
-    my $config = $run->{config};
+    my $config  = $run->{config};
+    my $project = $run->{project};
+    my @skip    = (
+        '.git',                keys $selection->digests->%*,
+        $selection->tests->@*, map { _inside( $project, $_ ) } grep { defined } $config->cache_dir,
+        $config->report_dir,   $config->config
+    );
     return Test::Mutation::Store::Key::digest(
         $selection->catalog_digest,
-        Test::Mutation::Store::Key::interpreter( $selection->perl ),
+        Test::Mutation::Store::Key::interpreter_build( $selection->perl ),
+        Test::Mutation::Store::Key::tree( $project, \@skip, 1 ),
+        Test::Mutation::Store::Key::environment( \%ENV ),
+        _module_text($SHIM_FILE),
+        _module_text('Test/Mutation/Witness.pm'),
+        $config->mutant->@* ? 1 : 0,
         $config->coverage,
         $config->equivalence,
         $config->in_place,
@@ -465,6 +476,7 @@ sub _measure_tests ( $run, $selection, $plan ) {
         parallel_safe     => $baseline->{parallel_safe},
         baseline_failures => $baseline->{failures},
         tests             => _test_list( $baseline->{tests} ),
+        dependency_digest => scalar _available_digest( sub { _dependencies( $baseline->{tests} ) } ),
     };
 
     if ( $baseline->{failures}->@* ) {
@@ -484,6 +496,18 @@ sub _measure_tests ( $run, $selection, $plan ) {
         $result->{baseline_failures} = $fresh->{failures};
     }
     return $result;
+}
+
+sub _dependencies ($tests) {
+    my %libraries;
+    my @inputs;
+    for my $test ( sort keys %$tests ) {
+        my @paths = @{ $tests->{$test}{includes} || [] };
+        push @inputs, $test,
+          Test::Mutation::Store::Key::digest(
+            map { ( $_, $libraries{$_} ||= Test::Mutation::Store::Key::tree( $_, [] ) ) } @paths );
+    }
+    return Test::Mutation::Store::Key::digest(@inputs);
 }
 
 sub _test_list ($records) {
@@ -717,7 +741,7 @@ sub _remove_disk_spec ($spec) {
 sub _spec ( $run, $root, $name, $trace, $targets ) {
     my $path  = "$run->{work}/$name.spec";
     my @lines = ( "trace\t" . ( $trace ? 1 : 0 ) );
-    push @lines, "includes\t1"   if $run->{config}->cache && $name !~ m{\Amutants/};
+    push @lines, "includes\t1"   if $name !~ m{\Amutants/};
     push @lines, "placed\t1"     if defined $run->{copies};
     push @lines, "trace_eval\t1" if $run->{trace_eval};
     _remove_disk_spec($path);
@@ -1595,7 +1619,11 @@ sub _after_task ( $run, $baseline, $task, $result ) {
 }
 
 sub _run_inputs ( $run, $baseline ) {
-    my $found = Test::Mutation::Try::attempt( sub { _fingerprint( $run, $baseline ) } );
+    return _available_digest( sub { _fingerprint( $run, $baseline ) } );
+}
+
+sub _available_digest ($compute) {
+    my $found = Test::Mutation::Try::attempt($compute);
     return $found->{value} if exists $found->{value};
     my $error = $found->{error};
     return if $TYPED->check($error) && ( $error->id eq 'file-unreadable' || $error->id eq 'directory-unopenable' );
