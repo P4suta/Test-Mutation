@@ -1705,8 +1705,8 @@ sub _after_task ( $run, $baseline, $task, $result ) {
             inputs   => $result->{compiler_inputs},
             passed   => $ok ? 1 : 0,
             duration => $result->{duration},
-            code     => $ok && length $result->{output} ? $result->{digest} : q{},
-            opaque   => $result->{opaque_reads},
+            code     => $ok && length $result->{output} ? $result->{digest}       : q{},
+            opaque   => length $result->{output}        ? $result->{opaque_reads} : undef,
         };
     }
     _discard( $task->{payload}{tmp} ) if $kind ne 'test';

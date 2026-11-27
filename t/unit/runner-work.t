@@ -101,6 +101,7 @@ subtest 'every original compiler observation records the result before the job c
             digest          => 'hash'
         };
         my $task = {
+            env     => { TEST_MUTATION_COMPILER_READS => q{} },
             payload => {
                 compile  => 1,
                 job      => {},
