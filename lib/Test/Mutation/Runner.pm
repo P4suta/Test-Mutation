@@ -2084,9 +2084,12 @@ sub _compiler_inputs ( $run, $tmp ) {
     my %inputs;
     for my $line (@lines) {
         return unless $line =~ /\A(?:[0-9a-f]{2})+\z/;
-        my $file = pack 'H*', $line;
-        my $path = Cwd::abs_path($file) || File::Spec->canonpath($file);
-        next if grep { index( "$path/", "$_/" ) == 0 } $run->{project}, $run->{workspace}->directory;
+        my $path  = File::Spec->canonpath( pack 'H*', $line );
+        my @roots = ( $run->{project}, $run->{workspace}->directory );
+        if ( grep { index( "$path/", "$_/" ) == 0 } @roots ) {
+            $path = Cwd::abs_path($path) || $path;
+            next if grep { index( "$path/", "$_/" ) == 0 } @roots;
+        }
         my $digest = _compiler_input_digest( $run, $path );
         return unless defined $digest;
         $inputs{$path} = $digest;
