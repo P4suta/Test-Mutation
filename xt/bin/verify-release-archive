@@ -46,19 +46,24 @@ my $tar = Archive::Tar->new;
 $tar->read( $archive, 1 ) or die "read the distribution archive $name\n";
 my %generated = map { $_ => 1 } qw(MANIFEST META.json META.yml);
 my %seen;
+my $manifest;
 for my $entry ( $tar->get_files ) {
     my $full = $entry->full_path;
     $full                                             =~ s{/\z}{};
     die "invalid archive member $full\n" if $full     =~ m{/[.]{1,2}(?:/|\z)};
     die "invalid archive member $full\n" unless $full =~ m{\A\Q$root\E(?:/([^/]+(?:/[^/]+)*))?\z};
     my $path = $1;
-    die "duplicate archive member $full\n" if $seen{$full}++;
-    next                                   if $entry->is_dir;
+    die "duplicate archive member $full\n" if exists $seen{$full};
+    $seen{$full} = $entry->is_file;
+    next if $entry->is_dir;
     die "unexpected archive member $full\n" unless defined $path && $entry->is_file;
     my $content = $entry->get_content;
 
     if ( delete $generated{$path} ) {
-        next if $path eq 'MANIFEST';
+        if ( $path eq 'MANIFEST' ) {
+            $manifest = $content;
+            next;
+        }
         my $meta =
           $path eq 'META.json' ? JSON::PP->new->utf8->decode($content) : CPAN::Meta::YAML->read_string($content)->[0];
         die "incorrect distribution name in $path\n" unless defined $meta->{name} && $meta->{name} eq 'Test-Mutation';
@@ -74,4 +79,11 @@ for my $entry ( $tar->get_files ) {
 }
 my @missing = sort( keys %generated, keys %blobs );
 die "missing archive member $missing[0]\n" if @missing;
+for my $line ( split /\n/, $manifest ) {
+    my ($file) = keys ExtUtils::Manifest::maniread( \$line )->%*;
+    next                                                    unless defined $file;
+    die "MANIFEST lists an absent or repeated file $file\n" unless delete $seen{"$root/$file"};
+}
+my ($unlisted) = sort grep { $seen{$_} } keys %seen;
+die "MANIFEST omits $unlisted\n" if defined $unlisted;
 print "archive_name=$name\narchive_sha256=$digest\n" or die "write the verified archive identity: $!\n";

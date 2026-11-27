@@ -15,7 +15,8 @@ my $name    = "Test-Mutation-$version";
 my $path    = "$scratch/$name.tar.gz";
 my %files   = (
     'lib/Test/Mutation.pm' => "package Test::Mutation;\nour \$VERSION = '$version';\n1;\n",
-    'bin/mutation'         => "print qq{verified command\\n};\n"
+    'bin/mutation'         => "print qq{verified command\\n};\n",
+    q{docs/reader's notes} => "package guidance\n",
 );
 write_file( "$source/$_", $files{$_} ) for keys %files;
 my @git = (
@@ -31,7 +32,16 @@ chomp( my $commit = readline $head );
 close $head or die 'resolve the candidate commit';
 $files{'META.json'} = JSON::PP->new->encode( { name => 'Test-Mutation', version => $version } );
 $files{'META.yml'}  = "---\nname: Test-Mutation\nversion: '$version'\n";
-$files{MANIFEST}    = join q{}, map { "$_\n" } sort( keys %files, 'MANIFEST' );
+$files{MANIFEST}    = <<'LISTING';
+# The release contains generated metadata.
+MANIFEST
+META.json    Module JSON meta-data (added by MakeMaker)
+META.yml     Module YAML meta-data (added by MakeMaker)
+
+'docs/reader\'s notes'   Notes for readers
+lib/Test/Mutation.pm
+bin/mutation
+LISTING
 
 sub archive ( $members, $modes = {} ) {
     my $tar = Archive::Tar->new;
@@ -96,6 +106,21 @@ subtest 'verification rejects altered source and metadata in a correctly named a
         my $outcome = verify( $path, $commit, $version, archive( \%changed ) );
         isnt $outcome->[0], 0, 'even a matching digest cannot accept different files';
         like $outcome->[1], $reason, 'the diagnostic names the affected member';
+    }
+};
+
+subtest 'verification rejects an incomplete or inflated MANIFEST' => sub {
+    for my $case (
+        [ $files{MANIFEST} =~ s/^META\.json[^\n]*\n//mr, 'META.json' ],
+        [ $files{MANIFEST} =~ s{^'docs/[^\n]*\n}{}mr,    q{docs/reader's notes} ],
+        [ $files{MANIFEST} . "docs/absent\n",                     'docs/absent' ],
+        [ $files{MANIFEST} . "'bin/mutation'  duplicate entry\n", 'bin/mutation' ],
+      )
+    {
+        my ( $manifest, $file ) = @$case;
+        my $outcome = verify( $path, $commit, $version, archive( { %files, MANIFEST => $manifest } ) );
+        isnt $outcome->[0], 0, 'an inaccurate file list cannot identify this distribution';
+        like $outcome->[1], qr/MANIFEST.*\Q$file\E/, 'the diagnostic names the manifest entry';
     }
 };
 
