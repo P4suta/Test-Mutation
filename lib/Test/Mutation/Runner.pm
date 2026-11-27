@@ -1357,10 +1357,13 @@ sub _mutants ( $run, $mutants, $baseline, $sample_only = 0 ) {
             return [ map { $entry_of{ $_->id } } @$mutants ];
         }
     }
-    _execute_jobs( $run, $baseline, $next_job, \%entry_of );
+    _execute_jobs( $run, $baseline, $next_job, \%entry_of, $cache );
 
     my @entries = map { $entry_of{ $_->id } } $mutants->@*;
-    _save_cache( $run, $cache, \@entries ) if $cache;
+    if ( $cache && !$run->{interrupted} ) {
+        my $inventory = $run->{narrowed} ? undef : [ map { $_->id } @$mutants ];
+        Test::Mutation::Store::save( $cache->{path}, {}, $inventory, $cache->{targets} );
+    }
     for my $entry (@entries) {
         my $code = $run->{code_of_mutant}{ $entry->{mutant}->id };
         $entry->{compiled_digest} = $code if defined $code;
@@ -1369,13 +1372,15 @@ sub _mutants ( $run, $mutants, $baseline, $sample_only = 0 ) {
     return Test::Mutation::Verdict::conclude_inventory( \@entries );
 }
 
-sub _execute_jobs ( $run, $baseline, $next_job, $entries ) {
+sub _execute_jobs ( $run, $baseline, $next_job, $entries, $cache ) {
     my %unfinished;
     my $schedule = { ready => [], active => {}, retrying => {}, locked => {}, compatible => {} };
     my $finish   = sub ($job) {
         _release( $run, $job );
-        $entries->{ $job->{mutant}->id } = _finish( $run, $job );
+        my $entry = $entries->{ $job->{mutant}->id } = _finish( $run, $job );
+        _save_observation( $run, $cache, $entry ) if $cache;
         delete $unfinished{ $job->{mutant}->id };
+        $run->{listener}->( 'mutant', $entry );
         return;
     };
     my $measure = sub {
@@ -1711,24 +1716,18 @@ sub _reused_entry ( $run, $cache, $mutant, $tests ) {
     return $entry;
 }
 
-sub _save_cache ( $run, $cache, $entries ) {
-    my %updates;
-    for my $entry (@$entries) {
-        my $mutant = $entry->{mutant};
-        next if $mutant->suppressed;
-        my $key = _verdict_key( $cache, $mutant, $entry->{covered_by}, $entry->{status}, $entry->{by} );
-        next unless defined $key;
-        $updates{ $mutant->id } = {
-            inputs => $key,
-            path   => $mutant->path,
-            source => $cache->{targets}{ $mutant->path },
-            $entry->%{qw(status reason detail by tests_run duration)},
-            code => $run->{code_of_mutant}{ $mutant->id },
-            exists $entry->{observations} ? ( observations => $entry->{observations} ) : ()
-        };
-    }
-    my $inventory = $run->{narrowed} ? undef : [ map { $_->{mutant}->id } @$entries ];
-    Test::Mutation::Store::save( $cache->{path}, \%updates, $inventory, $cache->{targets} );
+sub _save_observation ( $run, $cache, $entry ) {
+    my $mutant = $entry->{mutant};
+    my $key    = _verdict_key( $cache, $mutant, $entry->{covered_by}, $entry->{status}, $entry->{by} );
+    return unless defined $key;
+    my $record = {
+        inputs => $key,
+        path   => $mutant->path,
+        source => $cache->{targets}{ $mutant->path },
+        $entry->%{qw(status reason detail by tests_run duration)}, code => $run->{code_of_mutant}{ $mutant->id },
+        exists $entry->{observations} ? ( observations => $entry->{observations} ) : ()
+    };
+    Test::Mutation::Store::save( $cache->{path}, { $mutant->id => $record } );
     return;
 }
 
@@ -2020,7 +2019,6 @@ sub _finish ( $run, $job ) {
     my $entry =
       _entry( $mutant, $status, $reason, $detail, $verdict->{by}, $job->{tests}, $verdict->{tests}, $job->{duration} );
     $entry->{observations} = $job->{observations} || [];
-    $run->{listener}->( 'mutant', $entry );
     return $entry;
 }
 
