@@ -59,10 +59,12 @@ sub stream ( $result, $arg ) {
         defined $score ? sprintf( 'Score: %.1f%%', $score ) : 'Score: none',
         Test::Mutation::Report::Results::decision( $result, $result->min_score )->@*
     );
-    my $summary = join "\n", map {
+    my @paragraphs;
+    for (@lines) {
         my $text = $_ =~ s/&/&amp;/gr =~ s/</&lt;/gr =~ s/>/&gt;/gr;
-        "<p>$text</p>"
-    } @lines;
+        push @paragraphs, "<p>$text</p>";
+    }
+    my $summary = join "\n", @paragraphs;
     $write->(<<"HTML");
 <!DOCTYPE html>
 <html lang="en">
