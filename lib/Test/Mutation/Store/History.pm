@@ -63,23 +63,36 @@ signature_for entries => (
 sub entries ( $config, $sources, $mutants ) {
     my $path = Test::Mutation::Store::path( $config, 0 );
     return unless $config->cache && -f $path;
-    my $db         = Test::Mutation::Store::database($path);
-    my $project    = Cwd::abs_path( $config->root );
-    my ($measured) = $db->selectrow_array( 'SELECT 1 FROM measurement WHERE project = ? LIMIT 1', undef, $project );
-    return unless $measured;
-    my $latest =
-      $db->prepare( 'SELECT observation.data, measurement.finished FROM observation JOIN measurement USING(run)'
-          . ' WHERE project = ? AND id = ? AND source = ? ORDER BY finished DESC, run DESC LIMIT 1' );
-    my ( %digests, %entries );
-
+    my $db      = Test::Mutation::Store::database($path);
+    my $project = Cwd::abs_path( $config->root );
+    my ( %digests, %requested );
     for my $mutant (@$mutants) {
         my $file   = $mutant->path;
         my $digest = $digests{$file} ||= Test::Mutation::Store::Key::digest( $sources->{$file}->text );
-        $latest->execute( $project, $mutant->id, $digest );
-        my ( $text, $finished ) = $latest->fetchrow_array;
-        next unless defined $text;
-        my $facts = $JSON->decode($text);
-        $entries{ $mutant->id } = { $facts->%{qw(status covered_by by)}, finished => $finished };
+        push $requested{$digest}->@*, $mutant->id;
+    }
+    my $rows = $db->selectall_arrayref( <<'SQL', undef, $project, $JSON->encode( \%requested ) );
+WITH measured AS (
+    SELECT project FROM measurement WHERE project = ? LIMIT 1
+), latest AS (
+    SELECT found.id, found.status, json_extract(found.data, '$.covered_by') AS covered,
+           json_extract(found.data, '$.by') AS detector, measurement.finished
+    FROM json_each(?) files CROSS JOIN json_each(files.value) requested
+    CROSS JOIN observation found JOIN measurement USING(run)
+    WHERE found.rowid = (
+        SELECT prior.rowid FROM observation prior JOIN measurement seen USING(run)
+        WHERE prior.id = requested.value AND prior.source = files.key AND seen.project = (SELECT project FROM measured)
+        ORDER BY seen.finished DESC, seen.run DESC LIMIT 1
+    )
+)
+SELECT latest.* FROM measured LEFT JOIN latest ON 1
+SQL
+    return unless @$rows;
+    my %entries;
+    for my $row (@$rows) {
+        my ( $id, $status, $covered, $by, $finished ) = @$row;
+        $entries{$id} = { status => $status, covered_by => $JSON->decode($covered), by => $by, finished => $finished }
+          if defined $id;
     }
     return \%entries;
 }
