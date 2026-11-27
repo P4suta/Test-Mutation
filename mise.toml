@@ -155,6 +155,7 @@ run = [
   set -eu
   dependencies=$(mktemp -d)
   trap 'rm -rf "$dependencies"' EXIT
+  dependencies=$(cd "$dependencies" && pwd -P)
   cp xt/release-please/package.json xt/release-please/package-lock.json "$dependencies/"
   npm ci --ignore-scripts --no-audit --no-fund --prefix "$dependencies"
   NODE_PATH="$dependencies/node_modules" npm test --prefix xt/release-please
