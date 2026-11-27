@@ -160,7 +160,7 @@ run = [
   NODE_PATH="$dependencies/node_modules" npm test --prefix xt/release-please
   ''',
   "python3 -I xt/release-publish/test_pause.py",
-  "prove -l xt/release-publish/draft.t",
+  "prove -l xt/release-publish",
 ]
 
 [tasks.check-components]

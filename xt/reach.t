@@ -120,7 +120,8 @@ like $proposals, qr/npm ci --ignore-scripts --no-audit --no-fund/,
 like $proposals, qr/npm test --prefix xt\/release-please/, 'the proposal tests exercise the working copy';
 ok scalar grep( { $_ eq 'python3 -I xt/release-publish/test_pause.py' } @local ),
   'the local gate exercises the PAUSE adapter';
-ok reached( $fast, 'xt/release-publish/draft.t' ), 'the fast gate exercises draft recovery';
+ok reached( $fast, 'xt/release-publish/draft.t' ),       'the fast gate exercises draft recovery';
+ok reached( $fast, 'xt/release-publish/credentials.t' ), 'the fast gate exercises credential transport';
 is scalar( grep { $_->@* == 1 && $_->[0] eq $tasks->{e2e}{run} } @groups ), 1,
   'the end-to-end tests have a runner to themselves';
 my $timeout = $gate_job->{'timeout-minutes'} || q{};
