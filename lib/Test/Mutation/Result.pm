@@ -43,8 +43,9 @@ has shard          => ( is => 'ro', isa => Maybe [ StrMatch [qr{\A[1-9][0-9]*/[1
 has selection      => ( is => 'ro', isa => ReportSelection, default => sub { {} } );
 has min_score      => ( is => 'ro', isa => Maybe [Num], default => undef );
 has catalog_digest => ( is => 'ro', isa => Maybe [Str], default => undef );
-has measurement_digest => ( is => 'ro', isa => Maybe [ StrMatch [qr/\A[0-9a-f]{64}\z/] ], default => undef );
-has dependency_digest  => ( is => 'ro', isa => Maybe [ StrMatch [qr/\A[0-9a-f]{64}\z/] ], default => undef );
+has measurement_digest => ( is => 'ro', isa => Maybe [ StrMatch [qr/\A[0-9a-f]{64}\z/] ],   default => undef );
+has dependency_digest  => ( is => 'ro', isa => Maybe [ StrMatch [qr/\A[0-9a-f]{64}\z/] ],   default => undef );
+has compiler_inputs    => ( is => 'ro', isa => HashRef [ StrMatch [qr/\A[0-9a-f]{64}\z/] ], default => sub { {} } );
 has inventory =>
   ( is => 'ro', isa => Maybe [ Dict [ mutants => Int, digest => StrMatch [qr/\A[0-9a-f]{64}\z/] ] ], default => undef );
 has started  => ( is => 'ro', isa => Num, required => 1 );
@@ -170,10 +171,11 @@ The minimum requested score, or undefined when the caller did not request a thre
 
 The count of the mutants before the split into parts, and the SHA-256 digest of their identifiers in order.
 
-=head2 measurement_digest, dependency_digest
+=head2 measurement_digest, dependency_digest, compiler_inputs
 
 The measurement digest identifies the project inputs, selected tests, interpreter, and execution settings.
 The dependency digest identifies the external libraries observed by the original tests.
+The compiler inputs map external path digests to content digests for libraries used only in standalone compilation.
 Earlier reports lack the evidence needed to merge their shards.
 
 =head2 started, finished

@@ -85,6 +85,7 @@ sub merge ( $reports, $floor = undef ) {
         catalog_digest     => $results[0]->catalog_digest,
         measurement_digest => $results[0]->measurement_digest,
         dependency_digest  => ( first { defined } map { $_->dependency_digest } @results ),
+        compiler_inputs    => { map { $_->compiler_inputs->%* } @results },
         started            => min( map { $_->started } @results ),
         finished           => max( map { $_->finished } @results ),
         stats              => _work(@results),
@@ -169,6 +170,8 @@ sub _parts ($reports) {
 
 sub _check_inputs ( $whole, $name, $result ) {
     my $dependencies = $result->dependency_digest;
+    my $compiler     = $result->compiler_inputs;
+    my $changed = grep { exists $whole->{compiler}{$_} && $whole->{compiler}{$_} ne $compiler->{$_} } keys %$compiler;
     Test::Mutation::Error::raise(
         'input-malformed',
         path   => $name,
@@ -179,9 +182,11 @@ sub _check_inputs ( $whole, $name, $result ) {
         path   => $name,
         reason => "measurement inputs differ from $whole->{name}, rerun every shard with the same inputs"
       )
-      if $result->measurement_digest ne $whole->{inputs}
+      if $changed
+      || $result->measurement_digest ne $whole->{inputs}
       || ( defined $dependencies && defined $whole->{dependencies} && $dependencies ne $whole->{dependencies} );
     $whole->{dependencies} = $dependencies if defined $dependencies;
+    $whole->{compiler}{$_} = $compiler->{$_} for keys %$compiler;
     return;
 }
 

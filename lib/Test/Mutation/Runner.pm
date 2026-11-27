@@ -44,6 +44,7 @@ use Test::Mutation::Workspace::Processes;
 our $VERSION = '0.001';
 
 my $SHIM_FILE     = 'Test/Mutation/Shim.pm';
+my $COMPILER_FILE = 'Test/Mutation/CompilerInputs.pm';
 my %UNDETECTED    = map { $_->name => 1 } grep { $_->role eq 'undetected' } Test::Mutation::Status::rows()->@*;
 my $CHANGES_NAMED = 5;
 my $TYPED         = InstanceOf ['Test::Mutation::Error'];
@@ -451,14 +452,16 @@ sub _measure ( $run, $started ) {
     }
 
     Test::Mutation::Event::phase( $listener, 'conclude' );
+    my $compiler = $run->{compiler_inputs} || {};
     return {
         %result,
-        jobs           => $run->{jobs},
-        interrupted    => $run->{interrupted},
-        cache_mismatch => $run->{cache_mismatch} || 0,
-        reused         => $run->{reused}         || 0,
-        in_copies      => $config->in_place ? 0 : 1,
-        stats          => $run->{stats},
+        jobs            => $run->{jobs},
+        interrupted     => $run->{interrupted},
+        cache_mismatch  => $run->{cache_mismatch} || 0,
+        compiler_inputs => { map { ( Test::Mutation::Store::Key::digest($_), $compiler->{$_} ) } keys %$compiler },
+        reused          => $run->{reused} || 0,
+        in_copies       => $config->in_place ? 0 : 1,
+        stats           => $run->{stats},
     };
 }
 
@@ -487,6 +490,7 @@ sub _measurement_digest ( $run, $selection ) {
         $project_digest,
         Test::Mutation::Store::Key::environment( \%ENV, $project ),
         _module_text($SHIM_FILE),
+        _module_text($COMPILER_FILE),
         _module_text('Test/Mutation/Witness.pm'),
         $config->mutant->@* ? 1 : 0,
         $config->coverage,
@@ -738,6 +742,7 @@ sub _prepare_work ($run) {
     my $generation = defined $outer ? $outer + 1 : 1;
     Test::Mutation::Tree::make( map { "$work/$_" } 'shim/Test/Mutation/Shim', 'mutants', 'records', 'tmp' );
     _spew( "$work/shim/Test/Mutation/Shim/G$generation.pm", shim_text($generation) );
+    _spew( "$work/shim/$COMPILER_FILE",                     _module_text($COMPILER_FILE) );
     $run->{generation} = $generation;
     return;
 }
@@ -1643,9 +1648,11 @@ sub _changed_paths ( $run, $changes ) {
 sub _after_task ( $run, $baseline, $task, $result ) {
     my $job  = $task->{payload}{job};
     my $kind = $task->{payload}{kind};
+    _remember_compiler_inputs( $run, $job, $task->{payload}{tmp}, $result ) if $task->{payload}{compile};
     if ( defined( my $path = $task->{payload}{original} ) ) {
         my $ok = _compiled($result);
         $run->{original_compile}{$path} = {
+            inputs   => $result->{compiler_inputs},
             passed   => $ok ? 1 : 0,
             duration => $result->{duration},
             code     => $ok && length $result->{output} ? $result->{digest} : q{},
@@ -1720,6 +1727,7 @@ sub _fingerprint ( $run, $baseline ) {
         $VERSION,
         Test::Mutation::Store::format_version(),
         _module_text($SHIM_FILE),
+        _module_text($COMPILER_FILE),
         _module_text('Test/Mutation/Witness.pm'),
         Test::Mutation::Store::Key::interpreter( $run->{perl} ),
         Test::Mutation::Store::Key::digest(@libraries),
@@ -1809,6 +1817,12 @@ sub _reused_entry ( $run, $cache, $mutant, $tests ) {
     return if $record->{status} eq 'NoCoverage' && $tests->@*;
     my $key = _verdict_key( $cache, $mutant, $tests, $record->{status}, $record->{by} );
     return unless defined $key && $key eq $record->{inputs};
+    my $inputs = $record->{compiler_inputs} || {};
+    for my $path ( keys %$inputs ) {
+        my $digest = _compiler_input_digest( $run, $path );
+        return unless defined $digest && $digest eq $inputs->{$path};
+    }
+    $run->{compiler_inputs}{$_} = $inputs->{$_} for keys %$inputs;
     $run->{code_of_mutant}{ $mutant->id } = $record->{code} if defined $record->{code};
     $run->{reused}++;
     my $entry = _entry( $mutant, $record->@{qw(status reason detail by)}, $tests, $record->@{qw(tests_run duration)} );
@@ -1819,6 +1833,7 @@ sub _reused_entry ( $run, $cache, $mutant, $tests ) {
 sub _save_observation ( $run, $cache, $entry ) {
     my $mutant = $entry->{mutant};
     return if $mutant->suppressed;
+    return if $run->{unbound_compiler}{ $mutant->id };
     my $key = _verdict_key( $cache, $mutant, $entry->{covered_by}, $entry->{status}, $entry->{by} );
     return unless defined $key;
     my $record = {
@@ -1827,6 +1842,9 @@ sub _save_observation ( $run, $cache, $entry ) {
         source => $cache->{targets}{ $mutant->path },
         $entry->%{qw(status reason detail by tests_run duration)},
         code => $run->{code_of_mutant}{ $mutant->id },
+        defined $run->{compiler_of_mutant}{ $mutant->id }
+        ? ( compiler_inputs => $run->{compiler_of_mutant}{ $mutant->id } )
+        : (),
         exists $entry->{observations} ? ( observations => $entry->{observations} ) : ()
     };
     my $checkpoint = $cache->{checkpoint} ||= Test::Mutation::Store::checkpoints( $cache->{path} );
@@ -2049,6 +2067,46 @@ sub _compiled ($result) {
     return !$result->{exit} && !$result->{signal} && !$result->{timed_out} && !$result->{overflowed};
 }
 
+sub _compiler_input_digest ( $run, $path ) {
+    return $run->{compiler_digests}{$path} if exists $run->{compiler_digests}{$path};
+    return $run->{compiler_digests}{$path} = _available_digest(
+        sub {
+            return Test::Mutation::Store::Key::file($path) if -f $path;
+            return Test::Mutation::Store::Key::tree( $path, [] );
+        }
+    );
+}
+
+sub _compiler_inputs ( $run, $tmp ) {
+    return unless -f "$tmp/inputs";
+    my @lines = split /\n/, Test::Mutation::Source::read_bytes("$tmp/inputs");
+    return unless @lines && pop(@lines) eq q{.};
+    my %inputs;
+    for my $line (@lines) {
+        return unless $line =~ /\A(?:[0-9a-f]{2})+\z/;
+        my $file = pack 'H*', $line;
+        my $path = Cwd::abs_path($file) || File::Spec->canonpath($file);
+        next if grep { index( "$path/", "$_/" ) == 0 } $run->{project}, $run->{workspace}->directory;
+        my $digest = _compiler_input_digest( $run, $path );
+        return unless defined $digest;
+        $inputs{$path} = $digest;
+    }
+    return \%inputs;
+}
+
+sub _remember_compiler_inputs ( $run, $job, $tmp, $result ) {
+    $result->{compiler_inputs} = _compiler_inputs( $run, $tmp ) unless exists $result->{compiler_inputs};
+    my $inputs = $result->{compiler_inputs};
+    if ( defined $inputs ) {
+        $run->{compiler_inputs}{$_} = $job->{compiler_inputs}{$_} = $inputs->{$_} for keys %$inputs;
+    }
+    else {
+        $result->{digest}        = q{};
+        $job->{unbound_compiler} = 1;
+    }
+    return;
+}
+
 sub _hint_line ($line) {
     my $table = qr{charnames_(?:inverse_ords|name_aliases|ord_aliases)}x;
     my $key   = qr{(?:charnames'\} [ ]=[ ] 'CODE | $table'\} [ ]=[ ] 'HASH)}x;
@@ -2069,10 +2127,19 @@ sub _compile_task ( $run, $job, $kind, $file, $switch ) {
     my $option         = $original ? '-MO=Deparse' : $switch;
     my $source         = $run->{sources}{$path}->text;
     my $standard_hints = $option eq '-MO=Deparse' && $source =~ /\buse\s+charnames\b/ && $source !~ /[\$%]\^H/;
-    my $launch         = _launch( $run, $root, $tmp, $path, program => $file, arguments => [$option] );
+    my $launch         = _launch(
+        $run, $root, $tmp, $path,
+        program   => $file,
+        arguments => [ "-I$run->{work}/shim", '-MTest::Mutation::CompilerInputs', $option ]
+    );
     return {
-        command         => $launch->{command},
-        env             => { $launch->{env}->%*, PERL_HASH_SEED => '0', PERL_PERTURB_KEYS => '0' },
+        command => $launch->{command},
+        env     => {
+            $launch->{env}->%*,
+            PERL_HASH_SEED                => '0',
+            PERL_PERTURB_KEYS             => '0',
+            TEST_MUTATION_COMPILER_INPUTS => "$tmp/inputs"
+        },
         cwd             => $job->{tests}->@* ? $root : $tmp,
         lease           => $run->{workspace}->directory . '/processes',
         timeout         => $timeout,
@@ -2099,9 +2166,17 @@ sub _ending ($result) {
 sub _finish ( $run, $job ) {
     _remove_disk_spec( $job->{spec} ) if defined $job->{spec};
     unlink grep { defined } $job->@{qw(file spec)};
-    my $verdict = Test::Mutation::Verdict::conclude( $job->{verdict} );
-    my $mutant  = $job->{mutant};
-    my $code    = defined $job->{code} ? $job->{code} : q{};
+    my $verdict  = Test::Mutation::Verdict::conclude( $job->{verdict} );
+    my $mutant   = $job->{mutant};
+    my $original = $run->{original_compile}{ $mutant->path };
+    if ( $job->{unbound_compiler} || ( $original && !defined $original->{inputs} ) ) {
+        $run->{unbound_compiler}{ $mutant->id } = 1;
+    }
+    else {
+        my %inputs = ( %{ $original && $original->{inputs} || {} }, %{ $job->{compiler_inputs} || {} } );
+        $run->{compiler_of_mutant}{ $mutant->id } = \%inputs if %inputs;
+    }
+    my $code = defined $job->{code} ? $job->{code} : q{};
     my ( $status, $reason, $detail ) = $verdict->@{qw(status reason detail)};
     if ( defined $job->{restore_error} ) {
         ( $status, $reason, $detail ) = ( 'NoVerdict', 'slot-not-restored', $job->{restore_error} );

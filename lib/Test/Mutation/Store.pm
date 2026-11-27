@@ -37,17 +37,18 @@ my $ORIGINALS = Dict [ build => ArrayRef [Str], tests => HashRef [$ORIGINAL] ];
 my $CHANGES   = Dict [ build => ArrayRef [Str], tests => HashRef [ Maybe [$ORIGINAL] ], reset => Optional [Bool] ];
 my $RECORD    = (
     Dict [
-        inputs       => Str,
-        path         => Optional [Str],
-        source       => Optional [Str],
-        status       => StatusName,
-        reason       => Maybe [Reason],
-        detail       => Maybe [Str],
-        by           => Maybe [Str],
-        tests_run    => Int,
-        duration     => Num,
-        code         => Maybe [Str],
-        observations => Optional [Observations],
+        inputs          => Str,
+        path            => Optional [Str],
+        source          => Optional [Str],
+        status          => StatusName,
+        reason          => Maybe [Reason],
+        detail          => Maybe [Str],
+        by              => Maybe [Str],
+        tests_run       => Int,
+        duration        => Num,
+        code            => Maybe [Str],
+        compiler_inputs => Optional [ HashRef [Str] ],
+        observations    => Optional [Observations],
     ]
 )->where(
     sub {
