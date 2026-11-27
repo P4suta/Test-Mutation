@@ -37,7 +37,7 @@ my $history = Test::Mutation::Store::History::entries( $config, { $file => $sour
 is $history->{ $first->id }{status}, 'NoVerdict', 'the latest inconclusive observation is available for inspection';
 my $narrow  = Test::Mutation::Result->new( $whole->%*, entries => [ $whole->entries->[0] ], finished => 105 );
 my $changed = { $narrow->entries->[0]->%*, status => 'Killed', by => 't/verify.t' };
-$narrow = Test::Mutation::Result->new( $narrow->%*, entries => [$changed] );
+$narrow = Test::Mutation::Result->new( $narrow->%*, entries => [ $changed, $whole->entries->[1] ] );
 Test::Mutation::Store::History::record( $config, $narrow, 0 );
 is Test::Mutation::Store::History::undetected($config), [ $gap->( $whole->entries->[1] ) ],
   'a verified kill clears that gap while leaving the other gap in the preceding scope';
@@ -48,14 +48,23 @@ is Test::Mutation::Store::History::undetected($config), [ $gap->( $whole->entrie
 my $empty = Test::Mutation::Result->new( $whole->%*, entries => [], finished => 106 );
 Test::Mutation::Store::History::record( $config, $empty, 1 );
 is Test::Mutation::Store::History::undetected($config), [], 'a completed empty scope is distinct from missing history';
-my $merged =
-  Test::Mutation::Result->new( $whole->%*, entries => [ $whole->entries->[0] ], started => 80, finished => 90 );
-my $merged_at = { completed => 107, measured => { $first->id => $merged->finished } };
+my $uncovered = $whole->entries->[1]{mutant};
+my $old_kill  = { $changed->%*, mutant => $uncovered };
+my $merged    = Test::Mutation::Result->new(
+    $whole->%*,
+    entries  => [ $whole->entries->[0], $old_kill ],
+    started  => 80,
+    finished => 90
+);
+my $merged_at = { completed => 107, measured => { $first->id => 89, $uncovered->id => 90 } };
 Test::Mutation::Store::History::record( $config, $merged, 1, $merged_at );
-is Test::Mutation::Store::History::undetected($config), [ $gap->( $whole->entries->[0] ) ],
-  'merging older observed parts establishes the latest completed scope';
-is Test::Mutation::Store::History::entries( $config, { $file => $source }, [$first] )->{ $first->id }{finished}, 105,
-  'merging an older shard preserves the date of the newer individual observation';
+my $remaining = [ $gap->( $whole->entries->[1] ) ];
+is Test::Mutation::Store::History::undetected_scope( $config, [] ),
+  { selected => $remaining, identifiers => [ $uncovered->id ] },
+  'merging older shards selects their members and uses the later kill and uncovered verdict';
+my $inspected = Test::Mutation::Store::History::entries( $config, { $file => $source }, [ $first, $uncovered ] );
+is [ map { [ $inspected->{ $_->id }->@{qw(status finished)} ] } $first, $uncovered ],
+  [ [ 'Killed', 105 ], [ 'NoCoverage', 105 ] ], 'both inspected verdicts and timestamps come from the later recheck';
 
 subtest 'a merge keeps the finish time of each part for inspection' => sub {
     my $other   = Test::Mutation::Settings::of_call( { root => File::Temp::tempdir( CLEANUP => 1 ) } );
@@ -122,16 +131,15 @@ subtest 'read-only history stays available and fresh observations are private' =
     Capability::need( 'unprivileged', $> != 0, 'the superuser can write to read-only directories' );
     chmod oct('555'), $root or die "chmod: $!";
     my $reader = Test::Mutation::Settings::of_call( { root => $root } );
-    is Test::Mutation::Store::History::undetected($reader), [ $gap->( $whole->entries->[0] ) ],
+    is Test::Mutation::Store::History::undetected($reader), $remaining,
       'a query reads the existing history in the checkout';
     my $private = Test::Mutation::Store::path($reader);
     ok -f $private, 'the private writer starts from a snapshot of the indexed checkout';
-    is Test::Mutation::Store::History::undetected($reader), [ $gap->( $whole->entries->[0] ) ],
+    is Test::Mutation::Store::History::undetected($reader), $remaining,
       'the private snapshot includes the completed scope';
     Test::Mutation::Store::History::record( $reader, Test::Mutation::Result->new( $empty->%*, finished => 108 ), 1 );
     is Test::Mutation::Store::History::undetected($reader), [], 'a private measurement supersedes the imported scope';
     chmod oct('755'), $root or die "chmod: $!";
-    is Test::Mutation::Store::History::undetected($config), [ $gap->( $whole->entries->[0] ) ],
-      'the checkout still holds the earlier scope';
+    is Test::Mutation::Store::History::undetected($config), $remaining, 'the checkout still holds the earlier scope';
 };
 done_testing;

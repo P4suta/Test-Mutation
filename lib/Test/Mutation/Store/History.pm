@@ -135,16 +135,19 @@ sub undetected_scope ( $config, $filters ) {
 WITH scope AS (
     SELECT run, project, finished FROM measurement WHERE project = ? AND anchor = 1
     ORDER BY finished DESC, run DESC LIMIT 1
+), eligible AS (
+    SELECT observation.id, observation.source, observation.status, run, measurement.project,
+           coalesce(json_extract(observation.data, '$.measured'), measurement.finished) AS measured
+    FROM observation JOIN measurement USING(run)
+    WHERE measurement.complete = 1 AND observation.status NOT IN ('NoVerdict', 'Pending', 'Timeout')
 ), gaps AS (
     SELECT member.id, member.path, member.source, member.ordinal, json_extract(member.data, '$.lines') AS lines
     FROM scope JOIN observation member USING(run)
     WHERE (
-        SELECT evidence.status FROM observation evidence JOIN measurement USING(run)
-        WHERE evidence.id = member.id AND evidence.source = member.source
-          AND (measurement.finished, evidence.run) >= (scope.finished, scope.run)
-          AND measurement.project = scope.project AND complete = 1
-          AND evidence.status NOT IN ('NoVerdict', 'Pending', 'Timeout')
-        ORDER BY measurement.finished DESC, evidence.run DESC LIMIT 1
+        SELECT status FROM eligible
+        WHERE eligible.project = scope.project AND eligible.id = member.id AND eligible.source = member.source
+          AND (eligible.measured, eligible.run) >= (coalesce(json_extract(member.data, '$.measured'), scope.finished), scope.run)
+        ORDER BY eligible.measured DESC, eligible.run DESC LIMIT 1
     ) IN ('Survived', 'NoCoverage')
 )
 SELECT gaps.id, gaps.path, gaps.source, gaps.lines FROM scope LEFT JOIN gaps ON 1 ORDER BY gaps.ordinal
