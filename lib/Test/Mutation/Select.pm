@@ -72,6 +72,7 @@ signature_for resolve => (
     named => [
         config   => InstanceOf ['Test::Mutation::Config'],
         paths    => Optional [ Maybe [PathSelection] ],
+        changed  => Optional [ Maybe [PathSelection] ],
         operands => ArrayRef [Str],
         { default => sub { [] } },
         baseline_only => Bool,
@@ -104,10 +105,11 @@ sub resolve ($arg) {
     );
     my ( $program, $version ) = _interpreter( $root, $config->perl );
     my %matches;
-    my $files    = _files( $config, $root, 'source', \%matches );
-    my $tests    = _files( $config, $root, 'test',   \%matches );
-    my $changed  = defined $config->since ? Test::Mutation::Git::changed( $root, $config->since ) : undef;
-    my $paths    = $arg->operands->@*     ? paths( $root, $arg->operands, $files )                : $arg->paths;
+    my $files   = _files( $config, $root, 'source', \%matches );
+    my $tests   = _files( $config, $root, 'test',   \%matches );
+    my $changed = $arg->changed
+      // ( defined $config->since ? Test::Mutation::Git::changed( $root, $config->since ) : undef );
+    my $paths    = $arg->operands->@* ? paths( $root, $arg->operands, $files ) : $arg->paths;
     my $prefixes = $arg->identifiers || $config->mutant;
     my @pending;
     my $analysis = _analysis(

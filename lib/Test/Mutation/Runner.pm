@@ -17,6 +17,7 @@ use Test::Mutation::Store::History;
 use Test::Mutation::Coverage;
 use Test::Mutation::Error;
 use Test::Mutation::Event;
+use Test::Mutation::Git;
 use Test::Mutation::Message;
 use Test::Mutation::Launch;
 use Test::Mutation::Once;
@@ -154,8 +155,9 @@ sub run ( $config, $notify, $options = {} ) {
 }
 
 sub _recheck ( $config, $options ) {
-    my $paths = $options->{selection} ? $options->{selection}->selection->{paths} : $options->{paths};
-    my $gaps  = Test::Mutation::Store::History::undetected( $config, defined $paths ? [$paths] : [] );
+    my $paths   = $options->{selection}  ? $options->{selection}->selection->{paths} : $options->{paths};
+    my $changed = defined $config->since ? Test::Mutation::Git::changed( $config->root, $config->since ) : undef;
+    my $gaps    = Test::Mutation::Store::History::undetected( $config, [ grep { defined } $paths, $changed ] );
     Test::Mutation::Error::raise('measurement-history-missing') unless defined $gaps;
     my @ids       = map { $_->{id} } @$gaps;
     my $named     = Test::Mutation::Settings::for_mutants( $config, \@ids );
@@ -163,6 +165,7 @@ sub _recheck ( $config, $options ) {
         config           => $named,
         reports          => $options->{reports} || 0,
         summary          => $options->{summary},
+        changed          => $changed,
         historical_paths => { map { $_->{id} => $_->{path} } @$gaps },
         paths            => @ids ? $paths : {}
     );
