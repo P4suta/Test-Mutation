@@ -519,6 +519,7 @@ sub _previous_entries ( $config, $sources, $mutants ) {
               grep { exists $prior->sources->{$_} && $prior->sources->{$_} eq $sources->{$_}->text }
               keys $sources->%*;
             for my $entry ( $prior->entries->@* ) {
+                next if $entry->{status} eq 'Pending';
                 my $mutant = $entry->{mutant};
                 $entries{ $mutant->id } = { %$entry, finished => $prior->finished }
                   if $same{ $mutant->path } && delete $wanted{ $mutant->id };

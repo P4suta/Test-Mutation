@@ -50,4 +50,23 @@ is $repeat->{pruning}, 2, 'a complete inventory prunes obsolete identifiers and 
 my ( $listed, $queries ) = traced( sub { World::observe( ['list'], cwd => $root ) } );
 is $listed->{exit},     0, 'the measured catalog can be listed';
 is $queries->{history}, 1, 'listing the catalog reads its dated observations in one query';
+subtest 'an unfinished mutant keeps the timestamp of its last verdict' => sub {
+    my @killed  = grep { $_->{status} eq 'Killed' } $warm->entries->@*;
+    my $sent    = 0;
+    my $stopped = Test::Mutation::run(
+        root     => $root,
+        jobs     => 1,
+        mutant   => [ map { $_->{mutant}->id } @killed ],
+        on_event => sub ( $event, $value ) { kill 'TERM', $$ if $event eq 'mutant' && !$sent++ }
+    );
+    is $stopped->interrupted, 'TERM', 'the repeated measurement stops after a committed mutant';
+    my ($waiting) = grep { $_->{status} eq 'Pending' } $stopped->entries->@*;
+    ok $waiting, 'another requested mutant still awaits completion';
+    my $config   = Test::Mutation::Settings::of_call( { root => $root } );
+    my $id       = $waiting->{mutant}->id;
+    my $selected = Test::Mutation::Select::resolve( config => $config, identifiers => [$id], read_only => 1 );
+    my $past     = Test::Mutation::Store::History::entries( $config, $selected->sources, $selected->mutants )->{$id};
+    is [ $past->@{qw(status finished)} ], [ 'Killed', $warm->finished ],
+      'the unfinished rerun preserves the last measured status and finish time';
+};
 done_testing;

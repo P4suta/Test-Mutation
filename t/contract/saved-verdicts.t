@@ -78,4 +78,10 @@ subtest 'a failed or narrower first measurement preserves observations in earlie
     is $list_reads, 1, 'one complete historical report supplies the outstanding identifiers';
 };
 
+my $pending = saved_report( 'Pending', $earlier );
+write_file( "$directory/mutation.html",
+    Encode::encode( 'UTF-8', Test::Mutation::Report::Html::render( $pending, high => 80, low => 60 ) ) );
+( $shown, $reads ) = observed( 'show', $earlier_id );
+like $shown, qr/^Last result: Killed$/m, 'an unfinished report entry preserves the earlier measured verdict';
+
 done_testing;

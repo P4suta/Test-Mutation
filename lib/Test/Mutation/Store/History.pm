@@ -81,7 +81,8 @@ WITH measured AS (
     CROSS JOIN observation found JOIN measurement USING(run)
     WHERE found.rowid = (
         SELECT prior.rowid FROM observation prior JOIN measurement seen USING(run)
-        WHERE prior.id = requested.value AND prior.source = files.key AND seen.project = (SELECT project FROM measured)
+        WHERE prior.id = requested.value AND prior.source = files.key AND prior.status <> 'Pending'
+          AND seen.project = (SELECT project FROM measured)
         ORDER BY seen.finished DESC, seen.run DESC LIMIT 1
     )
 )
