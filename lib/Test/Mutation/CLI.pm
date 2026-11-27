@@ -499,10 +499,10 @@ sub _list ( $invocation, $world ) {
 
 sub _previous_entries ( $config, $sources, $mutants ) {
     my $indexed = Test::Mutation::Store::History::entries( $config, $sources, $mutants );
-    return $indexed if defined $indexed;
+    my %entries = %{ $indexed || {} };
+    my %wanted  = map { $_->id => 1 } grep { !exists $entries{ $_->id } } @$mutants;
+    return \%entries unless keys %wanted;
     my $directory = File::Spec->rel2abs( $config->report_dir, $config->root );
-    my %wanted    = map { $_->id => 1 } $mutants->@*;
-    my %entries;
     _previous_report(
         $directory,
         sub ($prior) {

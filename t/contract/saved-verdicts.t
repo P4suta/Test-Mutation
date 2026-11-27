@@ -61,4 +61,21 @@ write_file( "$directory/mutation.html",
 unlike $listed, qr/\[Survived\]/, 'a complete newer measurement supplies every listed verdict';
 is $list_reads, 1, 'a complete current report satisfies list without decoding the older format';
 
+subtest 'a failed or narrower first measurement preserves observations in earlier report files' => sub {
+    write_file( "$root/t/fail.t", "use Test::More tests => 1;\nfail 'original';\n" );
+    my @args = ( 'run', '--jobs', 1, '--format', 'terminal' );
+    is World::observe( \@args, cwd => $root )->{exit}, 3, 'the original suite fails';
+    my ( $shown, $reads ) = observed( 'show', $earlier_id );
+    like $shown, qr/^Last result: Killed$/m, 'a failed baseline leaves the last measured verdict visible';
+    unlink "$root/t/fail.t" or die "unlink failing test: $!";
+    is World::observe( [ @args, '--mutant', $recent_id ], cwd => $root )->{exit}, 0, 'one mutant is remeasured';
+    ( $shown, $reads ) = observed( 'show', $earlier_id );
+    like $shown, qr/^Last result: Killed$/m, 'a different mutant still finds its historical report';
+    ( $shown, $reads ) = observed( 'show', $recent_id );
+    is $reads, 0, 'the indexed mutant needs no reports';
+    ( $listed, $list_reads ) = observed('list');
+    like $listed, qr/^\Q$earlier_id\E .* \[Killed\]/m, 'listing combines indexed and earlier observations';
+    is $list_reads, 1, 'one complete historical report supplies the outstanding identifiers';
+};
+
 done_testing;
