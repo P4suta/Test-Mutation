@@ -153,9 +153,8 @@ subtest 'interruptions retain completed verdicts and account for every attempted
     my ( $finished, $started, $repeated ) = @mutants;
     my $done    = { status        => 'Killed', by => 't/known.t' };
     my $entries = { $finished->id => $done };
-    my @jobs    = (
+    my @unfinished = (
         { mutant => $finished },
-        { mutant => $started, verdict => { tests => 0 }, tests => [], duration => 0 },
         {
             mutant   => $repeated,
             verdict  => { tests => 1 },
@@ -164,7 +163,8 @@ subtest 'interruptions retain completed verdicts and account for every attempted
             duration => 3
         },
     );
-    Test::Mutation::Runner::_pending_jobs( \@jobs, $entries );
+    my @waiting = ( { mutant => $started, verdict => { tests => 0 }, tests => [], duration => 0 } );
+    Test::Mutation::Runner::_pending_jobs( sub { return shift @waiting }, $entries, @unfinished );
     is $entries->{ $finished->id }, $done, 'a completed detection retains its test';
     for my $pair ( [ $started, [], 0, 0 ], [ $repeated, [qw(t/add.t t/compare.t)], 5, 3 ] ) {
         my ( $mutant, $tests, $count, $duration ) = @$pair;

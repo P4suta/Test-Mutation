@@ -1458,6 +1458,7 @@ sub _execute_jobs ( $run, $baseline, $next_job, $entries, $cache ) {
 
 sub _pending_jobs ( $next_job, $entries, @unfinished ) {
     while ( my $job = @unfinished ? pop @unfinished : $next_job->() ) {
+        next if $entries->{ $job->{mutant}->id };
         my $tests_run = $job->{verdict}{tests};
         $tests_run += $job->{first}{tests} if $job->{first};
         $entries->{ $job->{mutant}->id } = _entry( $job->{mutant}, 'Pending', 'interrupted', 'the run was interrupted',
