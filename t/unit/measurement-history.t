@@ -68,6 +68,29 @@ subtest 'a merge keeps the finish time of each part for inspection' => sub {
 };
 my $off = Test::Mutation::Settings::of_call( { root => $root, cache => 0 } );
 is Test::Mutation::Store::History::undetected($off), undef, 'disabling the cache bypasses saved history';
+subtest 'history follows finish times when concurrent writers commit out of order' => sub {
+    my $other  = Test::Mutation::Settings::of_call( { root => File::Temp::tempdir( CLEANUP => 1 ) } );
+    my $record = sub ( $finished, $entries, $anchor ) {
+        my $result = Test::Mutation::Result->new( $whole->%*, entries => $entries, finished => $finished );
+        Test::Mutation::Store::History::record( $other, $result, $anchor );
+    };
+    my $gaps = sub { Test::Mutation::Store::History::undetected($other) };
+    $record->( 120, [$changed],      0 );
+    $record->( 110, $whole->entries, 1 );
+    is $gaps->(), [ $gap->( $whole->entries->[1] ) ], 'a later detection can commit before its scope';
+    $record->( 108, [], 1 );
+    is $gaps->(), [ $gap->( $whole->entries->[1] ) ], 'a late write with an older finish cannot replace the scope';
+    $record->( 130, [ $whole->entries->[0] ],     0 );
+    $record->( 130, [ $uncertain->entries->[0] ], 1 );
+    is $gaps->(), [], 'an inconclusive scope excludes the earlier write with the same finish';
+    $record->( 129.5, [ $whole->entries->[0] ], 0 );
+    is $gaps->(), [], 'a late observation from before the scope cannot open a gap';
+    $record->( 130, [ $whole->entries->[0] ], 0 );
+    is $gaps->(), [ $gap->( $whole->entries->[0] ) ], 'the next write with the same finish can open a gap';
+    $record->( 130, [], 1 );
+    is $gaps->(), [], 'recording another scope with the same finish breaks the tie';
+};
+
 subtest 'read-only history stays available and fresh observations are private' => sub {
     Capability::need( 'unprivileged', $> != 0, 'the superuser can write to read-only directories' );
     chmod oct('555'), $root or die "chmod: $!";

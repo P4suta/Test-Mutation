@@ -130,13 +130,15 @@ sub undetected_scope ( $config, $filters ) {
     my $project = Cwd::abs_path( $config->root );
     my $rows    = $db->selectall_arrayref( <<'SQL', { Slice => {} }, $project );
 WITH scope AS (
-    SELECT run, project FROM measurement WHERE project = ? AND anchor = 1 ORDER BY run DESC LIMIT 1
+    SELECT run, project, finished FROM measurement WHERE project = ? AND anchor = 1
+    ORDER BY finished DESC, run DESC LIMIT 1
 ), gaps AS (
     SELECT member.id, member.path, member.source, member.ordinal, json_extract(member.data, '$.lines') AS lines
     FROM scope JOIN observation member USING(run)
     WHERE (
         SELECT evidence.status FROM observation evidence JOIN measurement USING(run)
-        WHERE evidence.id = member.id AND evidence.source = member.source AND evidence.run >= scope.run
+        WHERE evidence.id = member.id AND evidence.source = member.source
+          AND (measurement.finished, evidence.run) >= (scope.finished, scope.run)
           AND measurement.project = scope.project AND complete = 1
           AND evidence.status NOT IN ('NoVerdict', 'Pending', 'Timeout')
         ORDER BY measurement.finished DESC, evidence.run DESC LIMIT 1
