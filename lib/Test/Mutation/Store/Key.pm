@@ -5,6 +5,8 @@ use Cwd             ();
 use Digest::SHA     ();
 use Encode          ();
 use Fcntl           qw(LOCK_SH O_RDONLY);
+use File::Basename  ();
+use File::Spec      ();
 use Time::HiRes     ();
 use Types::Standard qw(ArrayRef Bool Dict HashRef Maybe Optional Slurpy Str);
 use Type::Params    qw(signature_for);
@@ -41,15 +43,31 @@ sub environment ( $env, $project = undef ) {
     if ( defined $project ) {
         my $separator = $Config{path_sep};
         for my $name ( grep { defined $values{$_} } qw(PATH PERL5LIB PERLLIB) ) {
-            $values{$name} = digest(
-                map { index( "$_/", "$project/" ) == 0 ? ( 'project', substr( $_, length $project ) ) : ( 'path', $_ ) }
-                  split /\Q$separator\E/,
-                $values{$name},
-                -1
-            );
+            $values{$name} = digest( map { _search_path( $project, $_ ) } split /\Q$separator\E/, $values{$name}, -1 );
         }
     }
     return digest( map { ( $_, $values{$_} ) } @names );
+}
+
+sub _search_path ( $project, $entry ) {
+    my $path = File::Spec->rel2abs( $entry, $project );
+    my ( $directory, @missing ) = $path;
+    my $resolved;
+    while ( !defined( $resolved = Cwd::abs_path($directory) ) ) {
+        my $parent = File::Basename::dirname($directory);
+        return ( 'unresolved', $path )
+          if $parent eq $directory || -l $directory || $directory =~ m{(?:\A|/)\.\.(?:/|\z)};
+        unshift @missing, File::Basename::basename($directory);
+        $directory = $parent;
+    }
+    $resolved = File::Spec->catdir( $resolved, @missing ) if @missing;
+    my $relative = File::Spec->abs2rel( $resolved, $project );
+    my $absolute = File::Spec->file_name_is_absolute($entry);
+    if ( $relative eq '..' || $relative =~ m{\A\.\./} ) {
+        return $absolute ? ( 'path', $resolved ) : ( 'relative', $entry, $resolved );
+    }
+    return ( 'path',    $entry ) unless $absolute;
+    return ( 'project', $relative eq q{.} ? q{} : "/$relative" );
 }
 
 signature_for file => ( positional => [Str], returns => Str );

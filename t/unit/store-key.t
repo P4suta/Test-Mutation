@@ -48,6 +48,28 @@ subtest 'search paths inside a checkout compare by their relative names' => sub 
     isnt $input->( '/b', '/shared', '/b',     '/b-old/lib' ), $first, 'an adjacent directory stays external';
 };
 
+subtest 'a search directory outside the checkout keeps its location' => sub {
+    my $base = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    for my $site (qw(first second)) {
+        write_file( "$base/$site/repo/bin/tool", 'local' );
+        write_file( "$base/$site/tools/tool",    'external' );
+        symlink '../tools', "$base/$site/repo/tool-link" or die "link external search directory: $!";
+    }
+    for my $name (qw(PATH PERL5LIB PERLLIB)) {
+        my $key = sub ( $site, $entry ) {
+            my $project = "$base/$site/repo";
+            $entry =~ s{^ROOT}{$project};
+            return Test::Mutation::Store::Key::environment( { $name => $entry }, $project );
+        };
+        for my $external (qw(ROOT/../tools ROOT/tool-link ROOT/tool-link/absent/lib ../tools tool-link)) {
+            isnt $key->( 'first', $external ), $key->( 'second', $external ), "$name distinguishes $external";
+        }
+        for my $local (qw(ROOT/bin ROOT/bin/../bin ROOT/absent/lib bin)) {
+            is $key->( 'first', $local ), $key->( 'second', $local ), "$name relocates $local";
+        }
+    }
+};
+
 subtest 'a fingerprint frames UTF-8 bytes and distinguishes run metadata from test inputs' => sub {
     is Test::Mutation::Store::Key::digest( q{}, '0', "\x{2603}" ), Digest::SHA::sha256_hex("0:1:03:\xe2\x98\x83"),
       'the length of a non-ASCII input counts its encoded bytes';
