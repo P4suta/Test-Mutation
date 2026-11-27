@@ -97,8 +97,15 @@ subtest 'thousands of named mutants fit within SQLite query limits' => sub {
       'complete identifiers retain inventory order without duplicates';
     cmp_ok $candidate_queries, '<=', 5, 'two thousand complete identifiers use at most five candidate queries';
     my @prefixes = map { substr $_, 0, 11 } @ids;
-    $selected = Test::Mutation::Select::resolve( config => $settings, identifiers => [ reverse @prefixes, $ids[0] ] );
+    my $id_reads = 0;
+    my $read_id  = Test::Mutation::Mutant->can('id');
+    {
+        local *Test::Mutation::Mutant::id = sub (@arguments) { ++$id_reads; return $read_id->(@arguments) };
+        $selected =
+          Test::Mutation::Select::resolve( config => $settings, identifiers => [ reverse @prefixes, $ids[0] ] );
+    }
     is [ map { $_->id } $selected->mutants->@* ], \@ids, 'short prefixes and an overlapping complete identifier agree';
+    cmp_ok $id_reads, '<=', 8 * @ids, 'a batch of short prefixes makes a bounded number of passes over the candidates';
     $selected = Test::Mutation::Select::resolve( config => $settings, identifiers => [] );
     is $selected->mutants, [], 'an explicitly empty list selects zero mutants';
     my $db       = Test::Mutation::Store::database( Test::Mutation::Store::path( $settings, 0 ) );
@@ -128,5 +135,14 @@ subtest 'thousands of named mutants fit within SQLite query limits' => sub {
       ],
       [ $ids[0] ],
       'a large file catalog still resolves the requested mutant';
+};
+subtest 'two candidates with the same complete identifier are ambiguous' => sub {
+    my $collision = '111111111111';
+    no warnings 'redefine';
+    local *Test::Mutation::Mutant::id = sub ($mutant) { return $collision };
+    like dies {
+        Test::Mutation::Select::resolve( config => $config->( cache => 0, mutant => [$collision] ) );
+    }, qr/more than one mutant has the identifier $collision/,
+      'a full identifier cannot silently select two candidates';
 };
 done_testing;

@@ -176,12 +176,12 @@ sub resolve ($arg) {
 
 sub _named ( $arg, $prefixes, $mutants, $matches ) {
     my %wanted;
-    my %exact = map { $_->id => $_ } @$mutants;
+    my $current = _matches_by_prefix( $prefixes, $mutants );
     for my $prefix (@$prefixes) {
         Test::Mutation::Error::raise( 'mutant-unknown', identifier => $prefix )
           if !$arg->identifiers && length($prefix) < 4;
-        if ( !$exact{$prefix} && keys $arg->historical_paths->%* && !grep { index( $_->id, $prefix ) == 0 } @$mutants )
-        {
+        my $found = $current->{$prefix};
+        unless (@$found) {
             my @stale = grep { index( $_, $prefix ) == 0 } keys $arg->historical_paths->%*;
             Test::Mutation::Error::raise( 'mutant-ambiguous', identifier => $prefix ) if @stale > 1;
             Test::Mutation::Error::raise(
@@ -189,12 +189,27 @@ sub _named ( $arg, $prefixes, $mutants, $matches ) {
                 identifier => $stale[0],
                 path       => $arg->historical_paths->{ $stale[0] }
             ) if @stale;
+            Test::Mutation::Error::raise( 'mutant-unknown', identifier => $prefix );
         }
-        my $id = ( $exact{$prefix} || by_id( $mutants, $prefix ) )->id;
-        $wanted{$id} = 1;
-        $matches->{mutant}{$prefix} = [$id];
+        Test::Mutation::Error::raise( 'mutant-ambiguous', identifier => $prefix ) if @$found > 1;
+        $wanted{ $found->[0] } = 1;
+        $matches->{mutant}{$prefix} = $found;
     }
     return grep { $wanted{ $_->id } } @$mutants;
+}
+
+sub _matches_by_prefix ( $prefixes, $mutants ) {
+    my %found   = map { $_ => [] } @$prefixes;
+    my %lengths = map { length($_) => 1 } grep { /\A[0-9a-f]{1,12}\z/ } keys %found;
+    my @lengths = keys %lengths;
+    for my $mutant (@$mutants) {
+        my $id = $mutant->id;
+        for my $length (@lengths) {
+            my $matches = $found{ substr $id, 0, $length } or next;
+            push @$matches, $id if @$matches < 2;
+        }
+    }
+    return \%found;
 }
 
 sub _files ( $config, $root, $name, $matches ) {
