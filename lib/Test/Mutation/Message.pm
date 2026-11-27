@@ -74,6 +74,11 @@ my @ROWS = (
         'The command needs a completed scope before it can recheck undetected changes.'
     ],
     [
+        'mutant-history-stale', 'usage',
+        'mutant {identifier} is no longer present. Run mutation run {path} to measure the file again',
+        'The source no longer contains a mutant from the last completed measurement.'
+    ],
+    [
         'mutant-unknown', 'usage',
         'no mutant has the identifier {identifier}',
         'No mutant of the project has an identifier that starts with the given text.'

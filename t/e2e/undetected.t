@@ -36,4 +36,12 @@ my $empty = ran( 0, $project, 'run', '--undetected', @options, '--min-score', 10
 like $empty->{stdout},   qr/^0 mutants$/m, 'a repaired scope has zero mutants';
 unlike $empty->{stderr}, qr/Baseline \(/,  'an empty recheck skips the test processes';
 
+unlink "$project/t/positive.t" or die $!;
+ran( 0, $project, 'run', @options );
+write_file( "$project/lib/Totals.pm", "package Totals;\nsub sum { return 4 }\n1;\n" );
+my $stale = ran( 2, $project, 'run', '--undetected', @options );
+like $stale->{stderr}, qr/\Q$id\E.*mutation run lib\/Totals\.pm/,
+  'a missing historical mutant names the file to measure';
+unlike $stale->{stderr}, qr/Baseline \(/, 'a stale identifier is diagnosed before testing';
+
 done_testing;

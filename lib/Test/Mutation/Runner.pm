@@ -158,9 +158,10 @@ sub _recheck ( $config, $options ) {
     my @ids       = map { $_->{id} } @$gaps;
     my $named     = Test::Mutation::Settings::for_mutants( $config, \@ids );
     my $selection = Test::Mutation::Select::resolve(
-        config  => $named,
-        reports => $options->{reports} || 0,
-        summary => $options->{summary},
+        config           => $named,
+        reports          => $options->{reports} || 0,
+        summary          => $options->{summary},
+        historical_paths => { map { $_->{id} => $_->{path} } @$gaps },
         @ids ? () : ( paths => {} )
     );
     return (
@@ -1724,7 +1725,8 @@ sub _save_observation ( $run, $cache, $entry ) {
         inputs => $key,
         path   => $mutant->path,
         source => $cache->{targets}{ $mutant->path },
-        $entry->%{qw(status reason detail by tests_run duration)}, code => $run->{code_of_mutant}{ $mutant->id },
+        $entry->%{qw(status reason detail by tests_run duration)},
+        code => $run->{code_of_mutant}{ $mutant->id },
         exists $entry->{observations} ? ( observations => $entry->{observations} ) : ()
     };
     Test::Mutation::Store::save( $cache->{path}, { $mutant->id => $record } );
