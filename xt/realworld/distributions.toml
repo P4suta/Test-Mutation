@@ -131,7 +131,8 @@ options = ["--shard", "1/4"]
 
 [Moo.expect]
 mutants = [306, 306]
-score = [67.5, 67.6]
+score = [67.3, 67.4]
+verdicts = { "0aab79c15dd2" = "NoCoverage" }
 warnings = []
 seconds = 120
 

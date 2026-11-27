@@ -606,6 +606,8 @@ open my $handle, '<:encoding(UTF-8)', 'xt/realworld/distributions.toml' or die "
 my $runs = RealWorld::runs( do { local $/ = undef; readline $handle } );
 close $handle or die "close the table: $!";
 my %archives = map { $_->{pathname} => 1 } $runs->@*;
+my @verdicts = map { keys %{ $_->{expect}{verdicts} || {} } } $runs->@*;
+Gate::checked( 'expected verdicts with mutant IDs',            scalar @verdicts,      at_least => 6 );
 Gate::checked( 'runs of the table',                            scalar $runs->@*,      at_least => 11 );
 Gate::checked( 'distributions of the table',                   scalar keys %archives, at_least => 8 );
 Gate::checked( 'kinds of finding with a rejected observation', scalar @KINDS,         at_least => 21 );
