@@ -27,8 +27,6 @@ use Test::Mutation::Outcome;
 use Test::Mutation::Message;
 use Test::Mutation::Mutator::Catalog;
 use Test::Mutation::Report::GitHub;
-use Test::Mutation::Report::Html;
-use Test::Mutation::Report::Json;
 use Test::Mutation::Report::Patch;
 use Test::Mutation::Report::Results;
 use Test::Mutation::Report::Live;
@@ -351,10 +349,7 @@ sub _progress ( $invocation, $world ) {
         $world->{clock}, Test::Mutation::Host::describe( $invocation->{processors} ) );
 }
 
-my %FILE_REPORT = (
-    json => [ 'mutation.json', \&Test::Mutation::Report::Json::stream ],
-    html => [ 'mutation.html', \&Test::Mutation::Report::Html::stream ],
-);
+my %FILE_REPORT = ( json => 'mutation.json', html => 'mutation.html' );
 
 sub _report ( $result, $config, $world, $listener = sub { return } ) {
     my %wanted = map { $_ => 1 } $config->format->@*;
@@ -383,27 +378,33 @@ sub _file_reports ( $result, $config, $formats ) {
     sysopen my $lock, $target, O_RDONLY
       or Test::Mutation::Error::raise( 'directory-unopenable', path => $directory, reason => "$!" );
     flock $lock, LOCK_EX or Test::Mutation::Error::raise( 'file-unwritable', path => $directory, reason => "$!" );
-    my @written;
+    my %output;
     for my $format (@$formats) {
-        my ( $name, $stream ) = $FILE_REPORT{$format}->@*;
-        _write(
-            "$target/$name",
-            "$directory/$name",
-            '>',
-            sub ($write) {
-                $stream->( $result, high => $config->threshold_high, low => $config->threshold_low, write => $write );
-            }
-        );
-        push @written, "$directory/$name";
+        my $name = $FILE_REPORT{$format};
+        $output{$format} = _stage_report( "$target/$name", "$directory/$name" );
     }
+    my @thresholds = ( high => $config->threshold_high, low => $config->threshold_low );
+    if ( $output{html} ) {
+        require Test::Mutation::Report::Html;
+        Test::Mutation::Report::Html::stream(
+            $result, @thresholds,
+            write => $output{html}{write},
+            $output{json} ? ( write_json => $output{json}{write} ) : ()
+        );
+    }
+    else {
+        require Test::Mutation::Report::Json;
+        Test::Mutation::Report::Json::stream( $result, @thresholds, write => $output{json}{write} );
+    }
+    _publish_report( $output{$_} ) for @$formats;
     close $lock or Test::Mutation::Error::raise( 'file-unclosable', path => $directory, reason => "$!" );
-    return @written;
+    return map { $output{$_}{name} } @$formats;
 }
 
 sub _previous_report ( $directory, $select ) {
     my @reports;
     for my $format (qw(json html)) {
-        my $path = "$directory/$FILE_REPORT{$format}[0]";
+        my $path = "$directory/$FILE_REPORT{$format}";
         my ( $mode, $modified ) = ( Time::HiRes::stat($path) )[ 2, 9 ];
         push @reports, { path => $path, modified => $modified } if defined $mode && S_ISREG($mode);
     }
@@ -429,39 +430,20 @@ sub _previous_report ( $directory, $select ) {
 sub _report_to_github ( $result, $world, $config ) {
     my $path = $world->{env}{GITHUB_STEP_SUMMARY};
     if ( defined $path && length $path ) {
-        my @reports = map { File::Spec->catfile( $config->report_dir, $FILE_REPORT{$_}[0] ) }
+        my @reports = map { File::Spec->catfile( $config->report_dir, $FILE_REPORT{$_} ) }
           grep { exists $FILE_REPORT{$_} } $config->format->@*;
-        _write(
-            File::Spec->rel2abs( $path, $config->root ),
-            $path, '>>',
-            sub ( $write, $used ) {
-                $write->( Test::Mutation::Report::GitHub::summary( $result, $result->min_score, \@reports, $used ) );
-            }
-        );
+        open my $file, '>>:encoding(UTF-8)', File::Spec->rel2abs( $path, $config->root )
+          or Test::Mutation::Error::raise( 'file-unwritable', path => $path, reason => "$!" );
+        flock $file, LOCK_EX or Test::Mutation::Error::raise( 'file-unwritable', path => $path, reason => "$!" );
+        print {$file} Test::Mutation::Report::GitHub::summary( $result, $result->min_score, \@reports, -s $file )
+          or Test::Mutation::Error::raise( 'file-unwritable', path => $path, reason => "$!" );
+        close $file or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
     }
     print { $world->{err} } Test::Mutation::Report::GitHub::annotations($result);
     return;
 }
 
-# Writes a text to a file, which an error names as the user knows it.
-sub _write ( $path, $name, $mode, $produce ) {
-    my $write_to = sub ( $handle, @context ) {
-        $produce->(
-            sub ($chunk) {
-                print {$handle} $chunk
-                  or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
-            },
-            @context
-        );
-    };
-    if ( $mode eq '>>' ) {
-        open my $file, '>>:encoding(UTF-8)', $path
-          or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
-        flock $file, LOCK_EX or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
-        $write_to->( $file, -s $file );
-        close $file or Test::Mutation::Error::raise( 'file-unclosable', path => $name, reason => "$!" );
-        return;
-    }
+sub _stage_report ( $path, $name ) {
     $path = Cwd::abs_path($path) if -l $path;
     my $temporary = File::Temp->new( DIR => File::Basename::dirname($path), PERMS => oct '666' );
     if ( -f $path ) {
@@ -470,10 +452,22 @@ sub _write ( $path, $name, $mode, $produce ) {
     }
     binmode $temporary, ':encoding(UTF-8)'
       or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
-    $write_to->($temporary);
-    close $temporary or Test::Mutation::Error::raise( 'file-unclosable', path => $name, reason => "$!" );
-    rename $temporary->filename, $path
-      or Test::Mutation::Error::raise( 'file-unrenamable', path => $name, reason => "$!" );
+    return {
+        path  => $path,
+        name  => $name,
+        file  => $temporary,
+        write => sub ($chunk) {
+            print {$temporary} $chunk
+              or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
+        }
+    };
+}
+
+sub _publish_report ($output) {
+    my $file = $output->{file};
+    close $file or Test::Mutation::Error::raise( 'file-unclosable', path => $output->{name}, reason => "$!" );
+    rename $file->filename, $output->{path}
+      or Test::Mutation::Error::raise( 'file-unrenamable', path => $output->{name}, reason => "$!" );
     return;
 }
 

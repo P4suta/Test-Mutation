@@ -114,19 +114,27 @@ subtest 'a report update excludes a second writer until both formats are saved' 
         die "lock the report directory: $!" unless $!{EWOULDBLOCK} || $!{EAGAIN};
         return 0;
     };
-    my $sample = Samples::result( statuses => ['Killed'], letters => 'latin1' );
-    my $write  = Test::Mutation::CLI->can('_write');
+    my $sample      = Samples::result( statuses => ['Killed'], letters => 'latin1' );
+    my $stage       = Test::Mutation::CLI->can('_stage_report');
+    my $description = Test::Mutation::Mutant->can('description');
+    my $described   = 0;
     my @locks;
     no warnings 'redefine';
-    local *Test::Mutation::Runner::run = sub { return $sample };
-    local *Test::Mutation::CLI::_write = sub ( $path, $name, $mode, $text ) {    ## no critic (Variables::ProtectPrivateVars)
+    local *Test::Mutation::Runner::run         = sub { return $sample };
+    local *Test::Mutation::Mutant::description = sub ($self) { $described++; return $description->($self) };
+    local *Test::Mutation::CLI::_stage_report  = sub ( $path, $name ) {                                        ## no critic (Variables::ProtectPrivateVars)
         push @locks, [ $name, $available->() ];
-        return $write->( $path, $name, $mode, $text );
+        return $stage->( $path, $name );
     };
     my $observed = World::observe( [ 'run', '--report-dir', 'locked-reports', '--format', 'json', '--format', 'html' ],
         cwd => $root );
     is $observed->{exit}, 0, 'the writer saved both reports';
-    my $bytes = Test::Mutation::Source::read_bytes("$directory/mutation.json");
+    is $described,        1, 'publishing the same mutant to JSON and HTML encodes it once';
+    my $bytes      = Test::Mutation::Source::read_bytes("$directory/mutation.json");
+    my $html       = Test::Mutation::Source::read_bytes("$directory/mutation.html");
+    my ($embedded) = $html =~ m{<script id="report" type="application/json">(.+?)</script>}s;
+    is JSON::PP->new->utf8->decode($embedded), JSON::PP->new->utf8->decode($bytes),
+      'the viewer and the standalone report receive the same measurement';
     is JSON::PP->new->utf8->decode($bytes)->{files}{'lib/Sample.pm'}{source}, $sample->sources->{'lib/Sample.pm'},
       'a UTF-8 reader recovers the original accented source from the published report';
     is \@locks, [ [ 'locked-reports/mutation.json', 0 ], [ 'locked-reports/mutation.html', 0 ] ],

@@ -1,7 +1,7 @@
 package Test::Mutation::Report::Html;
 use v5.36;
 use Encode          ();
-use Types::Standard qw(CodeRef InstanceOf Num Str Undef);
+use Types::Standard qw(CodeRef InstanceOf Num Optional Str Undef);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Error;
 use Test::Mutation::Report::Json;
@@ -46,7 +46,7 @@ sub render ( $result, $arg ) {
 
 signature_for stream => (
     head    => [ InstanceOf ['Test::Mutation::Result'] ],
-    named   => [ high => Num, low => Num, write => CodeRef ],
+    named   => [ high => Num, low => Num, write => CodeRef, write_json => Optional [CodeRef] ],
     returns => Undef,
 );
 
@@ -86,7 +86,10 @@ HTML
         $result,
         high  => $arg->high,
         low   => $arg->low,
-        write => sub ($chunk) { $write->( $chunk =~ s/</\\u003c/gr ) }
+        write => sub ($chunk) {
+            $arg->write_json->($chunk) if $arg->has_write_json;
+            $write->( $chunk =~ s/</\\u003c/gr );
+        }
     );
     $write->(<<'HTML');
 </script>
@@ -126,6 +129,7 @@ Every left angle bracket in the report data is escaped, so source text cannot en
 =head2 stream
 
 Writes the viewer and the escaped report through the C<write> callback.
+The optional C<write_json> callback receives the same JSON before HTML escaping.
 
 =head2 viewer_script
 

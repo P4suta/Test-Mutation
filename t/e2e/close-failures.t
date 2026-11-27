@@ -111,7 +111,8 @@ is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 5, 'mutation: cannot close part
 }
 
 ( $status, $errors ) =
-  failing_in( qr/::CLI::_write\z/, sub { command( 'merge', @reports, '--format', 'json', '--report-dir', 'whole' ) } );
+  failing_in( qr/::CLI::_publish_report\z/,
+    sub { command( 'merge', @reports, '--format', 'json', '--report-dir', 'whole' ) } );
 is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 5, 'mutation: cannot close whole/mutation.json' ],
   'a report file that does not close after the write fails the command';
 
@@ -124,8 +125,8 @@ is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 5, 'mutation: cannot close whol
 
 {
     local $ENV{GITHUB_STEP_SUMMARY} = "$root/summary.md";
-    ( $status, $errors ) =
-      failing_in( qr/::CLI::_write\z/, sub { command( 'merge', @reports, '--format', 'terminal', '--github' ) } );
+    ( $status, $errors ) = failing_in( qr/::CLI::_report_to_github\z/,
+        sub { command( 'merge', @reports, '--format', 'terminal', '--github' ) } );
     is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 5, "mutation: cannot close $root/summary.md" ],
       'a job summary that does not close fails the command';
 }
