@@ -4,6 +4,7 @@ use File::Temp ();
 use lib 't/e2e/lib', 't/contract/lib';
 use Fixture qw(copy_of write_file);
 use World;
+use Test::Mutation::Report::Json;
 use Test::Mutation::Runner;
 use Test::Mutation::Settings;
 use Test::Mutation::Store::History;
@@ -92,6 +93,8 @@ PERL
         is \@analysis, [], "$arguments->[0] uses the installed analyzer versions without loading the parsers";
         my @harness = grep { m{\Aloaded TAP/(?:Harness|Parser/SourceHandler/Perl)[.]pm\n\z} } @output;
         is \@harness, [], "$arguments->[0] does not start the test harness";
+        my @writers = grep { m{\Aloaded Test/Mutation/Report/(?:Json|Html)[.]pm\n\z} } @output;
+        is \@writers, [], "$arguments->[0] formats the indexed result without opening an earlier report";
     }
 };
 my ( $parsed, $reports, $restored ) = ( 0, 0, 0 );
