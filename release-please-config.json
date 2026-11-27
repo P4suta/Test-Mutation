@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/05c6a4f71022304d4edad24ea90c1c16324503d5/schemas/config.json",
+  "bootstrap-sha": "837a301e21db06e3d4127bae62c00b25b158779d",
+  "packages": {
+    ".": {
+      "release-type": "perl-distribution",
+      "initial-version": "0.1.0",
+      "include-component-in-tag": false,
+      "draft": true,
+      "force-tag-creation": true
+    }
+  }
+}

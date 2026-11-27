@@ -112,6 +112,16 @@ my @groups   = map { [ commands( $tasks, $_->{task} ) ] } @runners;
 my @hosted   = map { $_->@* } @groups;
 my @local    = commands( $tasks, 'check' );
 is [ sort @hosted ], [ sort @local ], 'the hosted jobs run every local fast check exactly once';
+my $author = $tasks->{'test-release-tools'} || {};
+is $author->{tools}, { node => '26.13.1', rust => '1.100.0' }, 'the author tests select their own toolchains';
+my ($proposals) = grep { /npm ci / } @local;
+like $proposals, qr/npm ci --ignore-scripts --no-audit --no-fund/,
+  'the proposal tests use the lockfile without running install hooks';
+like $proposals, qr/npm test --prefix xt\/release-please/, 'the proposal tests exercise the working copy';
+ok scalar grep( { $_ eq 'python3 -I xt/release-publish/test_pause.py' } @local ),
+  'the local gate exercises the PAUSE adapter';
+ok reached( $fast, 'xt/release-publish/draft.t' ),       'the fast gate exercises draft recovery';
+ok reached( $fast, 'xt/release-publish/credentials.t' ), 'the fast gate exercises credential transport';
 is scalar( grep { $_->@* == 1 && $_->[0] eq $tasks->{e2e}{run} } @groups ), 1,
   'the end-to-end tests have a runner to themselves';
 my $timeout = $gate_job->{'timeout-minutes'} || q{};
@@ -128,7 +138,8 @@ my ($run_group) =
   grep { defined $_->{env}{CHECK_TASK} && $_->{env}{CHECK_TASK} eq '${{ matrix.task }}' } $gate_job->{steps}->@*;
 is $run_group && $run_group->{run}, 'mise run "$CHECK_TASK"', 'each hosted job passes its assigned task as an argument';
 my $distribution = CPAN::Meta::YAML->read_string( slurp('.github/workflows/release-gate.yml') )->[0];
-is [ sort keys $distribution->{on}->%* ], ['workflow_dispatch'], 'the release checks run on manual dispatch';
+is [ sort keys $distribution->{on}->%* ], [qw(workflow_call workflow_dispatch)],
+  'controllers and manual rehearsals run the release checks';
 my @mac     = grep { $_->{'runs-on'} =~ /\Amacos-/ } values $distribution->{jobs}->%*;
 my @install = grep {
     my %steps = map { $_->{run} => 1 } grep { defined $_->{run} } $_->{steps}->@*;

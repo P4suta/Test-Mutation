@@ -1,0 +1,78 @@
+name: Release proposal
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [closed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Prepare the distribution release
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name != 'pull_request' ||
+      (github.event.pull_request.merged &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'release-please--branches--main' &&
+      github.event.pull_request.user.type == 'Bot'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release-please
+    concurrency:
+      group: release-please-${{ github.event_name == 'pull_request' && github.sha || 'proposals' }}
+      cancel-in-progress: false
+    outputs:
+      source_sha: ${{ steps.prepare.outputs.source_sha }}
+      tag: ${{ steps.prepare.outputs.tag }}
+      version: ${{ steps.prepare.outputs.version }}
+      release_id: ${{ steps.prepare.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26.13.1'
+          package-manager-cache: false
+      - run: npm ci --prefix xt/release-please --omit=dev --ignore-scripts --no-audit --no-fund
+      - id: credentials
+        uses: DopplerHQ/secrets-fetch-action@451892f16195f9ac360e1a5bcbf0b5fd0e957534
+        with:
+          doppler-token: ${{ secrets.DOPPLER_TOKEN }}
+          inject-env-vars: false
+      - id: app
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          client-id: ${{ steps.credentials.outputs.GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ steps.credentials.outputs.GITHUB_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+      - id: prepare
+        run: node xt/release-please/run.cjs
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          RELEASE_APP_SLUG: ${{ steps.app.outputs.app-slug }}
+
+  publish:
+    name: Publish the verified distribution
+    needs: prepare
+    if: github.event_name == 'pull_request' && needs.prepare.outputs.release_id != ''
+    permissions:
+      contents: write  # Attach verified assets and publish the draft.
+      actions: read  # Read the verified distribution artifact.
+    # GitHub resolves local reusable workflows at the caller's commit.
+    uses: ./.github/workflows/publish-cpan.yml  # zizmor: ignore[self-repository]
+    with:
+      source_sha: ${{ needs.prepare.outputs.source_sha }}
+      tag: ${{ needs.prepare.outputs.tag }}
+      release_id: ${{ needs.prepare.outputs.release_id }}
+      version: ${{ needs.prepare.outputs.version }}

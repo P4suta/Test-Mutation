@@ -117,6 +117,13 @@ ok( defined $test_files && $test_files >= 25, 'and runs the unit, assumption, an
 my @private =
   qw(.claude/worktrees/topic/lib/Unpublished.pm .env.local lib/Unpublished.pm lib/.DS_Store lib/._Module.pm);
 write_file( "$scratch/$_", "local build data\n" ) for @private;
+my @release_tools = qw(
+  release-please-config.json xt/release-please/package.json xt/release-please/node_modules/dependency/index.js
+  xt/release-publish/draft.rs xt/release-workflow.t xt/publication-workflow.t xt/release-archive.t xt/bin/verify-release-archive
+);
+write_file( "$scratch/$_", "release automation\n" ) for grep { !-e "$scratch/$_" } @release_tools;
+ok in_scratch( 'git', 'add', '--force', '--', @release_tools ), 'the release tools are tracked'
+  or diag build_log();
 
 symlink "$scratch/lib", "$scratch/.claude/worktrees/topic/lib-link" or die "link the shared library: $!";
 write_file( "$scratch/MANIFEST", "MANIFEST\nlib/Unpublished.pm\n" );
@@ -135,6 +142,8 @@ is [ grep { !$packed{"$prefix/$_"} } @wanted ], [], 'the archive holds the sourc
 is build_output( $prefix, keys %packed ),       [], 'and leaves out installed dependencies, build output, and reports';
 is [ grep { $packed{"$prefix/$_"} } @private ], [],
   'worktrees, local settings and filesystem metadata stay out of the archive';
+is [ grep { $packed{"$prefix/$_"} } @release_tools ], [],
+  'the CPAN archive leaves out publication tools and their dependencies';
 Gate::checked( 'members of the archive', scalar( keys %packed ), at_least => 150 );
 
 IO::Uncompress::Gunzip::gunzip( "$scratch/$prefix.tar.gz" => \my $bytes ) or die 'cannot read the archive';

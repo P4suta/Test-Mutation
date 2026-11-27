@@ -1,0 +1,123 @@
+#!/usr/bin/env perl
+use v5.36;
+use Digest::SHA    qw(sha256_hex);
+use File::Copy     qw(copy);
+use File::Basename qw(basename);
+
+my $root   = $ENV{FAKE_REMOTE};
+my $name   = 'Test-Mutation-0.001.tar.gz';
+my $source = 'ab' x 20;
+
+sub read_file ($file) {
+    open my $in, '<:raw', "$root/$file" or die "read $file: $!";
+    local $/ = undef;
+    my $contents = readline $in;
+    return defined $contents ? $contents : q{};
+}
+
+sub write_file ( $file, $value ) {
+    open my $out, '>:raw', "$root/$file" or die "write $file: $!";
+    print {$out} $value or die "write $file: $!";
+    close $out          or die "close $file: $!";
+    return;
+}
+
+sub value ( $filename, $fallback ) {
+    return -f "$root/$filename" ? read_file($filename) : $fallback;
+}
+
+sub asset_row ( $file, $id ) {
+    my $bytes = read_file($file);
+    my $state = value( "$file.state", 'uploaded' );
+    my $hash  = $state eq 'starter' ? q{} : 'sha256:' . sha256_hex($bytes);
+    my @row   = (
+        value( "$file.id",     $id ),
+        value( "$file.name",   $file ),
+        value( "$file.digest", $hash ),
+        value( "$file.label",  q{} ),
+        value( "$file.author", q{} ), $state
+    );
+    push @row, length($bytes) if grep { /[.]size/ } @ARGV;
+    return join "\t", @row;
+}
+
+sub complete ( $file, $marker ) {
+    return if !-f "$root/$file.$marker";
+    write_file( $file,         read_file("$file.$marker") );
+    write_file( "$file.label", $source );
+    unlink "$root/$file.$marker", "$root/$file.state";
+    return;
+}
+
+my $command = shift @ARGV;
+if ( $command eq 'api' ) {
+    write_file( 'api-used', 1 );
+    write_file( 'delete-used', 1 ) if grep { $_ eq 'DELETE' } @ARGV;
+    my ($path) = grep { m{\Arepos/} } @ARGV;
+    if ( $path =~ m{/releases/17\z} ) {
+        say join "\t", 'v0.1.0', $source, read_file('draft'), '17';
+        exit 0;
+    }
+    if ( $path =~ m{/commits/v0[.]1[.]0\z} ) {
+        say $source;
+        exit 0;
+    }
+    if ( $path =~ m{/git/ref/tags/v0[.]1[.]0\z} ) {
+        exit 1 if !-f "$root/tag";
+        say join "\t", 'commit', read_file('tag');
+        exit 0;
+    }
+    if ( $path =~ m{/releases/17/assets\z} ) {
+        my $id = 10;
+        for my $file ( $name, "$name.sha256" ) {
+            if ( -f "$root/$file" ) {
+                say asset_row( $file, $id );
+                complete( $file, 'complete' );
+            }
+            ++$id;
+        }
+        write_file( 'draft', 'false' ) if unlink "$root/publish-after-list";
+        exit 0;
+    }
+    if ( $path =~ m{/releases/assets/(10|11)\z} ) {
+        my $id   = $1;
+        my $file = $id == 10 ? $name : "$name.sha256";
+        exit 1 if !-f "$root/$file";
+        complete( $file, 'complete-at-asset' );
+        if ( grep { $_ eq 'DELETE' } @ARGV ) {
+            write_file( "$file.deleted", $id );
+            unlink "$root/$file" or die "delete asset: $!";
+            unlink map { "$root/$file.$_" } qw(id name label digest author state);
+        }
+        elsif ( grep { $_ eq '--jq' } @ARGV ) {
+            say asset_row( $file, $id );
+        }
+        else { print read_file($file) }
+        exit 0;
+    }
+    exit 2;
+}
+elsif ( $command eq 'release' ) {
+    my $verb = shift @ARGV;
+    if ( $verb eq 'upload' ) {
+        my ($asset) = grep { index( $_, '#' ) >= 0 } @ARGV;
+        my ( $file, $label ) = split /\#/, $asset, 2;
+        my $target = basename($file);
+        exit 1 if -e "$root/$target" || read_file('draft') ne 'true';
+        if ( unlink "$root/$target.interrupt" ) {
+            write_file( $target,          q{} );
+            write_file( "$target.author", 'github-actions[bot]' );
+            write_file( "$target.state",  'starter' );
+            exit 1;
+        }
+        copy( $file, "$root/$target" ) or die "attach $file: $!";
+        write_file( "$target.label",  $label );
+        write_file( "$target.author", 'github-actions[bot]' );
+    }
+    elsif ( $verb eq 'edit' && grep { $_ eq '--draft=false' } @ARGV ) {
+        write_file( 'draft', 'false' );
+        write_file( 'edits', 1 + ( -f "$root/edits" ? read_file('edits') : 0 ) );
+    }
+    else { exit 2 }
+}
+else { exit 2 }
