@@ -11,7 +11,7 @@ const pull = {
 	merged: true,
 	state: "closed",
 	merge_commit_sha: sha,
-	user: { type: "Bot", login: `${slug}[bot]` },
+	user: { id: 1234, type: "Bot", login: `${slug}[bot]` },
 	head: {
 		ref: "release-please--branches--main",
 		repo: { full_name: repository },
@@ -27,6 +27,7 @@ function remote() {
 		before: "0.0.0",
 		created: [],
 		labels: 0,
+		botId: async () => 1234,
 		versions: async () => [remote.before, remote.version],
 		tagSha: async () => remote.tag,
 		findRelease: async () => remote.release,
@@ -64,6 +65,7 @@ test("only the merged same-repository preparation App proposal can create a draf
 	for (const pr of [
 		undefined,
 		{ ...pull, merged: false },
+		{ ...pull, user: { ...pull.user, id: 9876 } },
 		{ ...pull, head: { ...pull.head, ref: "feat/release" } },
 		{ ...pull, user: { type: "User", login: "maintainer" } },
 		{ ...pull, user: { type: "Bot", login: "another[bot]" } },

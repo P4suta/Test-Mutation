@@ -15,6 +15,11 @@ async function draftForMerge({ pull, repository, slug, source }, service) {
 		pull.user.login !== `${slug}[bot]`
 	)
 		return;
+	if (
+		!Number.isSafeInteger(pull.user.id) ||
+		pull.user.id !== (await service.botId(slug))
+	)
+		return;
 	if (!/^[a-f0-9]{40}$/.test(source) || pull.merge_commit_sha !== source)
 		throw new Error("Release source must equal the merge commit");
 	const [before, next] = await service.versions(source);
