@@ -52,11 +52,27 @@ subtest 'the latest merged scope supplies uncovered changes to the recheck' => s
         write_file( "$root/lib/$name.pm", "package $name;\nsub add { return \$_[0] + \$_[1] }\n1;\n" );
     }
     write_file( "$root/t/original.t", "use Test::More tests => 1;\npass 'original test';\n" );
-    ran( 0, $root, 'run', 'lib/Unused.pm', @options );
+    my $archive = File::Temp::tempdir( CLEANUP => 1 );
+    my ( @reports, %when );
     for my $part ( 1, 2 ) {
-        ran( 0, $root, 'run', 'lib/Sum.pm', '--shard', "$part/2", '--report-dir', "part$part", '--format', 'json' );
+        my $directory = "$archive/part$part";
+        ran(
+            0,            $root,          'run',      'lib/Sum.pm', '--shard', "$part/2",
+            '--no-cache', '--report-dir', $directory, '--format',   'json'
+        );
+        my $path        = "$directory/mutation.json";
+        my $part_result = Test::Mutation::Report::Json::parse( Test::Mutation::Source::read_bytes($path) );
+        my $dated       = Test::Mutation::Result->new( $part_result->%*, started => 0, finished => 10 * $part );
+        write_file( $path, Test::Mutation::Report::Json::render( $dated, high => 80, low => 60 ) );
+        push @reports, $path;
+        $when{ $dated->entries->[0]{mutant}->id } = sprintf '1970-01-01T00:00:%02dZ', 10 * $part;
     }
-    ran( 0, $root, 'merge', 'part2/mutation.json', 'part1/mutation.json', '--format', 'json' );
+    ran( 0, $root, 'run', 'lib/Unused.pm', @options );
+    ran( 0, $root, 'merge', reverse(@reports), '--format', 'json' );
+    for my $id ( sort keys %when ) {
+        like ran( 0, $root, 'show', $id )->{stdout}, qr/^Measured at: \Q$when{$id}\E$/m,
+          'the merged history shows the original measurement date for each shard';
+    }
     my $file      = "$root/mutation-report/mutation.json";
     my $read      = sub { Test::Mutation::Report::Json::parse( Test::Mutation::Source::read_bytes($file) ) };
     my @uncovered = map { $_->{mutant}->id } grep { $_->{status} eq 'NoCoverage' } $read->()->entries->@*;

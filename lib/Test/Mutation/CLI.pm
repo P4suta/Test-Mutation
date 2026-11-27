@@ -597,12 +597,19 @@ sub _read_report ( $path, $root ) {
 sub _merge ( $invocation, $world ) {
     require Test::Mutation::Merge;
     my $config = $invocation->{config};
-    my $result = Test::Mutation::Merge::merge(
-        [ map { { name => $_, result => _read_report( $_, $config->root ) } } $invocation->{operands}->@* ],
-        $config->min_score );
+    my @parts  = map { { name => $_, result => _read_report( $_, $config->root ) } } $invocation->{operands}->@*;
+    my $result = Test::Mutation::Merge::merge( \@parts, $config->min_score );
     Test::Mutation::Select::outputs( $config, $world->{env}{GITHUB_STEP_SUMMARY} );
     _report( $result, $config, $world );
-    Test::Mutation::Store::History::record( $config, $result, 1 );
+    if ( $config->cache ) {
+        my %measured;
+        for my $part (@parts) {
+            my $shard = $part->{result};
+            $measured{ $_->{mutant}->id } = $shard->finished for $shard->entries->@*;
+        }
+        Test::Mutation::Store::History::record( $config, $result, 1,
+            { completed => Time::HiRes::time(), measured => \%measured } );
+    }
     return _concluded( $result, $result->min_score, $world );
 }
 
