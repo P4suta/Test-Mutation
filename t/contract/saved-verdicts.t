@@ -65,7 +65,7 @@ subtest 'a failed or narrower first measurement preserves observations in earlie
     write_file( "$root/t/fail.t", "use Test::More tests => 1;\nfail 'original';\n" );
     my @args = ( 'run', '--jobs', 1, '--format', 'terminal' );
     is World::observe( \@args, cwd => $root )->{exit}, 3, 'the original suite fails';
-    my ( $shown, $reads ) = observed( 'show', $earlier_id );
+    ( $shown, $reads ) = observed( 'show', $earlier_id );
     like $shown, qr/^Last result: Killed$/m, 'a failed baseline leaves the last measured verdict visible';
     unlink "$root/t/fail.t" or die "unlink failing test: $!";
     is World::observe( [ @args, '--mutant', $recent_id ], cwd => $root )->{exit}, 0, 'one mutant is remeasured';
