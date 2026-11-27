@@ -13,9 +13,17 @@ concurrency:
 
 jobs:
   gate:
-    name: fast gate
+    name: ${{ matrix.name }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: fast gate
+            task: check-components
+          - name: end-to-end on pinned Perl
+            task: e2e
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -25,8 +33,9 @@ jobs:
       - run: sudo apt-get install --yes --no-install-recommends zlib1g-dev
       - run: mise run setup
       # A test that would skip itself for want of one of these fails here, so no test goes missing unnoticed.
-      - run: mise run check
+      - run: mise run "$CHECK_TASK"
         env:
+          CHECK_TASK: ${{ matrix.task }}
           TEST_MUTATION_REQUIRE: git,class,second-perl,processor-count,unprivileged,toolchain
 
   driver:
