@@ -25,4 +25,12 @@ subtest 'the compiler cannot identify an indirect read from its operands' => sub
       'the launch environment does not determine a reassigned variable';
 };
 
+subtest 'literal numeric guards have no external compiler inputs' => sub {
+    is reads(q{BEGIN { die "broken\n" if 3 - 1 != 2 }}),            [], 'a fixed arithmetic comparison reads no file';
+    is reads(q{BEGIN { CORE::die 'broken' unless 2 <= 3 }}),        [], 'a fixed lower bound reads no file';
+    is reads(q{BEGIN { die "broken\n" if 3 - read_limit() != 2 }}), undef, 'a call can read an external limit';
+    is reads(q{BEGIN { die "broken\n" if -e '/outside' }}),         undef, 'a file test depends on the filesystem';
+    is reads(q{BEGIN { die "@{[read_limit()]}" if 1 }}),            undef, 'the error message can execute code';
+};
+
 done_testing;

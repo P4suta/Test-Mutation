@@ -184,7 +184,13 @@ sub _known_phase_statement ( $text, $handles, $reads ) {
         return 1;
     }
     return 1 if $text eq q{} || $text eq 'require constant';
+    my $message   = qr{(?: '[^'\\]*' | "(?: [^"\$\@\\] | \\[nrt"\\] )*" )}x;
+    my $number    = qr{[0-9]+(?:[.][0-9]+)?};
+    my $operation = qr{(?: [+*/%<>-] | [!=<>]= )}x;
+    my $guard     = qr{$number (?: \s $operation \s $number )*}x;
+    return 1 if $text =~ /\A (?:CORE::)?die \s $message \s (?:if|unless) \s $guard \z/x;
     return 1 if $text =~ /\A constant \s -> \s import \s \( \s $literal \s , \s $variable \s \) \z/x;
+
     if ( $text =~ /\A(?:CORE::)?close ($variable)$ends\z/ ) {
         return $handles->{$1};
     }
