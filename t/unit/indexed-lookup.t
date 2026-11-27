@@ -123,9 +123,11 @@ subtest 'lookup reads the current file identities in one group' => sub {
         is scalar @queries, 2, "$arguments->[0] uses one catalog query and one candidate query across both files";
     }
 };
-subtest 'a new lookup process loads only the code it uses' => sub {
+subtest 'a lookup with directory-based module loading uses disk metadata' => sub {
     my $probe = <<'PERL';
 END { print "loaded $_\n" for sort keys %INC }
+require Test::Mutation::CLI;
+local @INC = grep { !ref } @INC;
 do './bin/mutation';
 die $@ || $!;
 PERL
@@ -144,6 +146,38 @@ PERL
         is \@harness, [], "$arguments->[0] does not start the test harness";
         my @writers = grep { m{\Aloaded Test/Mutation/Report/(?:Json|Html)[.]pm\n\z} } @output;
         is \@writers, [], "$arguments->[0] formats the indexed result without opening an earlier report";
+    }
+};
+subtest 'a loader-supplied parser version determines which catalog can be used' => sub {
+    my $probe = <<'PERL';
+our ($parser_path, $parser_version) = splice @ARGV, 0, 2;
+my $module = q{
+    do $main::parser_path or die $@ || $!;
+    $PPIx::Regexp::VERSION = $main::parser_version;
+    1;
+};
+unshift @INC, sub { return $_[1] eq 'PPIx/Regexp.pm' ? \$module : () };
+END {
+    print "parser ", $PPIx::Regexp::VERSION // 'unloaded', "\n";
+    print "generated ", (exists $INC{'Test/Mutation/Mutant/Generator.pm'} ? 1 : 0), "\n";
+}
+do './bin/mutation';
+die $@ || $!;
+PERL
+    my $installed = $PPIx::Regexp::VERSION;
+    for my $case ( [ $installed, 0 ], [ "${installed}_01", 1 ] ) {
+        my ( $version, $generated ) = @$case;
+        for my $arguments ( [ 'show', $id ], ['list'] ) {
+            my $label = "$arguments->[0] with parser $version";
+            open my $child, q{-|}, $^X, '-Ilib', '-e', $probe, '--', $INC{'PPIx/Regexp.pm'}, $version,
+              '--root', $root, @$arguments
+              or die "start the lookup: $!";
+            my @output = readline $child;
+            ok close($child),                        "$label exits successfully";
+            ok scalar( grep { /\Q$id\E/ } @output ), "$label displays the measured mutant";
+            is [ grep { /\A(?:parser|generated) / } @output ], [ "parser $version\n", "generated $generated\n" ],
+              "$label only regenerates a catalog made with a different parser";
+        }
     }
 };
 my ( $parsed, $reports, $restored ) = ( 0, 0, 0 );

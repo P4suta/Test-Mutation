@@ -563,7 +563,10 @@ sub _show ( $invocation, $world ) {
         say { $world->{out} } 'Measured at: ', _measured_at($previous);
         say { $world->{out} } 'Reached by: ',
           $previous->{covered_by}->@* ? join( ', ', $previous->{covered_by}->@* ) : 'no test';
-        say { $world->{out} } "Killed by: $previous->{by}" if defined $previous->{by};
+        if ( defined $previous->{by} ) {
+            my $label = $previous->{status} eq 'Killed' ? 'Killed by' : 'Deciding test';
+            say { $world->{out} } "$label: $previous->{by}";
+        }
     }
     print { $world->{out} } Test::Mutation::Report::Patch::render(
         text   => $selected->sources->{ $mutant->path }->text,

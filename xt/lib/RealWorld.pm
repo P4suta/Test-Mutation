@@ -11,7 +11,8 @@ use TOML::Tiny ();
 my @WARNING_KINDS = qw(around-the-hook no-stable-output standalone other);
 my @TEXTS         = qw(name version pathname sha256 shape);
 my %FIELD         = map { $_ => 1 } @TEXTS, qw(build tests options config expect hash_seed);
-my %EXPECTED      = map { $_ => 1 } qw(mutants score warnings seconds compile baseline_failures);
+my %EXPECTED      = map { $_ => 1 } qw(mutants score warnings seconds compile baseline_failures verdicts);
+my %STATUS        = map { $_ => 1 } qw(Killed Survived NoCoverage Ignored CompileError Timeout);
 my $NUMBER        = qr/\A[0-9]+(?:[.][0-9]+)?\z/;
 
 sub _words ($value) {
@@ -36,6 +37,13 @@ sub _observed_expectations ( $run, $expect ) {
           if ref $compile ne 'HASH'
           || grep { $_ !~ /\A[0-9a-f]{12}\z/ || $compile->{$_} !~ /\A(?:compile-phase|standalone)\z/ } keys %$compile;
         $observed{compile} = $compile;
+    }
+    if ( exists $expect->{verdicts} ) {
+        my $verdicts = $expect->{verdicts};
+        die "$run: verdicts must map mutant IDs to completed statuses\n"
+          if ref $verdicts ne 'HASH'
+          || grep { $_ !~ /\A[0-9a-f]{12}\z/ || !$STATUS{ $verdicts->{$_} } } keys %$verdicts;
+        $observed{verdicts} = $verdicts;
     }
     return %observed;
 }
@@ -330,6 +338,18 @@ sub _unexpected_compile ( $expected, $mutants ) {
     return scalar keys %unseen;
 }
 
+sub _different_verdicts ( $expected, $mutants ) {
+    return 0 unless $expected;
+    my %unseen = %$expected;
+    for my $mutant (@$mutants) {
+        my $id = $mutant->{id};
+        next unless defined $id && exists $expected->{$id};
+        my $status = delete $unseen{$id};
+        return 1 unless defined $status && $mutant->{status} eq $status;
+    }
+    return scalar keys %unseen;
+}
+
 sub _seen ( $run, $record ) {
     my $report = $record->{report};
     my $tally  = tally( $report ? $report->{mutants} : [] );
@@ -393,6 +413,12 @@ my @INVARIANTS = (
         'the compile errors differ from the expected mutants or causes',
         sub ( $run, $record, $seen ) {
             return $seen->{report} && _unexpected_compile( $run->{expect}{compile}, $seen->{report}{mutants} );
+        }
+    ],
+    [
+        'the verdicts differ for the listed mutant IDs',
+        sub ( $run, $record, $seen ) {
+            return $seen->{report} && _different_verdicts( $run->{expect}{verdicts}, $seen->{report}{mutants} );
         }
     ],
     [ 'the run reports a mutant without a verdict', sub ( $run, $record, $seen ) { $seen->{counts}{NoVerdict} } ],

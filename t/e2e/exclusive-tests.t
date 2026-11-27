@@ -17,11 +17,11 @@ sub project (%files) {
     return $root;
 }
 
-sub run_project ( $root, $jobs = 3, $overlap = 'mutants' ) {
+sub run_project ( $root, $jobs = 3, $overlap = 'mutants', %settings ) {
     my $directory = File::Temp::tempdir( CLEANUP => 1 );
     local $ENV{MUTATION_TEST_LOCK}    = "$directory/resource";
     local $ENV{MUTATION_TEST_OVERLAP} = $jobs > 1 ? $overlap : q{};
-    my ($result) = run_fixture( $root, jobs => $jobs, equivalence => 0, timeout_floor => 30 );
+    my ($result) = run_fixture( $root, jobs => $jobs, equivalence => 0, timeout_floor => 30, %settings );
     return $result;
 }
 
@@ -81,6 +81,21 @@ subtest 'an external baseline conflict persists across independent copies' => su
     is $report->baseline_failures,                [],       'the serial baseline passes';
     is [ $report->jobs, $report->parallel_safe ], [ 1, 0 ], 'the conflict requires a serial suite';
     like $report->warnings->[0] || q{}, qr/one test at a time/, 'the warning explains the serial run';
+};
+
+subtest 'an in-place baseline that recovers serially does not establish parallel safety' => sub {
+    my $root = project(
+        't/a.t' => $guarded,
+        't/b.t' => $guarded,
+        't/z.t' => "use Test::More tests => 1;\nuse Exclusive;\nis Exclusive::number(2), 3;\n",
+    );
+    my $report = run_project( $root, 2, 'originals', in_place => 1 );
+    is $report->baseline_failures,                [],       'the contending original tests pass when retried serially';
+    is [ $report->parallel_safe, $report->jobs ], [ 0, 1 ], 'the shared project requires a serial run';
+    like join( "\n", $report->warnings->@* ), qr/one test at a time/, 'the report explains the serial fallback';
+    is [ map { [ $_->{status}, $_->{by} ] } $report->entries->@* ], [ ( [ 'Killed', 't/z.t' ] ) x 3 ],
+      'only the independent arithmetic assertion detects the changes';
+    is Test::Mutation::Source::read_bytes("$root/lib/Exclusive.pm"), $source, 'the original source is restored';
 };
 
 done_testing;

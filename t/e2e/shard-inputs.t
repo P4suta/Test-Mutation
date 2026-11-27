@@ -121,6 +121,7 @@ PERL
 };
 
 subtest 'data opened during compilation identifies cached and merged verdicts' => sub {
+    delete local $ENV{PERL5OPT};
     my $idle = <<'PERL';
 package Idle;
 BEGIN {
@@ -145,6 +146,29 @@ PERL
     ok + ( grep { defined $_->{compiled_digest} } $other->{result}->entries->@* ),
       'a known input permits code comparison';
     ok lives { Test::Mutation::Merge::merge( [ $prior, $other ] ) }, 'equal external data can be combined';
+    subtest 'a preloaded module can make compiler inputs opaque' => sub {
+        my $root = "$area/preloaded";
+        write_file( "$area/preloads/CompilerSetup.pm",
+            q{package CompilerSetup; sub import { $ENV{TEST_PROJECT_PRELOADED} = 'ready' } 1;} );
+        delete local $ENV{TEST_PROJECT_PRELOADED};
+        local $ENV{PERL5LIB} = join q{:}, "$area/preloads", grep { defined } $ENV{PERL5LIB};
+        local $ENV{PERL5OPT} = '-MCompilerSetup';
+        write_file( "$root/lib/Idle.pm", $idle );
+        write_file( "$root/t/limit.t",   <<'PERL' );
+use Test::More tests => 2;
+use Idle;
+is $ENV{TEST_PROJECT_PRELOADED}, 'ready', 'the project loaded its compiler setup';
+ok Idle::small(2) && !Idle::small(3), 'the limit is exclusive';
+PERL
+        my ($cold) = run_fixture( $root, cache => 1, jobs => 1 );
+        is $cold->baseline_failures, [], 'the test observed the preloaded module';
+        my @boundary = grep { $_->{mutant}->original eq '<' && $_->{mutant}->replacement eq '>=' } $cold->entries->@*;
+        is [ map { [ $_->{status}, $_->{by} ] } @boundary ], [ [ 'Killed', 't/limit.t' ] ],
+          'the boundary test detects the reversed comparison';
+        ok !( grep { defined $_->{compiled_digest} } $cold->entries->@* ), 'opaque inputs prevent code comparison';
+        my ($warm) = run_fixture( $root, cache => 1, jobs => 1 );
+        is $warm->reused, 0, 'opaque inputs require another measurement';
+    };
     write_file( "$area/limit", "7\n" );
     my $warm = shard( 'data-second', 2, cache => 1 );
     is $warm->{result}->reused, 0, 'changed compiler data invalidates cached verdicts';
@@ -175,6 +199,7 @@ PERL
 };
 
 subtest 'loaded modules cannot replace the input that a phase block read' => sub {
+    delete local $ENV{PERL5OPT};
     local $ENV{TEST_PROJECT_LIBRARY} = "$area/rebind-library";
     local $ENV{TEST_PROJECT_TABLE}   = "$area/before.dat";
     local $ENV{TEST_PROJECT_LATER}   = "$area/after.dat";
@@ -238,6 +263,7 @@ PERL
 };
 
 subtest 'a library loaded by the compiler reads an external data file' => sub {
+    delete local $ENV{PERL5OPT};
     local $ENV{TEST_PROJECT_LIBRARY} = "$area/data-library";
     local $ENV{TEST_PROJECT_TABLE}   = "$area/imported-limit";
     my $defaults = <<'PERL';

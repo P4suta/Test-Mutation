@@ -82,6 +82,21 @@ subtest 'merging applies a common deferred threshold' => sub {
     my $result = merged( part( '1/2', \@first, min_score => 90 ), part( '2/2', \@rest, min_score => 90 ) );
     is [ $result->assessment->@{qw(minimum gate exitCode)} ], [ 90, 'failed', 1 ],
       'the combined score decides the threshold shared by the shard reports';
+    my $first = part( '1/2', \@first, min_score => 90 );
+    for my $other_floor ( undef, 50 ) {
+        my $other_part = part( '2/2', \@rest, min_score => $other_floor );
+        is [ merged( $first, $other_part )->assessment->@{qw(score minimum gate exitCode)} ],
+          [ 60, undef, undef, 0 ], 'shards without a common threshold still yield their combined score';
+    }
+    my $override = Test::Mutation::Merge::merge(
+        [
+            { name => 'first',  result => $first },
+            { name => 'second', result => part( '2/2', \@rest, min_score => 90 ) }
+        ],
+        60
+    );
+    is [ $override->assessment->@{qw(minimum gate exitCode)} ], [ 60, 'passed', 0 ],
+      'a threshold requested for the whole run takes precedence at the exact combined score';
 };
 
 subtest 'the parts of one run merge into the result of the whole run' => sub {
@@ -256,6 +271,16 @@ subtest 'a set that is not one complete run is refused' => sub {
       qr/covers other mutants/, 'each advertised size must agree';
     like Raised::message( sub { merged( $one, $two, part( '3/2', [] ) ) } ),
       qr/invalid shard 3\/2/, 'an empty shard outside the declared split is refused';
+};
+
+subtest 'an interrupted collection can recover every missing shard' => sub {
+    my @reports = map { part( "$_/8", $_ <= 6 ? [ entry( $_, 'Killed' ) ] : [] ) } 1 .. 8;
+    my @held    = @reports[ 6, 0, 3 ];
+    like Raised::message( sub { merged(@held) } ), qr/\Aparts 2, 3, 5, 6, and 8 of 8 are missing/,
+      'the diagnostic identifies all missing parts including the empty eighth shard';
+    my $complete = merged( @held, @reports[ 1, 2, 4, 5, 7 ] );
+    is [ map { $_->{mutant}->id + 0 } $complete->entries->@* ], [ 1 .. 6 ],
+      'supplying exactly the listed parts recovers the measured inventory in order';
 };
 
 subtest 'refresh counts distinct compiled changes across both measurements' => sub {

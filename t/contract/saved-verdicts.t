@@ -84,4 +84,55 @@ write_file( "$directory/mutation.html",
 ( $shown, $reads ) = observed( 'show', $earlier_id );
 like $shown, qr/^Last result: Killed$/m, 'an unfinished report entry preserves the earlier measured verdict';
 
+subtest 'indexed results distinguish suppression from an unreached change' => sub {
+    write_file( "$root/lib/Unused.pm", <<'PERL' );
+package Unused;
+sub add { return $_[0] + $_[1] }
+sub fixed { return $_[0] + 1 }    ## no mutate (arithmetic): the step is fixed
+1;
+PERL
+    observed( 'run', 'lib/Unused.pm', '--jobs', 1, '--format', 'terminal' );
+    my ($catalog) = observed( 'list', 'lib/Unused.pm' );
+    like $catalog, qr/lib\/Unused[.]pm:3:.*\(suppressed: the step is fixed\)  \[Ignored\]/,
+      'the listed observation keeps the reason supplied by the source';
+    my ($id) = $catalog =~ /^([0-9a-f]{12})  lib\/Unused[.]pm:2:.*?  arithmetic  .*?\[NoCoverage\]/m;
+    ok defined $id, 'the other addition has a measured coverage gap';
+    my ($detail) = observed( 'show', $id );
+    like $detail,   qr/^Reached by: no test$/m, 'the stored observation reports that no test reached the mutant';
+    unlike $detail, qr/^(?:Killed by|Deciding test):/m, 'an unreached mutant has no deciding test';
+};
+
+my ($added) = grep { $_->mutator eq 'arithmetic' && $_->original eq '+' } $selected->mutants->@*;
+my $id = $added->id;
+
+subtest 'an HTML report alone supplies the last verdict without a cache' => sub {
+    my $copy = copy_of('calc');
+    write_file( "$copy/mutation-report/mutation.json/marker", "existing directory\n" );
+    my $run = World::observe( [ 'run', '--mutant', $id, '--format', 'html', '--no-cache', '--jobs', 1 ], cwd => $copy );
+    is $run->{exit}, 0, 'an unavailable JSON destination leaves the HTML measurement usable';
+    ok -f "$copy/mutation-report/mutation.json/marker", 'the existing directory keeps its contents';
+    ok !-e "$copy/.mutation/measurement.sqlite",        'the measurement produced no SQLite history';
+    my $detail = World::observe( [ 'show', $id ], cwd => $copy );
+    is $detail->{exit}, 0, 'show can read the standalone report';
+    like $detail->{stdout}, qr/^Last result: Killed$/m,   'the HTML report supplies the verdict';
+    like $detail->{stdout}, qr/^Killed by: t\/add[.]t$/m, 'the HTML report identifies the detecting test';
+};
+
+subtest 'a saved timeout identifies the test that reached its limit' => sub {
+    my $copy = copy_of('calc');
+    write_file( "$copy/t/add.t", <<'PERL' );
+use Calc;
+sleep 300 if Calc::add(2, 3) != 5;
+print "1..1\nok 1\n";
+PERL
+    my @args = ( 'run', '--mutant', $id, '--test', 't/add.t', '--format', 'json', '--no-cache', '--timeout-floor', 2 );
+    my $run  = World::observe( \@args, cwd => $copy );
+    is $run->{exit}, 4, 'the timed-out measurement is inconclusive';
+    my $detail = World::observe( [ 'show', $id ], cwd => $copy );
+    is $detail->{exit}, 0, 'show reads the saved timeout';
+    like $detail->{stdout},   qr/^Last result: Timeout$/m,      'the report retains the timeout';
+    like $detail->{stdout},   qr/^Deciding test: t\/add[.]t$/m, 'the report names the test that timed out';
+    unlike $detail->{stdout}, qr/^Killed by:/m,                 'the timeout does not claim a detection';
+};
+
 done_testing;

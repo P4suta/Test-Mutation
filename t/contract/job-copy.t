@@ -136,6 +136,13 @@ subtest 'a failed placement leaves a typed error and the original bytes' => sub 
     my $absent =
       Raised::error( sub { Test::Mutation::Workspace::Slot::place( $tree, 'lib/Missing.pm', $original, $mutant ) } );
     is $absent->[1], 'file-unreadable', 'an absent target is refused before replacement';
+    my $target = 'lib/build/generated/Module.pm';
+    write_file( "$tree/$target", $original );
+    rename "$tree/lib/build", "$tree/lib/moved" or die "move the build directory: $!";
+    my $moved = Raised::error( sub { Test::Mutation::Workspace::Slot::place( $tree, $target, $original, $mutant ) } );
+    is $moved->[1], 'file-unwritable', 'placement fails when the target directory can no longer be resolved';
+    is Test::Mutation::Source::read_bytes("$tree/lib/moved/generated/Module.pm"), $original,
+      'the relocated source keeps its original bytes';
     {
         no warnings 'redefine';
         local *File::Temp::new = sub { die "storage unavailable\n" };

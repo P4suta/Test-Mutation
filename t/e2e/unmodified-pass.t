@@ -1,6 +1,7 @@
 use v5.36;
 use Test2::V0;
 use lib 't/e2e/lib';
+use Config;
 use Cwd        ();
 use File::Temp ();
 use Fixture    qw(write_file run_fixture);
@@ -82,6 +83,7 @@ TEST
 
 subtest 'the test can require a plain Perl library search path' => sub {
     my $plain = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    delete local $ENV{PERL5OPT};
     write_file( "$plain/lib/Calc.pm", $files{'lib/Calc.pm'} );
     write_file( "$plain/t/search.t",  <<'TEST' );
 use Test::More tests => 2;
@@ -92,5 +94,29 @@ TEST
     my ($report) = run_fixture( $plain, jobs => 1, mutant => [ $multiply->id ], equivalence => 0 );
     is $report->baseline_failures,    [],       'the original test works with the normal Perl search path';
     is $report->entries->[0]{status}, 'Killed', 'the disk copy changes the result of multiplication';
+};
+
+subtest 'disk fallback preserves a lookup hook installed by the caller' => sub {
+    my $project = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    write_file( "$project/lib/Calc.pm",            $files{'lib/Calc.pm'} );
+    write_file( "$project/caller/CallerLoader.pm", <<'MODULE' );
+package CallerLoader;
+our $saw_calc;
+sub observe { $saw_calc = 1 if $_[1] eq 'Calc.pm'; return }
+sub import { unshift @INC, \&observe }
+1;
+MODULE
+    write_file( "$project/t/search.t", <<'TEST' );
+use Test::More tests => 3;
+use Calc;
+is_deeply [grep { ref } @INC], [\&CallerLoader::observe], 'the caller supplies the only hook';
+ok $CallerLoader::saw_calc, 'the caller observed the module lookup';
+is Calc::scale(3, 2), 6, 'multiplication';
+TEST
+    local $ENV{PERL5LIB} = join $Config{path_sep}, "$project/caller", grep { defined && length } $ENV{PERL5LIB};
+    local $ENV{PERL5OPT} = '-MCallerLoader';
+    my ($report) = run_fixture( $project, jobs => 1, mutant => [ $multiply->id ], equivalence => 0 );
+    is $report->baseline_failures,    [],       'the original test uses the caller hook on disk';
+    is $report->entries->[0]{status}, 'Killed', 'the disk mutation remains detectable with the caller hook';
 };
 done_testing;

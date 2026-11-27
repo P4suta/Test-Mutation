@@ -190,6 +190,16 @@ subtest 'a nonblocking checkpoint retries only a competing writer' => sub {
       'a rejected write passes its failure to the caller';
 };
 
+subtest 'legacy checkpoints defer file locking until the caller can wait' => sub {
+    my $path  = "$directory/legacy-checkpoint/cache.json";
+    my $write = Test::Mutation::Store::checkpoints($path);
+    is $write->( 'first', $record, 0 ), 0, 'the nonblocking attempt leaves the observation pending';
+    ok !-e "$path.lock", 'a deferred checkpoint creates no lock file';
+    is $write->( 'first', $record, 1 ), 1, 'a blocking retry acknowledges the saved observation';
+    is $write->( 'second', $record ), undef, 'a caller without a wait argument retains its return contract';
+    is Test::Mutation::Store::load($path), { first => $record, second => $record }, 'both observations are durable';
+};
+
 subtest 'measurements in a read-only checkout' => sub {
     Capability::need( 'unprivileged', $> != 0, 'the superuser can write to read-only directories' );
     my $read_only = File::Temp::tempdir( CLEANUP => 1 );

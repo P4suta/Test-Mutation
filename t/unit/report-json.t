@@ -84,6 +84,17 @@ subtest 'the report retains the assessment and its threshold' => sub {
     is Test::Mutation::Report::Json::parse($text)->assessment, $assessment, 'reading a report restores its threshold';
 };
 
+subtest 'a report written before assessments keeps its verdicts and has no score gate' => sub {
+    my $saved = Test::Mutation::Report::Json::document( $result, high => 80, low => 60 );
+    delete $saved->{testMutation}{assessment};
+    my $read = Test::Mutation::Report::Json::parse( JSON::PP->new->encode($saved) );
+    is [ map { $_->{status} } $read->entries->@* ], [qw(Killed Survived NoCoverage Timeout)],
+      'every saved verdict can still be read';
+    is $read->tally, $result->tally, 'the score is computed from the saved verdicts';
+    is [ $read->assessment->@{qw(minimum gate exitCode)} ], [ undef, undef, 0 ],
+      'the display thresholds set no minimum score';
+};
+
 subtest 'a writer receives each source file before the next file' => sub {
     my @chunks;
     Test::Mutation::Report::Json::stream(

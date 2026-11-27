@@ -44,6 +44,8 @@ subtest 'search paths inside a checkout compare by their relative names' => sub 
     };
     my $first = $input->( '/a', '/shared', '/a', '/a/lib' );
     is $input->( '/b', '/shared', '/b', '/b/lib' ), $first, 'relocating the checkout keeps the search path';
+    is $input->( '/', '/test-mutation-library' ), $input->( $root, "$root/test-mutation-library" ),
+      'a project mounted at the filesystem root retains its library search path after relocation';
     isnt $input->( '/b', '/shared', '/b/lib', '/b' ),         $first, 'the order remains significant';
     isnt $input->( '/b', '/shared', '/b',     '/b-old/lib' ), $first, 'an adjacent directory stays external';
 };

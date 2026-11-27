@@ -1,11 +1,14 @@
 use v5.36;
 use Test2::V0;
+use File::Temp ();
 use List::Util qw(min sum0);
-use lib 't/lib';
+use lib 't/lib', 't/e2e/lib';
 use Census;
+use Fixture qw(run_fixture write_file);
 use Gate;
 use Library;
 use Oracle;
+use Test::Mutation;
 use Test::Mutation::Host;
 
 # Every construct that the corpus shows is either mutated or left alone for a stated reason.
@@ -15,6 +18,10 @@ sub census_of ($code) {
     return Census::summary(
         [ map { [ 'lib/Sample.pm', $_->@* ] } Census::records( Oracle::text_source( 'lib/Sample.pm', $code ) ) ] );
 }
+
+my $tied_handle = <<'CODE';
+sub handle { tied($_[0]) and tied($_[0])->can('TIEHANDLE') and return $_[0]; }
+CODE
 
 subtest 'a token has the key of its construct' => sub {
     my $code = <<'CODE';
@@ -99,6 +106,10 @@ subtest 'a change of a wider site claims the tokens that name its construct' => 
     is $calls->{observed}{'word join'}, 2, 'the census observes both calls';
     is $calls->{claimed}{'word join'},  1, 'statement removal claims only the outer call';
     ok !exists Census::declined()->{'word join'}, 'the outer call already has a mutant';
+    my $handle = census_of($tied_handle);
+    is $handle->{observed}{'word tied'}, 2, 'the handle guard reads the tied object twice';
+    is $handle->{claimed}{'word tied'},  1, 'statement removal claims the leading lookup';
+    ok !exists Census::declined()->{'word tied'}, 'the guard already has a mutant';
 };
 
 subtest 'the gate rejects an undecided key, a declined key with a mutant, and a declined key that never shows' => sub {
@@ -118,6 +129,39 @@ subtest 'the gate rejects an undecided key, a declined key with a mutant, and a 
       'a census without a gap';
     my %refused = ( observed => { 'operator **' => 2 }, claimed => {}, refused => { 'operator **' => 1 } );
     is Census::undecided( \%refused, {} ), [], 'a key whose changes the generator refuses with a rule has its reason';
+};
+
+subtest 'the parent process ID is measured in statement and value contexts' => sub {
+    my $source = Oracle::file_source('t/corpus/findings/ParentProcess.pm');
+    my $census = census_of( $source->text );
+    is $census->{observed}{'word getppid'}, 2, 'both parent lookups appear in the corpus';
+    is $census->{claimed}{'word getppid'},  1, 'only the lookup at the head of its statement is claimed';
+    my $root = File::Temp::tempdir( CLEANUP => 1 );
+    write_file( "$root/lib/ParentProcess.pm", $source->text );
+    write_file( "$root/t/parent.t",           <<'TEST' );
+use Test::More tests => 1;
+use ParentProcess;
+is ParentProcess::parent_pid(), getppid(), 'the parent PID is returned';
+TEST
+    write_file( "$root/t/profile.t", <<'TEST' );
+use Test::More tests => 2;
+use ParentProcess;
+is ParentProcess::profile_pid($$), $$, 'the initial process uses its own PID';
+is ParentProcess::profile_pid(getppid()), getppid(), 'a child uses its parent PID';
+TEST
+    my @mutants = Test::Mutation::mutants( root => $root )->@*;
+    my ($remove) = grep { $_->mutator eq 'statement-removal' && $_->original eq 'getppid()' } @mutants;
+    ok $remove, 'the generator removes the implicit return' or return;
+    is $remove->replacement, q{}, 'the empty body returns undef in scalar context';
+    my ($swap) = grep { $_->mutator eq 'condition-negation' } @mutants;
+    ok $swap, 'the generator swaps the profile PID branches' or return;
+    is $swap->replacement, 'getppid() : $$', 'both swapped branches still produce a PID';
+    my ($result) = run_fixture( $root, cache => 0, jobs => 1, equivalence => 0, mutant => [ $remove->id, $swap->id ] );
+    is $result->baseline_failures, [], 'the project first returns the expected process IDs';
+    my %detections = map { $_->{mutant}->mutator => [ $_->@{qw(status by)} ] } $result->entries->@*;
+    is \%detections,
+      { 'statement-removal' => [ 'Killed', 't/parent.t' ], 'condition-negation' => [ 'Killed', 't/profile.t' ] },
+      'the tests detect a missing PID and a PID from the wrong process';
 };
 
 subtest 'a statement that no mutant touches counts for its class' => sub {
@@ -159,7 +203,7 @@ subtest 'the census rejects a pattern that the analysis leaves out without a cou
 };
 
 # The seed shows each declined construct that the corpus lacks, in a declaration that no mutator changes.
-my $SEED = <<'CODE';
+my $SEED = $tied_handle . <<'CODE';
 my ( $x, @list ) = ( \&code, [ 1, 2 ] );
 print { $x->[0] } "@list$#list";
 LABEL: for my $item ( @{ $x }, $_ ) { next LABEL }

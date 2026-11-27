@@ -463,6 +463,10 @@ subtest 'extended mutators' => sub {
     );
     my $literals = 'my @a = (' . join( q{, }, map { $_->[0] } @numbers ) . ');';
     is changes( $literals, 'number-literal', %extended ), \@numbers, 'each numeric class advances in its own base';
+    my $fraction = '0.12345678901234567';
+    my $changed  = changes( "my \$n = $fraction;", 'number-literal', %extended );
+    is sprintf( '%a', $changed->[0][1] ), sprintf( '%a', $fraction + 1 ),
+      'reading the replacement in Perl preserves the full increment';
     is changes( 'use v5.36; package Sample v1.2.3; our $VERSION = v1.2.3; 1;', 'number-literal', %extended ), [],
       'version declarations keep their numbers';
     is changes( q{my @s = ( 'abc', "", q{def}, qq<g$h> );}, 'string-literal', %extended ),
@@ -485,11 +489,12 @@ subtest 'extended mutators' => sub {
     is changes( 'sub grouped { qr/(?im:x)(?-i:y)/ }', 'regex-flag', %extended ),
       [ [ '?im:', '?m:' ], [ '?im:', '?i:' ], [ '?-i:', '?:' ] ],
       'a scoped modifier keeps its group and drops an empty negative flag list';
-    is changes( 'sub f { return /[\w][^^]\d\W\s\S/g }', 'regex-class', %extended ),
+    is changes( 'sub f { return /[\w][^^][^0]\d\W\s\S/g }', 'regex-class', %extended ),
       [
         [ '[\w]', '[^\w]' ],
         [ '\w',   '\W' ],
         [ '[^^]', '[\^]' ],
+        [ '[^0]', '[0]' ],
         [ '\d',   '\D' ],
         [ '\W',   '\w' ],
         [ '\s',   '\S' ],
