@@ -18,6 +18,10 @@ my $DECISION = Dict [
 signature_for of => ( positional => [ InstanceOf ['Test::Mutation::Result'], Maybe [Num] ], returns => $DECISION );
 
 sub of ( $result, $floor ) {
+    return _outcome( $result, $floor );
+}
+
+sub _outcome ( $result, $floor, $tally = undef ) {
     my $signal = $result->interrupted;
     return _decision( 'interrupted', $signal, Test::Mutation::Message::text_of( 'interrupted', signal => $signal ) )
       if defined $signal;
@@ -31,7 +35,7 @@ sub of ( $result, $floor ) {
             Test::Mutation::Message::text_of( 'invalid-mutant', id => $mutant->id, path => $mutant->path ) );
     }
 
-    my $tally      = $result->tally;
+    $tally //= $result->tally;
     my $score      = $tally->{score};
     my $counts     = $tally->{counts};
     my $incomplete = grep { $_->incomplete && $counts->{ $_->name } } Test::Mutation::Status::rows()->@*;
@@ -56,7 +60,8 @@ signature_for assessment =>
   ( positional => [ InstanceOf ['Test::Mutation::Result'], Maybe [Num] ], returns => Assessment );
 
 sub assessment ( $result, $floor ) {
-    my $outcome = of( $result, $floor );
+    my $tally   = $result->tally;
+    my $outcome = _outcome( $result, $floor, $tally );
     my $exit    = $outcome->{exit}->name;
     my $gate =
        !defined $floor                ? undef
@@ -66,7 +71,7 @@ sub assessment ( $result, $floor ) {
       : $outcome->{name} eq 'nothing' ? 'no mutants selected'
       :                                 'passed';
     return {
-        $result->tally->%*,
+        $tally->%*,
         outcome  => $outcome->{name},
         gate     => $gate,
         minimum  => defined $floor ? 0 + $floor : undef,

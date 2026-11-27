@@ -67,6 +67,17 @@ subtest 'the public assessment applies the threshold to this scope' => sub {
       'a shard records its deferred threshold';
 };
 
+subtest 'an assessment decides and reports from one count of the entries' => sub {
+    my $report = result( [qw(Killed Survived)], min_score => 60 );
+    my $tally  = Test::Mutation::Result->can('tally');
+    my $calls  = 0;
+    no warnings 'redefine';
+    local *Test::Mutation::Result::tally = sub ($self) { $calls++; return $tally->($self) };
+    my $assessment = $report->assessment;
+    is [ $assessment->{score}, $assessment->{gate}, $calls ], [ 50, 'failed', 1 ],
+      'the score that failed the gate comes from the same traversal';
+};
+
 subtest 'conclusive' => sub {
     ok result( [qw(Killed Survived)] )->conclusive,       'valid mutants and nothing wrong';
     ok result( [] )->conclusive,                          'no mutant at all';
