@@ -105,7 +105,8 @@ for my $case ( [ 'pass', 'Survived' ], [ 'fail', 'Killed' ] ) {
     write_file( $ENV{OBSERVATIONS}, "pass\nfail\n" );
     my ($mixed) = run_fixture( $root, %settings, cache_dir => $cache_dir );
     is $mixed->entries->[0]{status}, 'NoVerdict', 'new conflicting observations supersede the cached verdict';
-    ok !exists Test::Mutation::Store::load("$root/$cache_dir/measurement.sqlite")->{$id}, 'the stale verdict is evicted';
+    ok !exists Test::Mutation::Store::load("$root/$cache_dir/measurement.sqlite")->{$id},
+      'the stale verdict is evicted';
 }
 
 subtest 'an interruption in the second attempt keeps the mutant pending' => sub {

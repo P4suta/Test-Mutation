@@ -61,7 +61,8 @@ for my $case (
 }
 my ($empty) = run_fixture( $root, equivalence => 0 );
 is $empty->entries, [], 'removing the last mutation produces an empty inventory';
-is Test::Mutation::Store::load("$root/.mutation/measurement.sqlite"), {}, 'records of the last removed source are pruned';
+is Test::Mutation::Store::load("$root/.mutation/measurement.sqlite"), {},
+  'records of the last removed source are pruned';
 
 subtest 'an interrupted cache sample keeps only the verdicts it measured' => sub {
     my $project = "$parent/interrupted";
