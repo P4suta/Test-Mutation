@@ -16,6 +16,10 @@ sub census_of ($code) {
         [ map { [ 'lib/Sample.pm', $_->@* ] } Census::records( Oracle::text_source( 'lib/Sample.pm', $code ) ) ] );
 }
 
+my $tied_handle = <<'CODE';
+sub handle { tied($_[0]) and tied($_[0])->can('TIEHANDLE') and return $_[0]; }
+CODE
+
 subtest 'a token has the key of its construct' => sub {
     my $code = <<'CODE';
 my $x = -$y + 3 - 1;
@@ -99,6 +103,10 @@ subtest 'a change of a wider site claims the tokens that name its construct' => 
     is $calls->{observed}{'word join'}, 2, 'the census observes both calls';
     is $calls->{claimed}{'word join'},  1, 'statement removal claims only the outer call';
     ok !exists Census::declined()->{'word join'}, 'the outer call already has a mutant';
+    my $handle = census_of($tied_handle);
+    is $handle->{observed}{'word tied'}, 2, 'the handle guard reads the tied object twice';
+    is $handle->{claimed}{'word tied'},  1, 'statement removal claims the leading lookup';
+    ok !exists Census::declined()->{'word tied'}, 'the guard already has a mutant';
 };
 
 subtest 'the gate rejects an undecided key, a declined key with a mutant, and a declined key that never shows' => sub {
@@ -159,7 +167,7 @@ subtest 'the census rejects a pattern that the analysis leaves out without a cou
 };
 
 # The seed shows each declined construct that the corpus lacks, in a declaration that no mutator changes.
-my $SEED = <<'CODE';
+my $SEED = $tied_handle . <<'CODE';
 my ( $x, @list ) = ( \&code, [ 1, 2 ] );
 print { $x->[0] } "@list$#list";
 LABEL: for my $item ( @{ $x }, $_ ) { next LABEL }
