@@ -30,6 +30,10 @@ $narrow = Test::Mutation::Result->new( $narrow->%*, entries => [$changed] );
 Test::Mutation::Store::History::record( $config, $narrow, 0 );
 is Test::Mutation::Store::History::undetected($config), [ $gap->( $whole->entries->[1] ) ],
   'a verified kill clears that gap while leaving the other gap in the preceding scope';
+my $delayed = Test::Mutation::Result->new( $whole->%*, entries => [ $whole->entries->[0] ], finished => 103 );
+Test::Mutation::Store::History::record( $config, $delayed, 0 );
+is Test::Mutation::Store::History::undetected($config), [ $gap->( $whole->entries->[1] ) ],
+  'an earlier verification published late cannot reopen a more recently detected gap';
 my $empty = Test::Mutation::Result->new( $whole->%*, entries => [], finished => 106 );
 Test::Mutation::Store::History::record( $config, $empty, 1 );
 is Test::Mutation::Store::History::undetected($config), [], 'a completed empty scope is distinct from missing history';

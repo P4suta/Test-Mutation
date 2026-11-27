@@ -130,7 +130,7 @@ WITH scope AS (
         SELECT evidence.status FROM observation evidence JOIN measurement USING(run)
         WHERE evidence.id = member.id AND evidence.source = member.source AND evidence.run >= scope.run
           AND measurement.project = scope.project AND complete = 1
-        ORDER BY evidence.run DESC LIMIT 1
+        ORDER BY measurement.finished DESC, evidence.run DESC LIMIT 1
     ) IN ('Survived', 'NoCoverage')
 )
 SELECT gaps.id, gaps.path, gaps.source, gaps.lines FROM scope LEFT JOIN gaps ON 1 ORDER BY gaps.ordinal
