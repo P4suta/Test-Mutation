@@ -125,12 +125,20 @@ subtest 'many changes to one source share its lines' => sub {
 };
 
 subtest 'the changed line matches a literal edit for each shape of span' => sub {
-    my $text     = "ab\x{e9}\r\n\nlast";
-    my $document = Test::Mutation::Source->new( path => 'lib/Calc.pm', text => $text, encoding => 'UTF-8' );
-    for my $case ( [ 0, 0, "\n" ], [ 1, 7, "X\nY" ], [ 3, 6, q{} ], [ 4, 5, '!' ], [ 10, 10, '?' ] ) {
-        my ( $start, $end, $replacement ) = @$case;
-        my $from = $document->position_of($start);
-        my $edit = mutant(
+    my $mixed = "ab\x{e9}\r\n\nlast";
+    for my $case (
+        [ $mixed,   0,  0,  "\n" ],
+        [ $mixed,   1,  7,  "X\nY\nZ" ],
+        [ $mixed,   3,  6,  q{} ],
+        [ $mixed,   4,  5,  '!' ],
+        [ $mixed,   10, 10, '?' ],
+        [ "\nlast", 0,  0,  'first' ]
+      )
+    {
+        my ( $text, $start, $end, $replacement ) = @$case;
+        my $document = Test::Mutation::Source->new( path => 'lib/Calc.pm', text => $text, encoding => 'UTF-8' );
+        my $from     = $document->position_of($start);
+        my $edit     = mutant(
             start       => $start,
             end         => $end,
             from        => $from,
@@ -146,7 +154,7 @@ subtest 'the changed line matches a literal edit for each shape of span' => sub 
         my $before   = ( split /\n/, $text,    -1 )[$index];
         my $after    = ( split /\n/, $changed, -1 )[$index];
         my $ellipsis = $edit->original =~ /\n/ ? ' ...' : q{};
-        like $report, qr/^    - \Q$before$ellipsis\E\n    \+ \Q$after\E$/m,
+        like $report, qr{^    - \Q$before$ellipsis\E\n    \+ \Q$after\E\n    reached by t/sign[.]t$}m,
           "the preview matches editing $start to $end";
     }
 };
