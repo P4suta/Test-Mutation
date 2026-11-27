@@ -77,7 +77,8 @@ signature_for load => ( positional => [ Str, Optional [ Maybe [ ArrayRef [Str] ]
 sub load ( $path, $ids = undef ) {
     my $records;
     if ( $path =~ /[.]sqlite\z/ ) {
-        return _stored( database($path), 'verdict', $ids ) if -f $path;
+        my $db = read_database($path);
+        return _stored( $db, 'verdict', $ids ) if $db;
         $records = _identified( _read( File::Spec->catfile( File::Basename::dirname($path), 'cache.json' ) ) );
     }
     else { $records = _validated( _read($path)->{mutants}, $RECORD ) }
@@ -89,9 +90,9 @@ signature_for originals => ( positional => [Str], returns => $ORIGINALS );
 
 sub originals ($path) {
     if ( $path =~ /[.]sqlite\z/ ) {
+        my $db = read_database($path);
         return _originals( _read( File::Spec->catfile( File::Basename::dirname($path), 'cache.json' ) ) )
-          unless -f $path;
-        my $db = database($path);
+          unless $db;
         my ($build) = $db->selectrow_array("SELECT data FROM setting WHERE id = 'build'");
         return { build => defined $build ? $JSON->decode($build) : [], tests => _stored( $db, 'original' ) };
     }

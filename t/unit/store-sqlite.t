@@ -32,6 +32,25 @@ Test::Mutation::Store::save( "$directory/cache.json", { first  => $record } );
 Test::Mutation::Store::save( $database,               { second => $record } );
 is Test::Mutation::Store::load($database), { first => $record, second => $record },
   'the new store imports compatible JSON verdicts before adding its own';
+
+subtest 'reusable records can be read before an interrupted migration resumes' => sub {
+    my $saved = { build => [ 'perl', 'Makefile.PL' ], tests => {} };
+    my $old   = "$directory/partial/cache.json";
+    Test::Mutation::Store::save( $old, { earlier => $record }, undef, {}, $saved );
+    for my $case (
+        [ verdicts => \&Test::Mutation::Store::load,      { earlier => $record } ],
+        [ baseline => \&Test::Mutation::Store::originals, $saved ]
+      )
+    {
+        my ( $name, $read, $expected ) = @$case;
+        my $empty = "$directory/partial/$name.sqlite";
+        open my $file, '>:raw', $empty or die "create $empty: $!";
+        close $file or die "close $empty: $!";
+        is $read->($empty), $expected, "the $name lookup can use the legacy cache";
+        is -s $empty,       0,         "reading $name leaves the incomplete SQLite file untouched";
+    }
+};
+
 my $db = DBI->connect( "dbi:SQLite:dbname=$database", undef, undef, { RaiseError => 1, PrintError => 0 } );
 is $db->selectcol_arrayref('SELECT id FROM verdict ORDER BY id'), [qw(first second)],
   'the driver persists a separately addressable row for each verdict';
