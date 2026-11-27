@@ -1,10 +1,10 @@
 package Test::Mutation::Verdict;
 use v5.36;
-use Types::Standard qw(Bool Dict Enum Int Maybe Optional Str);
+use Types::Standard qw(ArrayRef Bool Dict Enum Int Maybe Optional Str);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Message;
 use Test::Mutation::Status;
-use Test::Mutation::Types qw(Reason StatusName);
+use Test::Mutation::Types qw(Entry Reason StatusName);
 
 our $VERSION = '0.001';
 
@@ -156,6 +156,32 @@ sub final ($state) {
     return conclude($state)->{status};
 }
 
+signature_for conclude_inventory => ( positional => [ ArrayRef [Entry] ], returns => ArrayRef [Entry] );
+
+sub conclude_inventory ($entries) {
+    my ( %first, @result );
+    for my $entry (@$entries) {
+        my $code = $entry->{compiled_digest};
+        if ( defined $code && Test::Mutation::Status::of( $entry->{status} )->role eq 'undetected' ) {
+            my $mutant = $entry->{mutant};
+            my $seen   = $first{ $mutant->path } ||= {};
+            if ( defined $seen->{$code} ) {
+                push @result,
+                  {
+                    $entry->%*,
+                    status => 'Ignored',
+                    reason => 'same-code-as-mutant',
+                    detail => "compiles to the same code as mutant $seen->{$code}"
+                  };
+                next;
+            }
+            $seen->{$code} = $mutant->id;
+        }
+        push @result, $entry;
+    }
+    return \@result;
+}
+
 signature_for limit => ( positional => [$RESULT], returns => Maybe [Reason] );
 
 sub limit ($result) {
@@ -225,5 +251,11 @@ Returns the status of the concluded state.
 
 Returns the reason of the limit that ended a test, C<time-limit> or C<output-limit>, for the result of an outcome.
 A test that ended on its own has no such reason.
+
+=head2 conclude_inventory
+
+Returns the verdicts in inventory order.
+Among undetected mutants in one source file, the first with each compiled digest keeps its verdict.
+Later matches name the first mutant and leave the score.
 
 =cut

@@ -47,11 +47,12 @@ my $MUTANT   = (
         duration       => Num,
         static         => $FLAG,
         testMutation   => Dict [
-            status     => StatusName,
-            reason     => Maybe [Reason],
-            scope      => Tuple [ Int, Int ],
-            suppressed => $FLAG,
-            comparable => $FLAG
+            status         => StatusName,
+            reason         => Maybe [Reason],
+            scope          => Tuple [ Int, Int ],
+            suppressed     => $FLAG,
+            comparable     => $FLAG,
+            compiledDigest => Optional [ StrMatch [qr/\A[0-9a-f]{64}\z/] ],
         ],
     ]
 )->where( sub { _consistent($_) } );
@@ -179,6 +180,7 @@ sub _mutant ($entry) {
             scope      => [ map { 0 + $_ } $mutant->scope->@* ],
             suppressed => _boolean( $mutant->suppressed ),
             comparable => _boolean( $mutant->comparable ),
+            defined $entry->{compiled_digest} ? ( compiledDigest => $entry->{compiled_digest} ) : (),
         },
     );
     $mutant{statusReason} = $entry->{detail} if defined $entry->{detail};
@@ -333,6 +335,7 @@ sub _entry ( $source, $mutant ) {
         covered_by => $mutant->{coveredBy},
         tests_run  => $mutant->{testsCompleted},
         duration   => $duration / $MILLISECONDS,
+        defined $extra->{compiledDigest} ? ( compiled_digest => $extra->{compiledDigest} ) : (),
     };
 }
 

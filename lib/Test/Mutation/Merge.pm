@@ -6,6 +6,7 @@ use Types::Standard qw(ArrayRef Dict InstanceOf Str);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Error;
 use Test::Mutation::Result;
+use Test::Mutation::Verdict;
 
 our $VERSION = '0.001';
 
@@ -62,7 +63,7 @@ sub merge ($reports) {
         tests   => [
             map { { name => $_, duration => $duration{$_}, $active{$_} ? () : ( neutral => 1 ) } } sort keys %duration
         ],
-        entries           => \@entries,
+        entries           => Test::Mutation::Verdict::conclude_inventory( \@entries ),
         problems          => [ map { $problem{$_} } sort keys %problem ],
         warnings          => [ uniq map { $_->warnings->@* } @results ],
         baseline_failures => [],

@@ -39,14 +39,15 @@ declare TaskRecord,
 
 declare Entry,
   as Dict [
-    mutant     => InstanceOf ['Test::Mutation::Mutant'],
-    status     => StatusName,
-    reason     => Maybe [Reason],
-    detail     => Maybe [Str],
-    by         => Maybe [Str],
-    covered_by => ArrayRef [Str],
-    tests_run  => Int,
-    duration   => Num,
+    mutant          => InstanceOf ['Test::Mutation::Mutant'],
+    status          => StatusName,
+    reason          => Maybe [Reason],
+    detail          => Maybe [Str],
+    by              => Maybe [Str],
+    covered_by      => ArrayRef [Str],
+    tests_run       => Int,
+    duration        => Num,
+    compiled_digest => Optional [ StrMatch [qr/\A[0-9a-f]{64}\z/] ],
   ],
   where { Test::Mutation::Status::fits( $_->{status}, $_->{reason} ) };
 

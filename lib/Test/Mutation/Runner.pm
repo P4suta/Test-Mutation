@@ -1339,8 +1339,12 @@ sub _mutants ( $run, $mutants, $baseline, $sample_only = 0 ) {
 
     my @entries = map { $entry_of{ $_->id } } $mutants->@*;
     _save_cache( $run, $cache, \@entries ) if $cache;
-    _ignore_repeated_code( $run, \@entries ) unless $sample_only;
-    return \@entries;
+    for my $entry (@entries) {
+        my $code = $run->{code_of_mutant}{ $entry->{mutant}->id };
+        $entry->{compiled_digest} = $code if defined $code;
+    }
+    return \@entries if $sample_only || defined $run->{config}->shard;
+    return Test::Mutation::Verdict::conclude_inventory( \@entries );
 }
 
 sub _execute_jobs ( $run, $baseline, $jobs, $entries ) {
@@ -1701,22 +1705,6 @@ sub _save_cache ( $run, $cache, $entries ) {
     }
     my $inventory = $run->{narrowed} ? undef : [ map { $_->{mutant}->id } @$entries ];
     Test::Mutation::Store::save( $cache->{path}, \%updates, $inventory, $cache->{targets} );
-    return;
-}
-
-sub _ignore_repeated_code ( $run, $entries ) {
-    my %first;
-    for my $entry ( grep { $UNDETECTED{ $_->{status} } } $entries->@* ) {
-        my $mutant = $entry->{mutant};
-        my $code   = $run->{code_of_mutant}{ $mutant->id } or next;
-        my $key    = join "\n", $mutant->path, $code;
-        if ( defined $first{$key} ) {
-            $entry->@{qw(status reason detail)} =
-              ( 'Ignored', 'same-code-as-mutant', "compiles to the same code as mutant $first{$key}" );
-            next;
-        }
-        $first{$key} = $mutant->id;
-    }
     return;
 }
 

@@ -44,6 +44,24 @@ subtest 'the merged score meets the threshold of a run' => sub {
     ran( 1, $root, 'merge', @reports, '--min-score', 100, '--format', 'terminal' );
 };
 
+subtest 'duplicate compiled code across shard boundaries has one verdict in inventory order' => sub {
+    my $fold    = copy_of('equivalent');
+    my @formats = ( '--format', 'terminal', '--format', 'json', '--min-score', 70 );
+    my $single  = ran( 0, $fold, @formats, '--jobs', 1, '--report-dir', 'single' );
+    for my $part ( 1, 2 ) {
+        ran( 0, $fold, '--format', 'json', '--jobs', 2, '--shard', "$part/2", '--report-dir', "part$part" );
+    }
+    my $merged = ran( 0, $fold, 'merge', @reports, @formats, '--report-dir', 'merged' );
+    like $_->{stdout}, qr/^Score: 75[.]0% \(6 of 8 valid mutants\)$/m,
+      'six kills and two distinct survivors pass the same threshold'
+      for $single, $merged;
+    my @observed = map {
+        my $result = Test::Mutation::Report::Json::parse( slurp("$fold/$_/mutation.json") );
+        [ map { [ $_->{mutant}->id, $_->@{qw(status reason detail by)} ] } $result->entries->@* ]
+    } qw(single merged);
+    is $observed[1], $observed[0], 'the same mutant stays and each duplicate names the same representative';
+};
+
 subtest 'a set that is not one complete run is a usage error' => sub {
     my %refused = (
         'part 2 of 2 is missing'                                            => ['part1/mutation.json'],
