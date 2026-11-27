@@ -46,8 +46,9 @@ sub _outcome ( $result, $floor, $tally = undef ) {
       || !defined $score && $counts->{Timeout};
     my $gated = defined $floor && !defined $result->shard;
     if ( !defined $score ) {
+        my $scope = $result->measured_scope // $result->selection;
         return _decision( 'nothing', 'inconclusive', Test::Mutation::Message::text_of('inconclusive') )
-          if $gated && !keys $result->selection->%*;
+          if $gated && !keys %$scope;
         return _decision( 'nothing', 'success' );
     }
     return _decision( 'measured', 'below-gate',

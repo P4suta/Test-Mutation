@@ -258,6 +258,20 @@ subtest 'a set that is not one complete run is refused' => sub {
       qr/invalid shard 3\/2/, 'an empty shard outside the declared split is refused';
 };
 
+subtest 'a refreshed threshold uses every row in the measured scope' => sub {
+    my $whole  = part( undef, [ map { entry( $_, 'Ignored' ) } 1 .. 6 ], catalog_digest => $digest, min_score => 80 );
+    my $single = part(
+        undef, [ entry( 1, 'Ignored' ) ],
+        catalog_digest => $digest,
+        min_score      => 80,
+        selection      => { mutants => ['000000000001'] }
+    );
+    is $whole->assessment->{gate},  'unavailable',         'the whole project has no score to compare to the threshold';
+    is $single->assessment->{gate}, 'no mutants selected', 'the narrowed measurement accepts an empty score';
+    my $saved = Test::Mutation::Merge::refresh( $whole, $single );
+    is $saved->assessment, $whole->assessment, 'refreshing one ignored mutant preserves the whole-project gate';
+};
+
 subtest 'refresh replaces the selected verdicts and keeps independently measured changes' => sub {
     my $prior = part(
         undef, [ entry( 3, 'Survived' ), entry( 1, 'Killed' ) ],
