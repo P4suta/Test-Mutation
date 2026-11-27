@@ -19,6 +19,22 @@ on:
         description: Expected Perl package version
         type: string
         required: true
+    outputs:
+      source_sha:
+        description: Verified candidate commit
+        value: ${{ jobs.verified.outputs.source_sha }}
+      version:
+        description: Verified Perl package version
+        value: ${{ jobs.verified.outputs.version }}
+      archive_name:
+        description: CPAN distribution filename
+        value: ${{ jobs.verified.outputs.archive_name }}
+      archive_sha256:
+        description: SHA-256 of the tested tar.gz bytes
+        value: ${{ jobs.verified.outputs.archive_sha256 }}
+      artifact_id:
+        description: Immutable Actions artifact containing the tested archive
+        value: ${{ jobs.verified.outputs.artifact_id }}
 
 concurrency:
   group: release-gate-${{ inputs.source_sha || github.sha }}
@@ -153,9 +169,12 @@ jobs:
 
   release:
     name: Complete self measurement and Linux distribution
-    needs: [self-measurement, compatibility]
+    needs: [candidate, self-measurement, compatibility]
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    outputs:
+      archive_sha256: ${{ steps.tested.outputs.sha256 }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -171,8 +190,29 @@ jobs:
       - run: mise run mutation -- merge shard-reports/*/mutation.json --format json --format terminal --report-dir mutation-report --min-score 100
       - run: mise x -- prove -l xt/release
       - run: mise run dist
+      - name: Record the archive to install
+        id: tested
+        env:
+          VERSION: ${{ needs.candidate.outputs.version }}
+        run: |
+          archive="Test-Mutation-$VERSION.tar.gz"
+          test -f "$archive"
+          test ! -L "$archive"
+          digest=$(sha256sum -- "$archive")
+          printf 'archive=%s\nsha256=%s\n' "$archive" "${digest%% *}" >> "$GITHUB_OUTPUT"
       - run: mise x -- make disttest
       - run: mise run verify-install
+        env:
+          TEST_MUTATION_DISTRIBUTION: ${{ steps.tested.outputs.archive }}
+      - name: Upload the installed CPAN archive
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cpan-${{ env.SOURCE_SHA }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.tested.outputs.archive }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
 
   macos:
     name: macOS distribution
@@ -191,3 +231,57 @@ jobs:
       - run: mise run dist
       - run: mise x -- make disttest
       - run: mise run verify-install
+
+  verified:
+    name: Bind the tested archive to its source and build
+    needs: [candidate, release, macos]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read # Read the artifact's build run and immutable ID.
+      contents: read # Read the controller and candidate commits separately.
+    outputs:
+      source_sha: ${{ needs.candidate.outputs.source_sha }}
+      version: ${{ needs.candidate.outputs.version }}
+      archive_name: ${{ steps.verify.outputs.archive_name }}
+      archive_sha256: ${{ steps.verify.outputs.archive_sha256 }}
+      artifact_id: ${{ needs.release.outputs.artifact_id }}
+    steps:
+      - name: Check the artifact belongs to the selected run and attempt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.release.outputs.artifact_id }}
+        shell: bash
+        run: |
+          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
+          name="cpan-$SOURCE_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" |
+            jq -se --arg name "$name" --arg run "$GITHUB_RUN_ID" --arg id "$ARTIFACT_ID" '
+              length == 1 and (.[0] | .name == $name and (.id | tostring) == $id
+                and (.workflow_run.id | tostring) == $run and .expired == false)'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: controller
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          path: source
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.release.outputs.artifact_id }}
+          path: distribution
+          digest-mismatch: error
+      - id: verify
+        env:
+          VERSION: ${{ needs.candidate.outputs.version }}
+          SHA256: ${{ needs.release.outputs.archive_sha256 }}
+        run: |
+          shopt -s nullglob dotglob
+          archives=(distribution/*)
+          test "${#archives[@]}" = 1
+          test -f "${archives[0]}"
+          test ! -L "${archives[0]}"
+          perl controller/xt/bin/verify-release-archive source "$SOURCE_SHA" "$VERSION" "${archives[0]}" "$SHA256" >> "$GITHUB_OUTPUT"

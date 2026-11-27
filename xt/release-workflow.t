@@ -139,6 +139,27 @@ subtest 'the packaged command runs after disttest on both release systems' => su
     }
 };
 
+subtest 'the verified output waits for both platforms and names one immutable artifact' => sub {
+    my $verified = $jobs->{verified} || {};
+    is $verified->{needs}, '[candidate, release, macos]', 'both tested platforms gate the artifact';
+    for my $field (qw(source_sha version archive_name archive_sha256 artifact_id)) {
+        is $workflow->{on}{workflow_call}{outputs}{$field}{value}, "\${{ jobs.verified.outputs.$field }}",
+          "callers receive the verified $field";
+    }
+    my ($upload) = grep { ( $_->{uses} || q{} ) =~ m{\Aactions/upload-artifact@} } $jobs->{release}{steps}->@*;
+    is $upload->{with}{name}, q{cpan-${{ env.SOURCE_SHA }}-${{ github.run_id }}-${{ github.run_attempt }}},
+      'the artifact name binds the build commit, run and attempt';
+    my ($install) = grep { ( $_->{run} || q{} ) eq 'mise run verify-install' } $jobs->{release}{steps}->@*;
+    is $upload->{with}{path}, $install->{env}{TEST_MUTATION_DISTRIBUTION}, 'the upload uses the installed archive path';
+    ok $upload->{with}{path}, 'the install and upload select one archive';
+    my ($download) = grep { ( $_->{uses} || q{} ) =~ m{\Aactions/download-artifact@} } ( $verified->{steps} || [] )->@*;
+    is $download->{with}{'artifact-ids'}, q{${{ needs.release.outputs.artifact_id }}},
+      'verification reads the uploaded ID';
+    is $download->{with}{'digest-mismatch'}, 'error', 'a transport digest mismatch fails verification';
+    my ($controller) = grep { ( $_->{with}{path} || q{} ) eq 'controller' } ( $verified->{steps} || [] )->@*;
+    is $controller->{with}{ref}, q{${{ github.workflow_sha }}}, 'archive verification runs the trusted controller';
+};
+
 subtest 'the release test rejects shard numbers in the measured environment' => sub {
     write_file( "$runtime/perl-path", "$interpreter\n" ) unless -f "$runtime/perl-path";
     my $script = step( $jobs->{'self-measurement'}, qr/--shard\b/ );
