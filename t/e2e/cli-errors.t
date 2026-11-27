@@ -18,7 +18,7 @@ sub command ( $failure, @arguments ) {
     chdir $root or die "chdir: $!";
     my $status = do {
         no warnings 'redefine';
-        local *Test::Mutation::Runner::analyze = $failure;
+        local *Test::Mutation::Select::resolve = $failure;
         local *STDOUT;    ## no critic (Variables::RequireInitializationForLocalVars)
         local *STDERR;    ## no critic (Variables::RequireInitializationForLocalVars)
         open STDOUT, '>', \$output or die "stdout: $!";
@@ -42,11 +42,15 @@ is command( sub { die Test::Mutation::Interrupted->new( signal => 'HUP' ) }, 'li
   [ 129, "mutation: interrupted by SIGHUP\n", q{} ], 'an interruption gives the status of its signal';
 
 # A signal that arrives where the command offers no check still ends the command with its status.
-my $quiet = { sources => {}, mutants => [], problems => [], left_out => {}, rejected => [] };
-is command( sub { kill 'TERM', $$; return { $quiet->%*, inventory => { mutants => 0, digest => 'a' x 64 } } }, 'list' ),
+my $quiet = Test::Mutation::Select::resolve(
+    config    => Test::Mutation::Settings::of_call( { root => $root } ),
+    paths     => {},
+    read_only => 1
+);
+is command( sub { kill 'TERM', $$; return $quiet }, 'list' ),
   [ 143, "mutation: interrupted by SIGTERM\n", "0 mutants\n" ],
   'a signal during the last step of a command ends it with the status of the signal';
-is command( sub { return { $quiet->%*, inventory => { mutants => 0, digest => 'a' x 64 } } }, 'list' ),
+is command( sub { return $quiet }, 'list' ),
   [ 0, q{}, "0 mutants\n" ], 'and the same command without a signal succeeds';
 
 # A signal outranks every other outcome, so a signal that arrives while the command plans ends it before a refusal.

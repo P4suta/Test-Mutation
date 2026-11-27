@@ -238,7 +238,7 @@ subtest 'carrying out a plan resolves its paths and prints to the streams of the
     my ( @inc, $entered );
     {
         no warnings 'redefine';
-        local *Test::Mutation::Runner::analyze = sub { @inc = @INC; $entered = Cwd::getcwd(); die ['no text'] };
+        local *Test::Mutation::Select::resolve = sub { @inc = @INC; $entered = Cwd::getcwd(); die ['no text'] };
         local @INC                             = ( 'relative/entry', @INC );
         is Test::Mutation::CLI::execute( $plan, $world ), 6, 'an error that is no text ends the command with status 6';
     }
@@ -256,7 +256,7 @@ subtest 'carrying out a plan resolves its paths and prints to the streams of the
 subtest 'the errors of a run end the command with one line and the status of their kind' => sub {
     my $failing = sub ( $failure, @line ) {
         no warnings 'redefine';
-        local *Test::Mutation::Runner::analyze = $failure;
+        local *Test::Mutation::Select::resolve = $failure;
         return [ World::observe( @line ? \@line : ['list'], cwd => $root )->@{qw(exit stdout stderr)} ];
     };
     my $usage       = sub { Test::Mutation::Error::raise( 'mutator-unknown', names => 'nonesuch' ) };

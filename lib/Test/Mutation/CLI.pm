@@ -22,7 +22,6 @@ use Test::Mutation::Error;
 use Test::Mutation::Exit;
 use Test::Mutation::Host;
 use Test::Mutation::Interrupted;
-use Test::Mutation::Merge;
 use Test::Mutation::Outcome;
 use Test::Mutation::Message;
 use Test::Mutation::Mutator::Catalog;
@@ -31,7 +30,6 @@ use Test::Mutation::Report::Patch;
 use Test::Mutation::Report::Results;
 use Test::Mutation::Report::Live;
 use Test::Mutation::Report::Terminal;
-use Test::Mutation::Runner;
 use Test::Mutation::Store::History;
 use Test::Mutation::Select;
 use Test::Mutation::Settings;
@@ -311,6 +309,7 @@ sub _first_line ($error) {
 }
 
 sub _run ( $invocation, $world ) {
+    require Test::Mutation::Runner;
     my $config   = $invocation->{config};
     my $listener = _progress( $invocation, $world );
     my $options  = { reports => 1, summary => $world->{env}{GITHUB_STEP_SUMMARY} };
@@ -322,6 +321,7 @@ sub _run ( $invocation, $world ) {
 }
 
 sub _baseline ( $invocation, $world ) {
+    require Test::Mutation::Runner;
     my $config = $invocation->{config};
     my $result = Test::Mutation::Runner::run( $config, _progress( $invocation, $world ), { baseline_only => 1 } );
     say { $world->{out} } 'Baseline: ', _plural( scalar $result->tests->@*, 'test' );
@@ -485,18 +485,15 @@ sub _concluded ( $result, $floor, $world ) {
 }
 
 sub _list ( $invocation, $world ) {
-    my $selected = $invocation->{selection};
-    my $analysis =
-      $selected
-      ? { mutants => $selected->mutants, sources => $selected->sources }
-      : Test::Mutation::Runner::analyze( $invocation->{config} );
-    my $previous = _previous_entries( $invocation->{config}, $analysis->{sources}, $analysis->{mutants} );
-    for my $mutant ( $analysis->{mutants}->@* ) {
+    my $selected = $invocation->{selection}
+      || Test::Mutation::Select::resolve( config => $invocation->{config}, read_only => 1 );
+    my $previous = _previous_entries( $invocation->{config}, $selected->sources, $selected->mutants );
+    for my $mutant ( $selected->mutants->@* ) {
         my $entry = $previous->{ $mutant->id };
         say { $world->{out} } Test::Mutation::Report::Results::heading($mutant), _suppression($mutant),
           $entry ? "  [$entry->{status}] " . _measured_at($entry) : q{};
     }
-    say { $world->{out} } _plural( scalar $analysis->{mutants}->@*, 'mutant' );
+    say { $world->{out} } _plural( scalar $selected->mutants->@*, 'mutant' );
     return 0;
 }
 
@@ -559,6 +556,7 @@ sub _show ( $invocation, $world ) {
 }
 
 sub _exec ( $invocation, $world ) {
+    require Test::Mutation::Runner;
     my $config = $invocation->{config};
     my ( $identifier, @command ) = $invocation->{operands}->@*;
     my $analysis = Test::Mutation::Runner::analyze($config);
@@ -579,6 +577,7 @@ sub _read_report ( $path, $root ) {
 }
 
 sub _merge ( $invocation, $world ) {
+    require Test::Mutation::Merge;
     my $config = $invocation->{config};
     my $result = Test::Mutation::Merge::merge(
         [ map { { name => $_, result => _read_report( $_, $config->root ) } } $invocation->{operands}->@* ],

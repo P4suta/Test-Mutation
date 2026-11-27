@@ -427,7 +427,7 @@ heard( 'command-unstartable', pooled( command => ["$scratch/no-such-program"] ) 
 # The defects of the tool: an error without a type, a message with other values, a shim without its lines, and a verdict.
 {
     no warnings 'redefine';
-    local *Test::Mutation::Runner::analyze = sub { die "the analysis broke\n" };
+    local *Test::Mutation::Select::resolve = sub { die "the analysis broke\n" };
     printed( ['list'] );
 }
 heard( 'message-slots', raised( sub { Test::Mutation::Message::text_of( 'inconclusive', reason => 'none' ) } ) );

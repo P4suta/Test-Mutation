@@ -31,6 +31,22 @@ write_file( "$root/mutation-report/mutation.json",
     Test::Mutation::Report::Json::render( $result, low => 60, high => 80 ) );
 my ($entry) = grep { $_->{status} eq 'Survived' } $result->entries->@*;
 my $id = $entry->{mutant}->id;
+subtest 'a new lookup process loads only the code it uses' => sub {
+    my $probe = <<'PERL';
+END { print "loaded $_\n" for sort keys %INC }
+do './bin/mutation';
+die $@ || $!;
+PERL
+    for my $arguments ( [ 'show', $id ], ['list'] ) {
+        open my $child, q{-|}, $^X, '-Ilib', '-e', $probe, '--', '--root', $root, @$arguments
+          or die "start the lookup: $!";
+        my @output = readline $child;
+        ok close($child),                        "$arguments->[0] exits successfully";
+        ok scalar( grep { /\Q$id\E/ } @output ), "$arguments->[0] displays the measured mutant";
+        my @modules = grep { m{\Aloaded Test/Mutation/(?:Runner|Merge)[.]pm\n\z} } @output;
+        is \@modules, [], "$arguments->[0] runs without loading the test runner or merging reports";
+    }
+};
 my ( $parsed, $reports, $restored ) = ( 0, 0, 0 );
 my $make    = Test::Mutation::Mutant->can('new');
 my $parse   = Test::Mutation::Report::Json->can('parse');

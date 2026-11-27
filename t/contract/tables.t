@@ -147,7 +147,7 @@ subtest 'the exit table names every exit status of the command' => sub {
     my @signals = Test::Mutation::Exit::signals()->@*;
     my $failing = sub ( $failure, @line ) {
         no warnings 'redefine';
-        local *Test::Mutation::Runner::analyze = $failure;
+        local *Test::Mutation::Select::resolve = $failure;
         return World::observe( \@line, cwd => $root )->{exit};
     };
     my $unreadable = sub { Test::Mutation::Error::raise( 'file-unreadable', path => 'lib/Calc.pm', reason => 'gone' ) };
