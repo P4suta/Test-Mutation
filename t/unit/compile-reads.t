@@ -11,6 +11,8 @@ subtest 'scheduled blocks identify the file operands of read-only open' => sub {
       'the target environment supplies one named input';
     is reads(q{UNITCHECK { CORE::open(my $in, '<:raw', '/data/file') }}), [ [ file => '/data/file' ] ],
       'a literal path and a PerlIO layer identify one input';
+    is reads(q{BEGIN { unshift @INC, $ENV{LIBRARY}; push @INC, '/opt/lib' }}), [],
+      'the compiler already records literal and environment-derived include directories';
     is reads(q{sub load { open my $in, '<', make_path() } # BEGIN }), [],
       'runtime statements do not run in the compiler';
 };

@@ -170,9 +170,10 @@ sub compile_reads ($source) {
 }
 
 sub _known_phase_statement ( $text, $handles, $reads ) {
-    my $variable   = qr{\$[a-zA-Z_]\w*};
-    my $literal    = qr{(?: '[^'\\]*' | "[^"\$\@\\]*" )}x;
-    my $operand    = qr{(?: $literal | \$ENV \s \{ \s [a-zA-Z_]\w* \s \} )}x;
+    my $variable = qr{\$[a-zA-Z_]\w*};
+    my $literal  = qr{(?: '[^'\\]*' | "[^"\$\@\\]*" )}x;
+    my $operand  = qr{(?: $literal | \$ENV \s \{ \s [a-zA-Z_]\w* \s \} )}x;
+    return 1 if $text =~ /\A (?:unshift|push) \s \@INC \s , \s $operand (?:\s , \s $operand)* \z/x;
     my $ends       = qr{(?: \s (?:or|\|\|) \s (?:CORE::)?die \s \$! )?}x;
     my $filehandle = qr{(?: \( \s )? (?:my \s)? ($variable) \s , \s}x;
     my $read_mode  = qr{(?: '<(?::raw)?' | "<(?::raw)?" ) \s , \s}x;
