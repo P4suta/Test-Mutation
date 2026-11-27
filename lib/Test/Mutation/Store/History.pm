@@ -130,6 +130,7 @@ WITH scope AS (
         SELECT evidence.status FROM observation evidence JOIN measurement USING(run)
         WHERE evidence.id = member.id AND evidence.source = member.source AND evidence.run >= scope.run
           AND measurement.project = scope.project AND complete = 1
+          AND evidence.status NOT IN ('NoVerdict', 'Pending', 'Timeout')
         ORDER BY measurement.finished DESC, evidence.run DESC LIMIT 1
     ) IN ('Survived', 'NoCoverage')
 )
