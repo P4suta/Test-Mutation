@@ -8,7 +8,8 @@ PERL5LIB = "{{config_root}}/local/lib/perl5"
 _.path = ["{{config_root}}/local/bin"]
 
 [vars]
-perl_files = "fd --type f --extension pm --extension t --extension pl --exclude corpus --exclude fixtures . lib t xt"
+# The list comes from Git and from the first line of each file, so the formatter reaches every Perl file of the project.
+perl_files = "perl xt/bin/perl-files library program"
 
 [tasks.setup]
 description = "Install the dependencies recorded in cpanfile.snapshot"
@@ -26,20 +27,14 @@ run = "carton install"
 description = "Format Perl files in place"
 run = "perltidy --backup-and-modify-in-place --backup-file-extension=/ $({{vars.perl_files}})"
 
-[tasks.fmt-check]
-description = "Fail when a Perl file differs from its formatted form"
-run = [
-  "mkdir -p .mutation/tidy",
-  "perltidy --assert-tidy --output-path=.mutation/tidy $({{vars.perl_files}})",
-]
-
-[tasks.lint]
-description = "Run Perl::Critic over the library"
-run = "perlcritic lib"
+[tasks.style]
+description = "Fail when a Perl file differs from its formatted form or breaks the lint"
+# The gate formats and lints every Perl file itself, so the task and the fast gate share one implementation.
+run = "prove -l xt/perl-files.t"
 
 [tasks.test]
-description = "Run the unit and assumption tests"
-run = "prove -lr t/unit t/assumptions"
+description = "Run the unit, assumption, and contract tests, and the fast subset of the mutant quality harness"
+run = "prove -lr t/unit t/assumptions t/contract t/discovery"
 
 [tasks.test-shim]
 description = "Run the shim tests"
@@ -53,25 +48,84 @@ run = "prove -l t/e2e"
 description = "Run the structural gates over the library"
 run = "prove -l xt"
 
+[tasks.discover-fast]
+description = "Compare runs of the engine with independent oracles, each axis value once"
+# The files run side by side: each one works in scratch directories of its own.
+run = "prove -l -j4 xt/discovery"
+
+[tasks.discover]
+description = "Compare runs of the engine with independent oracles over every seed and every product of the axes"
+env = { DISCOVERY_TIER = "full" }
+run = "prove -l -j4 xt/discovery"
+
 [tasks.mutation]
 description = "Measure the tests of Test::Mutation with its own command"
 run = "perl -Ilib bin/mutation"
+
+[tasks.manual]
+description = "Generate the reference sections of the installed mutation command"
+run = "perl xt/bin/generate-manual"
 
 [tasks.schema]
 description = "Fetch the report schema of the pinned viewer release"
 run = "curl --fail --silent --show-error --location --output xt/schema/mutation-testing-report-schema.json https://raw.githubusercontent.com/stryker-mutator/mutation-testing-elements/v3.9.0/packages/report-schema/src/mutation-testing-report-schema.json"
 
-[tasks.corpus]
-description = "Analyze every installed module and check each site and mutant"
-run = "prove -l xt/corpus"
+[tasks.discover-mutants]
+description = "Judge the mutants of every installed module and of every generated snippet with perl"
+# The run takes minutes, so the fast gate holds its subset under t/discovery and the release gate holds this task.
+run = "prove -l xt/mutants"
 
 [tasks.mutation-gate]
 description = "Measure Test::Mutation with itself and check the release conditions"
-run = ["perl -Ilib bin/mutation", "prove -l xt/release", "prove -l xt/corpus"]
+run = [
+  "perl -Ilib bin/mutation --no-cache --format terminal --format json --min-score 100",
+  "prove -l xt/release",
+  "mise run discover-mutants",
+]
+
+[tasks.shim-mutation]
+description = "Measure the installed shim with Perl 5.10, 5.14, and 5.18"
+run = [
+  "docker build --quiet --target shim --file xt/realworld/Dockerfile --tag test-mutation-shim-release .",
+  "docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 256 --cpus 2 --memory 1g --tmpfs /work:exec,size=512m,uid=1000,gid=1000,mode=0755 --tmpfs /tmp:exec,size=128m,mode=1777 --volume {{config_root}}:/repo:ro test-mutation-shim-release",
+]
+
+[tasks.release-gate]
+description = "Verify the complete self measurement, coverage, discovery, and pinned distributions"
+run = [
+  "mise run check",
+  "mise run mutation-gate",
+  "mise run release-compatibility",
+]
+
+[tasks.release-compatibility]
+description = "Verify supported shim interpreters, coverage, engine behavior, and pinned distributions"
+run = [
+  "mise run shim-mutation",
+  "mise run coverage",
+  "mise run discover",
+  "mise run realworld",
+]
+
+[tasks.coverage]
+description = "Measure statement and branch coverage against the release floors"
+run = "perl xt/bin/measure-coverage"
+
+[tasks.realworld]
+description = "Run the tool on real distributions inside a container and judge every record"
+# Foreign tests and their mutants run arbitrary code.
+# The container reads the repository and writes only to its scratch directory.
+# Each program has 1 GiB of address space so a recursive mutant cannot evict the measurement and its reference tests.
+run = [
+  "docker build --quiet --file xt/realworld/Dockerfile --tag test-mutation-realworld .",
+  "mkdir -p mutation-report",
+  "docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 4096 --cpus 6 --memory 8g --tmpfs /work:exec,size=4g,uid=1000,gid=1000,mode=0755 --volume {{config_root}}:/repo:ro test-mutation-realworld prlimit --as=1073741824:1073741824 -- perl -I/opt/mutation/lib/perl5 /repo/xt/bin/realworld-observe > mutation-report/realworld.jsonl",
+  "prove -l xt/realworld",
+]
 
 [tasks.dist]
 description = "Pack the distribution archive"
-run = ["perl Makefile.PL", "make manifest", "make dist"]
+run = ["perl Makefile.PL", "perl xt/bin/distribution-manifest", "make dist"]
 
 [tasks.audit]
 description = "Check the locked dependencies against the CPAN security advisories"
@@ -85,12 +139,11 @@ run = "gitleaks dir --no-banner ."
 [tasks.check]
 description = "Run every fast gate"
 depends = [
-  "fmt-check",
-  "lint",
   "test",
   "test-shim",
   "e2e",
   "gate",
+  "discover-fast",
   "audit",
   "secrets",
 ]

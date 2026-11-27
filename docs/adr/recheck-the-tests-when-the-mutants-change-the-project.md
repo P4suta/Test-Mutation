@@ -30,5 +30,5 @@ New content of equal size and time escapes the comparison.
 
 ## Confirmation
 
-`t/unit/tree.t` covers the comparison, and `t/e2e/runner.t` covers a test that a stray file breaks.
-Reconsider when the tests run inside a copy.
+`t/e2e/unmodified-pass.t` checks clean copies, baseline effects, and replay.
+Reconsider when replay fails to reproduce the original failure.

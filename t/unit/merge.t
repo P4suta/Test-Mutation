@@ -1,8 +1,13 @@
 use v5.36;
 use Test2::V0;
+use Digest::SHA  ();
+use Scalar::Util qw(refaddr);
+use lib 't/lib';
+use Raised;
 use Test::Mutation::Merge;
 use Test::Mutation::Mutant;
 use Test::Mutation::Result;
+use Test::Mutation::Status;
 
 my $digest = 'ab' x 32;
 
@@ -23,7 +28,8 @@ sub entry ( $number, $status ) {
     return {
         mutant     => $mutant,
         status     => $status,
-        reason     => undef,
+        reason     => Test::Mutation::Status::of($status)->reasons->[0],
+        detail     => undef,
         by         => undef,
         covered_by => [],
         tests_run  => 0,
@@ -50,19 +56,24 @@ sub part ( $shard, $entries, %fields ) {
     );
 }
 
+sub work (@counts) {
+    my @names = qw(copies walks compiles spawns listings baseline_tests verifications);
+    return { map { $names[$_] => $counts[$_] } 0 .. $#names };
+}
+
 sub merged (@parts) {
     my $number = 0;
     return Test::Mutation::Merge::merge( [ map { { name => 'report ' . ++$number, result => $_ } } @parts ] );
 }
 
-my @first  = ( entry( 1, 'Killed' ),  entry( 3, 'Survived' ), entry( 5, 'Killed' ) );
-my @second = ( entry( 2, 'Timeout' ), entry( 4, 'Killed' ),   entry( 6, 'NoCoverage' ) );
+my @first = ( entry( 1, 'Killed' ),  entry( 3, 'Survived' ), entry( 5, 'Killed' ) );
+my @rest  = ( entry( 2, 'Timeout' ), entry( 4, 'Killed' ),   entry( 6, 'NoCoverage' ) );
 
 subtest 'the parts of one run merge into the result of the whole run' => sub {
     my $whole = merged(
         part(
             '2/2',
-            \@second,
+            \@rest,
             tests => [
                 { name => 't/b.t', duration => 2 },
                 { name => 't/a.t', duration => 0.75 },
@@ -74,6 +85,7 @@ subtest 'the parts of one run merge into the result of the whole run' => sub {
             reused   => 2,
             started  => 90,
             finished => 105,
+            stats    => work( 1 .. 7 ),
         ),
         part(
             '1/2', \@first,
@@ -81,8 +93,10 @@ subtest 'the parts of one run merge into the result of the whole run' => sub {
             warnings => ['shared warning'],
             problems => [ { path => 'lib/Odd.pm', problem => 'the file has carriage returns' } ],
             reused   => 1,
+            stats    => work( 10, 20, 30, 40, 50, 60, 70 ),
         ),
     );
+    is $whole->stats, work( 11, 22, 33, 44, 55, 66, 77 ), 'the work of every part adds up';
     is [ map { $_->{mutant}->id + 0 } $whole->entries->@* ], [ 1 .. 6 ],
       'the mutants return to the order of the whole run';
     is [ map { $_->{status} } $whole->entries->@* ], [qw(Killed Timeout Survived Killed Killed NoCoverage)],
@@ -102,36 +116,130 @@ subtest 'the parts of one run merge into the result of the whole run' => sub {
 };
 
 subtest 'a part that is unsafe side by side or interrupted marks the whole' => sub {
-    my $whole = merged( part( '1/2', \@first, parallel_safe => 0 ), part( '2/2', \@second, interrupted => 'TERM' ) );
+    my $whole = merged( part( '1/2', \@first, parallel_safe => 0 ), part( '2/2', \@rest, interrupted => 'TERM' ) );
     is [ $whole->parallel_safe, $whole->interrupted ], [ 0, 'TERM' ], 'the weaker fact wins';
+};
+
+subtest 'merging interleaves uneven shards and omits empty positions' => sub {
+    for my $case ( [ 0, [ [], [], [], [] ] ], [ 2, [ [1], [2], [], [] ] ], [ 5, [ [ 1, 5 ], [2], [3], [4] ] ] ) {
+        my ( $count, $groups ) = @$case;
+        my @reports;
+        for my $number ( 1 .. 4 ) {
+            my @entries = map { entry( $_, 'Killed' ) } $groups->[ $number - 1 ]->@*;
+            push @reports, part( "$number/4", \@entries, inventory => { mutants => $count, digest => $digest } );
+        }
+        my $result = merged( reverse @reports );
+        is [ map { 0 + $_->{mutant}->id } $result->entries->@* ], [ 1 .. $count ],
+          "four shards reconstruct all $count mutants in measurement order";
+    }
+};
+
+subtest 'a cache disagreement in either shard propagates to the whole run' => sub {
+    for my $case ( [ 0, 0, 0 ], [ 1, 0, 1 ], [ 0, 1, 1 ], [ 1, 1, 1 ] ) {
+        my ( $first_shard, $second_shard, $mismatch ) = @$case;
+        my $whole = merged(
+            part( '1/2', \@first, cache_mismatch => $first_shard ),
+            part( '2/2', \@rest,  cache_mismatch => $second_shard )
+        );
+        is $whole->cache_mismatch, $mismatch,
+          "cache disagreement travels from either shard ($first_shard, $second_shard)";
+    }
 };
 
 subtest 'a set that is not one complete run is refused' => sub {
     my $one = part( '1/2', \@first );
-    my $two = part( '2/2', \@second );
-    like dies { merged() },             qr/\Amerge needs at least one report/,             'no report';
-    like dies { merged($one) },         qr/\Apart 2 of 2 is missing/,                      'a missing part';
-    like dies { merged( $one, $one ) }, qr/\Areport 1 and report 2 both hold part 1 of 2/, 'a repeated part';
-    like dies { merged( $one, part( '2/3', \@second ) ) },
+    my $two = part( '2/2', \@rest );
+    like Raised::message( sub { merged() } ),     qr/\Amerge needs at least one report/, 'no report';
+    like Raised::message( sub { merged($one) } ), qr/\Apart 2 of 2 is missing/,          'a missing part';
+    like Raised::message( sub { merged( $one, $one ) } ), qr/\Areport 1 and report 2 both hold part 1 of 2/,
+      'a repeated part';
+    like Raised::message( sub { merged( $one, part( '2/3', \@rest ) ) } ),
       qr/\Areport 1 holds part 1 of 2, and report 2 holds part 2 of 3/,
       'parts of different splits';
-    like dies { merged( part( '1/3', \@first ), part( '3/3', \@second ) ) }, qr/\Apart 2 of 3 is missing/,
+    like Raised::message( sub { merged( part( '1/3', \@first ), part( '3/3', \@rest ) ) } ),
+      qr/\Apart 2 of 3 is missing/,
       'a missing middle part';
-    like dies { merged( part( '1/4', \@first ), part( '2/4', \@second ) ) }, qr/\Aparts 3 and 4 of 4 are missing/,
+    like Raised::message( sub { merged( part( '1/4', \@first ), part( '2/4', \@rest ) ) } ),
+      qr/\Aparts 3 and 4 of 4 are missing/,
       'two missing parts';
-    like dies { merged( $one, part( '2/2', \@second, inventory => { mutants => 6, digest => 'cd' x 32 } ) ) },
+    like Raised::message(
+        sub { merged( $one, part( '2/2', \@rest, inventory => { mutants => 6, digest => 'cd' x 32 } ) ) } ),
       qr/\Areport 2 covers other mutants than report 1/, 'a part of another source state';
-    like dies { merged( $one, part( '2/2', \@second, shard => undef ) ) },
+    like Raised::message( sub { merged( $one, part( '2/2', \@rest, shard => undef ) ) } ),
       qr/\Areport 2 is the report of a whole run, not of a part/, 'a whole run';
-    like dies { merged( $one, part( '2/2', \@second, inventory => undef ) ) }, qr/\Areport 2 names no inventory/,
+    like Raised::message( sub { merged( $one, part( '2/2', \@rest, inventory => undef ) ) } ),
+      qr/\Areport 2 names no inventory/,
       'a report without an inventory';
-    like dies {
-        merged( $one, part( '2/2', [], baseline_failures => [ { test => 't/a.t', output => q{}, errors => q{} } ] ) )
-    }, qr/\Areport 2 has failing tests in its unmodified run, so its part measured nothing/, 'a part that never ran';
-    like dies { merged( $one, part( '2/2', [ @second[ 0, 1 ] ] ) ) },
+    is Raised::error(
+        sub {
+            merged( $one,
+                part( '2/2', [], baseline_failures => [ { test => 't/a.t', output => q{}, errors => q{} } ] ) );
+        }
+      ),
+      [
+        'usage',
+        'merge-failed-baseline',
+        'report 2 has failing tests in its unmodified run, so its part measured nothing'
+      ],
+      'a part that never ran';
+    like Raised::message( sub { merged( $one, part( '2/2', [ @rest[ 0, 1 ] ] ) ) } ),
       qr/\Areport 2 holds 2 mutants, and part 2 of 2 has 3/, 'a part that lost a mutant';
-    like dies { merged( $one, part( '2/2', [ @second[ 0, 1 ], $first[0] ] ) ) },
+    like Raised::message( sub { merged( $one, part( '2/2', [ @rest[ 0, 1 ], $first[0] ] ) ) } ),
       qr/\Amutant 000000000001 appears in more than one part/, 'a mutant in two parts';
+};
+
+subtest 'refresh replaces the selected verdicts and keeps independently measured changes' => sub {
+    my $prior = part(
+        undef, [ entry( 3, 'Survived' ), entry( 1, 'Killed' ) ],
+        selection      => { mutants => [qw(000000000003 000000000001)] },
+        catalog_digest => $digest,
+        sources        => { 'lib/A.pm' => 'source A', 'lib/Empty.pm' => 'empty source' },
+        tests          => [ { name => 't/a.t', duration => 3 }, { name => 't/z.t', duration => 4 } ],
+    );
+    my $current = part(
+        undef, [ entry( 5, 'Killed' ), entry( 3, 'Killed' ), entry( 6, 'NoCoverage' ) ],
+        catalog_digest => $digest,
+        selection      => { mutants    => [qw(000000000005 000000000003 000000000006)] },
+        sources        => { 'lib/A.pm' => 'source A', 'lib/B.pm' => 'source B' },
+        tests          => [ { name => 't/c.t', duration => 2 }, { name => 't/a.t', duration => 1 } ],
+    );
+    my $saved = Test::Mutation::Merge::refresh( $prior, $current );
+    my @ids   = map { sprintf '%012d', $_ } ( 3, 1, 5, 6 );
+    is [ map { $_->{mutant}->id } $saved->entries->@* ], \@ids,
+      'prior entries keep their positions and new entries follow';
+    is [ map { $_->{status} } $saved->entries->@* ], [qw(Killed Killed Killed NoCoverage)],
+      'the repeated change takes its new verdict';
+    is $saved->tests,
+      [ { name => 't/a.t', duration => 1 }, { name => 't/c.t', duration => 2 }, { name => 't/z.t', duration => 4 } ],
+      'the saved test list includes both measurements and uses the latest duration';
+    is $saved->sources, { 'lib/A.pm' => 'source A', 'lib/B.pm' => 'source B', 'lib/Empty.pm' => 'empty source' },
+      'sources without a mutant remain in the report';
+    is $saved->inventory, { mutants => 4, digest => Digest::SHA::sha256_hex( join "\n", @ids ) },
+      'the inventory describes the resulting order';
+    is $saved->selection, $current->selection, 'the report records the latest selection';
+
+    for my $case (
+        [ 'a prior shard',           { shard => '1/2' },              {} ],
+        [ 'a current shard',         {},                              { shard => '2/2' } ],
+        [ 'another project',         { root => '/other' },            {} ],
+        [ 'a legacy prior report',   { catalog_digest => undef },     {} ],
+        [ 'a legacy current report', {},                              { catalog_digest => undef } ],
+        [ 'another catalog',         { catalog_digest => 'cd' x 32 }, {} ],
+        [ 'a whole run',             {},                              { selection => {} } ],
+        [
+            'a failed original test',
+            {}, { baseline_failures => [ { test => 't/a.t', output => 'not ok', errors => q{} } ] }
+        ],
+      )
+    {
+        my ( $label, $older, $newer ) = @$case;
+        my $before = Test::Mutation::Result->new( $prior->%*,   %$older );
+        my $after  = Test::Mutation::Result->new( $current->%*, %$newer );
+        is refaddr( Test::Mutation::Merge::refresh( $before, $after ) ), refaddr($after),
+          "$label preserves the current report independently";
+    }
+    isa_ok dies { Test::Mutation::Merge::refresh( $prior, {} ) }, ['Error::TypeTiny'],
+      'the refresh boundary requires two measured results';
 };
 
 done_testing;

@@ -3,9 +3,11 @@ use Test2::V0;
 use Digest::SHA        ();
 use JSON::PP           ();
 use JSON::Schema::Tiny ();
-use lib 't/e2e/lib';
+use lib 't/e2e/lib', 't/lib';
 use Fixture qw(copy_of run_fixture);
+use Gate;
 use Test::Mutation::Report::Json;
+use Test::Mutation::Status;
 
 # The schema file is the one that the pinned release of the viewer publishes; `mise run schema` fetches it.
 my $path = 'xt/schema/mutation-testing-report-schema.json';
@@ -24,15 +26,22 @@ sub report ( $result, %thresholds ) {
     return JSON::PP->new->decode( Test::Mutation::Report::Json::render( $result, high => 80, low => 60, %thresholds ) );
 }
 
+my $mutants = 0;
 for my $fixture (qw(calc mechanics equivalent)) {
     my ($result) = run_fixture( copy_of($fixture) );
-    is errors( report($result) ), [], "the report of the $fixture fixture follows the schema";
+    my $report = report($result);
+    $mutants += scalar $_->{mutants}->@* for values $report->{files}->%*;
+    is errors($report), [], "the report of the $fixture fixture follows the schema";
     is errors( report( $result, high => 79.5, low => 60.25 ) ), [], "fractional thresholds of $fixture stay valid";
 }
-is [
-    sort $schema->{properties}{files}{additionalProperties}{properties}{mutants}{items}{properties}{status}{enum}->@* ],
-  [qw(CompileError Ignored Killed NoCoverage Pending RuntimeError Survived Timeout)],
-  'the schema and the verdict rules name the same statuses';
+Gate::checked( 'mutants in the validated reports', $mutants, at_least => 40 );
+my %enum =
+  map { $_ => 1 }
+  $schema->{properties}{files}{additionalProperties}{properties}{mutants}{items}{properties}{status}{enum}->@*;
+is [ grep { !$enum{ $_->schema } } Test::Mutation::Status::rows()->@* ], [],
+  'every status of the catalog has a name that the schema defines';
+is [ sort keys %enum ], [qw(CompileError Ignored Killed NoCoverage Pending RuntimeError Survived Timeout)],
+  'the statuses of the pinned schema';
 
 subtest 'the gate rejects a report that breaks the schema' => sub {
     my ($result) = run_fixture( copy_of('calc') );

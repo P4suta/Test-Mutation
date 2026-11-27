@@ -1,6 +1,8 @@
 use v5.36;
 use Test2::V0;
-use lib 'xt/lib';
+use lib 't/lib', 'xt/lib';
+use Gate;
+use Library;
 use TypeContractGate;
 
 # Every public subroutine declares a checked signature with a return type, and every attribute declares a type.
@@ -27,14 +29,72 @@ PERL
     is TypeContractGate::violations($code), [], 'no violation';
 };
 
-my @files = sort grep { -f && $_ ne 'lib/Test/Mutation/Shim.pm' }
-  glob 'lib/Test/Mutation.pm lib/Test/Mutation/*.pm lib/Test/Mutation/*/*.pm';
-ok scalar(@files) > 10, 'library files exist';
+subtest 'the gate rejects a type without a shape' => sub {
+    is TypeContractGate::loose_types("has facts => ( is => 'ro', isa => HashRef, default => sub { {} } );\n"),
+      ['1 bare HashRef'], 'a hash that names no type for its values';
+    is TypeContractGate::loose_types(
+        "signature_for f => ( positional => [ ArrayRef, HashRef [Str] ], returns => ArrayRef );\n"),
+      ['2 bare ArrayRef'], 'an array that names no type for its elements, as an argument and as the result';
+    is TypeContractGate::loose_types("my \$TASK = Dict [ command => ArrayRef [Str], payload => Optional [Any] ];\n"),
+      ['1 Any'], 'a value of any type, in a type that the file defines for its signatures';
+    is TypeContractGate::loose_types(
+        "has a => ( is => 'ro', isa => HashRef );\nhas b => ( is => 'ro', isa => Any );\n"),
+      [ '1 Any', '1 bare HashRef' ], 'each loose type has its count';
+
+    my $shaped = <<'PERL';
+use Types::Standard qw(Any ArrayRef HashRef Int Str);
+has names => ( is => 'ro', isa => ArrayRef [Str], required => 1 );
+signature_for f => ( positional => [ HashRef [ ArrayRef [Int] ] ], returns => Int );
+my %count = ( HashRef => 1, Any => 2 );
+my $one   = $count{ArrayRef};
+PERL
+    is TypeContractGate::loose_types($shaped), [], 'an import, types with elements, and a key with the name of a type';
+};
+
+subtest 'the gate rejects a Moo class without the role that refuses an unknown argument' => sub {
+    my $class = "package Shape;\nuse v5.36;\nuse Moo;\nhas width => ( is => 'ro', isa => Num, required => 1 );\n";
+    is TypeContractGate::value_role($class), ['composes no Value role'], 'a class of plain Moo';
+    is TypeContractGate::value_role( $class . "with 'Test::Mutation::Other';\n" ), ['composes no Value role'],
+      'a class with another role';
+    is TypeContractGate::value_role( $class . "# with 'Test::Mutation::Value';\n" ), ['composes no Value role'],
+      'a comment that names the role';
+    is TypeContractGate::value_role( $class . "with 'Test::Mutation::Value';\n" ),   [], 'a class with the role';
+    is TypeContractGate::value_role( $class . "with qw(Test::Mutation::Value);\n" ), [], 'the role in a word list';
+    is TypeContractGate::value_role("package Plain;\nuse v5.36;\nsub area (\$w) { return \$w }\n"), [],
+      'a module without Moo';
+    is TypeContractGate::value_role("package Role;\nuse v5.36;\nuse Moo::Role;\n"), [], 'a role';
+};
+
+subtest 'the gate counts the contracts it reads' => sub {
+    my $code = <<'PERL';
+has width  => ( is => 'ro', isa => Num, required => 1 );
+has height => ( is => 'ro', isa => Num, required => 1 );
+signature_for area => ( method => 1, positional => [], returns => Num );
+sub area ($self) { return $self->width * $self->height }
+sub _helper ($x) { return $x }
+PERL
+    is TypeContractGate::counts($code), { attributes => 2, signatures => 1 }, 'two attributes and one signature';
+    is TypeContractGate::counts("sub _helper (\$x) { return \$x }\n"), { attributes => 0, signatures => 0 },
+      'a private helper declares nothing';
+};
+
+# The shim runs on Perl 5.10 with core modules alone, so it declares no signature.
+my @files = grep { $_ ne 'lib/Test/Mutation/Shim.pm' } Library::modules()->@*;
+Gate::checked( 'library files', scalar @files, at_least => 31 );
+my %total = ( attributes => 0, signatures => 0 );
+my @loose;
 for my $file (@files) {
     open my $handle, '<:encoding(UTF-8)', $file or die "read $file: $!";
     my $code = do { local $/ = undef; readline $handle };
     close $handle or die "close $file: $!";
     is TypeContractGate::violations($code), [], "$file declares its contracts";
+    push @loose, map { "$file uses $_" } TypeContractGate::loose_types($code)->@*;
+    push @loose, map { "$file $_" } TypeContractGate::value_role($code)->@*;
+    my $counts = TypeContractGate::counts($code);
+    $total{$_} += $counts->{$_} for keys %total;
 }
+Gate::findings( 'type-contracts', \@loose );
+Gate::checked( 'signatures', $total{signatures}, at_least => 65 );
+Gate::checked( 'attributes', $total{attributes}, at_least => 70 );
 
 done_testing;

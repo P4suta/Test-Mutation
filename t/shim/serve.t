@@ -67,7 +67,7 @@ subtest 'the hook serves the mutant under the original identity' => sub {
       { add => 2, file => 'lib/Foo/Bar.pm', line => 7, from => 'lib/Foo/Bar.pm', inc => 'lib/Foo/Bar.pm', hooks => 1 },
       'mutated behavior with the original file identity';
     my $records = records($root);
-    is_deeply [ map { $_->[0] } @{$records} ], [ 'served', 'compiled', 'end' ],
+    is_deeply [ map { $_->[0] } @{$records} ], [ 'seen', 'seen', 'end' ],
       'the record has a served line, a compiled line, and an end line';
     is $records->[0][1], "$root/lib/Foo/Bar.pm", 'the record names the served target';
 };

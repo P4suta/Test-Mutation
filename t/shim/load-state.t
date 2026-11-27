@@ -18,7 +18,7 @@ sub run_with_mutant {
         env  => { TEST_MUTATION_SPEC => "$root/spec", TEST_MUTATION_RECORD => "$root/records" },
         args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', '-Ilib', 'script.pl' ],
     );
-    return ( $run, [ map { $_->[0] } @{ records($root) } ], $root );
+    return ( $run, [ map { join q{ }, $_->[0], defined $_->[2] ? $_->[2] : () } @{ records($root) } ], $root );
 }
 
 subtest 'a mutant that fails to compile is recorded as a load failure' => sub {
@@ -28,7 +28,7 @@ subtest 'a mutant that fails to compile is recorded as a load failure' => sub {
     );
     isnt $run->{status}, 0, 'the program fails';
     like $run->{stderr}, qr{syntax error at lib/Foo/Bar\.pm line 3}, 'the error names the original file and line';
-    is_deeply $kinds, [ 'served', 'loadfail', 'end' ], 'no compiled line, and a load failure at the end';
+    is_deeply $kinds, [ 'seen opened', 'seen failed', 'end' ], 'the target failed before its compilation witness';
 };
 
 subtest 'a compile failure is visible in a process that never reaches its end' => sub {
@@ -36,13 +36,13 @@ subtest 'a compile failure is visible in a process that never reaches its end' =
         mutant => "package Foo::Bar;\nsub answer { return 42 +* }\n1;\n",
         script => "my \$ok = eval { require Foo::Bar; 1 };\nkill 'KILL', \$\$;\n",
     );
-    is_deeply $kinds, ['served'], 'served without compiled';
+    is_deeply $kinds, ['seen opened'], 'the hook opened the file before the process died';
 
     ( $run, $kinds ) = run_with_mutant(
         mutant => "package Foo::Bar;\nsub answer { return 41 }\n1;\n",
         script => "require Foo::Bar;\nkill 'KILL', \$\$;\n",
     );
-    is_deeply $kinds, [ 'served', 'compiled' ], 'a mutant that compiles is recorded when it compiles';
+    is_deeply $kinds, [ 'seen opened', 'seen' ], 'a mutant that compiles is recorded when it compiles';
 };
 
 subtest 'a mutant that dies while loading is recorded as a load failure' => sub {
@@ -52,7 +52,7 @@ subtest 'a mutant that dies while loading is recorded as a load failure' => sub 
     );
     is $run->{status}, 0,        'the program survives the trapped failure';
     is $run->{stdout}, 'failed', 'the require failed';
-    is_deeply $kinds, [ 'served', 'compiled', 'loadfail', 'end' ], 'compiled, then a load failure at the end';
+    is_deeply $kinds, [ 'seen opened', 'seen', 'seen failed', 'end' ], 'compilation succeeded before require failed';
 };
 
 subtest 'a successful load leaves no failure line' => sub {
@@ -61,7 +61,7 @@ subtest 'a successful load leaves no failure line' => sub {
         script => "use Foo::Bar;\nprint Foo::Bar::answer();\n",
     );
     is $run->{stdout}, '41', 'mutated behavior';
-    is_deeply $kinds, [ 'served', 'compiled', 'end' ], 'record kinds';
+    is_deeply $kinds, [ 'seen opened', 'seen', 'end' ], 'record kinds';
 };
 
 subtest 'a target loaded by absolute path is recorded as a bypass' => sub {
@@ -70,7 +70,7 @@ subtest 'a target loaded by absolute path is recorded as a bypass' => sub {
         script => "use Cwd ();\nrequire( Cwd::getcwd() . '/lib/Foo/Bar.pm' );\nprint Foo::Bar::answer();\n",
     );
     is $run->{stdout}, '42', 'the original ran';
-    is_deeply $kinds, [ 'bypass', 'end' ], 'record kinds';
+    is_deeply $kinds, [ 'around', 'end' ], 'record kinds';
 };
 
 subtest 'a target that is never required leaves an end line alone' => sub {
@@ -88,7 +88,7 @@ subtest 'a program that replaces @INC and loads the target bypasses the hook' =>
         script => "BEGIN { \@INC = ('lib') }\nuse Foo::Bar;\nprint Foo::Bar::answer();\n",
     );
     is $run->{stdout}, '42', 'the original ran';
-    is_deeply $kinds, [ 'bypass', 'end' ], 'record kinds';
+    is_deeply $kinds, [ 'around', 'end' ], 'record kinds';
 };
 
 done_testing;

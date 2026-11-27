@@ -1,8 +1,10 @@
 package Test::Mutation::Merge;
 use v5.36;
-use List::Util      qw(all first max min sum0 uniq);
+use Digest::SHA     ();
+use List::Util      qw(all any first max mesh_longest min sum0 uniq);
 use Types::Standard qw(ArrayRef Dict InstanceOf Str);
 use Type::Params    qw(signature_for);
+use Test::Mutation::Error;
 use Test::Mutation::Result;
 
 our $VERSION = '0.001';
@@ -13,7 +15,7 @@ signature_for merge => (
 );
 
 sub merge ($reports) {
-    die "merge needs at least one report\n" if !$reports->@*;
+    Test::Mutation::Error::raise('merge-empty') if !$reports->@*;
     my @parts   = _parts($reports);
     my @results = map { $_->{result} } @parts;
     my $count   = $results[0]->inventory->{mutants};
@@ -22,64 +24,124 @@ sub merge ($reports) {
     my %seen;
     for my $entry ( map { $_->entries->@* } @results ) {
         my $id = $entry->{mutant}->id;
-        die "mutant $id appears in more than one part\n" if $seen{$id};
+        Test::Mutation::Error::raise( 'merge-repeated-mutant', id => $id ) if $seen{$id};
         $seen{$id} = 1;
     }
     for my $index ( 0 .. $#parts ) {
         my $rounded  = $count - $index + $parts - 1;
         my $expected = int $rounded / $parts;
         my $held     = scalar $results[$index]->entries->@*;
-        my $number   = $index + 1;
-        die "$parts[$index]{name} holds $held mutants, and part $number of $parts has $expected\n"
-          if $held != $expected;
+        Test::Mutation::Error::raise(
+            'merge-part-size',
+            name     => $parts[$index]{name},
+            held     => $held,
+            part     => $index + 1,
+            parts    => $parts,
+            expected => $expected
+        ) if $held != $expected;
     }
 
-    my %duration;
+    my ( %duration, %active );
     for my $test ( map { $_->tests->@* } @results ) {
         my $name = $test->{name};
+        $active{$name}   = 1 unless $test->{neutral};
         $duration{$name} = max( $test->{duration}, exists $duration{$name} ? $duration{$name} : () );
     }
     my %problem = map { $_->{path} => $_ } reverse map { $_->problems->@* } @results;
     return Test::Mutation::Result->new(
-        root              => $results[0]->root,
-        sources           => { map { $_->sources->%* } @results },
-        tests             => [ map { { name => $_, duration => $duration{$_} } } sort keys %duration ],
-        entries           => [ map { $results[ $_ % $parts ]->entries->[ int( $_ / $parts ) ] } 0 .. $count - 1 ],
+        root    => $results[0]->root,
+        sources => { map { $_->sources->%* } @results },
+        tests   => [
+            map { { name => $_, duration => $duration{$_}, $active{$_} ? () : ( neutral => 1 ) } } sort keys %duration
+        ],
+        entries           => [ grep { defined } mesh_longest map { $_->entries } @results ],
         problems          => [ map { $problem{$_} } sort keys %problem ],
         warnings          => [ uniq map { $_->warnings->@* } @results ],
         baseline_failures => [],
         jobs              => max( map { $_->jobs } @results ),
         parallel_safe     => ( all { $_->parallel_safe } @results ) ? 1 : 0,
         interrupted       => ( first { defined } map { $_->interrupted } @results ),
+        cache_mismatch    => ( any { $_->cache_mismatch } @results ) ? 1 : 0,
         reused            => sum0( map { $_->reused } @results ),
         inventory         => $results[0]->inventory,
+        selection         => $results[0]->selection,
+        catalog_digest    => $results[0]->catalog_digest,
         started           => min( map { $_->started } @results ),
         finished          => max( map { $_->finished } @results ),
+        stats             => _work(@results),
     );
+}
+
+signature_for refresh =>
+  ( positional => [ ( InstanceOf ['Test::Mutation::Result'] ) x 2 ], returns => InstanceOf ['Test::Mutation::Result'] );
+
+sub refresh ( $prior, $current ) {
+    return $current if defined $prior->shard || defined $current->shard || $prior->root ne $current->root;
+    return $current
+      unless defined $prior->catalog_digest
+      && defined $current->catalog_digest
+      && $prior->catalog_digest eq $current->catalog_digest;
+    return $current unless exists $current->selection->{paths} || exists $current->selection->{mutants};
+    return $current if $current->baseline_failures->@*;
+    my %replacement = map { $_->{mutant}->id => $_ } $current->entries->@*;
+    my @entries     = map { delete $replacement{ $_->{mutant}->id } || $_ } $prior->entries->@*;
+    push @entries, grep { exists $replacement{ $_->{mutant}->id } } $current->entries->@*;
+    my %tests = map { $_->{name} => $_ } $prior->tests->@*, $current->tests->@*;
+    return Test::Mutation::Result->new(
+        $current->%*,
+        entries   => \@entries,
+        tests     => [ map { $tests{$_} } sort keys %tests ],
+        sources   => { $prior->sources->%*, $current->sources->%* },
+        inventory => {
+            mutants => scalar @entries,
+            digest  => Digest::SHA::sha256_hex( join "\n", map { $_->{mutant}->id } @entries )
+        },
+    );
+}
+
+sub _work (@results) {
+    my %work;
+    for my $stats ( map { $_->stats } @results ) {
+        $work{$_} += $stats->{$_} for keys $stats->%*;
+    }
+    return \%work;
 }
 
 sub _parts ($reports) {
     my ( @parts, $whole );
     for my $report ( $reports->@* ) {
         my ( $name, $result ) = $report->@{qw(name result)};
-        die "$name is the report of a whole run, not of a part\n" if !defined $result->shard;
-        die "$name names no inventory\n"                          if !$result->inventory;
-        die "$name has failing tests in its unmodified run, so its part measured nothing\n"
-          if $result->baseline_failures->@*;
+        Test::Mutation::Error::raise( 'merge-whole-run',         name => $name ) if !defined $result->shard;
+        Test::Mutation::Error::raise( 'merge-without-inventory', name => $name ) if !$result->inventory;
+        Test::Mutation::Error::raise( 'merge-failed-baseline',   name => $name ) if $result->baseline_failures->@*;
         my ( $part, $of ) = split m{/}, $result->shard;
         $whole ||= { name => $name, part => $part, of => $of, digest => $result->inventory->{digest} };
-        die "$whole->{name} holds part $whole->{part} of $whole->{of}, and $name holds part $part of $of\n"
-          if $of != $whole->{of};
-        die "$name covers other mutants than $whole->{name}\n" if $result->inventory->{digest} ne $whole->{digest};
-        die "$parts[$part - 1]{name} and $name both hold part $part of $of\n" if $parts[ $part - 1 ];
+        Test::Mutation::Error::raise(
+            'merge-other-split',
+            first       => $whole->{name},
+            first_part  => $whole->{part},
+            first_parts => $whole->{of},
+            name        => $name,
+            part        => $part,
+            parts       => $of
+        ) if $of != $whole->{of};
+        Test::Mutation::Error::raise( 'merge-other-mutants', name => $name, first => $whole->{name} )
+          if $result->inventory->{digest} ne $whole->{digest};
+        Test::Mutation::Error::raise(
+            'merge-repeated-part',
+            first => $parts[ $part - 1 ]{name},
+            name  => $name,
+            part  => $part,
+            parts => $of
+        ) if $parts[ $part - 1 ];
         $parts[ $part - 1 ] = $report;
     }
     my @missing = grep { !$parts[ $_ - 1 ] } 1 .. $whole->{of};
     return @parts if !@missing;
     my $last = pop @missing;
-    die "part $last of $whole->{of} is missing\n" if !@missing;
+    Test::Mutation::Error::raise( 'merge-missing-part', part => $last, parts => $whole->{of} ) if !@missing;
     my $list = join @missing > 1 ? ', ' : q{ }, @missing, "and $last";
-    die "parts $list of $whole->{of} are missing\n";
+    return Test::Mutation::Error::raise( 'merge-missing-parts', list => $list, parts => $whole->{of} );
 }
 
 1;
@@ -106,13 +168,20 @@ This module joins the results of all parts into the result that one run without 
 
 =head1 FUNCTIONS
 
+=head2 refresh
+
+Updates the selected verdicts in a report from the same project and source catalog.
+The current test durations and entries take precedence.
+Shard reports remain independent until C<merge> joins them.
+
 =head2 merge
 
 Takes the results with the names that error messages use, and returns one L<Test::Mutation::Result>.
-The function dies unless the results are the parts 1 to C<N> of one run, each exactly once.
+The function dies with a L<Test::Mutation::Error> of the kind C<usage> unless the results are the parts 1 to C<N> of one run, each exactly once.
 Every result must name the same C<N> and the same inventory, and hold the mutants of its part.
 
 The merged result lists the mutants in the order of a whole run.
 It keeps each test with its longest duration, each warning and problem once, the largest job count, and the whole time span.
+It adds up the reused results and each count of the work of the parts.
 
 =cut

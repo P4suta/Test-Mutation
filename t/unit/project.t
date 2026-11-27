@@ -2,6 +2,8 @@ use v5.36;
 use Test2::V0;
 use File::Path ();
 use File::Temp ();
+use lib 't/lib';
+use Capability;
 use Test::Mutation::Project;
 
 sub matches ( $pattern, $path ) {
@@ -62,8 +64,7 @@ subtest 'files' => sub {
     is Test::Mutation::Project::files( $root, [ 'missing/**/*.pm', 'lib/*.pm' ], [] ), ['lib/A.pm'],
       'a directory that does not exist before a pattern that matches';
 
-  SKIP: {
-        skip 'the superuser reads every directory', 2 if $> == 0;
+    if ( Capability::has( 'unprivileged', $> != 0, 'the superuser reads every directory' ) ) {
         mkdir "$root/forbidden" or die "mkdir: $!";
         chmod 0, "$root/forbidden" or die "chmod: $!";
         my @warnings = warnings { Test::Mutation::Project::files( $root, ['lib/**/*.pm'], [] ) }->@*;
@@ -74,51 +75,31 @@ subtest 'files' => sub {
     }
 };
 
-subtest 'processors reads the count from the text of the platform' => sub {
-    my $cpuinfo = join "\n", "processor\t: 0", 'model name : A', 'Processor : B', "processor\t: 1", 'processor: 2', q{};
-    my @cases   = (
-        [ 'the processor lines of cpuinfo',         $cpuinfo,           undef,    3 ],
-        [ 'cpuinfo before sysctl',                  $cpuinfo,           "8\n",    3 ],
-        [ 'sysctl when cpuinfo is absent',          undef,              "8\n",    8 ],
-        [ 'sysctl when cpuinfo lists no processor', "model name : A\n", "12\n",   12 ],
-        [ 'one processor',                          undef,              "1\n",    1 ],
-        [ 'a number with a suffix',                 undef,              "4 x\n",  4 ],
-        [ 'no source',                              undef,              undef,    1 ],
-        [ 'a count of zero',                        undef,              "0\n",    1 ],
-        [ 'text without a number',                  undef,              "none\n", 1 ],
-        [ 'a number after other text',              undef,              "x 4\n",  1 ],
-        [ 'an empty answer',                        undef,              q{},      1 ],
+subtest 'the default script set follows the selected interpreter' => sub {
+    my $root    = File::Temp::tempdir( CLEANUP => 1 );
+    my @scripts = (
+        [ 'direct',          "#!/usr/local/bin/perl5.38 -w\nexit;\n",                         1 ],
+        [ 'portable',        "#!/usr/bin/env -S perl -w\nexit;\n",                            1 ],
+        [ 'plain.pl',        "print 7;\n",                                                    1 ],
+        [ 'utf8.pl',         "\xEF\xBB\xBF#!/usr/bin/perl\nprint 7;\n",                       1 ],
+        [ 'marked-command',  "\xEF\xBB\xBF#!perl -w\nprint 7;\n",                             1 ],
+        [ 'marked-shell.pl', "\xEF\xBB\xBF#!/bin/sh\nexit 0\n",                               0 ],
+        [ 'binary.pl',       "\x00" . ( 'x' x 8192 ),                                         0 ],
+        [ 'shell.pl',        "#!/bin/sh\n# a perl program follows some other time\nexit 0\n", 0 ],
+        [ 'preamble.pl',     "#!/bin/sh\nexec perl -x \"\$0\"\n#!perl\nprint 7;\n",           1 ],
+        [ 'readme',          "useful example:\n#!perl\nprint 7;\n",                           0 ],
+        [ 'ambiguous',       "#!/opt/perl-helper/bin/sh\n",                                   0 ],
     );
-    for my $case (@cases) {
-        my ( $name, $text, $answer, $expected ) = $case->@*;
-        is Test::Mutation::Project::processors( cpuinfo => $text, sysctl => $answer ), $expected, $name;
+    for my $script (@scripts) {
+        my ( $file, $bytes, $expected ) = @$script;
+        open my $out, '>:raw', "$root/$file" or die "open $file: $!";
+        print {$out} $bytes;
+        close $out or die "close $file: $!";
+        is Test::Mutation::Project::perl_script("$root/$file"), $expected, $file;
     }
-};
-
-subtest 'cpu_count asks the platform' => sub {
-    my $expected = qx{getconf _NPROCESSORS_ONLN 2>/dev/null};
-    skip_all 'getconf reports no processor count' if $expected !~ /\A[1-9][0-9]*\n\z/;
-    is Test::Mutation::Project::cpu_count(), $expected + 0, 'the count of the platform';
-};
-
-subtest 'cpu_count runs the command only where the list of processors is missing' => sub {
-    my $dir   = File::Temp::tempdir( CLEANUP => 1 );
-    my $write = sub ( $name, $text ) {
-        open my $handle, '>', "$dir/$name" or die "write: $!";
-        print {$handle} $text or die "write: $!";
-        close $handle         or die "close: $!";
-        return "$dir/$name";
-    };
-    my $list    = $write->( 'cpuinfo', "processor\t: 0\nmodel\t: a\n\nprocessor\t: 1\nmodel\t: a\n" );
-    my $command = $write->( 'sysctl',  "#!/bin/sh\necho \"\$@\" >> $dir/asked\necho 8\n" );
-    chmod 0755, $command or die "chmod: $!";
-
-    is Test::Mutation::Project::cpu_count( cpuinfo => $list, sysctl => $command ), 2, 'the list gives the count';
-    ok !-e "$dir/asked", 'and the command stays quiet, because it knows no such key on a system with the list';
-    is Test::Mutation::Project::cpu_count( cpuinfo => "$dir/missing", sysctl => $command ), 8,
-      'without the list the command answers';
-    is Test::Mutation::Project::cpu_count( cpuinfo => "$dir/missing", sysctl => "$dir/absent" ), 1,
-      'without the list and the command the count is one';
+    like dies { Test::Mutation::Project::perl_script( [] ) }, qr/type constraint "Str"/,
+      'script detection checks the supplied path';
+    is Test::Mutation::Project::perl_script($root), 0, 'directories cannot be commands';
 };
 
 subtest 'default_jobs leaves one processor free' => sub {

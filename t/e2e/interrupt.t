@@ -31,12 +31,22 @@ sub text_of ($path) {
     return defined $text ? $text : q{};
 }
 
-my %status_of = ( HUP => 129, INT => 130, TERM => 143 );
+my %status_of = ( HUP => 129, INT => 130, QUIT => 131, PIPE => 141, TERM => 143 );
 
 for my $signal ( sort keys %status_of ) {
     subtest "SIG$signal ends the tests and removes the work directory" => sub {
-        my $root = copy_of('calc');
-        write_file( "$root/t/slow.t", "use Test::More tests => 1;\nuse Calc;\nsleep 30;\nok 1, 'slept';\n" );
+        my $root  = copy_of('calc');
+        my $ready = File::Temp->new;
+        local $ENV{MUTATION_INTERRUPT_READY} = $ready->filename;
+        write_file( "$root/t/slow.t", <<'TEST' );
+use Test::More tests => 1;
+use Calc;
+open my $ready, '>', $ENV{MUTATION_INTERRUPT_READY} or die "open: $!";
+print {$ready} $$ or die "write: $!";
+close $ready or die "close: $!";
+sleep 30;
+ok 1, 'slept';
+TEST
         my $scratch = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
         local $ENV{TMPDIR} = $scratch;
 
@@ -50,28 +60,38 @@ for my $signal ( sort keys %status_of ) {
             exec {$^X} $^X, "-I$library", $command, '--jobs', 2, '--format', 'terminal' or die "exec: $!";
         }
 
+        my $child;
         ok wait_for(
-            sub {
-                scalar grep { /slow[.]t/ } processes_under($root)->@*;
-            }
-          ),
+            sub { $child = text_of( $ready->filename ); return $child =~ /\A[1-9][0-9]*\z/ && kill 0, $child } ),
           'the slow test is running';
         kill $signal, $pid;
         waitpid $pid, 0;
         is $? >> 8, $status_of{$signal}, 'the exit status names the signal';
         like text_of("$root/stderr.txt"), qr/^mutation: interrupted by SIG$signal$/m, 'and so does standard error';
 
-        ok wait_for( sub { !processes_under($root)->@* } ), 'no process of the run is left'
-          or diag join q{}, processes_under($root)->@*;
-        ok !glob("$root/.mutation/run-*"), 'the work directory is removed';
-        is [ glob "$scratch/*" ], [], 'and so are the copies of the project';
+        ok wait_for( sub { !( $child && kill 0, $child ) && !processes_under($scratch)->@* } ),
+          'no process of the run is left'
+          or diag join q{}, processes_under($scratch)->@*;
+        is [ glob "$scratch/*" ], [], 'the workspace and its copies are removed';
     };
 }
 
 subtest 'a signal during the mutant runs keeps the finished results' => sub {
-    my $root = copy_of('calc');
-    write_file( "$root/t/slow.t",
-        "use Test::More tests => 1;\nuse Calc;\nselect undef, undef, undef, 0.7;\nis Calc::add( 1, 1 ), 2, 'adds';\n" );
+    my $root    = copy_of('calc');
+    my $scratch = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    local $ENV{TMPDIR}                 = $scratch;
+    local $ENV{MUTATION_INTERRUPT_LOG} = "$root/stderr.txt";
+    write_file( "$root/t/interrupt.t", <<'TEST' );
+use Test::More tests => 3;
+use Calc;
+open my $progress, '<', $ENV{MUTATION_INTERRUPT_LOG} or die "read progress: $!";
+my $finished = grep { /^\[ *\d+\/\d+\].*\b[1-9]\d* killed\b/ } <$progress>;
+close $progress or die "close progress: $!";
+kill 'TERM', $ENV{MUTATION_INTERRUPT_PID} or die "interrupt the driver: $!" if $finished;
+is Calc::add( 1, 1 ), 2, 'adds';
+ok Calc::is_positive(1), 'recognizes positive numbers';
+is Calc::describe(-1), 'negative', 'describes a negative number';
+TEST
 
     my $pid = fork;
     die "fork: $!" if !defined $pid;
@@ -80,28 +100,22 @@ subtest 'a signal during the mutant runs keeps the finished results' => sub {
         open STDIN,  '<', '/dev/null'        or die "stdin: $!";
         open STDOUT, '>', "$root/stdout.txt" or die "stdout: $!";
         open STDERR, '>', "$root/stderr.txt" or die "stderr: $!";
-        exec {$^X} $^X, "-I$library", $command, '--jobs', 1, '--format', 'terminal', '--format', 'json'
+        local $ENV{MUTATION_INTERRUPT_PID} = $$;
+        exec {$^X} $^X, "-I$library", $command, '--jobs', 1, '--test',
+          't/interrupt.t', '--format', 'terminal', '--format', 'json'
           or die "exec: $!";
     }
 
-    my $read = sub ($name) {
-        open my $handle, '<', "$root/$name" or return q{};
-        local $/ = undef;
-        my $text = readline $handle;
-        return defined $text ? $text : q{};
-    };
-    ok wait_for( sub { $read->('stderr.txt') =~ /^\[ *[1-9]\d*\/\d+\]/m } ), 'a mutant has finished';
-    kill 'TERM', $pid;
     waitpid $pid, 0;
     is $? >> 8, 143, 'the exit status names the signal';
-
-    like $read->('stdout.txt'), qr/^\d+ mutants: .*\b[1-9]\d* pending$/m,
-      'the summary counts the mutants that did not run';
-    like $read->('stdout.txt'), qr/^The run was interrupted by SIGTERM\.$/m, 'the summary names the signal';
-    like $read->('stderr.txt'), qr/^mutation: interrupted by SIGTERM$/m,     'and so does standard error';
-    like $read->('mutation-report/mutation.json'), qr/"status"\s*:\s*"Pending"/,
-      'the JSON report marks them as pending';
-    ok !glob("$root/.mutation/run-*"), 'the work directory is removed';
+    like text_of("$root/stderr.txt"), qr/^mutation: interrupted by SIGTERM$/m, 'standard error names the signal';
+    my $summary = text_of("$root/stdout.txt");
+    like $summary, qr/^\d+ mutants: .*\b[1-9]\d* pending$/m,    'the summary counts the mutants that did not run';
+    like $summary, qr/^The run was interrupted by SIGTERM\.$/m, 'the summary names the signal';
+    my $json = text_of("$root/mutation-report/mutation.json");
+    like $json, qr/"status"\s*:\s*"Killed"/,  'the JSON report keeps a completed verdict';
+    like $json, qr/"status"\s*:\s*"Pending"/, 'the JSON report marks the unfinished mutants as pending';
+    is [ glob "$scratch/*" ], [], 'the private workspace is removed';
 };
 
 done_testing;

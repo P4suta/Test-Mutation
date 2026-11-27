@@ -2,6 +2,8 @@ use v5.36;
 use utf8;
 use Test2::V0;
 use Encode ();
+use lib 't/lib';
+use Bounded;
 use Test::Mutation::Source;
 
 subtest 'UTF-8 bytes decode to characters and encode back' => sub {
@@ -22,13 +24,33 @@ subtest 'bytes that are not UTF-8 survive as Latin-1' => sub {
 subtest 'positions and offsets are inverse for every character' => sub {
     my $text   = "ab\n\ncdé\nlast";
     my $source = Test::Mutation::Source->new( path => 'x', text => $text, encoding => 'UTF-8' );
-    my @failed = grep { $source->offset_of( $source->position_of($_)->@* ) != $_ } 0 .. length($text) - 1;
+    my ( $ended, @failed ) = Bounded::ended(
+        2,
+        sub {
+            return grep { $source->offset_of( $source->position_of($_)->@* ) != $_ } 0 .. length($text) - 1;
+        }
+    );
+    ok $ended, 'the position search terminates for every character';
+    return unless $ended;
     is \@failed,                 [], 'offset_of inverts position_of';
     is $source->position_of(0),  [ 1, 1 ], 'first character';
     is $source->position_of(2),  [ 1, 3 ], 'newline belongs to its line';
     is $source->position_of(3),  [ 2, 1 ], 'empty line';
     is $source->position_of(6),  [ 3, 3 ], 'non-ASCII character is one column';
     is $source->position_of(11), [ 4, 4 ], 'last character';
+};
+
+subtest 'a trailing newline starts an empty line at the end of the source' => sub {
+    my $source = Test::Mutation::Source->new( path => 'x', text => "a\nb\n", encoding => 'UTF-8' );
+    my ( $ended, @positions ) = Bounded::ended(
+        2,
+        sub {
+            return map { $source->position_of($_) } 0 .. 4;
+        }
+    );
+    ok $ended, 'the search terminates for each character and the end of the source';
+    is \@positions, [ [ 1, 1 ], [ 1, 2 ], [ 2, 1 ], [ 2, 2 ], [ 3, 1 ] ], 'the last newline starts line three'
+      if $ended;
 };
 
 subtest 'replace_span changes the span alone' => sub {
@@ -41,6 +63,7 @@ subtest 'replace_span changes the span alone' => sub {
 subtest 'arguments are checked' => sub {
     like dies { Test::Mutation::Source->from_bytes( path => 'x' ) }, qr/bytes/, 'missing bytes is refused';
     my $source = Test::Mutation::Source->new( path => 'x', text => 'a', encoding => 'UTF-8' );
+    like dies { $source->position_of(0.5) },      qr/Int/, 'a fractional character offset is refused';
     like dies { $source->offset_of( 'one', 1 ) }, qr/Int/, 'a non-integer line is refused';
     like dies { Test::Mutation::Source->new( path => 'x', text => 'a', encoding => 'EBCDIC' ) }, qr/encoding/,
       'an unknown encoding is refused';

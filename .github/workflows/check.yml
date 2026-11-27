@@ -2,9 +2,7 @@ name: check
 
 on:
   pull_request:
-  push:
-    branches:
-      - main
+  merge_group:
 
 permissions:
   contents: read
@@ -26,7 +24,10 @@ jobs:
       # The audit tool builds PerlIO::gzip, which needs the zlib headers.
       - run: sudo apt-get install --yes --no-install-recommends zlib1g-dev
       - run: mise run setup
+      # A test that would skip itself for want of one of these fails here, so no test goes missing unnoticed.
       - run: mise run check
+        env:
+          TEST_MUTATION_REQUIRE: git,class,second-perl,processor-count,unprivileged,toolchain
 
   driver:
     name: driver on Perl ${{ matrix.perl }}
@@ -35,9 +36,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        perl:
-          - "5.36"
-          - "5.40"
+        include:
+          # The class syntax arrived with Perl 5.38.
+          - perl: "5.36"
+            require: git,second-perl,processor-count,unprivileged,toolchain
+          - perl: "5.38"
+            require: git,class,second-perl,processor-count,unprivileged,toolchain
+          - perl: "5.40"
+            require: git,class,second-perl,processor-count,unprivileged,toolchain
+          - perl: "5.42"
+            require: git,class,second-perl,processor-count,unprivileged,toolchain
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -46,14 +54,21 @@ jobs:
       - uses: shogo82148/actions-setup-perl@eebc5c886de14ebbfcd2493d49a12007d2c30477 # v1.44.5
         with:
           perl-version: "5.10"
+          # The target runs the fixture without the native modules of the driver.
+          working-directory: t/shim
+          enable-modules-cache: false
       - run: echo "TEST_MUTATION_SECOND_PERL=$(command -v perl)" >> "$GITHUB_ENV"
       - uses: shogo82148/actions-setup-perl@eebc5c886de14ebbfcd2493d49a12007d2c30477 # v1.44.5
         with:
           perl-version: ${{ matrix.perl }}
           # cpm reads cpanfile.snapshot through this module.
           install-modules: Carton::Snapshot
-      - run: cpm install --top-level-phase configure,build,test,runtime
-      - run: prove -lr t/unit t/shim t/assumptions t/e2e
+          # Build native modules for this interpreter in a fresh local directory.
+          enable-modules-cache: false
+      - run: perl -S cpm install --top-level-phase configure,build,test,runtime
+      - run: perl -S prove -lr t/unit t/shim t/assumptions t/contract t/discovery t/e2e
+        env:
+          TEST_MUTATION_REQUIRE: ${{ matrix.require }}
 
   shim:
     name: shim on Perl ${{ matrix.perl }}
@@ -64,7 +79,8 @@ jobs:
       matrix:
         perl:
           - "5.10"
-          - "5.16"
+          - "5.14"
+          - "5.18"
           - "5.26"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -75,4 +91,7 @@ jobs:
           perl-version: ${{ matrix.perl }}
           # The shim tests use subtests, which the Test::More bundled with Perl 5.10 lacks.
           install-modules: Test::More
+      # The experiment with a moved build needs make and a compiler, and it fails here where they are missing.
       - run: prove -l t/shim
+        env:
+          TEST_MUTATION_REQUIRE: toolchain

@@ -1,0 +1,79 @@
+#!perl
+use v5.36;
+use Digest::SHA ();
+use File::Path  ();
+use JSON::PP    ();
+use TOML::Tiny  ();
+
+# Runs while the image of the real-world harness builds, the one step that has the network.
+# It fetches every archive of the table, refuses one with another digest, unpacks it, and installs its dependencies.
+# The image keeps this program apart from the harness, so a change to the harness leaves the fetched layer in place.
+
+my $MIRROR = 'https://cpan.metacpan.org/authors/id';
+
+my ( $table, $target, $dependencies ) = @ARGV;
+die "usage: realworld-prepare TABLE DISTRIBUTIONS DEPENDENCIES\n" if !defined $dependencies;
+
+sub slurp ($path) {
+    open my $handle, '<:encoding(UTF-8)', $path or die "cannot read $path: $!\n";
+    my $text = do { local $/ = undef; readline $handle };
+    close $handle or die "cannot close $path: $!\n";
+    return $text;
+}
+
+sub run (@command) {
+    say "+ @command";
+    system(@command) == 0 or die "the command fails: @command\n";
+    return;
+}
+
+my ( $runs, $error ) = TOML::Tiny::from_toml( slurp($table) );
+die "$table: $error\n" if !defined $runs;
+
+my %digest_of;
+for my $name ( sort keys $runs->%* ) {
+    my ( $pathname, $digest ) = $runs->{$name}->@{qw(pathname sha256)};
+    die "$name needs a pathname and a sha256\n" if !defined $pathname || !defined $digest;
+    die "$name names another digest for $pathname\n"
+      if defined $digest_of{$pathname} && $digest_of{$pathname} ne $digest;
+    $digest_of{$pathname} = $digest;
+}
+
+File::Path::make_path("$target/archives");
+my %manifest;
+for my $pathname ( sort keys %digest_of ) {
+    my ($directory) = $pathname =~ m{([^/]+)[.]tar[.]gz\z} or die "$pathname names no archive\n";
+    my $archive = "$target/archives/$directory.tar.gz";
+    run( 'curl', '--fail', '--silent', '--show-error', '--location', '--output', $archive, "$MIRROR/$pathname" );
+    my $found = Digest::SHA->new('sha256')->addfile($archive)->hexdigest;
+    die "$pathname has the digest $found, and the table pins $digest_of{$pathname}\n"
+      if $found ne $digest_of{$pathname};
+
+    # The archive decides neither the owner nor the rights of a file in the image.
+    run(
+        'tar', '--extract', '--gzip', '--no-same-owner',
+        '--no-same-permissions', "--directory=$target", "--file=$archive"
+    );
+    die "$pathname unpacks to no directory named $directory\n" if !-d "$target/$directory";
+    run( 'chmod', '-R', 'u+rwX,go+rX', "$target/$directory" );
+
+    # A distribution gets a directory of its own for its dependencies.
+    # One shared directory would hold Params::Util for another distribution and hide that an unbuilt tree lacks it.
+    # The develop phase stays out for the same reason: its tools depend on half of the distributions of the table.
+    # The installer configures the tree that it reads, so it reads a copy and the unpacked tree stays as the archive had it.
+    my $read = "$target/archives/$directory";
+    run( 'cp', '-R', "$target/$directory", $read );
+    chdir $read or die "cannot enter $read: $!\n";
+    run(
+        'cpm',                                            'install',
+        "--local-lib-contained=$dependencies/$directory", '--top-level-phase=configure,build,test,runtime',
+        '--show-build-log-on-failure'
+    );
+    chdir $target or die "cannot enter $target: $!\n";
+    $manifest{$pathname} = { sha256 => $found, directory => $directory };
+}
+
+File::Path::remove_tree("$target/archives");
+open my $handle, '>:raw', "$target/manifest.json" or die "cannot write the manifest: $!\n";
+print {$handle} JSON::PP->new->canonical->pretty->encode( \%manifest ) or die "cannot write the manifest: $!\n";
+close $handle                                                          or die "cannot close the manifest: $!\n";

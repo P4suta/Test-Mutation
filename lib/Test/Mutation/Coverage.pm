@@ -6,6 +6,8 @@ use Type::Params    qw(signature_for);
 
 our $VERSION = '0.001';
 
+with 'Test::Mutation::Value';
+
 my $LINES = HashRef [Bool];
 
 has mode => ( is => 'ro', isa => Enum [qw(line file)], required => 1 );
@@ -16,6 +18,13 @@ has tests => (
 );
 has breakable => ( is => 'ro', isa => HashRef [$LINES], required => 1 );
 
+has _index => (
+    is       => 'lazy',
+    init_arg => undef,
+    builder  => sub ($self) { return $self->_index_files },
+    isa => HashRef [ Dict [ loading => ArrayRef [Str], blind => ArrayRef [Str], hits => HashRef [ ArrayRef [Str] ] ] ],
+);
+
 signature_for tests_for => (
     method     => 1,
     positional => [ InstanceOf ['Test::Mutation::Mutant'] ],
@@ -23,30 +32,34 @@ signature_for tests_for => (
 );
 
 sub tests_for ( $self, $mutant ) {
-    my $path     = $mutant->path;
-    my $tests    = $self->tests;
-    my @loading  = grep { exists $tests->{$_}{files}{$path} } keys $tests->%*;
-    my @lines    = $mutant->scope->[0] .. $mutant->scope->[1];
-    my @selected = @loading;
-    if ( $self->mode eq 'line' && $self->_observable( $path, \@lines, \@loading ) ) {
-        @selected = grep { $self->_reaches( $tests->{$_}{files}{$path}, \@lines ) } @loading;
+    my $path = $mutant->path;
+    my $file = $self->_index->{$path} or return [];
+    return [ $file->{loading}->@* ] if $self->mode eq 'file';
+    my %selected   = map { $_ => 1 } $file->{blind}->@*;
+    my $breakable  = $self->breakable->{$path} || {};
+    my $observable = 0;
+    for my $line ( $mutant->scope->[0] .. $mutant->scope->[1] ) {
+        my $hits = $file->{hits}{$line} || [];
+        $observable   = 1 if $breakable->{$line} || $hits->@*;
+        $selected{$_} = 1 for $hits->@*;
     }
-    return [ sort { $tests->{$a}{duration} <=> $tests->{$b}{duration} || $a cmp $b } @selected ];
+    return $observable ? [ sort keys %selected ] : [ $file->{loading}->@* ];
 }
 
-sub _reaches ( $self, $file, $lines ) {
-    return 1 if !$file->{traced};
-    return scalar grep { $file->{hits}{$_} } $lines->@*;
-}
-
-sub _observable ( $self, $path, $lines, $loading ) {
-    my $breakable = $self->breakable->{$path};
-    return 1 if $breakable && grep { $breakable->{$_} } $lines->@*;
-    for my $test ( $loading->@* ) {
-        my $hits = $self->tests->{$test}{files}{$path}{hits};
-        return 1 if grep { $hits->{$_} } $lines->@*;
+sub _index_files ($self) {
+    my %by_file;
+    my $tests = $self->tests;
+    for my $name ( sort keys $tests->%* ) {
+        my $files = $tests->{$name}{files};
+        for my $path ( keys $files->%* ) {
+            my $file = $by_file{$path} ||= { loading => [], blind => [], hits => {} };
+            push $file->{loading}->@*, $name;
+            my $trace = $files->{$path};
+            push $file->{blind}->@*,    $name unless $trace->{traced};
+            push $file->{hits}{$_}->@*, $name for grep { $trace->{hits}{$_} } keys $trace->{hits}->%*;
+        }
     }
-    return 0;
+    return \%by_file;
 }
 
 1;
@@ -89,6 +102,6 @@ Maps a file to the lines that hold a runtime statement.
 
 =head2 tests_for
 
-Returns the names of the tests that can detect the mutant, fastest first.
+Returns the tests that can detect the mutant in ascending order of their project-relative paths.
 
 =cut

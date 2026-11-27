@@ -1,0 +1,15 @@
+#!perl
+use v5.36;
+use lib 'lib', 'xt/lib';
+use Manual;
+
+my $path = 'bin/mutation';
+open my $input, '<:encoding(UTF-8)', $path or die "read $path: $!\n";
+my $original = do { local $/ = undef; readline $input };
+close $input or die "close $path: $!\n";
+my $generated = Manual::render($original);
+if ( $generated ne $original ) {
+    open my $output, '>:encoding(UTF-8)', $path or die "write $path: $!\n";
+    print {$output} $generated or die "write $path: $!\n";
+    close $output              or die "close $path: $!\n";
+}

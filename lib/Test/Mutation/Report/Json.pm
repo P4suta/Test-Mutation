@@ -1,29 +1,105 @@
 package Test::Mutation::Report::Json;
 use v5.36;
 use JSON::PP               ();
-use Types::Standard        qw(ArrayRef Dict Enum HashRef InstanceOf Int Maybe Num Optional Slurpy Str StrMatch Tuple);
-use Types::Common::Numeric qw(PositiveInt);
+use Types::Standard        qw(ArrayRef Dict Enum HashRef InstanceOf Int Maybe Num Optional Str StrMatch Tuple);
+use Types::Common::Numeric qw(PositiveInt PositiveOrZeroInt);
 use Type::Params           qw(signature_for);
+use Test::Mutation::Error;
+use Test::Mutation::Exit;
 use Test::Mutation::Mutant;
 use Test::Mutation::Result;
 use Test::Mutation::Source;
+use Test::Mutation::Status;
+use Test::Mutation::Try;
+use Test::Mutation::Types qw(Reason ReportSelection StatusName);
 
 our $VERSION = '0.001';
 
 my $MILLISECONDS = 1000;
 
+# The counts of the work of a run under the names of the report, which writes its keys in camel case.
+my %WORK_KEY = (
+    copies         => 'copies',
+    walks          => 'walks',
+    compiles       => 'compiles',
+    spawns         => 'spawns',
+    listings       => 'listings',
+    baseline_tests => 'baselineTests',
+    verifications  => 'verifications',
+);
+
+# The document names the values that a result accepts, so that a refusal points at a place in the report.
+# The status of a mutant is the name of the schema, and the facts beside it keep the status of the run and its reason.
+my $FLAG     = InstanceOf ['JSON::PP::Boolean'];
+my $POSITION = Dict [ line => PositiveInt, column => PositiveInt ];
+my $MUTANT   = (
+    Dict [
+        id             => Str,
+        mutatorName    => Str,
+        replacement    => Str,
+        description    => Str,
+        location       => Dict [ start => $POSITION, end => $POSITION ],
+        status         => Enum [ map { $_->schema } Test::Mutation::Status::rows()->@* ],
+        statusReason   => Optional [Str],
+        coveredBy      => ArrayRef [Str],
+        killedBy       => Optional [ ArrayRef [Str] ],
+        testsCompleted => Int,
+        duration       => Num,
+        static         => $FLAG,
+        testMutation   => Dict [
+            status     => StatusName,
+            reason     => Maybe [Reason],
+            scope      => Tuple [ Int, Int ],
+            suppressed => $FLAG,
+            comparable => $FLAG
+        ],
+    ]
+)->where( sub { _consistent($_) } );
+my $DOCUMENT = Dict [
+    schemaVersion => Str,
+    thresholds    => Dict [ high => Int, low => Int ],
+    projectRoot   => Str,
+    framework     => Dict [ name => Str, version => Str ],
+    files         => HashRef [ Dict [ language => Str, source => Str, mutants => ArrayRef [$MUTANT] ] ],
+    testFiles     => HashRef [ Dict [ tests    => ArrayRef [ Dict [ id => Str, name => Str ] ] ] ],
+    testMutation  => Dict [
+        selection        => Optional [ReportSelection],
+        catalogDigest    => Optional [Str],
+        shard            => Maybe [ StrMatch [qr{\A[1-9][0-9]*/[1-9][0-9]*\z}] ],
+        inventory        => Maybe [ Dict [ mutants => Int, digest => StrMatch [qr/\A[0-9a-f]{64}\z/] ] ],
+        jobs             => PositiveInt,
+        parallelSafe     => $FLAG,
+        interrupted      => Maybe [ Enum [ Test::Mutation::Exit::signals()->@* ] ],
+        cacheMismatch    => Optional [$FLAG],
+        reused           => Int,
+        started          => Num,
+        finished         => Num,
+        warnings         => ArrayRef [Str],
+        problems         => ArrayRef [ Dict [ path => Str, problem => Str ] ],
+        baselineFailures => ArrayRef [Str],
+        tests            => ArrayRef [ Dict [ name => Str, duration => Num, neutral => Optional [$FLAG] ] ],
+        stats            => Dict [ map { $_ => PositiveOrZeroInt } values %WORK_KEY ],
+    ],
+];
+
+# A mutant holds the name that the schema gives its status in the run, and the reason that the status calls for.
+sub _consistent ($mutant) {
+    my ( $status, $reason ) = $mutant->{testMutation}->@{qw(status reason)};
+    return Test::Mutation::Status::of($status)->schema eq $mutant->{status}
+      && Test::Mutation::Status::fits( $status, $reason );
+}
+
 signature_for document => (
     head    => [ InstanceOf ['Test::Mutation::Result'] ],
     named   => [ high => Num, low => Num ],
-    returns => HashRef,
+    returns => $DOCUMENT,
 );
 
 sub document ( $result, $arg ) {
-    my %files;
+    my %files = map { $_ => { language => 'perl', source => $result->sources->{$_}, mutants => [] } }
+      keys $result->sources->%*;
     for my $entry ( $result->entries->@* ) {
-        my $path = $entry->{mutant}->path;
-        $files{$path} = { language => 'perl', source => $result->sources->{$path}, mutants => [] } if !$files{$path};
-        push $files{$path}{mutants}->@*, _mutant($entry);
+        push $files{ $entry->{mutant}->path }{mutants}->@*, _mutant($entry);
     }
     return {
         schemaVersion => '2',
@@ -45,18 +121,26 @@ sub _boolean ($value) {
 sub _facts ($result) {
     my $inventory = $result->inventory;
     return {
-        shard        => $result->shard,
+        shard     => $result->shard,
+        selection => $result->selection,
+        defined $result->catalog_digest ? ( catalogDigest => $result->catalog_digest ) : (),
         inventory    => $inventory ? { mutants => 0 + $inventory->{mutants}, digest => $inventory->{digest} } : undef,
         jobs         => 0 + $result->jobs,
         parallelSafe => _boolean( $result->parallel_safe ),
         interrupted  => $result->interrupted,
-        reused       => 0 + $result->reused,
-        started      => 0 + $result->started,
-        finished     => 0 + $result->finished,
-        warnings     => [ $result->warnings->@* ],
-        problems     => [ map { { path => $_->{path}, problem => $_->{problem} } } $result->problems->@* ],
+        $result->cache_mismatch ? ( cacheMismatch => _boolean(1) ) : (),
+        reused           => 0 + $result->reused,
+        started          => 0 + $result->started,
+        finished         => 0 + $result->finished,
+        warnings         => [ $result->warnings->@* ],
+        problems         => [ map { { path => $_->{path}, problem => $_->{problem} } } $result->problems->@* ],
         baselineFailures => [ map { $_->{test} } $result->baseline_failures->@* ],
-        tests            => [ map { { name => $_->{name}, duration => 0 + $_->{duration} } } $result->tests->@* ],
+        tests            => [
+            map {
+                { name => $_->{name}, duration => 0 + $_->{duration}, $_->{neutral} ? ( neutral => _boolean(1) ) : () }
+            } $result->tests->@*
+        ],
+        stats => { map { $WORK_KEY{$_} => 0 + $result->stats->{$_} } keys %WORK_KEY },
     };
 }
 
@@ -68,18 +152,20 @@ sub _mutant ($entry) {
         replacement    => $mutant->replacement,
         description    => $mutant->description,
         location       => { start => _position( $mutant->from ), end => _position( $mutant->to ) },
-        status         => $entry->{status},
+        status         => Test::Mutation::Status::of( $entry->{status} )->schema,
         coveredBy      => [ $entry->{covered_by}->@* ],
         testsCompleted => 0 + $entry->{tests_run},
         duration       => int( $entry->{duration} * $MILLISECONDS + 0.5 ),
         static         => JSON::PP::false,
         testMutation   => {
+            status     => $entry->{status},
+            reason     => $entry->{reason},
             scope      => [ map { 0 + $_ } $mutant->scope->@* ],
             suppressed => _boolean( $mutant->suppressed ),
             comparable => _boolean( $mutant->comparable ),
         },
     );
-    $mutant{statusReason} = $entry->{reason} if defined $entry->{reason};
+    $mutant{statusReason} = $entry->{detail} if defined $entry->{detail};
     $mutant{killedBy}     = [ $entry->{by} ] if $entry->{status} eq 'Killed' && defined $entry->{by};
     return \%mutant;
 }
@@ -99,57 +185,23 @@ sub render ( $result, $arg ) {
     return JSON::PP->new->canonical->pretty->encode($document);
 }
 
-# The document names the values that a result accepts, so that a refusal points at a place in the report.
-my $STATUS   = Enum [qw(Killed Survived NoCoverage Timeout CompileError RuntimeError Ignored Pending)];
-my $FLAG     = InstanceOf ['JSON::PP::Boolean'];
-my $POSITION = Dict [ line => PositiveInt, column => PositiveInt ];
-my $MUTANT   = Dict [
-    id             => Str,
-    mutatorName    => Str,
-    replacement    => Str,
-    description    => Str,
-    location       => Dict [ start => $POSITION, end => $POSITION ],
-    status         => $STATUS,
-    statusReason   => Optional [Str],
-    coveredBy      => ArrayRef [Str],
-    killedBy       => Optional [ ArrayRef [Str] ],
-    testsCompleted => Int,
-    duration       => Num,
-    static         => $FLAG,
-    testMutation   => Dict [ scope => Tuple [ Int, Int ], suppressed => $FLAG, comparable => $FLAG ],
-];
-my $DOCUMENT = Dict [
-    projectRoot  => Str,
-    files        => HashRef [ Dict [ language => Str, source => Str, mutants => ArrayRef [$MUTANT] ] ],
-    testMutation => Dict [
-        shard            => Maybe [ StrMatch [qr{\A[1-9][0-9]*/[1-9][0-9]*\z}] ],
-        inventory        => Maybe [ Dict [ mutants => Int, digest => StrMatch [qr/\A[0-9a-f]{64}\z/] ] ],
-        jobs             => PositiveInt,
-        parallelSafe     => $FLAG,
-        interrupted      => Maybe [ Enum [qw(HUP INT TERM)] ],
-        reused           => Int,
-        started          => Num,
-        finished         => Num,
-        warnings         => ArrayRef [Str],
-        problems         => ArrayRef [ Dict [ path => Str, problem => Str ] ],
-        baselineFailures => ArrayRef [Str],
-        tests            => ArrayRef [ Dict [ name => Str, duration => Num ] ],
-    ],
-    Slurpy [HashRef],
-];
-
 signature_for parse => ( positional => [Str], returns => InstanceOf ['Test::Mutation::Result'] );
 
 sub parse ($text) {
-    my $document = eval { JSON::PP->new->decode($text) };
-    die "the text is no JSON document\n"                    if ref $document ne 'HASH';
-    die "the report holds no run facts of Test::Mutation\n" if !exists $document->{testMutation};
+    my $read = Test::Mutation::Try::attempt( sub { return [ JSON::PP->new->decode($text) ] } );
+    my ($document) = ( $read->{value} || [] )->@*;
+    Test::Mutation::Error::raise('report-not-json')      if ref $document ne 'HASH';
+    Test::Mutation::Error::raise('report-without-facts') if !exists $document->{testMutation};
     my $problem = $DOCUMENT->validate_explain( $document, '$report' );
-    die 'the report is malformed: no valid value at ' . _place($problem) . "\n" if $problem;
-    my $result = eval { _result($document) };
-    return $result if $result;
-    my ($reason) = split /\n/, "$@";
-    die 'the report is malformed: ' . $reason =~ s/ at \S+ line \d+[.]?\z//r . "\n";
+    Test::Mutation::Error::raise( 'report-invalid-value', place => _place($problem) ) if $problem;
+    my $made = Test::Mutation::Try::attempt( sub { _result($document) } );
+    return $made->{value} if exists $made->{value};
+
+    # A location outside its source has its own message, and every other fault is a value that fits no result.
+    my $error = $made->{error};
+    die $error if ( InstanceOf ['Test::Mutation::Error'] )->check($error);    ## no critic (ErrorHandling::RequireCarping)
+    my ($reason) = split /\n/, "$error";
+    return Test::Mutation::Error::raise( 'report-malformed', reason => $reason =~ s/ at \S+ line \d+[.]?\z//r );
 }
 
 # The explanation of the type library walks from the document down to the value that fails.
@@ -168,6 +220,12 @@ sub _place ($explanation) {
 sub _result ($document) {
     my $facts = $document->{testMutation};
     my ( %sources, @entries );
+    my @tests;
+    for my $observed ( $facts->{tests}->@* ) {
+        my $test = { $observed->%{qw(name duration)} };
+        $test->{neutral} = 1 if $observed->{neutral};
+        push @tests, $test;
+    }
     for my $path ( sort keys $document->{files}->%* ) {
         my $file = $document->{files}{$path};
         $sources{$path} = $file->{source};
@@ -177,7 +235,7 @@ sub _result ($document) {
     return Test::Mutation::Result->new(
         root              => $document->{projectRoot},
         sources           => \%sources,
-        tests             => $facts->{tests},
+        tests             => \@tests,
         entries           => \@entries,
         problems          => $facts->{problems},
         warnings          => $facts->{warnings},
@@ -185,24 +243,29 @@ sub _result ($document) {
         jobs              => $facts->{jobs},
         parallel_safe     => $facts->{parallelSafe} ? 1 : 0,
         interrupted       => $facts->{interrupted},
+        cache_mismatch    => $facts->{cacheMismatch} ? 1 : 0,
         reused            => $facts->{reused},
         shard             => $facts->{shard},
+        selection         => $facts->{selection} || {},
+        catalog_digest    => $facts->{catalogDigest},
         inventory         => $facts->{inventory},
         started           => $facts->{started},
         finished          => $facts->{finished},
+        stats             => { map { $_ => $facts->{stats}{ $WORK_KEY{$_} } } keys %WORK_KEY },
     );
 }
 
 sub _offset ( $source, $position ) {
     my $text   = $source->text;
     my $offset = $position->{line} <= 1 + $text =~ tr/\n// ? $source->offset_of( $position->@{qw(line column)} ) : -1;
-    die 'a location lies outside the source of ' . $source->path . "\n" if $offset < 0 || $offset > length $text;
+    Test::Mutation::Error::raise( 'report-location-outside', path => $source->path )
+      if $offset < 0 || $offset > length $text;
     return $offset;
 }
 
 sub _entry ( $source, $mutant ) {
     my ( $start, $end ) = map { _offset( $source, $mutant->{location}{$_} ) } qw(start end);
-    die 'a location ends before its start in ' . $source->path . "\n" if $end < $start;
+    Test::Mutation::Error::raise( 'report-location-reversed', path => $source->path ) if $end < $start;
     my ( $extra, $duration ) = $mutant->@{qw(testMutation duration)};
     return {
         mutant => Test::Mutation::Mutant->new(
@@ -220,8 +283,9 @@ sub _entry ( $source, $mutant ) {
             suppressed  => $extra->{suppressed} ? 1 : 0,
             comparable  => $extra->{comparable} ? 1 : 0,
         ),
-        status     => $mutant->{status},
-        reason     => $mutant->{statusReason},
+        status     => $extra->{status},
+        reason     => $extra->{reason},
+        detail     => $mutant->{statusReason},
         by         => $mutant->{killedBy} ? $mutant->{killedBy}[0] : undef,
         covered_by => $mutant->{coveredBy},
         tests_run  => $mutant->{testsCompleted},
@@ -255,6 +319,10 @@ Each test file appears as one test, because a run treats a test file as one unit
 The C<testMutation> key of the document and of each mutant holds the facts that the schema has no place for.
 The schema allows such keys, and C<mutation merge> reads them.
 
+The status of a mutant is the name that L<Test::Mutation::Status> gives it in the schema, so a viewer of the report computes the score of the run.
+A timeout is C<Ignored>, and a mutant without a verdict is C<RuntimeError>.
+The C<testMutation> key of the mutant holds its status in the run and the reason of that status, and C<statusReason> holds the sentence about the case.
+
 =head2 render
 
 Returns the report as JSON text with sorted keys.
@@ -264,8 +332,9 @@ Returns the report as JSON text with sorted keys.
     my $result = Test::Mutation::Report::Json::parse($text);
 
 Rebuilds the L<Test::Mutation::Result> that a report describes.
+The status and the reason of each mutant come from its C<testMutation> key, which has to agree with the name of the schema.
 The spans and the original text of the mutants come from the sources in the report.
-The rebuilt result holds the sources that have mutants, and it names the failing tests of the unmodified run without their output.
+The rebuilt result includes every analyzed source and names the failing tests of the unmodified run.
 The function dies when the text is no report that Test::Mutation wrote.
 
 =cut

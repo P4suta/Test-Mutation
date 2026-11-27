@@ -4,15 +4,17 @@ date: 2026-11-23
 ---
 # Key a cached result by the files it depends on
 
+[Proposed successor for cache identity](reuse-verdicts-by-the-inputs-that-produced-them.md)
+
 ## Context
 
 A second run on an unchanged project repeats every test.
-A stale result is worse than a slow run, so reuse needs a key that changes with every input.
+A changed input can invalidate a stored result.
 
 ## Decision
 
 `--cache` stores each result in `.mutation/cache.json` with a digest.
-The digest covers the mutant, the interpreter, the switches, each test that reaches the mutant, and each analyzed source those tests load.
+The digest covers the mutant, interpreter, switches, hash traversal settings, covering tests, and analyzed sources they load.
 Every analyzed source goes through the hook, so the unmodified run records the loads.
 Other files under the top-level source and test directories enter every key.
 The cache keeps `Killed`, `Survived`, `CompileError`, and `Ignored`, and a timeout runs again.

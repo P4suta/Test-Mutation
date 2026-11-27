@@ -27,6 +27,12 @@ sub distinct {
     return;
 }
 
+sub filled {
+    my ( $template, $marker, $text ) = @_;
+    $template =~ s/\Q$marker\E/$text/;
+    return $template;
+}
+
 my $plain   = "use strict;\nuse warnings;\nsub f { my (\$x, \$y, \@list) = \@_; BODY }\n1;\n";
 my @changes = (
     [ 'an arithmetic operator', 'return $x + $y',                      'return $x - $y' ],
@@ -55,7 +61,7 @@ my @changes = (
 );
 for my $change (@changes) {
     my ( $name, $before, $after ) = @{$change};
-    distinct( $name, map { my $code = $plain; $code =~ s/BODY/$_/; $code } $before, $after );
+    distinct( $name, map { filled( $plain, 'BODY', $_ ) } $before, $after );
 }
 
 my @places = (
@@ -99,8 +105,7 @@ my @places = (
 for my $place (@places) {
     my ( $name, $template, $since ) = @{$place};
     next if $since && $] < $since;
-    distinct( $name, map { my $code = "no warnings;\n$template"; $code =~ s/EXPR/$_/; $code } '$_[0] + 2',
-        '$_[0] - 2' );
+    distinct( $name, map { filled( "no warnings;\n$template", 'EXPR', $_ ) } '$_[0] + 2', '$_[0] - 2' );
 }
 
 done_testing;

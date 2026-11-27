@@ -1,0 +1,88 @@
+#!perl
+use v5.36;
+use lib 'xt/lib';
+use RealWorld;
+
+# Prints what the records of `mise run realworld` hold, for a reader who judges the verdicts of the tool.
+# The gate decides from the same records, and this program shows the lines and the mutants behind a finding.
+# Usage: perl xt/bin/realworld-report [RUN...]
+
+my $TABLE   = 'xt/realworld/distributions.toml';
+my $RECORDS = 'mutation-report/realworld.jsonl';
+my $SAMPLE  = 6;
+my @SAMPLED = qw(CompileError NoVerdict NoCoverage Survived Timeout);
+
+sub slurp ($path) {
+    open my $handle, '<:raw', $path or die "cannot read $path: $!\n";
+    my $text = do { local $/ = undef; readline $handle };
+    close $handle or die "cannot close $path: $!\n";
+    return $text;
+}
+
+sub command_line ($result) {
+    my $files = defined $result->{files} ? ", $result->{files} files, $result->{assertions} assertions" : q{};
+    return sprintf '%s: exit %d%s, %.1f s', join( q{ }, $result->{command}->@* ), $result->{exit}, $files,
+      $result->{seconds};
+}
+
+# The line of the source before and after the mutant, or the replaced text where it spans lines.
+sub change ($mutant) {
+    my ( $original, $source ) = $mutant->@{qw(original source)};
+    my $before  = substr $source, 0, $mutant->{column} - 1;
+    my $after   = $original =~ /\n/ ? q{} : substr $source, $mutant->{column} - 1 + length $original;
+    my $more    = $original =~ tr/\n//;
+    my $changed = $before . ( $mutant->{replacement} =~ s/\s*\n\s*/ /gr ) . $after;
+    return ( "- $source" . ( $more ? " ... ($more more lines)" : q{} ), "+ $changed" );
+}
+
+sub mutant_lines ($mutant) {
+    my $reached = $mutant->{covered_by} ? "reached by $mutant->{covered_by} tests" : 'reached by no test';
+    return (
+        sprintf( '  %s:%d:%d  %s  %s  [%s]', $mutant->@{qw(file line column mutator description id)} ),
+        ( map { "    $_" } change($mutant) ),
+        '    ' . join '; ',
+        $reached,
+        grep { defined } $mutant->{killed_by},
+        $mutant->@{qw(reason detail)},
+    );
+}
+
+sub report_lines ( $run, $record ) {
+    my ( $tests, $prove, $mutation, $report ) = $record->@{qw(tests prove mutation report)};
+    my @lines = (
+        "== $run->{run}: $run->{name} $run->{version}, $run->{shape}",
+        'tests     ' . command_line($tests),
+        (
+            $prove->{command} eq $tests->{command}
+              || "@{ $prove->{command} }" eq "@{ $tests->{command} }" ? () : 'prove     ' . command_line($prove)
+        ),
+        'mutation  ' . command_line($mutation) . ( $mutation->{limit} ? ', ended at the time limit' : q{} ),
+        'summary   ' . RealWorld::summary($record),
+        ( map { "stderr    $_" } $mutation->{stderr}->@* ),
+    );
+    push @lines, map { "failed    $_" } $tests->{tail}->@* if $tests->{exit} != 0;
+    if ($report) {
+        push @lines, map { "warning   $_" } $report->{warnings}->@*;
+        push @lines, map { "skipped   $_" } $report->{skipped}->@*;
+        push @lines, map { "baseline  $_" } $report->{baseline_failures}->@*;
+        push @lines, map { "stdout    $_" } $mutation->{stdout}->@* if $report->{baseline_failures}->@*;
+        for my $status (@SAMPLED) {
+            my @sample = RealWorld::sample( $report->{mutants}, $status, $SAMPLE )->@* or next;
+            push @lines, "sample of $status", map { mutant_lines($_) } @sample;
+        }
+    }
+    else {
+        push @lines, map { "stdout    $_" } $mutation->{stdout}->@*;
+    }
+    push @lines, map { "finding   $_" } RealWorld::findings( $run, $record )->@*;
+    push @lines, map { "note      $_" } RealWorld::notes( $run, $record )->@*;
+    return @lines;
+}
+
+my %wanted  = map { $_ => 1 } @ARGV;
+my $records = RealWorld::records( slurp($RECORDS) );
+for my $run ( grep { !@ARGV || $wanted{ $_->{run} } } RealWorld::runs( slurp($TABLE) )->@* ) {
+    my $record = $records->{ $run->{run} };
+    say for $record ? report_lines( $run, $record ) : "== $run->{run}: no record";
+    say q{};
+}

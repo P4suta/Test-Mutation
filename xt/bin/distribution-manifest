@@ -1,0 +1,28 @@
+#!perl
+use v5.36;
+use ExtUtils::Manifest ();
+use File::Temp         ();
+
+# The unpacked release carries its source list, including generated CPAN metadata.
+if ( !-e '.git' ) {
+    die "the distribution has neither its Git index nor a MANIFEST\n" unless -f 'MANIFEST';
+    exit 0;
+}
+
+open my $index, q{-|}, 'git', 'ls-files', '--cached', '-z' or die "git ls-files: $!\n";
+my @paths = split /\0/, do { local $/ = undef; readline $index };
+close $index or die "git ls-files failed\n";
+my $skip  = ExtUtils::Manifest::maniskip();
+my %files = map { $_ => q{} } grep { -f $_ && !$skip->($_) } @paths;
+die "the Git index does not contain Makefile.PL\n" unless exists $files{'Makefile.PL'};
+
+my $temporary = File::Temp->new( DIR => q{.} );
+print {$temporary} "MANIFEST\n" or die "write the distribution manifest: $!\n";
+close $temporary                or die "close the distribution manifest: $!\n";
+my $path = $temporary->filename;
+{
+    local $ExtUtils::Manifest::MANIFEST = $path;    ## no critic (Variables::ProhibitPackageVars)
+    ExtUtils::Manifest::maniadd( \%files );
+}
+chmod oct '644', $path or die "set the distribution manifest permissions: $!\n";
+rename $path, 'MANIFEST' or die "replace MANIFEST: $!\n";

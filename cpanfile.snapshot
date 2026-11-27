@@ -823,6 +823,66 @@ DISTRIBUTIONS
       perl 5.008004
       strict 0
       warnings 0
+  Devel-Cover-1.52
+    pathname: P/PJ/PJCJ/Devel-Cover-1.52.tar.gz
+    provides:
+      Devel::Cover 1.52
+      Devel::Cover::Annotation::Git 1.52
+      Devel::Cover::Annotation::Random 1.52
+      Devel::Cover::Base::Editor 1.52
+      Devel::Cover::Base::Editor::Template::Provider 1.52
+      Devel::Cover::Branch 1.52
+      Devel::Cover::Collection 1.52
+      Devel::Cover::Collection::Template::Provider 1.52
+      Devel::Cover::Condition 1.52
+      Devel::Cover::Condition_and_2 1.52
+      Devel::Cover::Condition_and_3 1.52
+      Devel::Cover::Condition_or_2 1.52
+      Devel::Cover::Condition_or_3 1.52
+      Devel::Cover::Condition_xor_4 1.52
+      Devel::Cover::Criterion 1.52
+      Devel::Cover::DB 1.52
+      Devel::Cover::DB::Criterion 1.52
+      Devel::Cover::DB::Digests 1.52
+      Devel::Cover::DB::File 1.52
+      Devel::Cover::DB::IO 1.52
+      Devel::Cover::DB::IO::Base 1.52
+      Devel::Cover::DB::IO::JSON 1.52
+      Devel::Cover::DB::IO::Sereal 1.52
+      Devel::Cover::DB::IO::Storable 1.52
+      Devel::Cover::DB::Run 1.52
+      Devel::Cover::DB::Structure 1.52
+      Devel::Cover::Html_Common 1.52
+      Devel::Cover::Op 1.52
+      Devel::Cover::Pod 1.52
+      Devel::Cover::Report::Compilation 1.52
+      Devel::Cover::Report::Html 1.52
+      Devel::Cover::Report::Html_basic 1.52
+      Devel::Cover::Report::Html_basic::Template::Provider 1.52
+      Devel::Cover::Report::Html_minimal 1.52
+      Devel::Cover::Report::Html_subtle 1.52
+      Devel::Cover::Report::Html_subtle::Template::Provider 1.52
+      Devel::Cover::Report::Json 1.52
+      Devel::Cover::Report::Nvim 1.52
+      Devel::Cover::Report::Sort 1.52
+      Devel::Cover::Report::Text 1.52
+      Devel::Cover::Report::Text2 1.52
+      Devel::Cover::Report::Vim 1.52
+      Devel::Cover::Statement 1.52
+      Devel::Cover::Subroutine 1.52
+      Devel::Cover::Test 1.52
+      Devel::Cover::Time 1.52
+      Devel::Cover::Truth_Table 1.52
+      Devel::Cover::Truth_Table::Row 1.52
+      Devel::Cover::Util 1.52
+      Devel::Cover::Web 1.52
+    requirements:
+      Digest::MD5 0
+      ExtUtils::MakeMaker 0
+      HTML::Entities 3.69
+      Storable 0
+      Test::More 0
+      perl 5.020
   Devel-StackTrace-2.05
     pathname: D/DR/DROLSKY/Devel-StackTrace-2.05.tar.gz
     provides:
@@ -858,6 +918,15 @@ DISTRIBUTIONS
       base 0
       strict 0
       warnings 0
+  Encode-Locale-1.05
+    pathname: G/GA/GAAS/Encode-Locale-1.05.tar.gz
+    provides:
+      Encode::Locale 1.05
+    requirements:
+      Encode 2
+      Encode::Alias 0
+      ExtUtils::MakeMaker 0
+      perl 5.008
   Eval-Closure-0.14
     pathname: D/DO/DOY/Eval-Closure-0.14.tar.gz
     provides:
@@ -1001,6 +1070,83 @@ DISTRIBUTIONS
       perl 5.006
       strict 0
       warnings 0
+  HTML-Parser-3.87
+    pathname: O/OA/OALDERS/HTML-Parser-3.87.tar.gz
+    provides:
+      HTML::Entities 3.87
+      HTML::Filter 3.87
+      HTML::HeadParser 3.87
+      HTML::LinkExtor 3.87
+      HTML::Parser 3.87
+      HTML::PullParser 3.87
+      HTML::TokeParser 3.87
+    requirements:
+      Carp 0
+      Exporter 0
+      ExtUtils::MakeMaker 6.52
+      HTML::Tagset 0
+      HTTP::Headers 0
+      IO::File 0
+      URI 0
+      URI::URL 0
+      XSLoader 0
+      strict 0
+  HTML-Tagset-3.24
+    pathname: P/PE/PETDANCE/HTML-Tagset-3.24.tar.gz
+    provides:
+      HTML::Tagset 3.24
+    requirements:
+      ExtUtils::MakeMaker 6.46
+      perl 5.010001
+  HTTP-Date-6.08
+    pathname: O/OA/OALDERS/HTTP-Date-6.08.tar.gz
+    provides:
+      HTTP::Date 6.08
+    requirements:
+      Exporter 0
+      ExtUtils::MakeMaker 0
+      Time::Local 1.28
+      Time::Zone 0
+      perl 5.006002
+      strict 0
+  HTTP-Message-7.04
+    pathname: O/OA/OALDERS/HTTP-Message-7.04.tar.gz
+    provides:
+      HTTP::Config 7.04
+      HTTP::Headers 7.04
+      HTTP::Headers::Auth 7.04
+      HTTP::Headers::ETag 7.04
+      HTTP::Headers::Util 7.04
+      HTTP::Message 7.04
+      HTTP::Request 7.04
+      HTTP::Request::Common 7.04
+      HTTP::Response 7.04
+      HTTP::Status 7.04
+    requirements:
+      Carp 0
+      Clone 0.46
+      Compress::Raw::Bzip2 0
+      Compress::Raw::Zlib 2.062
+      Encode 3.01
+      Encode::Locale 1
+      Exporter 5.57
+      ExtUtils::MakeMaker 0
+      File::Spec 0
+      HTTP::Date 6
+      IO::Compress::Bzip2 2.021
+      IO::Compress::Deflate 0
+      IO::Compress::Gzip 0
+      IO::HTML 0
+      IO::Uncompress::Inflate 0
+      IO::Uncompress::RawInflate 0
+      LWP::MediaTypes 6
+      MIME::Base64 2.1
+      MIME::QuotedPrint 0
+      URI 1.10
+      parent 0
+      perl 5.008001
+      strict 0
+      warnings 0
   HTTP-Tinyish-0.20
     pathname: M/MI/MIYAGAWA/HTTP-Tinyish-0.20.tar.gz
     provides:
@@ -1017,6 +1163,16 @@ DISTRIBUTIONS
       IPC::Run3 0
       parent 0
       perl 5.008001
+  IO-HTML-1.004
+    pathname: C/CJ/CJM/IO-HTML-1.004.tar.gz
+    provides:
+      IO::HTML 1.004
+    requirements:
+      Carp 0
+      Encode 2.10
+      Exporter 5.57
+      ExtUtils::MakeMaker 0
+      perl 5.008
   IO-Interactive-1.027
     pathname: B/BR/BRIANDFOY/IO-Interactive-1.027.tar.gz
     provides:
@@ -1056,6 +1212,18 @@ DISTRIBUTIONS
       if 0
       perl 5.020
       stable 0.031
+  LWP-MediaTypes-6.05
+    pathname: O/OA/OALDERS/LWP-MediaTypes-6.05.tar.gz
+    provides:
+      LWP::MediaTypes 6.05
+    requirements:
+      Carp 0
+      Exporter 0
+      ExtUtils::MakeMaker 0
+      File::Basename 0
+      Scalar::Util 0
+      perl 5.006002
+      strict 0
   Lingua-EN-Inflect-1.905
     pathname: D/DC/DCONWAY/Lingua-EN-Inflect-1.905.tar.gz
     provides:
@@ -2301,6 +2469,60 @@ DISTRIBUTIONS
       Try::Tiny 0.07
       strict 0
       warnings 0
+  Test-Harness-3.52
+    pathname: L/LE/LEONT/Test-Harness-3.52.tar.gz
+    provides:
+      App::Prove 3.52
+      App::Prove::State 3.52
+      App::Prove::State::Result 3.52
+      App::Prove::State::Result::Test 3.52
+      Harness::Hook undef
+      TAP::Base 3.52
+      TAP::Formatter::Base 3.52
+      TAP::Formatter::Color 3.52
+      TAP::Formatter::Console 3.52
+      TAP::Formatter::Console::ParallelSession 3.52
+      TAP::Formatter::Console::Session 3.52
+      TAP::Formatter::File 3.52
+      TAP::Formatter::File::Session 3.52
+      TAP::Formatter::Session 3.52
+      TAP::Harness 3.52
+      TAP::Harness::Env 3.52
+      TAP::Object 3.52
+      TAP::Parser 3.52
+      TAP::Parser::Aggregator 3.52
+      TAP::Parser::Grammar 3.52
+      TAP::Parser::Iterator 3.52
+      TAP::Parser::Iterator::Array 3.52
+      TAP::Parser::Iterator::Process 3.52
+      TAP::Parser::Iterator::Stream 3.52
+      TAP::Parser::IteratorFactory 3.52
+      TAP::Parser::Multiplexer 3.52
+      TAP::Parser::Result 3.52
+      TAP::Parser::Result::Bailout 3.52
+      TAP::Parser::Result::Comment 3.52
+      TAP::Parser::Result::Plan 3.52
+      TAP::Parser::Result::Pragma 3.52
+      TAP::Parser::Result::Test 3.52
+      TAP::Parser::Result::Unknown 3.52
+      TAP::Parser::Result::Version 3.52
+      TAP::Parser::Result::YAML 3.52
+      TAP::Parser::ResultFactory 3.52
+      TAP::Parser::Scheduler 3.52
+      TAP::Parser::Scheduler::Job 3.52
+      TAP::Parser::Scheduler::Spinner 3.52
+      TAP::Parser::Source 3.52
+      TAP::Parser::SourceHandler 3.52
+      TAP::Parser::SourceHandler::Executable 3.52
+      TAP::Parser::SourceHandler::File 3.52
+      TAP::Parser::SourceHandler::Handle 3.52
+      TAP::Parser::SourceHandler::Perl 3.52
+      TAP::Parser::SourceHandler::RawTAP 3.52
+      TAP::Parser::YAMLish::Reader 3.52
+      TAP::Parser::YAMLish::Writer 3.52
+      Test::Harness 3.52
+    requirements:
+      ExtUtils::MakeMaker 0
   Test-Pod-1.52
     pathname: E/ET/ETHER/Test-Pod-1.52.tar.gz
     provides:
@@ -2322,6 +2544,54 @@ DISTRIBUTIONS
       Tie::Handle 0
       perl 5.006
       strict 0
+  TimeDate-2.35
+    pathname: A/AT/ATOOMIC/TimeDate-2.35.tar.gz
+    provides:
+      Date::Format 2.35
+      Date::Format::Generic 2.35
+      Date::Language 2.35
+      Date::Language::Afar 2.35
+      Date::Language::Amharic 2.35
+      Date::Language::Arabic 2.35
+      Date::Language::Austrian 2.35
+      Date::Language::Brazilian 2.35
+      Date::Language::Bulgarian 2.35
+      Date::Language::Chinese 2.35
+      Date::Language::Chinese_GB 2.35
+      Date::Language::Czech 2.35
+      Date::Language::Danish 2.35
+      Date::Language::Dutch 2.35
+      Date::Language::English 2.35
+      Date::Language::Finnish 2.35
+      Date::Language::French 2.35
+      Date::Language::Gedeo 2.35
+      Date::Language::German 2.35
+      Date::Language::Greek 2.35
+      Date::Language::Hungarian 2.35
+      Date::Language::Icelandic 2.35
+      Date::Language::Italian 2.35
+      Date::Language::Norwegian 2.35
+      Date::Language::Occitan 2.35
+      Date::Language::Oromo 2.35
+      Date::Language::Portuguese 2.35
+      Date::Language::Romanian 2.35
+      Date::Language::Russian 2.35
+      Date::Language::Russian_cp1251 2.35
+      Date::Language::Russian_koi8r 2.35
+      Date::Language::Sidama 2.35
+      Date::Language::Somali 2.35
+      Date::Language::Spanish 2.35
+      Date::Language::Swedish 2.35
+      Date::Language::Tigrinya 2.35
+      Date::Language::TigrinyaEritrean 2.35
+      Date::Language::TigrinyaEthiopian 2.35
+      Date::Language::Turkish 2.35
+      Date::Parse 2.35
+      Time::Zone 2.35
+      TimeDate 2.35
+    requirements:
+      Carp 0
+      ExtUtils::MakeMaker 0
   Try-Tiny-0.32
     pathname: E/ET/ETHER/Try-Tiny-0.32.tar.gz
     provides:

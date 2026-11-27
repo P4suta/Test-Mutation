@@ -1,8 +1,11 @@
 use v5.36;
 use Test2::V0;
+use lib 't/lib';
+use Raised;
 use Test::Mutation::Mutant;
 use Test::Mutation::Report::Json;
 use Test::Mutation::Result;
+use Test::Mutation::Status;
 
 my $source = "sub is_positive {\n    my (\$n) = \@_;\n    return \$n > 0 ? 1 : 0;\n}\n";
 
@@ -25,7 +28,8 @@ sub entry ( $status, %fields ) {
     return {
         mutant     => $mutant,
         status     => $status,
-        reason     => undef,
+        reason     => Test::Mutation::Status::of($status)->reasons->[0],
+        detail     => undef,
         by         => undef,
         covered_by => [],
         tests_run  => 0,
@@ -47,7 +51,7 @@ my $result = Test::Mutation::Result->new(
             tests_run  => 1,
             duration   => 0.25
         ),
-        entry( 'Ignored', id => '000000000002', reason => 'suppressed by a comment' ),
+        entry( 'Ignored', id => '000000000002', detail => 'suppressed by a comment' ),
         entry( 'Pending', id => '000000000003' ),
     ],
     problems          => [ { path => 'lib/Odd.pm', problem => 'the file has carriage returns' } ],
@@ -61,6 +65,8 @@ my $result = Test::Mutation::Result->new(
     inventory         => { mutants => 12, digest => 'ab' x 32 },
     started           => 100,
     finished          => 103.5,
+    stats             =>
+      { copies => 1, walks => 2, compiles => 3, spawns => 4, listings => 5, baseline_tests => 6, verifications => 7 },
 );
 my $text = Test::Mutation::Report::Json::render( $result, high => 80, low => 60 );
 my $back = Test::Mutation::Report::Json::parse($text);
@@ -79,10 +85,13 @@ is $back->entries->[0], hash { field by => 't/sign.t'; field duration => 0.25; f
 is $back->baseline_failures, [ { test => 't/broken.t', output => q{}, errors => q{} } ],
   'a failing test of the unmodified run keeps its name';
 is $back->sources, { 'lib/Calc.pm' => $source }, 'the sources';
+is $back->stats, $result->stats, 'the work of the run';
 
-like dies { Test::Mutation::Report::Json::parse('{') }, qr/\Athe text is no JSON document/, 'broken JSON is refused';
-like dies { Test::Mutation::Report::Json::parse('{"schemaVersion":"2","thresholds":{"high":80,"low":60},"files":{}}') },
-  qr/\Athe report holds no run facts of Test::Mutation/, 'a report of another tool is refused';
+like Raised::message( sub { Test::Mutation::Report::Json::parse('{') } ), qr/\Athe text is no JSON document/,
+  'broken JSON is refused';
+like Raised::message(
+    sub { Test::Mutation::Report::Json::parse('{"schemaVersion":"2","thresholds":{"high":80,"low":60},"files":{}}') } ),
+  qr/\Athe report holds no facts of a mutation run\z/, 'a report of another tool is refused';
 
 like dies { Test::Mutation::Report::Json::parse(undef) }, qr/did not pass type constraint "Str"/,
   'the text is a string';
@@ -90,7 +99,7 @@ like dies { Test::Mutation::Report::Json::parse(undef) }, qr/did not pass type c
 sub refusal ($change) {
     my $changed = $change->($text);
     die 'the change matches nothing' if $changed eq $text;
-    return dies { Test::Mutation::Report::Json::parse($changed) };
+    return Raised::message( sub { Test::Mutation::Report::Json::parse($changed) } );
 }
 
 subtest 'a value of the wrong type is refused with its place in the report' => sub {
@@ -103,6 +112,22 @@ subtest 'a value of the wrong type is refused with its place in the report' => s
         'a count that is missing' => [ sub ($t) { $t =~ s/"jobs" : 3,//r }, q{->{"testMutation"}->{"jobs"}} ],
         'an unknown status'       =>
           [ sub ($t) { $t =~ s/"status" : "Killed"/"status" : "Eaten"/r }, $mutant . q{->{"status"}} ],
+        'an unknown status of the run' => [
+            sub ($t) {
+                $t =~ s/("reason" : "interrupted",\s+"scope" : \[[^\]]*\],\s+"status" : )"Pending"/$1"Waiting"/r;
+            },
+            q{->{"files"}->{"lib/Calc.pm"}->{"mutants"}->[2]->{"testMutation"}->{"status"}}
+        ],
+        'a status of the schema that differs from the status of the run' =>
+          [ sub ($t) { $t =~ s/"status" : "Killed"/"status" : "Survived"/r }, $mutant ],
+        'a reason of another status' =>
+          [ sub ($t) { $t =~ s/"reason" : "suppressed"/"reason" : "interrupted"/r }, $mutant =~ s/0\]\z/1]/r ],
+        'a status without its reason' =>
+          [ sub ($t) { $t =~ s/"reason" : "interrupted"/"reason" : null/r }, $mutant =~ s/0\]\z/2]/r ],
+        'an unknown reason' => [
+            sub ($t) { $t =~ s/"reason" : "suppressed"/"reason" : "bored"/r },
+            q{->{"files"}->{"lib/Calc.pm"}->{"mutants"}->[1]->{"testMutation"}->{"reason"}}
+        ],
         'a line that is no number' =>
           [ sub ($t) { $t =~ s/"line" : 3/"line" : "third"/r }, $mutant . q{->{"location"}->{"end"}->{"line"}} ],
         'an unknown signal' => [
@@ -119,10 +144,14 @@ subtest 'a value of the wrong type is refused with its place in the report' => s
             sub ($t) { $t =~ s/"warnings" : \[/"warnings" : [ "first", {},/r },
             q{->{"testMutation"}->{"warnings"}->[1]}
         ],
+        'a count of work that is negative' =>
+          [ sub ($t) { $t =~ s/"spawns" : 4/"spawns" : -4/r }, q{->{"testMutation"}->{"stats"}->{"spawns"}} ],
+        'a count of work that is missing' =>
+          [ sub ($t) { $t =~ s/"listings" : 5,//r }, q{->{"testMutation"}->{"stats"}->{"listings"}} ],
     );
     for my $name ( sort keys %cases ) {
         my ( $change, $place ) = $cases{$name}->@*;
-        is refusal($change), "the report is malformed: no valid value at \$report$place\n", $name;
+        is refusal($change), "the report is malformed: no valid value at \$report$place", $name;
     }
 };
 
@@ -137,7 +166,7 @@ subtest 'a location outside the source is refused' => sub {
     );
     for my $name ( sort keys %cases ) {
         my ( $change, $reason ) = $cases{$name}->@*;
-        is refusal($change), "the report is malformed: $reason\n", $name;
+        is refusal($change), "the report is malformed: $reason", $name;
     }
 };
 
@@ -200,10 +229,20 @@ subtest 'locations at the edges of a source are read, and the entries keep the o
       'the first character, the end of the text, and a place without width, file by file';
 };
 
-subtest 'every status and every signal of a result is read back' => sub {
-    my @statuses = qw(Killed Survived NoCoverage Timeout CompileError RuntimeError Ignored Pending);
-    my $read     = read_back( entries => [ map { entry( $statuses[$_], id => "00000000000$_" ) } 0 .. $#statuses ] );
-    is [ map { $_->{status} } $read->entries->@* ],                              \@statuses,         'the statuses';
+subtest 'every status, every reason, and every signal of a result is read back' => sub {
+    my @pairs;
+    for my $status ( Test::Mutation::Status::rows()->@* ) {
+        push @pairs, map { [ $status->name, $_ ] } $status->reasons->@* ? $status->reasons->@* : (undef);
+    }
+    my $read = read_back(
+        entries => [
+            map { entry( $pairs[$_][0], id => sprintf( '%012d', $_ ), reason => $pairs[$_][1], detail => "detail $_" ) }
+              0 .. $#pairs
+        ]
+    );
+    is [ map { [ $_->@{qw(status reason detail)} ] } $read->entries->@* ],
+      [ map { [ $pairs[$_]->@*, "detail $_" ] } 0 .. $#pairs ], 'the statuses, the reasons, and the details';
+    is scalar @pairs, 22, 'every status with each of its reasons';
     is [ map { read_back( interrupted => $_ )->interrupted } qw(HUP INT TERM) ], [qw(HUP INT TERM)], 'the signals';
 };
 

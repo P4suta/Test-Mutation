@@ -4,6 +4,8 @@ use Digest::SHA ();
 use File::Temp  ();
 use POSIX       ();
 use Time::HiRes ();
+use lib 't/lib';
+use ManualClock;
 use Test::Mutation::Pool;
 
 my $dir = File::Temp::tempdir( CLEANUP => 1 );
@@ -25,13 +27,14 @@ sub task ( $path, %fields ) {
         env             => {},
         cwd             => $dir,
         timeout         => 20,
+        output_limit    => 10_000_000,
         stop_on_failure => 0,
-        stderr          => "$path.err",
         %fields,
     };
 }
 
 sub run_one ( $path, %fields ) {
+    my $clock = delete $fields{clock};
     my $result;
     Test::Mutation::Pool::run(
         jobs => 1,
@@ -40,6 +43,7 @@ sub run_one ( $path, %fields ) {
             sub { shift @queue }
         },
         done => sub ( $task, $got ) { $result = $got; return },
+        ( $clock ? ( clock => $clock ) : () ),
     );
     return $result;
 }
@@ -57,6 +61,20 @@ subtest 'a failing test and a nonzero exit' => sub {
       hash { field passed => 0; field early => 0; field exit => 3; etc }, 'a nonzero exit status';
     is run_one( script( 'partial.t', q{$| = 1; print "1..1\nok 1"; exit 0;} ) ),
       hash { field passed => 1; etc }, 'a last line without a line feed is read';
+    is run_one( script( 'partial-fail.t', q{$| = 1; print "1..1\nnot ok 1"; exit 0;} ) ),
+      hash { field passed => 0; field early => 1; etc }, 'a failure without a line feed is a failure of the stream';
+    is run_one( script( 'signal.t', q{$| = 1; print "1..1\nok 1\n"; kill 'TERM', $$; sleep 5;} ) ),
+      hash { field passed => 0; field early => 0; field exit => 0; field signal => 15; etc }, 'the end by a signal';
+};
+
+subtest 'the stream may ask to ignore the end of its process, as under prove' => sub {
+    my $stream = q{$| = 1; print "TAP version 13\npragma +ignore_exit\n1..1\nok 1\n";};
+    is run_one( script( 'ignored-exit.t', "$stream exit 3;" ) ),
+      hash { field passed => 1; field exit => 3; etc }, 'a nonzero exit status passes';
+    is run_one( script( 'ignored-signal.t', "$stream kill 'TERM', \$\$; sleep 5;" ) ),
+      hash { field passed => 1; field signal => 15; etc }, 'the end by a signal passes';
+    is run_one( script( 'ignored-limit.t', "$stream sleep 30;" ), timeout => 0.5 ),
+      hash { field passed => 0; field timed_out => 1; etc }, 'a test that the pool ended at its time limit fails';
 };
 
 subtest 'the environment and the working directory reach the test' => sub {
@@ -69,11 +87,13 @@ subtest 'the environment and the working directory reach the test' => sub {
       'variables are set and removed, and the directory is changed';
 };
 
-subtest 'standard error goes to the named file' => sub {
-    my $path = script( 'stderr.t', qq{print STDERR "diagnostic\\n"; print "1..1\\nok 1\\n";\n} );
-    run_one($path);
-    open my $handle, '<', "$path.err" or die "open: $!";
-    is scalar( readline $handle ), "diagnostic\n", 'standard error is kept apart from the TAP stream';
+subtest 'standard error reaches the result apart from the TAP stream' => sub {
+    my $path   = script( 'stderr.t', qq{print STDERR "not ok 1 - a diagnostic\\n"; print "1..1\\nok 1\\n";\n} );
+    my $result = run_one($path);
+    is [ $result->@{qw(output errors passed)} ], [ "1..1\nok 1\n", "not ok 1 - a diagnostic\n", 1 ],
+      'each stream in its place, and standard error is no part of the TAP stream';
+    is $result->{digest}, Digest::SHA::sha256_hex("1..1\nok 1\n"), 'nor of the digest';
+    ok !-e "$path.err", 'and no file holds it';
 };
 
 subtest 'a time limit ends the test and its children' => sub {
@@ -94,15 +114,19 @@ PERL
 };
 
 subtest 'a test gets a chance to clean up before it is ended' => sub {
-    my $marker = "$dir/term-received";
-    my $path   = script( 'graceful.t', <<"PERL" );
-\$| = 1;
-\$SIG{TERM} = sub { open my \$out, '>', '$marker'; close \$out; exit 0 };
-print "1..1\\n";
+    my $path = script( 'graceful.t', <<'PERL' );
+$SIG{TERM} = sub { open my $out, '>', "$0.cleaned" or die $!; close $out or die $!; exit 0 };
+open my $ready, '>', "$0.ready" or die $!;
+print {$ready} "ready\n" or die $!;
+close $ready or die $!;
+$| = 1;
+print "1..1\n";
 sleep 30;
 PERL
-    my $result = run_one( $path, timeout => 0.5 );
-    ok -e $marker, 'the test received TERM';
+    my $clock = ManualClock->new(
+        steps => [ ManualClock::after_ready( "$path.ready", sub ( $clock, @ ) { $clock->move(0.5) } ) ] );
+    my $result = run_one( $path, timeout => 0.5, clock => $clock );
+    ok -e "$path.cleaned", 'the test received TERM';
     is $result->{timed_out}, 1, 'the result reports the time limit';
 
     my $stubborn = script( 'stubborn.t', q{$| = 1; $SIG{TERM} = 'IGNORE'; print "1..1\n"; sleep 30;} );
@@ -137,24 +161,28 @@ subtest 'a command that cannot start fails' => sub {
     is $result, hash { field passed => 0; field exit => 127; etc }, 'exit status 127';
 };
 
-subtest 'tasks run in parallel and follow-up tasks run first' => sub {
-    my $sleeper = script( 'sleep.t', qq{sleep 1; print "1..1\\nok 1\\n";\n} );
-    my @queue   = map { task( $sleeper, payload => "first-$_" ) } 1 .. 4;
-    my @order;
-    my $started = Time::HiRes::time();
-    my $count   = Test::Mutation::Pool::run(
+subtest 'four tasks overlap and a follow-up runs to completion' => sub {
+    my $path = script( 'together.t', <<'PERL' );
+open my $ready, '>', "$0.ready.$ENV{POOL_SLOT}" or die $!;
+close $ready or die $!;
+select undef, undef, undef, 0.01 while grep { !-e "$0.ready.$_" } 1 .. 4;
+print "1..1\nok 1\n";
+PERL
+    my @queue = map { task( $path, env => { POOL_SLOT => $_ }, payload => { name => "first-$_" } ) } 1 .. 4;
+    my ( @order, @passed );
+    my $count = Test::Mutation::Pool::run(
         jobs => 4,
         next => sub { shift @queue },
         done => sub ( $task, $result ) {
-            push @order, $task->{payload};
-            return task( script( 'quick.t', qq{print "1..1\\nok 1\\n";\n} ), payload => 'follow-up' )
-              if $task->{payload} eq 'first-1';
+            push @order,  $task->{payload}{name};
+            push @passed, $result->{passed};
+            return task( script( 'quick.t', qq{print "1..1\\nok 1\\n";\n} ), payload => { name => 'follow-up' } )
+              if $task->{payload}{name} eq 'first-1';
             return;
         },
     );
-    my $elapsed = Time::HiRes::time() - $started;
-    is $count, 5, 'every task ran';
-    ok $elapsed < 3, "four one-second tasks ran side by side ($elapsed s)";
+    is $count,   5,           'every task ran';
+    is \@passed, [ (1) x 5 ], 'the first four tasks all reached the barrier before any could finish';
     is scalar( grep { $_ eq 'follow-up' } @order ), 1, 'the follow-up task ran';
 };
 
@@ -190,6 +218,65 @@ subtest 'the captured output keeps its end when a test prints a lot' => sub {
 
     my $short = run_one( script( 'short.t', qq{print "1..1\\n"; print "ok 1\\n";\n} ) );
     is $short->{output}, "1..1\nok 1\n", 'a short stream is captured whole';
+
+    my $warns = run_one(
+        script(
+            'warns.t', q{print STDERR "# warning number $_\n" for 1 .. 20_000; print STDERR "the last warning\n";}
+        )
+    );
+    is length( $warns->{errors} ), 262_144, 'standard error stops at the same limit';
+    like $warns->{errors}, qr/the last warning\n\z/, 'and keeps its end too';
+};
+
+# The stream passes and asks to ignore the end of its process, so the limit alone fails the test.
+subtest 'a test that prints without end is stopped at its output limit' => sub {
+    my %stream = ( output => 'STDOUT', errors => 'STDERR' );
+    my $passes = q{$| = 1; print "TAP version 13\npragma +ignore_exit\n1..1\nok 1\n";};
+    for my $name ( sort keys %stream ) {
+        my $path = script( "endless-$name.t", qq{$passes print $stream{$name} '#' . ( 'x' x 1000 ) . "\\n" while 1;} );
+        my $started = Time::HiRes::time();
+        my $result  = run_one( $path, output_limit => 1_000_000 );
+        is $result, hash {
+            field overflowed => 1;
+            field timed_out  => 0;
+            field stopped    => 0;
+            field passed     => 0;
+            field signal     => 15;
+            etc
+        }, "a test that fills its $stream{$name} is ended";
+        is length( $result->{$name} ), 262_144, 'the end of the stream is kept';
+        ok Time::HiRes::time() - $started < 15, 'long before its time limit';
+    }
+};
+
+# The test prints and closes both streams before its gate, so the step opens the gate once the pool read all of it.
+subtest 'the output limit counts the bytes of both streams together' => sub {
+    my $code = <<'PERL';
+$| = 1;
+print STDOUT 'o' x 150_000;
+print STDERR 'e' x %d;
+close STDOUT;
+close STDERR;
+select undef, undef, undef, 0.01 until -e "$0.gate";
+PERL
+    my $limit = 300_000;
+    for my $case ( [ 'at', 150_000, 0, 0 ], [ 'past', 150_001, 1, 15 ] ) {
+        my ( $name, $errors, $overflowed, $signal ) = $case->@*;
+        my $path  = script( "$name-limit.t", sprintf $code, $errors );
+        my $clock = ManualClock->new(
+            steps => [
+                sub ( $clock, $seconds, $select ) {
+                    return 0 if $select->count > 1;
+                    open my $gate, '>', "$path.gate" or die "open: $!";
+                    return 1;
+                }
+            ]
+        );
+        my $result = run_one( $path, output_limit => $limit, clock => $clock );
+        is [ $result->@{qw(overflowed signal)} ], [ $overflowed, $signal ],
+          "$name the limit the test is " . ( $overflowed ? 'ended' : 'left alone' );
+        is length( $result->{output} ) + length( $result->{errors} ), 150_000 + $errors, 'the pool read every byte';
+    }
 };
 
 subtest 'the result carries a digest of the whole output' => sub {
@@ -251,8 +338,8 @@ subtest 'a signal ends the polite tasks, the stubborn tasks, and their children'
             1;
         };
         my $error = $@;
-        my $left  = kill 0, number_in("$stubborn.pid");
-        print {$write} $ended ? 'completed' : ref $error ? $error->signal : "died: $error", " $left\n";
+        my $alive = kill 0, number_in("$stubborn.pid");
+        print {$write} $ended ? 'completed' : ref $error ? $error->signal : "died: $error", " $alive\n";
         close $write;
         POSIX::_exit(0);
     }
@@ -291,11 +378,14 @@ subtest 'a forced end reaches a child that left the process group' => sub {
     my $code = <<'PERL';
 $| = 1;
 if ( !fork ) { setpgrp 0, 0; open my $out, '>', "$0.child"; print {$out} $$; close $out; sleep 30; exit 0 }
+select undef, undef, undef, 0.01 until -s "$0.child";
 print "1..2\nnot ok 1\n";
 sleep 30;
 PERL
     my $late = script( 'escape-late.t', $code );
-    is run_one( $late, timeout => 1 )->{timed_out}, 1, 'the test runs into its time limit';
+    my $clock =
+      ManualClock->new( steps => [ ManualClock::after_ready( "$late.child", sub ( $clock, @ ) { $clock->move(1) } ) ] );
+    is run_one( $late, timeout => 1, clock => $clock )->{timed_out}, 1, 'the test runs into its time limit';
     ok wait_for("$late.child"),          'its child started';
     ok gone( number_in("$late.child") ), 'the time limit ends the child';
 
@@ -331,8 +421,18 @@ PERL
 };
 
 subtest 'a test that exits cleanly after its time limit does not pass' => sub {
-    my $path   = script( 'late.t', q{$| = 1; $SIG{TERM} = sub { exit 0 }; print "1..1\nok 1\n"; sleep 30;} );
-    my $result = run_one( $path, timeout => 0.5 );
+    my $path = script( 'late.t', <<'PERL' );
+$SIG{TERM} = sub { exit 0 };
+$| = 1;
+print "1..1\nok 1\n";
+open my $ready, '>', "$0.ready" or die $!;
+print {$ready} "ready\n" or die $!;
+close $ready or die $!;
+sleep 30;
+PERL
+    my $clock = ManualClock->new(
+        steps => [ ManualClock::after_ready( "$path.ready", sub ( $clock, @ ) { $clock->move(0.5) } ) ] );
+    my $result = run_one( $path, timeout => 0.5, clock => $clock );
     is $result, hash { field timed_out => 1; field exit => 0; field signal => 0; field passed => 0; etc },
       'the time limit decides';
 };
@@ -340,16 +440,22 @@ subtest 'a test that exits cleanly after its time limit does not pass' => sub {
 subtest 'a test that ended within its time limit keeps its result when the pool looks late' => sub {
     my $quick = script( 'at-once.t', qq{print "1..1\\nok 1\\n";\n} );
     my $brief = script( 'in-time.t', qq{select undef, undef, undef, 0.5; print "1..1\\nok 1\\n";\n} );
-    my @queue = ( task( $quick, payload => 'first' ), task( $brief, payload => 'second', timeout => 1.5 ) );
+    my @queue = (
+        task( $quick, payload => { name => 'first' } ),
+        task( $brief, payload => { name => 'second' }, timeout => 1.5 )
+    );
     my %result;
     Test::Mutation::Pool::run(
         jobs => 2,
         next => sub { shift @queue },
         done => sub ( $task, $got ) {
-            $result{ $task->{payload} } = $got;
+            $result{ $task->{payload}{name} } = $got;
 
             # The callback of the first task holds the pool until the limit of the second task is over.
-            Time::HiRes::sleep(2.5) if $task->{payload} eq 'first';
+            # The end of a test cuts a sleep short, so the callback sleeps until the time is over.
+            my $until = Time::HiRes::time() + 2.5;
+            Time::HiRes::sleep( $until - Time::HiRes::time() )
+              while $task->{payload}{name} eq 'first' && Time::HiRes::time() < $until;
             return;
         },
     );
@@ -358,16 +464,60 @@ subtest 'a test that ended within its time limit keeps its result when the pool 
 };
 
 subtest 'a malformed task is refused' => sub {
-    like dies {
-        Test::Mutation::Pool::run(
-            jobs => 1,
-            next => do {
-                my @queue = ( { command => 'perl' } );
-                sub { shift @queue }
-            },
-            done => sub { return }
-        )
-    }, qr/did not pass type constraint/, 'refused';
+    for my $case ( [ 'a command without a list', { command => 'perl' } ],
+        [ 'a payload that is no hash', { payload => 'x' } ] )
+    {
+        my ( $name, $fields ) = $case->@*;
+        like dies {
+            Test::Mutation::Pool::run(
+                jobs => 1,
+                next => do {
+                    my @queue = ( task( 'x.t', $fields->%* ) );
+                    sub { shift @queue }
+                },
+                done => sub { return }
+            )
+        }, qr/did not pass type constraint/, $name;
+    }
+};
+
+subtest 'a filtered digest consumes complete lines and retains all long output' => sub {
+    my $path   = script( 'digest-stream.pl', q{print 'x' x 300_000, "\ntrim\nlast"} );
+    my $filter = sub ($line) { return $line eq "trim\n" ? "fold\n" : uc $line };
+    my $result = run_one( $path, digest_line => $filter );
+    is $result->{digest}, Digest::SHA::sha256_hex( ( 'x' x 300_000 ) . "\nfold\nLAST" ),
+      'an oversized line passes through and the last incomplete line reaches the filter';
+    like $result->{output}, qr/x\ntrim\nlast\z/, 'the raw output retained for diagnostics stays intact';
+};
+
+subtest 'a short last fragment still belongs to the preceding oversized line' => sub {
+    my @filtered;
+    my $slot = {
+        digest => Digest::SHA->new(256),
+        task   => { digest_line => sub ($line) { push @filtered, $line; return uc $line } },
+    };
+    for my $chunk ( 'x' x 65_536, 'y', "z\nnext\n" ) {
+        Test::Mutation::Pool::_digest_output( $slot, $chunk );    ## no critic (Subroutines::ProtectPrivateSubs)
+    }
+    is \@filtered, ["next\n"], 'filtering resumes at the next complete line';
+    is $slot->{digest}->hexdigest, Digest::SHA::sha256_hex( ( 'x' x 65_536 ) . "yz\nNEXT\n" ),
+      'every fragment of the oversized line contributes its original bytes';
+};
+
+subtest 'the digest filters complete and final lines up to the input chunk size' => sub {
+    my $path = script( 'digest-boundaries.pl', q{print "a" x 65_535, "\n", "b" x 65_536, "\n", "c" x 65_536} );
+    my @filtered;
+    my $result = run_one(
+        $path,
+        digest_line => sub ($line) {
+            push @filtered, [ substr( $line, 0, 1 ), length $line ];
+            return '<filtered>';
+        }
+    );
+    is \@filtered, [ [ 'a', 65_536 ], [ 'c', 65_536 ] ],
+      'an exact-size line is filtered with and without its terminator';
+    is $result->{digest}, Digest::SHA::sha256_hex( '<filtered>' . ( 'b' x 65_536 ) . "\n<filtered>" ),
+      'the one-byte-longer line retains all its bytes across pipe reads';
 };
 
 done_testing;

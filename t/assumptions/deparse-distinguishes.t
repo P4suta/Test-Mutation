@@ -56,8 +56,8 @@ for my $case (@different) {
     my ( $name, $template, $original, $mutated ) = $case->@*;
     next if $template eq $class && $] < 5.038;
     my ( $before, $after ) = map { deparsed( $template =~ s/BODY/$_/r ) } $original, $mutated;
-    ok defined $before,                      "$name compiles";
-    ok !defined $after || $before ne $after, "$name stays distinct";
+    ok defined $before && defined $after, "$name compiles before and after the change";
+    isnt $after, $before, "$name stays distinct";
 }
 
 # Every place that holds a site must reach the output, whatever construct surrounds it.
@@ -116,8 +116,8 @@ for my $context (@contexts) {
     my ( $name, $template, $since ) = $context->@*;
     next if $since && $] < $since;
     my ( $before, $after ) = map { deparsed( $head . $template =~ s/EXPR/$_/r ) } '$_[0] + 2', '$_[0] - 2';
-    ok defined $before,                      "$name compiles";
-    ok !defined $after || $before ne $after, "$name shows a change";
+    ok defined $before && defined $after, "$name compiles before and after the change";
+    isnt $after, $before, "$name shows a change";
 }
 
 my @equal = (

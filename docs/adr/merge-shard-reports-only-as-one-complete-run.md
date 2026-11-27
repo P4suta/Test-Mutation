@@ -24,11 +24,11 @@ Joining the files with a JSON tool, the status quo, checks nothing.
 
 ## Consequences
 
-The report gains a `testMutation` key, which the schema allows.
+The schema permits the report to include a `testMutation` key.
 Shards of different source states never merge, because their digests differ.
 
 ## Confirmation
 
-`t/unit/merge.t` refuses a missing, repeated, or foreign part.
-`t/e2e/merge.t` compares the merged statuses with an unsplit run.
-Reconsider when a split by test duration replaces the split by position.
+`t/unit/merge.t` rejects missing, repeated, and foreign parts.
+`t/e2e/merge.t` compares a complete merge with an unsplit run.
+`xt/manual.t` executes the documented merge.

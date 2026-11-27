@@ -4,6 +4,7 @@ use JSON::PP ();
 use Test::Mutation::Mutant;
 use Test::Mutation::Report::Json;
 use Test::Mutation::Result;
+use Test::Mutation::Status;
 
 my $source = "sub is_positive {\n    my (\$n) = \@_;\n    return \$n > 0 ? 1 : 0;\n}\n";
 
@@ -25,7 +26,8 @@ sub entry ( $status, %fields ) {
     return {
         mutant     => $mutant,
         status     => $status,
-        reason     => undef,
+        reason     => Test::Mutation::Status::of($status)->reasons->[0],
+        detail     => undef,
         by         => undef,
         covered_by => [],
         tests_run  => 0,
@@ -43,7 +45,7 @@ my $result = Test::Mutation::Result->new(
             'Killed',
             id         => '000000000001',
             by         => 't/sign.t',
-            reason     => 't/sign.t failed',
+            detail     => 't/sign.t failed',
             covered_by => [ 't/add.t', 't/sign.t' ],
             tests_run  => 2,
             duration   => 0.75
@@ -54,7 +56,7 @@ my $result = Test::Mutation::Result->new(
             'Timeout',
             id         => '000000000004',
             by         => 't/sign.t',
-            reason     => 't/sign.t exceeded its time limit',
+            detail     => 't/sign.t exceeded its time limit',
             covered_by => ['t/sign.t'],
             tests_run  => 1,
             duration   => 2
@@ -67,6 +69,8 @@ my $result = Test::Mutation::Result->new(
     parallel_safe     => 1,
     started           => 100,
     finished          => 103.5,
+    stats             =>
+      { copies => 2, walks => 8, compiles => 3, spawns => 9, listings => 1, baseline_tests => 2, verifications => 0 },
 );
 
 my $document = Test::Mutation::Report::Json::document( $result, high => 80, low => 60 );
@@ -80,7 +84,9 @@ subtest 'the document has the required top-level fields' => sub {
     is $document->{projectRoot}, '/project', 'project root';
     is $document->{framework}, { name => 'Test::Mutation', version => Test::Mutation::Report::Json->VERSION },
       'framework';
-    is [ sort keys $document->{files}->%* ], ['lib/Calc.pm'], 'files with mutants';
+    is [ sort keys $document->{files}->%* ], [qw(lib/Calc.pm lib/Unmutated.pm)], 'every analyzed source';
+    is $document->{files}{'lib/Unmutated.pm'}, { language => 'perl', source => "1;\n", mutants => [] },
+      'an analyzed file can contain no mutations';
 };
 
 subtest 'a file carries its language, source, and mutants' => sub {
@@ -106,13 +112,49 @@ subtest 'a mutant maps to the schema' => sub {
         testsCompleted => 2,
         duration       => 750,
         static         => JSON::PP::false,
-        testMutation   => { scope => [ 3, 3 ], suppressed => JSON::PP::false, comparable => JSON::PP::true },
+        testMutation   => {
+            status     => 'Killed',
+            reason     => undef,
+            scope      => [ 3, 3 ],
+            suppressed => JSON::PP::false,
+            comparable => JSON::PP::true
+        },
       },
       'a killed mutant';
     ok !exists $survived->{killedBy},     'a survived mutant has no killing test';
     ok !exists $timeout->{killedBy},      'the test that ran into the time limit killed nothing';
-    ok !exists $survived->{statusReason}, 'an absent reason is left out';
+    ok !exists $survived->{statusReason}, 'an absent detail is left out';
     is $uncovered->{coveredBy}, [], 'an uncovered mutant has no tests';
+    is [ $timeout->@{qw(status statusReason)}, $timeout->{testMutation}->@{qw(status reason)} ],
+      [ 'Ignored', 't/sign.t exceeded its time limit', 'Timeout', 'time-limit' ],
+      'a timeout is ignored in the schema, and the facts keep its status and its reason';
+    is [ $uncovered->{testMutation}->@{qw(status reason)} ], [ 'NoCoverage', 'unreached' ],
+      'a mutant without coverage keeps its reason';
+};
+
+subtest 'every status writes the name of the schema and keeps its own name and reason' => sub {
+    my @rows    = Test::Mutation::Status::rows()->@*;
+    my $several = Test::Mutation::Result->new(
+        (
+            map { $_ => $result->$_ }
+              qw(root sources tests problems warnings baseline_failures jobs parallel_safe started finished)
+        ),
+        entries => [ map { entry( $rows[$_]->name, id => sprintf '%012d', $_ ) } 0 .. $#rows ],
+    );
+    my @mutants =
+      Test::Mutation::Report::Json::document( $several, high => 80, low => 60 )->{files}{'lib/Calc.pm'}{mutants}->@*;
+    is [ map { [ $_->{status}, $_->{testMutation}->@{qw(status reason)} ] } @mutants ],
+      [
+        [ 'Killed',       'Killed',       undef ],
+        [ 'Survived',     'Survived',     undef ],
+        [ 'NoCoverage',   'NoCoverage',   'unreached' ],
+        [ 'Ignored',      'Timeout',      'time-limit' ],
+        [ 'CompileError', 'CompileError', 'parse' ],
+        [ 'RuntimeError', 'NoVerdict',    'loaded-around-hook' ],
+        [ 'Ignored',      'Ignored',      'suppressed' ],
+        [ 'Pending',      'Pending',      'interrupted' ],
+      ],
+      'the schema name, the status of the run, and the reason of each status';
 };
 
 subtest 'tests are listed as test files' => sub {
@@ -129,6 +171,7 @@ subtest 'the document carries the facts of the run that the schema has no place 
       {
         shard            => undef,
         inventory        => undef,
+        selection        => {},
         jobs             => 2,
         parallelSafe     => JSON::PP::true,
         interrupted      => undef,
@@ -139,6 +182,15 @@ subtest 'the document carries the facts of the run that the schema has no place 
         problems         => [],
         baselineFailures => [],
         tests            => [ { name => 't/sign.t', duration => 0.5 }, { name => 't/add.t', duration => 0.25 } ],
+        stats            => {
+            copies        => 2,
+            walks         => 8,
+            compiles      => 3,
+            spawns        => 9,
+            listings      => 1,
+            baselineTests => 2,
+            verifications => 0
+        },
       },
       'the run facts';
 };

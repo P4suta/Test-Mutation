@@ -1,9 +1,10 @@
 package Test::Mutation::Project;
 use v5.36;
 use File::Find             ();
-use Types::Standard        qw(ArrayRef Maybe RegexpRef Str);
+use Types::Standard        qw(ArrayRef Bool RegexpRef Str);
 use Types::Common::Numeric qw(PositiveInt);
 use Type::Params           qw(signature_for);
+use Test::Mutation::Error;
 
 our $VERSION = '0.001';
 
@@ -66,36 +67,24 @@ sub files ( $root, $include, $exclude ) {
     return [ sort keys %found ];
 }
 
-signature_for processors => (
-    named   => [ cpuinfo => Maybe [Str], sysctl => Maybe [Str] ],
-    returns => PositiveInt,
-);
+signature_for perl_script => ( positional => [Str], returns => Bool );
 
-sub processors ($arg) {
-    my $listed = () = ( defined $arg->cpuinfo ? $arg->cpuinfo : q{} ) =~ /^processor\s*:/mg;
-    return $listed if $listed;
-    my ($answer) = ( defined $arg->sysctl ? $arg->sysctl : q{} ) =~ /\A([0-9]+)/;
-    return $answer ? 0 + $answer : 1;
-}
-
-sub _read ( $mode, @source ) {
-    open my $handle, $mode, @source or return;
-    local $/ = undef;
-    my $text = readline $handle;
-    close $handle or return;
-    return $text;
-}
-
-signature_for cpu_count => (
-    named   => [ cpuinfo => Str, { default => '/proc/cpuinfo' }, sysctl => Str, { default => '/usr/sbin/sysctl' } ],
-    returns => PositiveInt,
-);
-
-# A system with the list has a sysctl command without the key, which would write an error for each call.
-sub cpu_count ($arg) {
-    my $cpuinfo = _read( '<', $arg->cpuinfo );
-    my $sysctl  = !defined $cpuinfo && -x $arg->sysctl ? _read( q{-|}, $arg->sysctl, '-n', 'hw.ncpu' ) : undef;
-    return processors( cpuinfo => $cpuinfo, sysctl => $sysctl );
+sub perl_script ($path) {
+    return 0 unless -f $path;
+    open my $handle, '<:raw', $path or Test::Mutation::Error::raise( 'file-unreadable', path => $path, reason => "$!" );
+    defined sysread( $handle, my $prefix, 4096 )
+      or Test::Mutation::Error::raise( 'file-unreadable', path => $path, reason => "$!" );
+    close $handle or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
+    return 0 if index( $prefix, "\0" ) >= 0;
+    $prefix =~ s/\A\xEF\xBB\xBF//;
+    my $environment = qr{(?:\S*/)?env [ \t]+ (?:-S [ \t]+)?}x;
+    my $perl        = qr{(?:\S*/)?perl(?:5(?:[.][0-9]+)*)? (?:\s|\z)}x;
+    my $interpreter = qr{[#]! [ \t]* (?:$environment)? $perl}x;
+    return 1 if $prefix =~ /\A$interpreter/;
+    return 0 unless $path   =~ /[.]pl\z/;
+    return 1 unless $prefix =~ /\A[#]!/;
+    my $extract = qr{^[^\n#]* \bperl[ \t]+-x\b [^\n]* \n}mx;
+    return $prefix =~ /$extract (?:[^\n]*\n)*? $interpreter/mx ? 1 : 0;
 }
 
 signature_for default_jobs => ( positional => [PositiveInt], returns => PositiveInt );
@@ -128,21 +117,13 @@ C<*> matches within one path segment, C<?> matches one character, and C<**> matc
 Returns the sorted relative paths under C<$root> that match an include pattern and no exclude pattern.
 Hidden directories are skipped, as are C<local>, C<blib>, C<_build>, and C<node_modules> at the root.
 
-=head2 processors
+=head2 perl_script
 
-    my $count = Test::Mutation::Project::processors( cpuinfo => $text, sysctl => $answer );
-
-Returns the number of processors that the platform reports.
-C<cpuinfo> is the text of F</proc/cpuinfo> and C<sysctl> is the output of C<sysctl -n hw.ncpu>, each undefined when absent.
-The function returns 1 when neither names a count.
-
-=head2 cpu_count
-
-Reads C</proc/cpuinfo>, or asks C<sysctl> where that file is missing, and returns what L</processors> finds.
-C<cpuinfo> and C<sysctl> name another file and another command.
+Recognizes a Perl interpreter line, a text F<.pl> file, or a F<.pl> wrapper that invokes C<perl -x>.
 
 =head2 default_jobs
 
-Returns the number of test processes for a machine with the given number of processors: one less, and at least one.
+Returns the number of test processes for the given number of processors: one less, and at least one.
+L<Test::Mutation::Host> counts the processors that a run may use.
 
 =cut

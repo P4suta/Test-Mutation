@@ -5,7 +5,7 @@ use Fixture qw(copy_of run_fixture tree_digest statuses);
 
 my $root     = copy_of('mechanics');
 my $before   = tree_digest($root);
-my ($result) = run_fixture( $root, timeout_floor => 1, timeout_factor => 2 );
+my ($result) = run_fixture( $root, cache => 0, enable => ['comparison-boundary'] );
 my $statuses = statuses($result);
 
 sub of ($file) {
@@ -31,7 +31,8 @@ subtest 'a mutant that loops forever times out' => sub {
       'statuses';
     my ($slow) = grep { $_->{mutant}->path eq 'lib/Loop.pm' && $_->{mutant}->description eq 'replaced > with <=' }
       $result->entries->@*;
-    ok $slow->{duration} < 1, 'a failure ends a test before a later endless loop runs';
+    is [ $slow->@{qw(status by)} ], [ 'Killed', 't/loop.t' ],
+      'the test stops at its failing assertion before the later endless loop can time out';
 };
 
 subtest 'a mutant that fails at compile time is a compile error' => sub {
@@ -88,16 +89,15 @@ subtest 'tests in taint mode, with use lib, and with a forked child detect mutan
       'a test that loads the module in a forked child';
 };
 
-subtest 'a test that loads a file around the hook is reported and never counted as a survivor' => sub {
+subtest 'an absolute require loads the mutant placed in the job copy' => sub {
     is of('lib/Direct.pm'),
       {
-        'lib/Direct.pm:5 removed the body of quadruple' => 'NoCoverage',
-        'lib/Direct.pm:7 removed the return value'      => 'NoCoverage',
-        'lib/Direct.pm:7 replaced * with /'             => 'NoCoverage',
+        'lib/Direct.pm:5 removed the body of quadruple' => 'Killed',
+        'lib/Direct.pm:7 removed the return value'      => 'Killed',
+        'lib/Direct.pm:7 replaced * with /'             => 'Killed',
       },
       'statuses';
-    is $result->warnings, ['t/direct.t loads lib/Direct.pm around the hook and cannot detect its mutants'],
-      'the warning';
+    is $result->warnings, [], 'the load was observed in the job copy';
 };
 
 ok $result->conclusive, 'the run is conclusive';

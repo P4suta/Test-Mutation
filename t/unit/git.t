@@ -4,10 +4,28 @@ use Cwd            ();
 use File::Basename ();
 use File::Path     ();
 use File::Temp     ();
+use POSIX          ();
+
+# A system that refuses a new process is rare, so the override fails the fork of the library while a case asks for it.
+our $fork_fails;    ## no critic (Variables::ProhibitPackageVars)
+
+BEGIN {
+    no warnings 'once';
+    *CORE::GLOBAL::fork = sub {
+        return CORE::fork() if !$fork_fails;
+        $! = POSIX::EAGAIN();    ## no critic (Variables::RequireLocalizedPunctuationVars)
+        return;
+    };
+}
+
+use lib 't/lib';
+use Bounded;
+use Capability;
+use Raised;
 use Test::Mutation::Diff;
 use Test::Mutation::Git;
 
-skip_all 'the test needs the git command' if !length qx{git --version 2>/dev/null};
+Capability::need( 'git', length qx{git --version 2>/dev/null}, 'the test needs the git command' );
 
 my $root = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
 
@@ -30,39 +48,71 @@ sub write_lines ( $path, @lines ) {
     return;
 }
 
+sub changed ( $directory, $revision ) {
+    my ( $ended, $paths ) = Bounded::ended( 3, sub { return Test::Mutation::Git::changed( $directory, $revision ) } );
+    die "Git did not finish reading the changed paths\n" unless $ended;
+    return $paths;
+}
+
 my @lines = map { "line $_" } 1 .. 80;
 write_lines( 'lib/Kept.pm', @lines );
 git( 'init',   '-q' );
 git( 'add',    q{.} );
 git( 'commit', '-q', '-m', 'initial' );
 
-is Test::Mutation::Git::changed( $root, 'HEAD' ), {}, 'an unchanged tree has no changed line';
+is changed( $root, 'HEAD' ), {}, 'an unchanged tree has no changed line';
 
 $lines[2]  = 'another third line';
 $lines[69] = 'another line seventy';
 write_lines( 'lib/Kept.pm',  @lines );
 write_lines( 'lib/Added.pm', map { "new $_" } 1 .. 100 );
-my $changed = Test::Mutation::Git::changed( $root, 'HEAD' );
+my $changed = changed( $root, 'HEAD' );
 is $changed->{'lib/Kept.pm'}, [ [ 3, 3 ], [ 70, 70 ] ], 'the changed lines of a tracked file';
 is [ sort keys $changed->%* ], [ 'lib/Added.pm', 'lib/Kept.pm' ], 'a file that git does not track is changed too';
 ok Test::Mutation::Diff::touches( $changed->{'lib/Added.pm'}, 100_000, 100_000 ),
   'and every line of it counts as changed';
 
-like dies { Test::Mutation::Git::changed( $root, 'no-such-revision' ) },
-  qr/\Agit diff failed: [^\n]*no-such-revision[^\n]*\n\z/, 'an unknown revision gives one line with the reason of git';
+like Raised::error( sub { changed( $root, 'no-such-revision' ) } ),
+  [ 'usage', 'revision-unknown', 'no commit matches revision "no-such-revision"' ],
+  'an unknown revision names the input to fix';
 
 # The temporary directory may lie inside a work tree, so the search of git for a repository stops at its parent.
 my $plain = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
 {
     local $ENV{GIT_CEILING_DIRECTORIES} = File::Basename::dirname($plain);
-    like dies { Test::Mutation::Git::changed( $plain, 'HEAD' ) }, qr/\Agit diff failed: [^\n]+\n\z/,
+    like Raised::message( sub { changed( $plain, 'HEAD' ) } ),
+      qr/\Agit rev-parse failed: [^\n]+\z/,
       'a directory outside a repository gives the reason of git';
 }
 
+subtest 'a failed exec exits the Git child before it can return to the caller' => sub {
+    local $ENV{PATH} = $plain;
+    my $parent = $$;
+    my ( $pid, $output, $errors ) = Test::Mutation::Git::_start( $root, 'rev-parse', 'HEAD' );    ## no critic (Subroutines::ProtectPrivateSubs)
+    POSIX::_exit(99) if $$ != $parent;
+    my $reaped = waitpid $pid, 0;
+    my $status = $?;
+    is $reaped, $pid, 'the parent reaps its own Git child';
+    ok POSIX::WIFEXITED($status), 'the failed launch exits normally';
+    is POSIX::WEXITSTATUS($status), 127,   'the launch failure exits in the child';
+    is scalar readline $output,     undef, 'the failure writes no Git output';
+    like scalar readline $errors, qr/\Acannot start git: \S/, 'the failure reaches the diagnostic pipe';
+    close $output or die "close Git output: $!";
+    close $errors or die "close Git diagnostic: $!";
+};
+
 {
     local $ENV{PATH} = $plain;
-    like dies { Test::Mutation::Git::changed( $root, 'HEAD' ) }, qr/\Agit diff failed: cannot start git: [^\n]+\n\z/,
+    like Raised::message( sub { changed( $root, 'HEAD' ) } ),
+      qr/\Agit rev-parse failed: cannot start git: [^\n]+\z/,
       'a machine without git gets a message that names the command';
+}
+
+{
+    local $fork_fails = 1;
+    like Raised::error( sub { changed( $root, 'HEAD' ) } ),
+      [ 'environment', 'git-unstartable', qr/\Acannot start git: \S[^\n]*\z/ ],
+      'a system that refuses a process gives its reason at once';
 }
 
 done_testing;

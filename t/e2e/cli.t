@@ -1,10 +1,11 @@
 use v5.36;
 use Test2::V0;
-use lib 't/e2e/lib';
+use lib 't/e2e/lib', 't/lib';
 use Cwd        ();
 use File::Temp ();
 use JSON::PP   ();
-use Fixture    qw(copy_of mutation mutation_from write_file);
+use Fixture    qw(copy_of ran ran_from write_file);
+use Gate;
 
 sub slurp ($path) {
     open my $handle, '<:raw', $path or die "read $path: $!";
@@ -12,34 +13,53 @@ sub slurp ($path) {
     return scalar readline $handle;
 }
 
+subtest 'a first run identifies a missing assertion and a new test detects the survivor' => sub {
+    my $root = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    write_file( "$root/lib/Total.pm", 'package Total; sub sum { return $_[0] + $_[1] } 1;' );
+    my $zero = "use Test::More tests => 1;\nuse Total;\nis Total::sum(4, 0), 4, 'adding zero';\n";
+    write_file( "$root/t/zero.t", $zero );
+    my @options = ( '--jobs', 1, '--format', 'terminal', '--min-score', 100 );
+    my $initial = ran( 1, $root, @options );
+    my ($id)    = $initial->{stdout} =~ /^  ([0-9a-f]{12})  [^\n]+  replaced \+ with -  \[Survived\]$/m;
+    ok $id, 'the report names the surviving arithmetic change';
+    like ran( 0, $root, 'show', $id )->{stdout}, qr/return \$_\[0\] - \$_\[1\]/,
+      'the patch shows the missing distinction';
+    write_file( "$root/t/nonzero.t",
+        "use Test::More tests => 1;\nuse Total;\nis Total::sum(4, 2), 6, 'adding a nonzero value';\n" );
+    like ran( 0, $root, @options, '--mutant', $id )->{stdout}, qr/^1 mutant: 1 killed$/m,
+      'the new test detects the same mutant on a fresh run';
+    like ran( 0, $root, @options )->{stdout}, qr/^Score: 100[.]0%/m, 'the project meets its score threshold';
+};
+
 subtest 'run prints the summary and succeeds' => sub {
     my $root = copy_of('calc');
-    my $run  = mutation( $root, 'run', '--jobs', 2 );
-    is $run->{exit}, 0, 'exit status' or diag $run->{stderr};
-    like $run->{stdout}, qr/^19 mutants: 13 killed, 3 survived, 3 no coverage$/m,            'the counts';
-    like $run->{stdout}, qr/^Score: 68\.4% \(13 of 19 valid mutants\)$/m,                    'the score';
-    like $run->{stdout}, qr/^  lib\/Calc\.pm:12:15  replaced > with >=  \[[0-9a-f]{12}\]$/m, 'a survived mutant';
-    like $run->{stderr}, qr/^19 mutants in 1 file, 2 tests$/m, 'the analysis is announced on standard error';
+    my $run  = ran( 0, $root, 'run', '--jobs', 2 );
+    like $run->{stdout}, qr/^21 mutants: 15 killed, 3 survived, 3 no coverage$/m, 'the counts';
+    like $run->{stdout}, qr/^Score: 71\.4% \(15 of 21 valid mutants\)$/m,         'the score';
+    like $run->{stdout},
+      qr/^  [0-9a-f]{12}  lib\/Calc\.pm:12:15  comparison-boundary  replaced > with >=  \[Survived\]$/m,
+      'a survived mutant';
+    like $run->{stderr}, qr/^21 mutants in 1 file, 2 tests$/m, 'the analysis is announced on standard error';
 };
 
 subtest 'run reports its progress on standard error' => sub {
-    my $run = mutation( copy_of('calc'), '--jobs', 2, '--format', 'terminal' );
-    like $run->{stderr},   qr/^The unmodified run passed: 2 tests, 2 jobs$/m,      'the unmodified run';
-    like $run->{stderr},   qr/^\[19\/19\] 13 killed, 3 survived, 3 no coverage$/m, 'the last progress line';
-    unlike $run->{stderr}, qr/\r/,                                                 'no carriage return in a log';
-    unlike $run->{stderr}, qr/^mutation:/m,                                        'a complete run reports no problem';
+    my $run = ran( 0, copy_of('calc'), '--jobs', 2, '--format', 'terminal' );
+    like $run->{stderr}, qr/^The unmodified run passed: 2 tests, 2 jobs$/m, 'the unmodified run';
+    like $run->{stderr}, qr/^\[21\/21\] 15 killed, 3 survived, 3 no coverage [|] \d+s elapsed$/m,
+      'the last progress line';
+    unlike $run->{stderr}, qr/\r/,          'no carriage return in a log';
+    unlike $run->{stderr}, qr/^mutation:/m, 'a complete run reports no problem';
 };
 
 subtest 'run is the default command' => sub {
-    my $run = mutation( copy_of('calc'), '--jobs', 2 );
-    is $run->{exit}, 0, 'exit status' or diag $run->{stderr};
-    like $run->{stdout}, qr/^Score: 68\.4%/m, 'the score';
+    my $run = ran( 0, copy_of('calc'), '--jobs', 2 );
+    like $run->{stdout}, qr/^Score: 71\.4%/m, 'the score';
 };
 
 subtest 'a score below --min-score fails the run' => sub {
     my $root = copy_of('calc');
-    is mutation( $root, '--jobs', 2, '--min-score', 90 )->{exit}, 1, 'the score is below 90';
-    is mutation( $root, '--jobs', 2, '--min-score', 60 )->{exit}, 0, 'the score is above 60';
+    ran( 1, $root, '--jobs', 2, '--min-score', 90 );
+    ran( 0, $root, '--jobs', 2, '--min-score', 60 );
 };
 
 subtest 'a score that equals --min-score passes' => sub {
@@ -48,31 +68,32 @@ subtest 'a score that equals --min-score passes' => sub {
         "package Half;\nuse strict;\nuse warnings;\nsub tested { return \$_[0] + 1 }\nsub untested { return \$_[0] + 1 }\n1;\n"
     );
     write_file( "$root/t/half.t", "use Test::More tests => 1;\nuse Half;\nis Half::tested(2), 3, 'the next one';\n" );
-    my $run = mutation( $root, '--jobs', 2, '--format', 'terminal', '--min-score', 50 );
+    my $run = ran( 0, $root, '--jobs', 2, '--format', 'terminal', '--min-score', 50 );
     like $run->{stdout}, qr/^Score: 50\.0% \(3 of 6 valid mutants\)$/m, 'half of the mutants are detected';
-    is $run->{exit}, 0, 'a minimum of 50 is met';
-    is mutation( $root, '--jobs', 2, '--format', 'terminal', '--min-score', 50.5 )->{exit}, 1,
-      'a minimum of 50.5 is not';
+    ran( 1, $root, '--jobs', 2, '--format', 'terminal', '--min-score', 50.5 );
 };
 
-subtest 'a run that cannot judge a mutant exits with status 4 and no error line' => sub {
+subtest 'a run that cannot judge a mutant exits with status 4 and one line that says so' => sub {
     my $root = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
     write_file( "$root/lib/Slow.pm",
         "package Slow;\nuse strict;\nuse warnings;\nsub next_one { return \$_[0] + 1 }\n1;\n" );
     write_file( "$root/t/slow.t",
-            "use Test::More tests => 1;\nBEGIN { select undef, undef, undef, 0.6 }\n"
+            "use Test::More tests => 1;\n"
+          . q{BEGIN { sleep 30 if $ENV{"TEST_MUTATION_SPEC_G$ENV{TEST_MUTATION_GENERATION}"} =~ m{/mutants/} }} . "\n"
           . "use Slow;\nis Slow::next_one(2), 3, 'the next one';\n" );
-    my $run = mutation( $root, '--jobs', 2, '--format', 'terminal', '--timeout-factor', 0.1, '--timeout-floor', 0.1 );
-    is $run->{exit}, 4, 'exit status';
-    like $run->{stdout},   qr/^3 mutants: 3 runtime error$/m, 'every test ran out of time before it loaded a mutant';
-    unlike $run->{stderr}, qr/^mutation:/m,                   'the report is the whole explanation';
+    my $run = ran( 4, $root, '--jobs', 2, '--format', 'terminal', '--timeout-factor', 4, '--timeout-floor', 1 );
+    like $run->{stdout}, qr/^3 mutants: 3 no verdict$/m, 'every test ran out of time before it loaded a mutant';
+    like $run->{stdout},
+      qr{^lib/Slow[.]pm\n.*?  \[NoVerdict\]\n.*?^    t/slow[.]t exceeded its time limit before it loaded the mutant$}ms,
+      'the file details identify the test that exceeded its limit before loading the mutant';
+    like $run->{stderr}, qr/\nmutation: the run states no score\n\z/,
+      'the last line of standard error names the outcome';
 };
 
 subtest 'a test that fails without any mutant stops the run' => sub {
     my $root = copy_of('calc');
     write_file( "$root/t/broken.t", "use Test::More tests => 1;\nis 1, 2, 'never equal';\n" );
-    my $run = mutation( $root, '--jobs', 2 );
-    is $run->{exit}, 3, 'exit status';
+    my $run = ran( 3, $root, '--jobs', 2 );
     like $run->{stdout},   qr/^The unmodified run fails, so no mutant ran\.$/m, 'the reason';
     like $run->{stdout},   qr/^  t\/broken\.t$/m,                               'the failing test';
     like $run->{stdout},   qr/^    not ok 1 - never equal$/m,                   'its output';
@@ -84,163 +105,157 @@ subtest 'tests that need the repository data fail in a copy and pass in the proj
     write_file( "$root/.git/HEAD", "ref: refs/heads/main\n" );
     write_file( "$root/t/repository.t",
         "use Test::More tests => 1;\nok -e '.git', 'the repository data is at hand';\n" );
-    my $run = mutation( $root, '--jobs', 2 );
-    is $run->{exit}, 3, 'the unmodified run fails in the copy';
+    my $run = ran( 3, $root, '--jobs', 2 );
     like $run->{stdout}, qr/^    not ok 1 - the repository data is at hand$/m, 'the output of the test';
     like $run->{stdout},
       qr/^The tests ran in a copy of the project, which holds no [.]git directory[.]\n--in-place runs them in the project itself[.]$/m,
       'the report names the other place for the tests';
 
-    my $inside = mutation( $root, '--jobs', 2, '--in-place' );
-    is $inside->{exit}, 0, '--in-place runs the tests in the project' or diag $inside->{stdout}, $inside->{stderr};
-    like $inside->{stdout}, qr/^19 mutants: 13 killed, 3 survived, 3 no coverage$/m, 'and the mutants are measured';
+    my $inside = ran( 0, $root, '--jobs', 2, '--in-place' );
+    like $inside->{stdout}, qr/^21 mutants: 15 killed, 3 survived, 3 no coverage$/m, 'and the mutants are measured';
 };
 
 subtest 'a usage error exits with status 2 and one line' => sub {
     my $root    = copy_of('calc');
-    my $unknown = mutation( $root, '--no-such-option' );
-    is $unknown->{exit}, 2, 'an unknown option';
-    like $unknown->{stderr}, qr/Unknown option: no-such-option/, 'the option is named';
+    my $unknown = ran( 2, $root, '--no-such-option' );
+    like $unknown->{stderr}, qr/\Amutation: --no-such-option names no option; the nearest is --\S+\n\z/,
+      'the option is named with the nearest one';
 
-    my $invalid = mutation( $root, '--jobs', 0 );
-    is $invalid->{exit}, 2, 'a value outside its type';
+    my $invalid = ran( 2, $root, '--jobs', 0 );
     like $invalid->{stderr}, qr/\Amutation: [^\n]*jobs[^\n]*\n\z/, 'one line that names the setting';
     is $invalid->{stdout}, q{}, 'no report';
 
     my $spaced = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) ) . '/with a space';
     mkdir $spaced or die "mkdir: $!";
     symlink Cwd::abs_path('lib'), "$spaced/lib" or die "symlink: $!";
-    my $installed = mutation_from( "$spaced/lib", $root, '--jobs', 0 );
+    my $installed = ran_from( "$spaced/lib", 2, $root, '--jobs', 0 );
     is $installed->{stderr}, $invalid->{stderr}, 'a library under a directory with a space gives the same line';
 };
 
 subtest 'run writes the JSON and HTML reports' => sub {
     my $root = copy_of('calc');
-    my $run  = mutation( $root, '--jobs', 2 );
+    my $run  = ran( 0, $root, '--jobs', 2 );
     like $run->{stdout}, qr/^Reports: mutation-report\/mutation\.json, mutation-report\/mutation\.html$/m,
       'the report paths';
 
     my $document = JSON::PP->new->utf8->decode( slurp("$root/mutation-report/mutation.json") );
     is $document->{schemaVersion},                               '2', 'the JSON report has the schema version';
-    is scalar( $document->{files}{'lib/Calc.pm'}{mutants}->@* ), 19,  'the JSON report has every mutant';
+    is scalar( $document->{files}{'lib/Calc.pm'}{mutants}->@* ), 21,  'the JSON report has every mutant';
     like slurp("$root/mutation-report/mutation.html"), qr/<mutation-test-report-app\b/,
       'the HTML report has the viewer';
 };
 
 subtest '--format and --report-dir choose the reports' => sub {
     my $root = copy_of('calc');
-    my $run  = mutation( $root, '--jobs', 2, '--format', 'terminal', '--format', 'json', '--report-dir', 'out' );
-    is $run->{exit}, 0, 'exit status' or diag $run->{stderr};
+    my $run  = ran( 0, $root, '--jobs', 2, '--format', 'terminal', '--format', 'json', '--report-dir', 'out' );
     ok -f "$root/out/mutation.json",  'the JSON report is in the named directory';
     ok !-e "$root/out/mutation.html", 'no HTML report';
     ok !-e "$root/mutation-report",   'the default directory is not created';
     like $run->{stdout}, qr/^Reports: out\/mutation\.json$/m, 'the report path';
 
-    my $quiet = mutation( copy_of('calc'), '--jobs', 2, '--format', 'json' );
+    my $quiet = ran( 0, copy_of('calc'), '--jobs', 2, '--format', 'json' );
     unlike $quiet->{stdout}, qr/^Score:/m, 'no terminal report when the format is left out';
 
     my $elsewhere = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
     my $project   = copy_of('calc');
-    my $named     = mutation( $project, '--jobs', 2, '--format', 'json', '--report-dir', "$elsewhere/out" );
-    is $named->{exit}, 0, 'a directory named in full is accepted' or diag $named->{stderr};
+    my $named     = ran( 0, $project, '--jobs', 2, '--format', 'json', '--report-dir', "$elsewhere/out" );
     ok -f "$elsewhere/out/mutation.json", 'the report is in that directory';
     is $named->{stdout}, "Reports: $elsewhere/out/mutation.json\n", 'and the output names it';
-    is [ grep { !/\A(?:lib|t|[.]mutation)\z/ } map { s{.*/}{}r } glob "$project/* $project/.mutation" ], [],
+    is [ grep { !/\A(?:lib|t|[.]mutation|mutation[.]toml)\z/ } map { s{.*/}{}r } glob "$project/* $project/.mutation" ],
+      [],
       'the project gets no directory for it';
 };
 
 subtest 'mutation.toml configures the run' => sub {
     my $root = copy_of('calc');
     write_file( "$root/mutation.toml",
-        "jobs = 2\n\n[mutators]\ndisable = [\"sub-body\", \"return-value\"]\n\n[report]\nformats = [\"terminal\"]\n" );
-    my $run = mutation($root);
-    is $run->{exit}, 0, 'exit status' or diag $run->{stderr};
-    like $run->{stdout}, qr/^11 mutants: 7 killed, 3 survived, 1 no coverage$/m, 'the disabled mutators are left out';
-    like $run->{stdout}, qr/^2 tests, 2 jobs,/m,                                 'jobs come from the file';
+        "jobs = 2\ndisable = [\"sub-body\", \"return-value\"]\nformat = [\"terminal\"]\n" );
+    my $run = ran( 0, $root );
+    like $run->{stdout}, qr/^10 mutants: 9 killed, 1 no coverage$/m, 'the disabled mutators are left out';
+    like $run->{stdout}, qr/^2 tests, 2 jobs,/m,                     'jobs come from the file';
     ok !-e "$root/mutation-report", 'the formats come from the file';
 
-    like mutation( $root, '--jobs', 1 )->{stdout}, qr/^2 tests, 1 job,/m, 'the command line beats the file';
+    like ran( 0, $root, '--jobs', 1 )->{stdout}, qr/^2 tests, 1 job,/m, 'the command line beats the file';
 };
 
 subtest 'a broken configuration file is a usage error' => sub {
     my $root = copy_of('calc');
-    write_file( "$root/mutation.toml", "[mutators]\nprofil = \"default\"\n" );
-    my $unknown = mutation($root);
-    is $unknown->{exit}, 2, 'an unknown key';
-    like $unknown->{stderr}, qr/\Amutation: unknown configuration key profil in \[mutators\]\n\z/, 'the key is named';
+    write_file( "$root/mutation.toml", "profil = \"default\"\n" );
+    my $unknown = ran( 2, $root );
+    like $unknown->{stderr}, qr/\Amutation: mutation\.toml: profil names no setting; the nearest is profile\n\z/,
+      'the key is named';
 
     write_file( "$root/mutation.toml", "jobs = = 2\n" );
-    my $syntax = mutation($root);
-    is $syntax->{exit}, 2, 'a syntax error';
+    my $syntax = ran( 2, $root );
     like $syntax->{stderr}, qr/\Amutation: mutation\.toml: [^\n]+\n\z/, 'the file is named on one line';
 };
 
 subtest '--config names another configuration file' => sub {
     my $root = copy_of('calc');
-    write_file( "$root/ci.toml", "[mutators]\ndisable = [\"sub-body\"]\n\n[report]\nformats = [\"terminal\"]\n" );
-    like mutation( $root, '--jobs', 2, '--config', 'ci.toml' )->{stdout}, qr/^15 mutants:/m, 'the named file is read';
-    my $missing = mutation( $root, '--config', 'absent.toml' );
-    is $missing->{exit}, 2, 'a missing file named on the command line';
+    write_file( "$root/ci.toml", "disable = [\"sub-body\"]\nformat = [\"terminal\"]\n" );
+    like ran( 0, $root, '--jobs', 2, '--config', 'ci.toml' )->{stdout}, qr/^14 mutants:/m, 'the named file is read';
+    my $missing = ran( 2, $root, '--config', 'absent.toml' );
     like $missing->{stderr}, qr/\Amutation: cannot read absent\.toml: /, 'the file is named';
 };
 
 subtest 'options choose mutators, files, and selection' => sub {
     my $root   = copy_of('calc');
     my @common = ( '--jobs', 2, '--format', 'terminal' );
-    like mutation( $root, @common, '--disable', 'sub-body', '--disable', 'return-value' )->{stdout}, qr/^11 mutants:/m,
+    like ran( 0, $root, @common, '--disable', 'sub-body', '--disable', 'return-value' )->{stdout}, qr/^13 mutants:/m,
       '--disable';
-    like mutation( $root, @common, '--disable', 'arithmetic', '--enable', 'number-literal' )->{stdout},
+    like ran( 0, $root, @common, '--disable', 'arithmetic', '--enable', 'number-literal' )->{stdout},
       qr/^\d+ mutants:.*\n(?:.*\n)*.*replaced 0 with 1/m, '--enable adds an extended mutator';
-    my ($extended) = mutation( $root, @common, '--profile', 'extended' )->{stdout} =~ /^(\d+) mutants:/m;
-    ok $extended > 19, "--profile extended yields more mutants ($extended)";
-    like mutation( $root, @common, '--coverage', 'file' )->{stdout}, qr/^19 mutants: 13 killed, 6 survived$/m,
+    my ($extended) = ran( 0, $root, @common, '--profile', 'extended' )->{stdout} =~ /^(\d+) mutants:/m;
+    ok $extended > 21, "--profile extended yields more mutants ($extended)";
+    like ran( 0, $root, @common, '--coverage', 'file' )->{stdout}, qr/^21 mutants: 15 killed, 6 survived$/m,
       '--coverage file runs every loading test';
-    like mutation( $root, @common, '--test',   't/add.t' )->{stdout},         qr/^1 test, /m,   '--test';
-    like mutation( $root, @common, '--source', 'lib/Nothing*.pm' )->{stdout}, qr/^0 mutants$/m, '--source';
+    like ran( 0, $root, @common, '--test', 't/add.t' )->{stdout}, qr/^1 test, /m, '--test';
+    like ran( 2, $root, @common, '--source', 'lib/Nothing*.pm' )->{stderr}, qr{\Qlib/Nothing*.pm\E},
+      'an unmatched explicit source names the pattern';
 };
 
 subtest 'options choose the interpreter, the time limits, and the work directory' => sub {
-    my $root   = copy_of('calc');
-    my @common = ( '--jobs', 2, '--format', 'terminal' );
-    is mutation( $root, @common, '--perl', $^X, '--timeout-factor', 3, '--timeout-floor', 5 )->{exit}, 0,
-      'valid values';
-    is mutation( $root, @common, '--perl', "$root/no-such-perl" )->{exit}, 3,
-      'an interpreter that cannot start fails the unmodified run';
-    is mutation( $root, @common, '--timeout-factor', 0 )->{exit}, 2, 'a factor of zero is refused';
+    my $root     = copy_of('calc');
+    my @common   = ( '--jobs', 2, '--format', 'terminal' );
+    my $ordinary = ran( 0, $root, @common, '--perl', $^X, '--timeout-factor', 3, '--timeout-floor', 5 );
+    ran( 2, $root, @common, '--perl',           "$root/no-such-perl" );
+    ran( 2, $root, @common, '--timeout-factor', 0 );
 
-    ok !-e "$root/.mutation" || !glob("$root/.mutation/run-*"), 'the work directory is removed by default';
-    mutation( $root, @common, '--keep-work' );
-    ok scalar( glob "$root/.mutation/run-*" ), '--keep-work keeps it';
+    is [ glob "$ordinary->{temporary}/mutation-*" ], [], 'the workspace is removed by default';
+    my $kept;
+    is Gate::outcomes( sub { $kept = ran( 0, $root, @common, '--keep-work' ) } ), [ 'pass', 'fail' ],
+      'the helper reports the kept work directory';
+    my @kept = glob "$kept->{temporary}/mutation-*/kept";
+    is scalar @kept, 1, '--keep-work retains one marked workspace';
 };
 
 subtest '--mutant limits the run to the named mutants' => sub {
     my $root = copy_of('calc');
     my ($id) =
-      mutation( $root, '--jobs', 2, '--format', 'terminal' )->{stdout} =~ /replaced > with >=  \[([0-9a-f]{12})\]/;
-    my $run = mutation( $root, '--jobs', 2, '--format', 'terminal', '--mutant', $id );
+      ran( 0, $root, '--jobs', 2, '--format', 'terminal' )->{stdout} =~
+      /^  ([0-9a-f]{12})  [^\n]+  replaced > with >=  \[Survived\]$/m;
+    my $run = ran( 0, $root, '--jobs', 2, '--format', 'terminal', '--mutant', $id );
     like $run->{stdout}, qr/^1 mutant: 1 survived$/m, 'one mutant ran';
 };
 
 subtest 'GitHub Actions gets annotations and a job summary' => sub {
     my $root   = copy_of('calc');
-    my $format = mutation( $root, '--jobs', 2, '--format', 'github' );
-    like $format->{stdout},
-      qr/^::warning file=lib\/Calc\.pm,line=12,col=15,endLine=12,endColumn=16,title=Survived mutant::/m,
-      '--format github prints annotations';
-    unlike $format->{stdout}, qr/^Score:/m, 'and nothing else';
+    my $format = ran( 0, $root, '--jobs', 2, '--format', 'terminal', '--github' );
+    like $format->{stderr},
+      qr/^::warning file=lib\/Calc\.pm,line=12,col=15,endLine=12,endColumn=16,title=Survived::/m,
+      '--github prints annotations on standard error';
+    unlike $format->{stdout}, qr/^::warning/m, 'the terminal report is separate from workflow commands';
 
     local $ENV{GITHUB_ACTIONS}      = 'true';
     local $ENV{GITHUB_STEP_SUMMARY} = "$root/summary.md";
-    my $detected = mutation( $root, '--jobs', 2 );
-    like $detected->{stdout},       qr/^Score: 68\.4%/m,                 'the terminal report stays';
-    like $detected->{stdout},       qr/^::warning file=lib\/Calc\.pm,/m, 'annotations are added inside GitHub Actions';
-    like slurp("$root/summary.md"), qr/^Score: \*\*68\.4%\*\*/m,         'the job summary is appended';
-    is $detected->{exit}, 0, 'the run succeeds' or diag $detected->{stderr};
+    my $detected = ran( 0, $root, '--jobs', 2 );
+    like $detected->{stdout},       qr/^Score: 71\.4%/m,                 'the terminal report stays';
+    like $detected->{stderr},       qr/^::warning file=lib\/Calc\.pm,/m, 'annotations are added inside GitHub Actions';
+    like slurp("$root/summary.md"), qr/^Score: \*\*71\.4%\*\*/m,         'the job summary is appended';
 
     local $ENV{GITHUB_STEP_SUMMARY} = q{};
-    my $unnamed = mutation( $root, '--jobs', 2 );
-    is $unnamed->{exit}, 0, 'an empty name for the job summary is no error' or diag $unnamed->{stderr};
-    like $unnamed->{stdout}, qr/^::warning file=lib\/Calc\.pm,/m, 'and the annotations stay';
+    my $unnamed = ran( 0, $root, '--jobs', 2 );
+    like $unnamed->{stderr}, qr/^::warning file=lib\/Calc\.pm,/m, 'and the annotations stay';
 };
 
 done_testing;

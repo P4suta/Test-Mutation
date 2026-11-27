@@ -3,23 +3,17 @@ use v5.36;
 use List::Util      qw(max);
 use Types::Standard qw(Bool HashRef Int Str);
 use Type::Params    qw(signature_for);
+use Test::Mutation::Status;
 
 our $VERSION = '0.001';
 
-my @COUNTED = (
-    [ Killed       => 'killed' ],
-    [ Survived     => 'survived' ],
-    [ NoCoverage   => 'no coverage' ],
-    [ Timeout      => 'timeout' ],
-    [ CompileError => 'compile error' ],
-    [ RuntimeError => 'runtime error' ],
-);
 my $LOG_LINES = 10;
 
 signature_for line => ( positional => [ Int, Int, HashRef [Int] ], returns => Str );
 
 sub line ( $done, $total, $counts ) {
-    my @parts    = map { "$counts->{ $_->[0] } $_->[1]" } grep { $counts->{ $_->[0] } } @COUNTED;
+    my @parts = map { "$counts->{ $_->name } " . $_->word }
+      grep { $_->progress && $counts->{ $_->name } } Test::Mutation::Status::rows()->@*;
     my $position = sprintf '[%*d/%d]', length $total, $done, $total;
     return @parts ? "$position " . join ', ', @parts : $position;
 }
@@ -27,7 +21,9 @@ sub line ( $done, $total, $counts ) {
 signature_for due => ( positional => [ Int, Int ], returns => Bool );
 
 sub due ( $done, $total ) {
-    my $step = max( 1, int $total / $LOG_LINES );
+
+    # The remainder operator takes the whole-number part of the interval.
+    my $step = max( 1, $total / $LOG_LINES );
     return $done == $total || $done % $step == 0 ? 1 : 0;
 }
 
@@ -56,7 +52,7 @@ Test::Mutation::Report::Progress - format the progress of a run
 
 =head2 line
 
-Returns the position in the run and the count of every status that has a mutant.
+Returns the position in the run and the count of every status that has a mutant and that L<Test::Mutation::Status> marks for the progress line.
 
 =head2 due
 

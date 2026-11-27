@@ -1,9 +1,10 @@
 Revision history for Test-Mutation
 
 0.001
-    - First release.
-    - Mutants are served to the test process through an @INC hook, and no source file is rewritten.
-    - Tests are selected by a built-in line trace, run fastest first, and stopped at the first failure.
-    - Reports: terminal summary, JSON in the mutation-testing-report-schema, single-file HTML, GitHub annotations.
-    - Commands: run, list, show, exec, merge, mutators.
-    - The tests run in copies of the project, so the project keeps its files and each mutant starts from one state.
+    - Measure Perl modules and commands in per-job copies of the distribution.
+    - Build XS distributions in the measurement copy and trace tests through child interpreters.
+    - Record the test that detected a mutant after confirming that it passes with the original source.
+    - Reuse verified results and unmodified test runs when their inputs match.
+    - Inspect survivors by identifier and apply the same score threshold to runs, merged shards, and Perl assertions.
+    - Publish results in the terminal, schema-compatible JSON, a single HTML file, and GitHub Actions summaries.
+    - Read the command, configuration, diagnostic, and mutator reference with perldoc mutation.

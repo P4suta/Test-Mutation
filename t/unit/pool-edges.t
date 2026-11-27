@@ -24,8 +24,8 @@ sub task ( $path, %fields ) {
         env             => {},
         cwd             => $dir,
         timeout         => 20,
+        output_limit    => 10_000_000,
         stop_on_failure => 0,
-        stderr          => "$path.err",
         %fields,
     };
 }
@@ -35,7 +35,7 @@ sub run_all ( $jobs, @tasks ) {
     Test::Mutation::Pool::run(
         jobs => $jobs,
         next => sub { shift @tasks },
-        done => sub ( $task, $got ) { $result{ $task->{command}[1] } = $got; return },
+        done => sub ( $task, $got ) { $result{ $task->{command}[-1] } = $got; return },
     );
     return \%result;
 }
@@ -149,17 +149,17 @@ subtest 'the driver may hold its standard handles in memory' => sub {
     close STDERR or die "close: $!";
     open STDOUT, '>&', $saved_output or die "restore: $!";
     open STDERR, '>&', $saved_errors or die "restore: $!";
-    is $result->{$path}, hash { field passed => 1; field output => "1..1\nok 1\n"; etc },
-      'the pool reads the output of the test';
-    is text_of("$path.err"),           "a diagnostic\n", 'and the standard error of the test goes to its file';
+    is $result->{$path},
+      hash { field passed => 1; field output => "1..1\nok 1\n"; field errors => "a diagnostic\n"; etc },
+      'the pool reads both streams of the test';
     is [ $held_output, $held_errors ], [ undef, undef ], 'nothing reaches the handles of the driver';
 };
 
 subtest 'a command that cannot start leaves its reason in standard error' => sub {
     my $missing = "$dir/no-such-program";
-    my $result  = run_all( 1, { task('absent')->%*, command => [$missing], stderr => "$dir/absent.err" } );
-    is [ values $result->%* ]->[0]{exit}, 127, 'the exit status of a command that was not found';
-    like text_of("$dir/absent.err"), qr/\Amutation: exec \Q$missing\E: \S/,
+    my $result  = run_all( 1, { task($missing)->%*, command => [$missing] } )->{$missing};
+    is $result->{exit}, 127, 'the exit status of a command that was not found';
+    like $result->{errors}, qr/\Amutation: cannot start \Q$missing\E: [^\n]+\n\z/,
       'the message names the command and the reason';
 };
 
@@ -174,6 +174,27 @@ subtest 'a line that arrives in two pieces is one line' => sub {
     my $stopped = run_all( 1, task( $failing, stop_on_failure => 1 ) )->{$failing};
     is $stopped->{stopped}, 1, 'a failure that arrives in two pieces stops the test';
     ok Time::HiRes::time() - $started < 4, 'at once';
+};
+
+subtest 'ending an escaped group reaches a member absent from the process listing' => sub {
+    my @children;
+    for ( 1 .. 2 ) {
+        my $child = fork;
+        die "fork: $!" unless defined $child;
+        if ( !$child ) {
+            sleep 20;
+            POSIX::_exit(0);
+        }
+        push @children, $child;
+        setpgrp $child, $children[0] or die "setpgrp: $!";
+    }
+    my ( $leader, $member ) = @children;
+    my $end = Test::Mutation::Pool->can('_end_escaped');
+    $end->($leader);
+    my $ended = gone($member);
+    kill 'KILL', @children;
+    waitpid $_, 0 for @children;
+    ok $ended, 'the unlisted member of the escaped group ended with its leader';
 };
 
 subtest 'a grandchild that left the process group is ended at the time limit' => sub {
@@ -217,11 +238,13 @@ sub interrupted (%setup) {
 }
 
 subtest 'each signal that asks a program to end stops the pool under its name' => sub {
-    for my $signal (qw(HUP INT TERM)) {
+    for my $signal (qw(HUP INT QUIT PIPE TERM)) {
         my $short = script( "short-$signal.t",
-            q{open my $out, '>', "$0.pid"; print {$out} $$; close $out; sleep 3; print "1..1\nok 1\n";} );
+                q{open my $out, '>', "$0.pid"; print {$out} $$; close $out; sleep 3; print "1..1\nok 1\n";}
+              . q{open my $done, '>', "$0.done"; close $done;} );
         is interrupted( tasks => [$short], started => ["$short.pid"], signal => $signal ), "$signal\n",
-          "SIG$signal ends the run before the test ends";
+          "SIG$signal ends the run under its name";
+        ok !-e "$short.done", 'and before the test ends';
     }
 };
 

@@ -35,7 +35,7 @@ my $home  = 'https://github.com/P4suta/Test-Mutation';
 
 WriteMakefile(
     NAME             => 'Test::Mutation',
-    ABSTRACT         => 'Mutation testing for Perl that never rewrites a source file',
+    ABSTRACT         => 'Measure which changes a Perl test suite detects',
     AUTHOR           => 'Yasunobu Sakashita',
     VERSION_FROM     => 'lib/Test/Mutation.pm',
     MIN_PERL_VERSION => delete $requirements{runtime}{perl},
@@ -58,5 +58,5 @@ WriteMakefile(
     test => { TESTS => join q{ }, @tests },
 
     # macOS records extended attributes in the archive, and GNU tar warns about each one when it unpacks.
-    dist => { TARFLAGS => '--no-xattrs -cvf' },
+    dist => { TARFLAGS => '--no-xattrs -cvf', COMPRESS => 'gzip --best --force' },
 );

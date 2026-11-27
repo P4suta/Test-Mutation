@@ -1,7 +1,14 @@
 use v5.36;
 use Test2::V0;
-use File::Path ();
-use File::Temp ();
+use File::Path  ();
+use File::Temp  ();
+use List::Util  ();
+use Time::HiRes ();
+use lib 't/lib';
+use Bounded;
+use Capability;
+use Raised;
+use Test::Mutation::Signals;
 use Test::Mutation::Tree;
 
 # The modes of the trees below follow from one mask, whatever mask the caller of the test has.
@@ -23,6 +30,12 @@ sub snapshot ( $root, @skip ) {
     return Test::Mutation::Tree::snapshot( root => $root, skip => \@skip );
 }
 
+sub restore (%arguments) {
+    my ( $ended, $count ) = Bounded::ended( 3, sub { return Test::Mutation::Tree::restore(%arguments) } );
+    die "restoration did not finish walking the changed paths\n" unless $ended;
+    return $count;
+}
+
 subtest 'the state names every file, directory, and link below the root' => sub {
     my $root = tree( 'lib/A.pm' => "1;\n", 't/a.t' => 'ok', '.mutation/run/x' => 'work', '.git/HEAD' => 'ref' );
     mkdir "$root/empty" or die "mkdir: $!";
@@ -38,6 +51,19 @@ subtest 'the state names every file, directory, and link below the root' => sub 
     is [ sort keys snapshot( $root, 'lib/A.pm', 't' )->%* ],
       [ '.git', '.git/HEAD', '.mutation', '.mutation/run', '.mutation/run/x', 'empty', 'lib', 'link' ],
       'a skipped path may lie below the top';
+};
+
+subtest 'a snapshot records a file that disappears during traversal' => sub {
+    my $root  = tree( vanished => 'temporary' );
+    my $lstat = \&Time::HiRes::lstat;
+    no warnings 'redefine';
+    local *Time::HiRes::lstat = sub ($path) {
+        if ( $path eq "$root/vanished" && -e $path ) {
+            unlink $path or die "remove $path: $!";
+        }
+        return $lstat->($path);
+    };
+    is snapshot($root), { vanished => 'gone' }, 'the directory entry remains visible with its missing-file signature';
 };
 
 subtest 'changes names what was created, removed, and changed' => sub {
@@ -62,6 +88,15 @@ sub tree_file ( $path, $text ) {
     return;
 }
 
+subtest 'two snapshots compare the digests only when both recorded the file contents' => sub {
+    for my $pair ( [ 'metadata', "metadata\0first" ], [ "metadata\0first", 'metadata' ] ) {
+        is Test::Mutation::Tree::changes( { x => $pair->[0] }, { x => $pair->[1] } ), [],
+          'the same metadata stays equal as its digest ages out of a snapshot';
+    }
+    is Test::Mutation::Tree::changes( { x => "metadata\0first" }, { x => "metadata\0other" } ), ['changed x'],
+      'two recent signatures expose a rewrite with identical metadata';
+};
+
 subtest 'a file with new content of the same size counts by its time' => sub {
     my $root   = tree( 'data.txt' => 'first' );
     my $before = snapshot($root);
@@ -69,6 +104,40 @@ subtest 'a file with new content of the same size counts by its time' => sub {
     utime 1_000_000_000, 1_000_000_000, "$root/data.txt" or die "utime: $!";
     is Test::Mutation::Tree::changes( $before, snapshot($root) ), ['changed data.txt'],
       'another modification time is a change';
+};
+
+subtest 'the snapshot reads contents when either file time is recent' => sub {
+    my $root  = tree( 'stable' => 'stable', 'modified' => 'new time' );
+    my $later = int( Time::HiRes::time() ) + 60;
+    utime $later, $later, "$root/modified" or die "utime: $!";
+    no warnings 'redefine';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
+    local *Time::HiRes::time = sub { return $later };
+    my $files = snapshot($root);
+    unlike $files->{stable}, qr/\0/,               'the metadata suffices for older files';
+    like $files->{modified}, qr/\0[0-9a-f]{64}\z/, 'a recent modification time includes the content digest';
+};
+
+subtest 'a same-size rewrite or a replacement with a preserved modification time is visible' => sub {
+    my $root = tree( 'data.txt' => 'first', 'replace.txt' => 'first' );
+    my $path = "$root/data.txt";
+    my $time = 1_000_000_000;
+    utime $time, $time, $path, "$root/replace.txt" or die "utime: $!";
+    my $now   = int Time::HiRes::time();
+    my $lstat = \&Time::HiRes::lstat;
+    no warnings 'redefine';    ## no critic (TestingAndDebugging::ProhibitNoWarnings)
+    local *Time::HiRes::lstat = sub ($file) {
+        my @status = $lstat->($file);
+        $status[10] = $now if @status;
+        return @status;
+    };
+    my $before = snapshot($root);
+    tree_file( $path, 'other' );
+    utime $time, $time, $path or die "utime: $!";
+    tree_file( "$root/new.txt", 'first' );
+    utime $time, $time, "$root/new.txt" or die "utime: $!";
+    rename "$root/new.txt", "$root/replace.txt" or die "rename: $!";
+    is Test::Mutation::Tree::changes( $before, snapshot($root) ), [ 'changed data.txt', 'changed replace.txt' ],
+      'both the same inode with new content and a replacement inode count';
 };
 
 subtest 'another mode of a file or a directory is a change' => sub {
@@ -223,14 +292,13 @@ subtest 'restore undoes what was created, removed, and changed' => sub {
     symlink 'elsewhere', "$slot/link" or die "symlink: $!";
 
     my $changes = Test::Mutation::Tree::changes( $before, snapshot($slot) );
-    is scalar $changes->@*, 23, 'the changes of the trial';
-    is Test::Mutation::Tree::restore( from => $master, to => $slot, changes => $changes ), 23,
-      'one restored path for each';
-    is content($slot), $wanted, 'the tree is as it was';
+    is scalar $changes->@*,                                          23,      'the changes of the trial';
+    is restore( from => $master, to => $slot, changes => $changes ), 23,      'one restored path for each';
+    is content($slot),                                               $wanted, 'the tree is as it was';
     is [ grep { !/\Achanged / } Test::Mutation::Tree::changes( $before, snapshot($slot) )->@* ], [],
       'and no path is missing or left over';
-    is Test::Mutation::Tree::restore( from => $master, to => $slot, changes => [] ), 0, 'no change, no work';
-    is content($project), $original, 'and the tree behind the link keeps every file';
+    is restore( from => $master, to => $slot, changes => [] ), 0, 'no change, no work';
+    is content($project), $original,                              'and the tree behind the link keeps every file';
 };
 
 subtest 'remove takes a tree away, whatever rights its directories give' => sub {
@@ -253,18 +321,118 @@ subtest 'remove takes a tree away, whatever rights its directories give' => sub 
 
 like dies { Test::Mutation::Tree::remove() },          qr/Wrong number of parameters/, 'remove checks its arguments';
 like dies { Test::Mutation::Tree::copy( from => 1 ) }, qr/Wrong number of parameters/, 'copy checks its arguments';
-like dies { Test::Mutation::Tree::restore( from => 1 ) }, qr/Wrong number of parameters/,
-  'restore checks its arguments';
-like dies {
-    Test::Mutation::Tree::copy(
-        from => '/nonexistent/at/all',
-        to   => File::Temp::tempdir( CLEANUP => 1 ) . '/x',
-        skip => [],
-        link => []
-    )
-}, qr{cannot read /nonexistent/at/all}, 'copy names a tree it cannot read';
+like dies { restore( from => 1 ) },                    qr/Wrong number of parameters/, 'restore checks its arguments';
+subtest 'make creates a directory with every parent that it lacks' => sub {
+    my $root = tree( 'plain.txt' => 'a file' );
+    is Test::Mutation::Tree::make( "$root/a/b/c", "$root/a/d" ), 4, 'the number of new directories';
+    ok -d "$root/a/b/c" && -d "$root/a/d", 'each directory stands';
+    is Test::Mutation::Tree::make( "$root/a/b", $root ), 0, 'a directory that stands counts nothing';
+    is Test::Mutation::Tree::make(),                     0, 'and neither does no directory at all';
+    is Raised::error( sub { Test::Mutation::Tree::make("$root/plain.txt/below") } ),
+      [ 'environment', 'directory-uncreatable', "cannot create $root/plain.txt: File exists" ],
+      'a file in the way is named with the reason of the system';
+};
+
+subtest 'temporary creates a new directory for its caller alone' => sub {
+    my $root  = tree();
+    my @paths = map { Test::Mutation::Tree::temporary( $root, 'run-' ) } 1 .. 3;
+    like \@paths, [ map { qr{\A\Q$root\E/run-[[:alnum:]]{6}\z} } 1 .. 3 ], 'a name with the prefix and six letters';
+    is [ List::Util::uniq(@paths) ], \@paths, 'each call gives another name';
+    is [ map { sprintf '%04o', ( stat $_ )[2] & oct '7777' } @paths ], [ ('0700') x 3 ],
+      'the directory is open to its owner alone';
+    my $last_path;
+    my $error = do {
+        my $first = \&List::Util::first;
+        no warnings 'redefine';
+        local *List::Util::first = sub : prototype(&@) ( $try, @paths ) {
+            return $first->( sub { $last_path = $_; return $try->() }, @paths );
+        };
+        Raised::error( sub { Test::Mutation::Tree::temporary( "$root/absent", 'run-' ) } );
+    };
+    like $last_path, qr{\A\Q$root\E/absent/run-[[:alnum:]]{6}\z}, 'the last attempted name uses the requested parent';
+    is $error, [ 'environment', 'directory-uncreatable', "cannot create $last_path: No such file or directory" ],
+      'the error names the directory whose creation produced the reported system error';
+};
+
+subtest 'a failure of the system is an error of the environment with the path' => sub {
+    my $root  = tree( 'from/dir/file.txt' => 'x', 'from/linked/file.txt' => 'y', 'in-the-way' => 'a file' );
+    my $error = sub (%arg) {
+        return Raised::error(
+            sub { Test::Mutation::Tree::copy( from => "$root/from", skip => [], link => [], %arg ) } );
+    };
+    is $error->( from => '/nonexistent/at/all', to => "$root/x" ),
+      [ 'environment', 'directory-missing', 'cannot read /nonexistent/at/all: no such directory' ],
+      'copy names a tree that it cannot read';
+    is $error->( to => "$root/in-the-way/copy" ),
+      [ 'environment', 'directory-uncreatable', "cannot create $root/in-the-way: File exists" ],
+      'copy names a target that it cannot create';
+
+    File::Path::make_path("$root/taken/dir");
+    is $error->( to => "$root/taken" ),
+      [ 'environment', 'directory-uncreatable', "cannot create $root/taken/dir: File exists" ],
+      'copy names a directory that stands in the target';
+    File::Path::make_path("$root/held/linked");
+    is $error->( to => "$root/held", link => ['linked'] ),
+      [ 'environment', 'file-unlinkable', "cannot link $root/held/linked: File exists" ],
+      'copy names a link that it cannot make';
+};
+
+subtest 'a copy ends at a signal that waits' => sub {
+    my $root  = tree( map { ( "f$_.txt" => 'x' ) } 1 .. 5 );
+    my $error = dies {
+        Test::Mutation::Signals::watch(
+            sub {
+                kill 'TERM', $$;
+                Test::Mutation::Tree::copy( from => $root, to => "$root-copy", skip => [], link => [] );
+            }
+        )
+    };
+    isa_ok $error, ['Test::Mutation::Interrupted'], 'the copy dies with the interruption';
+    is [ glob "$root-copy/*" ], [], 'before it copies a file';
+    Test::Mutation::Tree::remove("$root-copy");
+};
+
+subtest 'a path that the system refuses to change is named' => sub {
+    Capability::has( 'unprivileged', $> != 0, 'the superuser changes every path' ) or return;
+    my $root = tree( 'from/sealed.txt' => 'x', 'closed/inner/file.txt' => 'y' );
+    chmod 0, "$root/from/sealed.txt" or die "chmod: $!";
+    like snapshot("$root/from")->{'sealed.txt'}, qr/\Afile 0000 [^\0]+\z/,
+      'a recent unreadable file still has its metadata identity';
+    like Raised::error(
+        sub { Test::Mutation::Tree::copy( from => "$root/from", to => "$root/to", skip => [], link => [] ) } ),
+      [
+        'environment', 'file-uncopyable',
+        qr{\Acannot copy \Q$root\E/from/sealed[.]txt to \Q$root\E/to/sealed[.]txt: Permission denied\z}
+      ],
+      'a file without the right to read';
+
+    chmod oct '500', "$root/closed" or die "chmod: $!";
+    is Raised::error( sub { Test::Mutation::Tree::remove("$root/closed/inner") } ),
+      [ 'environment', 'file-unremovable', "cannot remove $root/closed/inner: Permission denied" ],
+      'a directory whose parent keeps its entries';
+    chmod oct '700', "$root/closed" or die "chmod: $!";
+};
 like dies { Test::Mutation::Tree::snapshot( root => 1 ) }, qr/Wrong number of parameters/,
   'snapshot checks its arguments';
 like dies { Test::Mutation::Tree::changes( {}, [] ) }, qr/did not pass type constraint/, 'changes checks its arguments';
 
+subtest 'the copy records the same state as an independent snapshot and retains it after restoration' => sub {
+    my $source = project_tree();
+    require POSIX;
+    POSIX::mkfifo( "$source/unused.pipe", oct '600' ) or die "fifo: $!";
+    my $state = {};
+    my $copy  = copy_of( $source, skip => [ '.git', '.mutation' ], link => ['local'], state => $state );
+    is $state, snapshot($copy), 'the state represents files, completed directory modes and the selected link';
+    my $working = "$copy/lib/A.pm";
+    tree_file( $working,          "changed\n" );
+    tree_file( "$copy/transient", "new\n" );
+    my $changes = Test::Mutation::Tree::changes( $state, snapshot($copy) );
+    is $changes, [ 'changed lib/A.pm', 'created transient' ], 'a file replacement and a new file are distinguished';
+    restore( from => $source, to => $copy, changes => $changes, state => $state );
+    is $state, snapshot($copy), 'the restored inode and metadata become the reference for reuse';
+    ok !exists $state->{transient}, 'a temporary file is absent from the restored reference';
+    tree_file( $working, "another\n" );
+    is Test::Mutation::Tree::changes( $state, snapshot($copy) ), ['changed lib/A.pm'],
+      'the next job can detect another change';
+};
 done_testing;

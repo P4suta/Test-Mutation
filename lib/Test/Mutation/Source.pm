@@ -4,13 +4,27 @@ use Moo;
 use Encode          ();
 use Types::Standard qw(ArrayRef Enum InstanceOf Int Str Tuple);
 use Type::Params    qw(signature_for);
+use Test::Mutation::Error;
+use Test::Mutation::Try;
 
 our $VERSION = '0.001';
+
+with 'Test::Mutation::Value';
 
 has path         => ( is => 'ro',   isa => Str, required => 1 );
 has text         => ( is => 'ro',   isa => Str, required => 1 );
 has encoding     => ( is => 'ro',   isa => Enum [ 'UTF-8', 'latin1' ], required => 1 );
 has _line_starts => ( is => 'lazy', isa => ArrayRef [Int] );
+
+signature_for read_bytes => ( positional => [Str], returns => Str );
+
+sub read_bytes ($path) {
+    open my $handle, '<:raw', $path or Test::Mutation::Error::raise( 'file-unreadable', path => $path, reason => "$!" );
+    local $/ = undef;
+    my $content = readline $handle;
+    close $handle or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
+    return $content // q{};
+}
 
 signature_for from_bytes => (
     method  => 1,
@@ -20,8 +34,9 @@ signature_for from_bytes => (
 
 sub from_bytes ( $class, $arg ) {
     my $bytes = $arg->bytes;
-    my $text  = eval { Encode::decode( 'UTF-8', $bytes, Encode::FB_CROAK | Encode::LEAVE_SRC ) };
-    return $class->new( path => $arg->path, text => $text, encoding => 'UTF-8' ) if defined $text;
+    my $read =
+      Test::Mutation::Try::attempt( sub { Encode::decode( 'UTF-8', $bytes, Encode::FB_CROAK | Encode::LEAVE_SRC ) } );
+    return $class->new( path => $arg->path, text => $read->{value}, encoding => 'UTF-8' ) if exists $read->{value};
     return $class->new( path => $arg->path, text => Encode::decode( 'latin1', $bytes ), encoding => 'latin1' );
 }
 
@@ -83,7 +98,7 @@ Test::Mutation::Source - the decoded text of one source file
 
     my $source = Test::Mutation::Source->from_bytes( path => 'lib/Foo.pm', bytes => $bytes );
     my $offset = $source->offset_of( 12, 5 );
-    my $bytes  = $source->to_bytes( $source->splice( $start, $end, '-' ) );
+    my $bytes  = $source->to_bytes( $source->replace_span( $start, $end, '-' ) );
 
 =head1 DESCRIPTION
 
@@ -91,7 +106,25 @@ A source holds the characters of a file and the encoding that reproduces its byt
 Offsets count characters from zero.
 Lines and columns count from one.
 
+=head1 ATTRIBUTES
+
+=head2 path
+
+The path of the file inside the project.
+
+=head2 text
+
+The decoded characters of the file.
+
+=head2 encoding
+
+C<UTF-8> or C<latin1>, the encoding that turns the text back into the bytes of the file.
+
 =head1 METHODS
+
+=head2 read_bytes
+
+Reads the original bytes of a file.
 
 =head2 from_bytes
 
@@ -109,8 +142,10 @@ Returns the offset of a line and column.
 
 Returns the line and column of an offset as a two-element array reference.
 
-=head2 splice
+=head2 replace_span
 
-Returns the text with the span from C<$start> to C<$end> replaced.
+    my $mutated = $source->replace_span( $start, $end, $replacement );
+
+Returns the text with the characters from offset C<$start> up to offset C<$end> replaced.
 
 =cut

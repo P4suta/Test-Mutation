@@ -7,9 +7,25 @@ use File::Path             ();
 use File::Temp             ();
 use JSON::PP               ();
 use Module::CPANfile;
+use lib 't/lib', 't/e2e/lib';
+use Fixture qw(write_file);
+use Gate;
 use Test::Mutation;
 
 # The gate builds the distribution in a scratch copy and checks what an installation would receive.
+
+my $BUILD_OUTPUT = qr{\A/(?:local|blib|[.]git|[.]mutation|mutation-report)(?:/|\z)|[.]log\z};
+
+sub build_output ( $prefix, @members ) {
+    return [ grep { substr( $_, length $prefix ) =~ $BUILD_OUTPUT } sort @members ];
+}
+
+subtest 'the gate rejects an archive that holds build output' => sub {
+    is build_output( 'P-1', 'P-1/lib/A.pm', 'P-1/t/unit/a.t', 'P-1/localize.pm' ), [], 'sources and tests stay';
+    is build_output( 'P-1', 'P-1/lib/A.pm', 'P-1/local/lib/perl5/B.pm', 'P-1/build.log', 'P-1/.git/HEAD', 'P-1/blib' ),
+      [ 'P-1/.git/HEAD', 'P-1/blib', 'P-1/build.log', 'P-1/local/lib/perl5/B.pm' ],
+      'installed dependencies, build output, repository data, and logs are named';
+};
 
 my $root    = Cwd::getcwd();
 my $scratch = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
@@ -47,6 +63,11 @@ sub build_log {
     local $/ = undef;
     return scalar readline $log;
 }
+
+ok in_scratch( 'git', 'init', '--quiet' ), 'the source copy has a Git index' or diag build_log();
+my @tracked = grep { -f "$scratch/$_" } @files;
+ok in_scratch( 'git', 'add', '--force', '--', @tracked ), 'the index contains the distribution inputs'
+  or diag build_log();
 
 ok in_scratch( $^X, 'Makefile.PL' ), 'Makefile.PL runs'             or diag build_log();
 ok in_scratch('make'),               'make builds the distribution' or diag build_log();
@@ -91,22 +112,30 @@ ok in_scratch( $^X, 'Makefile.PL' ), 'Makefile.PL runs again' or diag build_log(
 
 ok in_scratch( 'make', 'test' ), 'make test passes' or diag build_log();
 my ($test_files) = build_log() =~ /^Files=(\d+), Tests=\d+/m;
-ok defined $test_files && $test_files >= 25, 'and runs the unit, assumption, and shim tests' or diag build_log();
+ok( defined $test_files && $test_files >= 25, 'and runs the unit, assumption, and shim tests' ) || diag build_log();
 
-ok in_scratch( 'make', 'manifest' ), 'make writes the manifest'    or diag build_log();
-ok in_scratch( 'make', 'dist' ),     'make packs the distribution' or diag build_log();
+my @private =
+  qw(.claude/worktrees/topic/lib/Unpublished.pm .env.local lib/Unpublished.pm lib/.DS_Store lib/._Module.pm);
+write_file( "$scratch/$_", "local build data\n" ) for @private;
+
+symlink "$scratch/lib", "$scratch/.claude/worktrees/topic/lib-link" or die "link the shared library: $!";
+write_file( "$scratch/MANIFEST", "MANIFEST\nlib/Unpublished.pm\n" );
+ok in_scratch( $^X, 'xt/bin/distribution-manifest' ), 'the release regenerates the manifest from tracked sources'
+  or diag build_log();
+ok in_scratch( 'make', 'dist' ), 'make packs the distribution' or diag build_log();
 
 my $prefix = 'Test-Mutation-' . Test::Mutation->VERSION;
 my %packed = map { $_ => 1 } Archive::Tar->list_archive("$scratch/$prefix.tar.gz");
 my @wanted = qw(
-  Makefile.PL cpanfile META.json README.md Changes LICENSE-MIT LICENSE-APACHE THIRD_PARTY_NOTICES.md bin/mutation
+  Makefile.PL cpanfile META.json .perlcriticrc .perltidyrc README.md Changes LICENSE-MIT LICENSE-APACHE THIRD_PARTY_NOTICES.md bin/mutation
   lib/Test/Mutation.pm lib/Test/Mutation/Shim.pm lib/Test/Mutation/Report/resources/mutation-test-elements.js
   t/unit/tap.t t/shim/serve.t t/fixtures/calc/lib/Calc.pm
 );
 is [ grep { !$packed{"$prefix/$_"} } @wanted ], [], 'the archive holds the sources, the tests, and the notices';
-is [ grep { m{\A\Q$prefix\E/(?:local|blib|[.]git|[.]mutation|mutation-report)(?:/|\z)|[.]log\z} } sort keys %packed ],
-  [],
-  'and leaves out installed dependencies, build output, and reports';
+is build_output( $prefix, keys %packed ),       [], 'and leaves out installed dependencies, build output, and reports';
+is [ grep { $packed{"$prefix/$_"} } @private ], [],
+  'worktrees, local settings and filesystem metadata stay out of the archive';
+Gate::checked( 'members of the archive', scalar( keys %packed ), at_least => 150 );
 
 IO::Uncompress::Gunzip::gunzip( "$scratch/$prefix.tar.gz" => \my $bytes ) or die 'cannot read the archive';
 ok $bytes !~ /(?:LIBARCHIVE|SCHILY)[.]xattr/, 'the archive carries no extended attribute of the build machine';

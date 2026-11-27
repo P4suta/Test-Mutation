@@ -18,7 +18,7 @@ write_file( "$root/t/late.t",
       . "is scalar( grep { \$_ eq '$root/elsewhere' } \@INC ), 1, 'a directory named in full stays';\n"
       . "ok \$^W, 'another switch stays';\n" );
 
-my ($result) = run_fixture( $root, switches => [ '-Ilib', "-I$root/elsewhere", '-w' ] );
+my ($result) = run_fixture( $root, switch => [ '-Ilib', "-I$root/elsewhere", '-w' ] );
 is $result->baseline_failures, [], 'the unmodified run passes';
 is statuses($result),
   {

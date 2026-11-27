@@ -6,9 +6,30 @@ use File::Path ();
 use File::Temp ();
 use Exporter 'import';
 
-our @EXPORT_OK = qw(project write_file write_spec run_perl records all_records lib_dir);
+our @EXPORT_OK = qw(project write_file write_spec run_perl run_bare run_command need records all_records lib_dir);
+
+# t/lib/Capability.pm lists the same names for the tests of the driver.
+my %CAPABILITY = map { $_ => 1 } qw(toolchain);
 
 sub lib_dir { return Cwd::abs_path('lib') }
+
+sub capabilities {
+    my @names = sort keys %CAPABILITY;
+    return @names;
+}
+
+# A test that needs a tool of the platform leaves the run where the tool is missing.
+# A job that lists the capability in TEST_MUTATION_REQUIRE gets a failure instead, so no test goes missing unnoticed.
+sub need {
+    my ( $name, $present, $reason ) = @_;
+    die "no capability is named $name\n" if !$CAPABILITY{$name};
+    return 1                             if $present;
+    my $required = defined $ENV{TEST_MUTATION_REQUIRE} ? $ENV{TEST_MUTATION_REQUIRE} : q{};
+    die "TEST_MUTATION_REQUIRE lists $name, and $reason\n" if grep { /\A\s*\Q$name\E\s*\z/ } split /,/, $required;
+    require Test::More;
+    Test::More::plan( skip_all => $reason );
+    return 0;
+}
 
 sub project {
     my $root = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
@@ -47,13 +68,54 @@ sub run_perl {
         my @outer = _outer_switches();
         $extra{PERL5OPT} = join q{ }, grep { defined && length } $ENV{PERL5OPT},   $extra{PERL5OPT};
         $extra{PERL5LIB} = join q{:}, grep { defined && length } $extra{PERL5LIB}, $ENV{PERL5LIB};
-        %ENV             = ( %ENV, %extra, OUTER_HOOKS => scalar grep { ref } @INC );
+        %ENV             = ( %ENV, %extra, OUTER_HOOKS => scalar grep { ref } @INC );    ## no critic (Variables::RequireLocalizedPunctuationVars)
         open STDOUT, '>', $out or die "stdout: $!";
         open STDERR, '>', $err or die "stderr: $!";
         exec {$^X} $^X, @outer, @{ $run{args} } or die "exec: $!";
     }
     waitpid $pid, 0;
     return { status => $? >> 8, stdout => _slurp($out), stderr => _slurp($err) };
+}
+
+# The variables that give an interpreter modules, library directories, handle layers, or a debugger.
+my @INTERPRETER_SETTINGS = qw(PERL5OPT PERL5LIB PERLLIB PERL_UNICODE PERLIO PERL5DB);
+
+# An experiment observes the interpreter itself, so its command gets no setting of the interpreter from the environment.
+# An outer shim would own the debugger hook and the flags that such a probe reads.
+sub run_command {
+    my (%run) = @_;
+    my $root  = $run{root};
+    my $out   = "$root/stdout.txt";
+    my $err   = "$root/stderr.txt";
+    my $pid   = fork;
+    die "fork: $!" if !defined $pid;
+    if ( !$pid ) {
+        chdir( defined $run{cwd} ? $run{cwd} : $root ) or die "chdir: $!";
+        my %inherited = $run{clear} ? () : %ENV;
+        delete @inherited{@INTERPRETER_SETTINGS};
+        my %given = ( %inherited, %{ $run{env} || {} } );
+
+        # An undefined value removes the variable.
+        delete @given{ grep { !defined $given{$_} } keys %given };
+        %ENV = %given;    ## no critic (Variables::RequireLocalizedPunctuationVars)
+        open STDOUT, '>', $out or die "stdout: $!";
+        open STDERR, '>', $err or die "stderr: $!";
+        {
+            # The message below names the command that cannot start, once.
+            no warnings 'exec';
+            exec { $run{command}[0] } @{ $run{command} };
+        }
+        print {*STDERR} "exec $run{command}[0]: $!\n" or 1;
+        require POSIX;
+        POSIX::_exit(127);
+    }
+    waitpid $pid, 0;
+    return { status => $? >> 8, signal => $? & 127, stdout => _slurp($out), stderr => _slurp($err) };
+}
+
+sub run_bare {
+    my (%run) = @_;
+    return run_command( %run, command => [ $^X, @{ $run{args} } ] );
 }
 
 sub all_records {

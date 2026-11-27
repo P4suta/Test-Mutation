@@ -7,8 +7,8 @@ use Fixture qw(copy_of run_fixture statuses write_file);
 use Test::Mutation::Report::Terminal;
 
 my $root     = copy_of('calc');
-my ($first)  = run_fixture( $root, cache => 1 );
-my $measured = grep { $_->{status} =~ /\A(?:Killed|Survived)\z/ } $first->entries->@*;
+my ($first)  = run_fixture($root);
+my $measured = grep { $_->{status} =~ /\A(?:Killed|Survived|NoCoverage)\z/ } $first->entries->@*;
 my $boundary = 'lib/Calc.pm:12 replaced > with >=';
 
 sub append ( $path, $text ) {
@@ -23,21 +23,21 @@ subtest 'a second run reuses every measured result' => sub {
     ok -f "$root/.mutation/cache.json", 'and writes the cache file';
     is statuses($first)->{$boundary}, 'Survived', 'the boundary mutant survives';
 
-    my ( $second, $events ) = run_fixture( $root, cache => 1 );
-    is statuses($second), statuses($first), 'the statuses are unchanged';
-    is scalar( grep { $_ eq 'mutant' } $events->@* ), scalar( $second->entries->@* ),
+    my ( $rerun, $events ) = run_fixture( $root, cache => 1 );
+    is statuses($rerun), statuses($first), 'the statuses are unchanged';
+    is scalar( grep { $_ eq 'mutant' } $events->@* ), scalar( $rerun->entries->@* ),
       'the listener hears of each mutant once, reused or not';
-    is $second->reused, $measured, 'every measured result comes from the cache';
-    is [ map { $_->{by} } $second->entries->@* ], [ map { $_->{by} } $first->entries->@* ],
+    is $rerun->reused, $measured, 'every measured result comes from the cache';
+    is [ map { $_->{by} } $rerun->entries->@* ], [ map { $_->{by} } $first->entries->@* ],
       'the detecting tests are unchanged';
-    like Test::Mutation::Report::Terminal::render( $second, color => 0 ), qr/, $measured results from the cache$/m,
+    like Test::Mutation::Report::Terminal::render( $rerun, color => 0 ), qr/, $measured results from the cache$/m,
       'the summary states the number of reused results';
     unlike Test::Mutation::Report::Terminal::render( $first, color => 0 ), qr/from the cache/,
       'and stays silent without them';
 };
 
-subtest 'a run without the setting measures again' => sub {
-    my ($plain) = run_fixture($root);
+subtest 'a run with caching disabled measures again' => sub {
+    my ($plain) = run_fixture( $root, cache => 0 );
     is $plain->reused, 0, 'no result comes from the cache';
 };
 
@@ -74,10 +74,10 @@ subtest 'ignored survivors keep their statuses and reasons in a reused run' => s
     my ($before) = run_fixture( $project, cache => 1 );
     my ($after)  = run_fixture( $project, cache => 1 );
     is statuses($after), statuses($before), 'the statuses are unchanged';
-    is [ map { $_->{reason} } $after->entries->@* ], [ map { $_->{reason} } $before->entries->@* ],
-      'the reasons are unchanged';
-    is scalar( grep { $_->{status} eq 'Ignored' } $after->entries->@* ), 2, 'both ignored mutants stay ignored';
-    is $after->reused,                                                   9, 'every result comes from the cache';
+    is [ map { [ $_->@{qw(reason detail)} ] } $after->entries->@* ],
+      [ map { [ $_->@{qw(reason detail)} ] } $before->entries->@* ], 'the reasons and the details are unchanged';
+    is scalar( grep { $_->{status} eq 'Ignored' } $after->entries->@* ), 2,  'both ignored mutants stay ignored';
+    is $after->reused,                                                   10, 'every result comes from the cache';
 };
 
 subtest 'a changed source without a mutant of its own invalidates the tests that load it' => sub {
@@ -98,13 +98,30 @@ subtest 'a changed source without a mutant of its own invalidates the tests that
     my ($changed) = run_fixture( $project, cache => 1 );
     is $changed->reused, 0, 'a change to the loaded file measures the mutants again';
 
-    my @narrow = ( cache => 1, source_include => ['lib/Outer.pm'] );
+    my @narrow = ( cache => 1, source => ['lib/Outer.pm'] );
     run_fixture( $project, @narrow );
     my ($narrow) = run_fixture( $project, @narrow );
     ok $narrow->reused > 0, 'a run on one file reuses its results';
     write_file( "$project/lib/Inner.pm", $inner->(30) );
     my ($outside) = run_fixture( $project, @narrow );
     is $outside->reused, 0, 'a change to a file outside the selection measures the mutants again';
+};
+
+subtest 'a named interpreter is keyed by its resolved executable' => sub {
+    my $project = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    write_file( "$project/lib/One.pm", "package One; sub next_value { return \$_[0] + 1 } 1;\n" );
+    write_file( "$project/t/count.t",  "use Test::More tests => 1;\nuse One;\nis One::next_value(1), 2;\n" );
+    my $portable = "#!$^X\nexec {q{$^X}} q{$^X}, \@ARGV or die \$!;\n";
+    my $program  = write_file( "$project/tools/runner", $portable );
+    chmod 0700, $program or die $!;
+    local $ENV{PATH} = "$project/tools:$ENV{PATH}";
+    my @options = ( cache => 1, perl => 'runner' );
+    run_fixture( $project, @options );
+    my ($warm) = run_fixture( $project, @options );
+    ok $warm->reused, 'a stable program found on the search path can reuse measurements';
+    write_file( $program, $portable . "# Rebuilt interpreter wrapper.\n" );
+    my ($rebuilt) = run_fixture( $project, @options );
+    is $rebuilt->reused, 0, 'replacing that executable invalidates its cached verdicts';
 };
 
 done_testing;

@@ -1,7 +1,7 @@
 use v5.36;
 use Test2::V0;
 use lib 't/e2e/lib';
-use Fixture qw(copy_of mutation run_fixture statuses);
+use Fixture qw(copy_of ran run_fixture statuses);
 use Test::Mutation::Report::Json;
 
 my $root    = copy_of('calc');
@@ -25,15 +25,12 @@ sub slurp ($path) {
 
 my @options = ( '--format', 'json', '--format', 'terminal', '--jobs', 2 );
 for my $part ( 1, 2 ) {
-    my $run = mutation( $root, 'run', '--shard', "$part/2", '--report-dir', "part$part", @options );
-    is $run->{exit}, 0, "part $part runs" or diag $run->{stderr};
+    ran( 0, $root, 'run', '--shard', "$part/2", '--report-dir', "part$part", @options );
 }
 my @reports = ( 'part2/mutation.json', 'part1/mutation.json' );
 
 subtest 'the merge command reports the whole run from the reports of its parts' => sub {
-    my $merge =
-      mutation( $root, 'merge', @reports, '--report-dir', 'whole', '--format', 'json', '--format', 'terminal' );
-    is $merge->{exit}, 0, 'exit status' or diag $merge->{stderr};
+    my $merge = ran( 0, $root, 'merge', @reports, '--report-dir', 'whole', '--format', 'json', '--format', 'terminal' );
     my $merged = Test::Mutation::Report::Json::parse( slurp("$root/whole/mutation.json") );
     is statuses($merged),                      statuses($whole), 'every mutant has the status of the unsplit run';
     is [ $merged->shard, $merged->inventory ], [ undef, $whole->inventory ], 'the merged report is a whole run';
@@ -44,8 +41,7 @@ subtest 'the merge command reports the whole run from the reports of its parts' 
 };
 
 subtest 'the merged score meets the threshold of a run' => sub {
-    my $merge = mutation( $root, 'merge', @reports, '--min-score', 100, '--format', 'terminal' );
-    is $merge->{exit}, 1, 'a score below the threshold fails';
+    ran( 1, $root, 'merge', @reports, '--min-score', 100, '--format', 'terminal' );
 };
 
 subtest 'a set that is not one complete run is a usage error' => sub {
@@ -57,7 +53,7 @@ subtest 'a set that is not one complete run is a usage error' => sub {
         'merge needs the report of every part'                              => [],
     );
     for my $message ( sort keys %refused ) {
-        my $merge = mutation( $root, 'merge', $refused{$message}->@*, '--report-dir', 'refused' );
+        my $merge = ran( 2, $root, 'merge', $refused{$message}->@*, '--report-dir', 'refused' );
         is [ $merge->{exit}, $merge->{stderr} ], [ 2, "mutation: $message\n" ], $message;
     }
     ok !-e "$root/refused", 'a refused merge writes no report';

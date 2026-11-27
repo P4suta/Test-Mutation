@@ -5,7 +5,7 @@ use Time::HiRes ();
 
 # A process that cannot start and a handle that cannot close are rare, so two overrides provoke them.
 # The close override closes the handle and then reports a failure to the subroutine that the pattern names.
-our ( $fork_fails, $close_fails_in );
+our ( $fork_fails, $close_fails_in );    ## no critic (Variables::ProhibitPackageVars)
 
 BEGIN {
     no warnings 'once';
@@ -41,7 +41,7 @@ sub script ( $name, $code ) {
 }
 
 sub pool_error (%task) {
-    my @queue = ( { env => {}, cwd => $dir, timeout => 20, stop_on_failure => 0, %task } );
+    my @queue = ( { env => {}, cwd => $dir, timeout => 20, output_limit => 10_000_000, stop_on_failure => 0, %task } );
     return dies {
         Test::Mutation::Pool::run( jobs => 1, next => sub { shift @queue }, done => sub { return } )
     };
@@ -57,20 +57,34 @@ subtest 'a process that cannot start stops the pool' => sub {
     my $path  = script( 'unreached.t', 'exit 3;' );
     my $error = do {
         local $fork_fails = 1;
-        pool_error( command => [ $^X, $path ], stderr => "$path.err" );
+        pool_error( command => [ $^X, $path ] );
     };
-    like $error, qr/\Afork: \S/, 'the error names the reason';
+    like $error, qr/\Acannot start a process: \S/, 'the error names the reason';
 };
 
 subtest 'a pipe that does not close stops the pool' => sub {
-    for my $place (qw(run _spawn)) {
-        my $path  = script( "$place.t", qq{print "1..1\\nok 1\\n";\n} );
+    my %place = ( 'the end of a test' => '_close_streams', 'the start of a test' => '_started' );
+    for my $name ( sort keys %place ) {
+        my $path  = script( "$place{$name}.t", qq{print "1..1\\nok 1\\n";\n} );
         my $error = do {
-            local $close_fails_in = qr/::Pool::\Q$place\E\z/;
-            pool_error( command => [ $^X, $path ], stderr => "$path.err" );
+            local $close_fails_in = qr/::Pool::\Q$place{$name}\E\z/;
+            pool_error( command => [ $^X, $path ] );
         };
-        like $error, qr/\Aclose pipe: \S/, "a failure in $place";
+        is [ $error->kind, $error->id ], [ 'environment', 'pipe-unclosable' ], "a failure in $name is typed";
+        like $error->message, qr/\Acannot close a pipe: \S/, "and a failure in $name names the reason";
     }
+};
+
+subtest 'only complete process rows identify descendants' => sub {
+    my $listing = script( 'ps', "#!$^X\n" . <<'PERL' );
+print "PID PPID\nbad 43 40\n44 40 trailing\n 41\t40 \n42   41";
+PERL
+    chmod 0755, $listing or die "chmod $listing: $!";
+    local $ENV{PATH} = $dir;
+    my $scan = Test::Mutation::Pool->can('_descendants');
+    my @children;
+    is warnings { @children = $scan->( { work => {} }, 40 ) }, [], 'a listing header and malformed rows stay quiet';
+    is [ sort { $a <=> $b } @children ], [ 41, 42 ], 'only the child and grandchild from complete rows are eligible';
 };
 
 subtest 'a process listing that does not close names no process to end' => sub {
@@ -87,7 +101,7 @@ sleep 30;
 PERL
     my $error = do {
         local $close_fails_in = qr/::Pool::_descendants\z/;
-        pool_error( command => [ $^X, $path ], stderr => "$path.err", timeout => 2 );
+        pool_error( command => [ $^X, $path ], timeout => 2 );
     };
     is $error, undef, 'the pool ends the test at its time limit';
     my $grandchild = text_of("$path.grandchild");

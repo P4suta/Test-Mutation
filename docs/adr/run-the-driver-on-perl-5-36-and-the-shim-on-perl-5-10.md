@@ -27,7 +27,7 @@ Linux and macOS are the supported platforms, because the pool relies on `fork` a
 
 ## Confirmation
 
-`t/shim/` passes on Perl 5.10.1, 5.16.3, and 5.26.3 in Linux containers.
-A 5.40 driver with tests on 5.10.1 reports the statuses of a 5.40 run for two fixtures.
-The hosted workflow hasn't run, so the decision stays proposed.
-Reconsider when a project needs an older Perl or a platform without `fork`.
+`mise run shim-mutation` measures the shim on Perl 5.10, 5.14, and 5.18.
+`t/e2e/second-perl.t` compares the two interpreters' verdicts.
+The CI driver matrix spans Perl 5.36 through 5.42.
+Reconsider when a supported platform lacks `fork`.
