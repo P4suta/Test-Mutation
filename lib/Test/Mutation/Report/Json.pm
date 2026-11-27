@@ -54,6 +54,7 @@ my $MUTANT   = (
             comparable     => $FLAG,
             compiledDigest => Optional [ StrMatch [qr/\A[0-9a-f]{64}\z/] ],
             observations   => Optional [Observations],
+            decidingTest   => Optional [Str],
         ],
     ]
 )->where( sub { _consistent($_) } );
@@ -191,8 +192,9 @@ sub _mutant ($entry) {
             exists $entry->{observations}     ? ( observations   => $entry->{observations} )    : (),
         },
     );
-    $mutant{statusReason} = $entry->{detail} if defined $entry->{detail};
-    $mutant{killedBy}     = [ $entry->{by} ] if $entry->{status} eq 'Killed' && defined $entry->{by};
+    $mutant{statusReason}               = $entry->{detail} if defined $entry->{detail};
+    $mutant{killedBy}                   = [ $entry->{by} ] if $entry->{status} eq 'Killed' && defined $entry->{by};
+    $mutant{testMutation}{decidingTest} = $entry->{by}     if $entry->{status} ne 'Killed' && defined $entry->{by};
     return \%mutant;
 }
 
@@ -342,7 +344,7 @@ sub _entry ( $source, $mutant ) {
         status     => $extra->{status},
         reason     => $extra->{reason},
         detail     => $mutant->{statusReason},
-        by         => $mutant->{killedBy} ? $mutant->{killedBy}[0] : undef,
+        by         => $mutant->{killedBy} ? $mutant->{killedBy}[0] : $extra->{decidingTest},
         covered_by => $mutant->{coveredBy},
         tests_run  => $mutant->{testsCompleted},
         duration   => $duration / $MILLISECONDS,

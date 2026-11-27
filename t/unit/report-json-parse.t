@@ -87,6 +87,17 @@ is $back->baseline_failures, [ { test => 't/broken.t', output => q{}, errors => 
 is $back->sources, { 'lib/Calc.pm' => $source }, 'the sources';
 is $back->stats, $result->stats, 'the work of the run';
 
+subtest 'an inconclusive verdict keeps the test that decided its reason' => sub {
+    for my $status (qw(Timeout NoVerdict CompileError)) {
+        my $original = Test::Mutation::Result->new( $result->%*,
+            entries => [ entry( $status, id => '000000000001', by => 't/sign.t' ) ] );
+        my $json = Test::Mutation::Report::Json::render( $original, high => 80, low => 60 );
+        is Test::Mutation::Report::Json::parse($json)->entries->[0]{by}, 't/sign.t',
+          "the JSON report keeps the deciding test for $status";
+        unlike $json, qr/"killedBy"/, 'only a detecting test occupies the schema detection field';
+    }
+};
+
 like Raised::message( sub { Test::Mutation::Report::Json::parse('{') } ), qr/\Athe text is no JSON document/,
   'broken JSON is refused';
 like Raised::message(
