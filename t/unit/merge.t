@@ -261,14 +261,11 @@ subtest 'a set that is not one complete run is refused' => sub {
 subtest 'refresh counts distinct compiled changes across both measurements' => sub {
     my $pass = { test => 't/a.t', result => 'pass', served => 1, load_failed => 0, bypassed => 0, syntax => undef };
     my $fail = { $pass->%*, result => 'fail' };
-    my @rows = map {
-        my $killed = $_ == 1;
-        +{
-            entry( $_, $killed ? 'Killed' : 'Survived' )->%*,
-            compiled_digest => '31' x 32,
-            observations    => [ [ $killed ? $fail : $pass ] ]
-        }
-    } 1 .. 3;
+    my @rows = ( entry( 1, 'Killed' ), entry( 2, 'Survived' ), entry( 3, 'Survived' ) );
+    for my $row (@rows) {
+        $row->{compiled_digest} = '31' x 32;
+        $row->{observations}    = [ [ $row->{status} eq 'Killed' ? $fail : $pass ] ];
+    }
     my %inputs = ( catalog_digest => inventory(3)->{digest}, inventory => inventory(3), min_score => 45 );
     my $first  = part( undef, [ @rows[ 0, 1 ] ], %inputs, selection => { mutants => [qw(000000000001 000000000002)] } );
     my $last   = part( undef, [ $rows[2] ],      %inputs, selection => { mutants => ['000000000003'] } );
@@ -283,9 +280,9 @@ subtest 'refresh counts distinct compiled changes across both measurements' => s
     is $saved->assessment, $whole->assessment, 'refresh and a whole inventory give the same score and counts';
     my $reopened =
       Test::Mutation::Report::Json::parse( Test::Mutation::Report::Json::render( $whole, high => 80, low => 60 ) );
-    my $updated = part( undef, [ { $rows[1]->%*, status => 'Killed', observations => [ [$fail] ] } ],
-        %inputs, selection => { mutants => ['000000000002'] } );
-    my $again = Test::Mutation::Merge::refresh( $reopened, $updated );
+    my $killed  = { %{ $rows[1] }, status => 'Killed', observations => [ [$fail] ] };
+    my $updated = part( undef, [$killed], %inputs, selection => { mutants => ['000000000002'] } );
+    my $again   = Test::Mutation::Merge::refresh( $reopened, $updated );
     is [ map { $_->{status} } $again->entries->@* ], [qw(Killed Killed Survived)],
       'a saved duplicate counts its passing test when its former representative is killed';
     is $again->entries->[2]{observations}, [ [$pass] ], 'the promoted survivor keeps the observation that supports it';
