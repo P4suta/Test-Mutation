@@ -177,4 +177,27 @@ subtest 'cache entries describe the input bytes actually run in the copy' => sub
     }
 };
 
+subtest 'a copied project link keeps its declared target even when two targets contain identical bytes' => sub {
+    my $project = copy_of('calc');
+    my $other   = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    write_file( "$project/linked/operand", "1\n" );
+    write_file( "$other/linked/operand",   "1\n" );
+    my $error = dies {
+        Test::Mutation::run(
+            root     => $project,
+            cache    => 0,
+            jobs     => 1,
+            link     => ['linked'],
+            on_event => sub ( $name, $data ) {
+                return unless $name eq 'copy_finished';
+                my $link = "$data->{root}/linked";
+                unlink $link or die "unlink $link: $!";
+                symlink "$other/linked", $link or die "link $link: $!";
+                return;
+            }
+        );
+    };
+    like $error, qr/measurement inputs changed.*linked/, 'the prepared link must lead to its configured project path';
+};
+
 done_testing;
