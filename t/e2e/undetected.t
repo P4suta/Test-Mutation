@@ -86,6 +86,13 @@ subtest 'the latest merged scope supplies uncovered changes to the recheck' => s
         is [ $entry->{mutant}->path, $entry->@{qw(status by tests_run)} ],
           [ 'lib/Sum.pm', 'Killed', 't/new.t', 2 ], 'the new covering test detects the change twice';
     }
+
+    ran( 0, $root, 'merge', @reports, '--format', 'json' );
+    like ran( 0, $root, 'show', $uncovered[0] )->{stdout}, qr/^Last result: Killed$/m,
+      'inspection keeps the newer detection after the same shards are merged again';
+    my $remaining = ran( 0, $root, 'run', '--undetected', @options );
+    like $remaining->{stdout}, qr/^0 mutants$/m, 'merging older observations leaves the repaired gaps closed';
+    unlike $remaining->{stderr}, qr/Baseline \(/, 'closed gaps start no tests after a repeated merge';
 };
 
 done_testing;
