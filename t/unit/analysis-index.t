@@ -20,6 +20,7 @@ my @parsed;
     };
     my $named = Test::Mutation::Select::resolve( config => $config->( mutant => [$id] ) );
     is [ map { $_->id } $named->mutants->@* ], [$id], 'the index resolves the selected mutant';
+    is [ sort keys $named->sources->%* ], ['lib/Calc.pm'], 'a named result exposes the source of the selected ID';
     is \@parsed,                               [],    'an indexed named measurement parses no source';
     write_file( "$root/lib/Other.pm", 'package Other; sub plus { return $_[0] - 1 } 1;' );
     my $listed = Test::Mutation::Select::resolve( config => $config->() );

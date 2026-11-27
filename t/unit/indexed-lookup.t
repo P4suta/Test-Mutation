@@ -7,7 +7,8 @@ use Test::Mutation::Runner;
 use Test::Mutation::Settings;
 use Test::Mutation::Store::History;
 
-my $root   = copy_of('equivalent');
+my $root = copy_of('equivalent');
+write_file( "$root/lib/Other.pm", 'package Other; sub inc { return $_[0] + 1 } 1;' );
 my $config = Test::Mutation::Settings::of_call( { root => $root, jobs => 1 } );
 my $result = Test::Mutation::Runner::run( $config, sub { } );
 Test::Mutation::Store::History::record( $config, $result, 1 );
@@ -19,8 +20,14 @@ my ( $parsed, $reports, $restored ) = ( 0, 0, 0 );
 my $make    = Test::Mutation::Mutant->can('new');
 my $parse   = Test::Mutation::Report::Json->can('parse');
 my $analyze = Test::Mutation::Syntax::PPI->can('analyze');
+my $decode  = Test::Mutation::Source->can('from_bytes');
+my @decoded;
 {
     no warnings 'redefine';
+    local *Test::Mutation::Source::from_bytes = sub ( $class, %given ) {
+        push @decoded, $given{path};
+        return $decode->( $class, %given );
+    };
     local *Test::Mutation::Mutant::new          = sub (@arguments) { $restored++; return $make->(@arguments) };
     local *Test::Mutation::Report::Json::parse  = sub (@arguments) { $reports++;  return $parse->(@arguments) };
     local *Test::Mutation::Syntax::PPI::analyze = sub (@arguments) { $parsed++;   return $analyze->(@arguments) };
@@ -29,6 +36,7 @@ my $analyze = Test::Mutation::Syntax::PPI->can('analyze');
     like $shown->{stdout}, qr/^Last result: Survived\nMeasured at: (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)$/m,
       'show dates the observed status';
     is [ $parsed, $reports, $restored ], [ 0, 0, 1 ], 'show restores one mutant without a parse or full report read';
+    is \@decoded,                        [ $entry->{mutant}->path ], 'only the displayed file is decoded for its patch';
     my $listed = World::observe( ['list'], cwd => $root );
     like $listed->{stdout}, qr/^\Q$id\E .* \[Survived\] \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/m,
       'list dates each historical status';

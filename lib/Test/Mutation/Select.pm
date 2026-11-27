@@ -300,13 +300,13 @@ sub _file_reader ( $config, $mutators, $options ) {
         $config->suppress_require_reason,
         map { $_->name } @$mutators
     );
-    return sub ( $source, $digest ) {
-        my $identity = Test::Mutation::Store::Key::digest( $conditions, $source->path, $digest );
+    return sub ( $path, $digest, $source ) {
+        my $identity = Test::Mutation::Store::Key::digest( $conditions, $path, $digest );
         if ($db) {
             my $file = Test::Mutation::Store::Analysis::read_file( $db, $identity, $options->{prefixes} );
             return $file if $file;
         }
-        my $file = _analyze_file( $config, $source, $mutators, $others, $options->{version} );
+        my $file = _analyze_file( $config, $source->(), $mutators, $others, $options->{version} );
         push $options->{pending}->@*, [ $identity, $file ] if $config->cache && !$options->{read_only};
         return $file;
     };
@@ -314,29 +314,41 @@ sub _file_reader ( $config, $mutators, $options ) {
 
 sub _analysis ( $config, $files, $mutators, $options ) {
     my ( $root, $paths, $changed ) = $options->@{qw(root paths changed)};
-    my $read = _file_reader( $config, $mutators, $options );
+    my $read    = _file_reader( $config, $mutators, $options );
+    my %wanted  = map { $_         => 1 } $options->{prefixes}->@*;
+    my %lengths = map { length($_) => 1 } keys %wanted;
     my ( %sources, %digests, %left_out, @mutants, @problems, @rejected, @refusals );
     for my $path ( $files->@* ) {
         my $selected = ( !$changed || $changed->{$path} ) && ( !$paths || exists $paths->{$path} );
         next unless $selected || $config->cache || $options->{report_inputs};
-        my $bytes  = Test::Mutation::Source::read_bytes("$root/$path");
-        my $source = Test::Mutation::Source->from_bytes( path => $path, bytes => $bytes );
+        my $bytes = Test::Mutation::Source::read_bytes("$root/$path");
+        my $decoded;
+        my $source = sub { return $decoded ||= Test::Mutation::Source->from_bytes( path => $path, bytes => $bytes ) };
         $digests{$path} = Digest::SHA::sha256_hex($bytes);
         next unless $selected;
         if ( $options->{baseline_only} ) {
-            $sources{$path} = $source;
+            $sources{$path} = $source->();
             next;
         }
-        my $file = $read->( $source, $digests{$path} );
+        my $file = $read->( $path, $digests{$path}, $source );
         push @refusals, $file->{refusals}->@*;
         if ( defined $file->{problem} ) {
             push @problems, { path => $path, problem => $file->{problem} };
             next;
         }
-        $sources{$path}  = $source;
+        my $candidates = $file->{mutants};
+        if (%wanted) {
+            $candidates = [
+                grep {
+                    my $id = $_->id;
+                    grep { $wanted{ substr $id, 0, $_ } } keys %lengths
+                } @$candidates
+            ];
+        }
+        $sources{$path}  = $source->()       if !%wanted || @$candidates;
         $left_out{$path} = $file->{left_out} if $file->{left_out};
         push @mutants, grep { !$paths || !$paths->{$path}->@* || _in_changed_lines( $paths->{$path}, $_ ) }
-          grep { !$changed || _in_changed_lines( $changed->{$path}, $_ ) } $file->{mutants}->@*;
+          grep { !$changed || _in_changed_lines( $changed->{$path}, $_ ) } @$candidates;
         push @rejected, map { { path => $path, $_->%* } } $file->{rejected}->@*;
     }
 
