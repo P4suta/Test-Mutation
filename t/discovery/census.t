@@ -1,11 +1,14 @@
 use v5.36;
 use Test2::V0;
+use File::Temp ();
 use List::Util qw(min sum0);
-use lib 't/lib';
+use lib 't/lib', 't/e2e/lib';
 use Census;
+use Fixture qw(run_fixture write_file);
 use Gate;
 use Library;
 use Oracle;
+use Test::Mutation;
 use Test::Mutation::Host;
 
 # Every construct that the corpus shows is either mutated or left alone for a stated reason.
@@ -126,6 +129,26 @@ subtest 'the gate rejects an undecided key, a declined key with a mutant, and a 
       'a census without a gap';
     my %refused = ( observed => { 'operator **' => 2 }, claimed => {}, refused => { 'operator **' => 1 } );
     is Census::undecided( \%refused, {} ), [], 'a key whose changes the generator refuses with a rule has its reason';
+};
+
+subtest 'removing the implicit return of the parent process ID is detected' => sub {
+    my $source = Oracle::file_source('t/corpus/findings/ParentProcess.pm');
+    my $census = census_of( $source->text );
+    is $census->{claimed}{'word getppid'}, 1, 'the lookup is the head of its statement';
+    my $root = File::Temp::tempdir( CLEANUP => 1 );
+    write_file( "$root/lib/ParentProcess.pm", $source->text );
+    write_file( "$root/t/parent.t",           <<'TEST' );
+use Test::More tests => 1;
+use ParentProcess;
+is ParentProcess::parent_pid(), getppid(), 'the parent PID is returned';
+TEST
+    my ($remove) = grep { $_->mutator eq 'statement-removal' && $_->original eq 'getppid()' }
+      Test::Mutation::mutants( root => $root )->@*;
+    ok $remove, 'the generator removes the implicit return' or return;
+    is $remove->replacement, q{}, 'the empty body returns undef in scalar context';
+    my ($result) = run_fixture( $root, cache => 0, jobs => 1, equivalence => 0, mutant => [ $remove->id ] );
+    is $result->baseline_failures,                  [], 'the project first returns the actual parent PID';
+    is [ $result->entries->[0]->@{qw(status by)} ], [ 'Killed', 't/parent.t' ], 'the test detects the missing PID';
 };
 
 subtest 'a statement that no mutant touches counts for its class' => sub {
