@@ -6,6 +6,7 @@ use ExtUtils::MM     ();
 use File::Copy       ();
 use File::Path       ();
 use File::Temp       ();
+use JSON::PP         ();
 use lib 't/lib', 't/e2e/lib';
 use Fixture qw(write_file);
 use Gate;
@@ -158,6 +159,35 @@ subtest 'the verified output waits for both platforms and names one immutable ar
     is $download->{with}{'digest-mismatch'}, 'error', 'a transport digest mismatch fails verification';
     my ($controller) = grep { ( $_->{with}{path} || q{} ) eq 'controller' } ( $verified->{steps} || [] )->@*;
     is $controller->{with}{ref}, q{${{ github.workflow_sha }}}, 'archive verification runs the trusted controller';
+};
+
+subtest 'a retried verification rejects artifacts from other builds' => sub {
+    my $script = step( $jobs->{verified}, qr/gh api/ );
+    ok length($script), 'the verifier checks a GitHub artifact receipt' or return;
+    executable( "$scratch/bin/gh", "#!/bin/sh\nprintf '%s\\n' \"\$RECEIPT\"\n" );
+    local $ENV{PATH}               = "$scratch/bin:$ENV{PATH}";
+    local $ENV{SOURCE_SHA}         = 'ab' x 20;
+    local $ENV{ARTIFACT_ID}        = 55;
+    local $ENV{GITHUB_REPOSITORY}  = 'fixture/distribution';
+    local $ENV{GITHUB_RUN_ID}      = 11;
+    local $ENV{GITHUB_RUN_ATTEMPT} = 2;
+    local $ENV{BUILD_ATTEMPT}      = 1;
+    my %receipt = (
+        name         => "cpan-$ENV{SOURCE_SHA}-11-1",
+        id           => 55,
+        workflow_run => { id => 11 },
+        expired      => JSON::PP::false,
+    );
+    local $ENV{RECEIPT} = JSON::PP->new->encode( \%receipt );
+    is system( 'bash', '-euo', 'pipefail', '-c', $script ), 0,
+      'retrying macOS can reuse the exact successful Linux artifact';
+
+    for my $mismatch ( [ id => 56 ], [ workflow_run => { id => 12 } ], [ expired => JSON::PP::true ],
+        [ name => 'other' ] )
+    {
+        local $ENV{RECEIPT} = JSON::PP->new->encode( { %receipt, @$mismatch } );
+        isnt system( 'bash', '-euo', 'pipefail', '-c', $script ), 0, 'a conflicting receipt is rejected';
+    }
 };
 
 subtest 'the release test rejects shard numbers in the measured environment' => sub {

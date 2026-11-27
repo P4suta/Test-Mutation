@@ -174,6 +174,7 @@ jobs:
     timeout-minutes: 90
     outputs:
       archive_sha256: ${{ steps.tested.outputs.sha256 }}
+      build_attempt: ${{ steps.tested.outputs.build_attempt }}
       artifact_id: ${{ steps.upload.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -199,7 +200,7 @@ jobs:
           test -f "$archive"
           test ! -L "$archive"
           digest=$(sha256sum -- "$archive")
-          printf 'archive=%s\nsha256=%s\n' "$archive" "${digest%% *}" >> "$GITHUB_OUTPUT"
+          printf 'archive=%s\nsha256=%s\nbuild_attempt=%s\n' "$archive" "${digest%% *}" "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
       - run: mise x -- make disttest
       - run: mise run verify-install
         env:
@@ -251,14 +252,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_ID: ${{ needs.release.outputs.artifact_id }}
+          BUILD_ATTEMPT: ${{ needs.release.outputs.build_attempt }}
         shell: bash
         run: |
           [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
-          name="cpan-$SOURCE_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          [[ "$BUILD_ATTEMPT" =~ ^[1-9][0-9]*$ ]] || exit 1
+          name="cpan-$SOURCE_SHA-$GITHUB_RUN_ID-$BUILD_ATTEMPT"
           gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" |
             jq -se --arg name "$name" --arg run "$GITHUB_RUN_ID" --arg id "$ARTIFACT_ID" '
               length == 1 and (.[0] | .name == $name and (.id | tostring) == $id
-                and (.workflow_run.id | tostring) == $run and .expired == false)'
+                and (.workflow_run.id | tostring) == $run and .expired == false)' > /dev/null
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.workflow_sha }}
