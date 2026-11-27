@@ -1,0 +1,137 @@
+name: Publish the Perl distribution
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      tag:
+        required: true
+        type: string
+      release_id:
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: cpan-publication-${{ inputs.release_id }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.repository == 'P4suta/Test-Mutation' && github.ref == 'refs/heads/main' && github.ref_protected
+    permissions:
+      actions: read  # Verify the run and immutable artifact.
+      contents: read  # Check the selected source and distribution.
+    # GitHub resolves the reusable workflow at the caller's commit.
+    uses: ./.github/workflows/release-gate.yml  # zizmor: ignore[self-repository]
+    with:
+      source_sha: ${{ inputs.source_sha }}
+      version: ${{ inputs.version }}
+
+  publish:
+    name: Publish the verified archive
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment: cpan
+    permissions:
+      actions: read  # Download the tested archive by its ID.
+      contents: write  # Attach the verified archive and publish its draft.
+    env:
+      CPAN_SOURCE_SHA: ${{ inputs.source_sha }}
+      CPAN_TAG: ${{ inputs.tag }}
+      CPAN_VERSION: ${{ inputs.version }}
+      CPAN_RELEASE_ID: ${{ inputs.release_id }}
+      CPAN_ARCHIVE_NAME: ${{ needs.verify.outputs.archive_name }}
+      CPAN_ARCHIVE_SHA256: ${{ needs.verify.outputs.archive_sha256 }}
+    steps:
+      - id: candidate
+        name: Match the verified commit and archive
+        shell: bash
+        env:
+          VERIFIED_SOURCE: ${{ needs.verify.outputs.source_sha }}
+          VERIFIED_VERSION: ${{ needs.verify.outputs.version }}
+          ARTIFACT_ID: ${{ needs.verify.outputs.artifact_id }}
+        run: |
+          if [[ "$CPAN_SOURCE_SHA" != "$VERIFIED_SOURCE" || "$CPAN_VERSION" != "$VERIFIED_VERSION" ]]; then
+            echo "The verified commit or version differs from the release proposal." >&2
+            exit 1
+          fi
+          if [[ ! "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ || "$CPAN_ARCHIVE_NAME" != "Test-Mutation-$CPAN_VERSION.tar.gz" ]]; then
+            echo "The release gate did not identify the expected distribution archive." >&2
+            exit 1
+          fi
+          printf 'CPAN_CANDIDATE_DIR=%s/cpan-candidate\nCPAN_STAGING_DIR=%s/cpan-staged\n' \
+            "$RUNNER_TEMP" "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: xt/release-publish
+      - name: Compile the release commands from protected main
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/release-bin"
+          for command in draft pause; do
+            rustc --edition=2021 -D warnings "xt/release-publish/$command.rs" -o "$RUNNER_TEMP/release-bin/$command"
+          done
+          printf '%s/release-bin\n' "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.verify.outputs.artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/cpan-candidate
+      - id: stage
+        name: Attach or recover the verified archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: draft stage >> "$GITHUB_OUTPUT"
+      - id: credential
+        if: steps.stage.outputs.action == 'prepare'
+        uses: DopplerHQ/secrets-fetch-action@451892f16195f9ac360e1a5bcbf0b5fd0e957534 # v2.0.0
+        with:
+          auth-method: token
+          doppler-token: ${{ secrets.DOPPLER_TOKEN }}
+          inject-env-vars: false
+      - id: preflight
+        name: Check token delivery and indexing permissions
+        if: steps.stage.outputs.action == 'prepare'
+        env:
+          PAUSE_TOKEN: ${{ steps.credential.outputs.PAUSE_TOKEN }}
+        run: pause preflight
+      - id: claim
+        name: Reserve a single submission
+        if: steps.stage.outputs.action == 'prepare'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: draft claim >> "$GITHUB_OUTPUT"
+      - id: submit
+        name: Submit the original archive to PAUSE
+        if: steps.claim.outputs.action == 'submit'
+        env:
+          PAUSE_TOKEN: ${{ steps.credential.outputs.PAUSE_TOKEN }}
+          ORIGINAL_SHA256: ${{ steps.stage.outputs.sha256 }}
+        run: pause publish "$CPAN_STAGING_DIR/$CPAN_ARCHIVE_NAME" "$ORIGINAL_SHA256"
+      - id: reconcile
+        name: Wait for the matching public archive
+        shell: bash
+        env:
+          ORIGINAL_SHA256: ${{ steps.stage.outputs.sha256 }}
+        run: |
+          for ((attempt=1; attempt<=60; attempt++)); do
+            if pause reconcile "$CPAN_STAGING_DIR/$CPAN_ARCHIVE_NAME" "$ORIGINAL_SHA256"; then exit 0; else status=$?; fi
+            if [[ "$status" != 3 ]]; then exit "$status"; fi
+            if (( attempt < 60 )); then sleep 20; fi
+          done
+          exit 3
+      - id: finish
+        name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: draft finish

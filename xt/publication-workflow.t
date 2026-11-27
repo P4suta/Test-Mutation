@@ -1,11 +1,11 @@
 use v5.36;
 use Test2::V0;
-use CPAN::Meta::YAML ();
-use File::Temp       ();
+use YAML::PP   ();
+use File::Temp ();
 
 my $path = '.github/workflows/publish-cpan.yml';
 ok -f $path, 'the Perl publication workflow exists' or bail_out('missing publication workflow');
-my $workflow = CPAN::Meta::YAML->read($path)->[0];
+my $workflow = YAML::PP->new( schema => ['Failsafe'] )->load_file($path);
 my $gate     = $workflow->{jobs}{verify};
 my $job      = $workflow->{jobs}{publish};
 my @steps    = $job->{steps}->@*;
