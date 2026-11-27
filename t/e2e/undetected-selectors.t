@@ -5,6 +5,9 @@ use lib 't/e2e/lib', 't/lib';
 use Capability;
 use Fixture qw(ran write_file);
 use Test::Mutation::Report::Json;
+use Test::Mutation::Runner;
+use Test::Mutation::Select;
+use Test::Mutation::Settings;
 use Test::Mutation::Source;
 
 my $root = File::Temp::tempdir( CLEANUP => 1 );
@@ -62,6 +65,13 @@ subtest 'Git line selection intersects the historical scope' => sub {
       'only saved gaps on changed lines are remeasured';
     is ids( run_scope( '--undetected', '--since', 'HEAD', 'lib/Beta.pm' ) ), [],
       'disjoint Git and file scopes yield an empty measurement';
+    write_file( "$root/lib/Beta.pm", "package Beta;\n$changed" );
+    my $config    = Test::Mutation::Settings::of_call( { root => $root, undetected => 1, since => 'HEAD', jobs => 1 } );
+    my $selection = Test::Mutation::Select::resolve( config => $config, operands => ['lib/Alpha.pm'], read_only => 1 );
+    my $rechecked = Test::Mutation::Runner::run( $config, sub { }, { selection => $selection } );
+    is ids($rechecked), [ map { $_->id } @third ],
+      'the runner keeps only the changed line in the previously selected file';
+    is $rechecked->selection->{paths}, { 'lib/Alpha.pm' => [] }, 'the report retains the planned file scope';
 };
 subtest 'a stale gap is diagnosed only inside its requested scope' => sub {
     my $stale = $alpha[0];
