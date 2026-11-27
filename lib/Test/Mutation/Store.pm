@@ -131,8 +131,10 @@ sub transaction ( $db, $operation ) {
 }
 
 sub _connect ($path) {
+    my $uri = $path;
+    $uri =~ s/([%;?#])/sprintf '%%%02X', ord $1/ge;
     my $db = DBI->connect(
-        "dbi:SQLite:dbname=$path",
+        "dbi:SQLite:uri=file:$uri",
         undef, undef,
         {
             RaiseError          => 1,

@@ -29,6 +29,12 @@ is Test::Mutation::Store::load($database), { first => $record, second => $record
 my $db = DBI->connect( "dbi:SQLite:dbname=$database", undef, undef, { RaiseError => 1, PrintError => 0 } );
 is $db->selectcol_arrayref('SELECT id FROM verdict ORDER BY id'), [qw(first second)],
   'the driver persists a separately addressable row for each verdict';
+subtest 'cache paths preserve filename punctuation' => sub {
+    my $literal = "$directory/cache;name=100%24?#/measurement.sqlite";
+    Test::Mutation::Store::save( $literal, { punctuated => $record } );
+    ok -f $literal, 'the database occupies the complete requested path';
+    is Test::Mutation::Store::load($literal), { punctuated => $record }, 'the requested database contains the verdict';
+};
 subtest 'concurrent writers publish only committed observations' => sub {
     my $path = "$directory/concurrent/measurement.sqlite";
     pipe my $start, my $signal or die "pipe: $!";
