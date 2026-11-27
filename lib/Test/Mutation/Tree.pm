@@ -27,8 +27,10 @@ sub make ($paths) {
 sub _make ($path) {
     return 0 if -d $path;
     my $made = _make( File::Basename::dirname($path) );
-    mkdir $path or Test::Mutation::Error::raise( 'directory-uncreatable', path => $path, reason => "$!" );
-    return $made + 1;
+    return $made + 1 if mkdir $path;
+    my $reason = "$!";
+    return $made if $!{EEXIST} && -d $path;
+    return Test::Mutation::Error::raise( 'directory-uncreatable', path => $path, reason => $reason );
 }
 
 signature_for temporary => ( positional => [ Str, Str ], returns => Str );
