@@ -65,6 +65,9 @@ subtest 'a position must belong to its stated line or the end of the file' => su
         is $source->offset_within_source( 4, 1 ),  undef, 'a missing line has no offset';
         is $source->offset_within_source( 1, 10 ), undef, 'a column beyond its line has no offset';
     }
+    my $source = Test::Mutation::Source->new( path => 'x', text => "a\nb", encoding => 'UTF-8' );
+    is $source->offset_within_source( 1, 3 ), undef, 'the column after a newline belongs to the next line';
+    is $source->offset_within_source( 2, 3 ), undef, 'the column after the end-of-file position has no offset';
 };
 
 subtest 'replace_span changes the span alone' => sub {
