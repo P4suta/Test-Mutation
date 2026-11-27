@@ -66,8 +66,8 @@ sub entries ( $config, $sources, $mutants ) {
     my ($measured) = $db->selectrow_array( 'SELECT 1 FROM measurement WHERE project = ? LIMIT 1', undef, $project );
     return unless $measured;
     my $latest = $db->prepare(
-        'SELECT observation.data, measurement.finished FROM observation JOIN measurement USING(run)
-         WHERE project = ? AND id = ? AND source = ? ORDER BY finished DESC, run DESC LIMIT 1'
+        'SELECT observation.data, measurement.finished FROM observation JOIN measurement USING(run)'
+          . ' WHERE project = ? AND id = ? AND source = ? ORDER BY finished DESC, run DESC LIMIT 1'
     );
     my ( %digests, %entries );
 
