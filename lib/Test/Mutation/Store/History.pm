@@ -91,19 +91,22 @@ sub undetected ($config) {
     return unless $config->cache && -f $path;
     my $db      = Test::Mutation::Store::database($path);
     my $project = Cwd::abs_path( $config->root );
-    my ($scope) = $db->selectrow_array(
-        'SELECT run FROM measurement WHERE project = ? AND anchor = 1 ORDER BY finished DESC, run DESC LIMIT 1',
-        undef, $project );
-    return unless defined $scope;
-    return $db->selectall_arrayref( <<'SQL', { Slice => {} }, $scope, $project );
-SELECT member.id, member.path, member.source FROM observation member
-WHERE member.run = ? AND (
-    SELECT evidence.status FROM observation evidence JOIN measurement USING (run)
-    WHERE evidence.id = member.id AND evidence.source = member.source AND project = ? AND complete = 1
-    ORDER BY finished DESC, run DESC LIMIT 1
-) IN ('Survived', 'NoCoverage')
-ORDER BY member.ordinal
+    my $rows    = $db->selectall_arrayref( <<'SQL', { Slice => {} }, $project );
+WITH scope AS (
+    SELECT run, project FROM measurement WHERE project = ? AND anchor = 1 ORDER BY run DESC LIMIT 1
+), gaps AS (
+    SELECT member.id, member.path, member.source, member.ordinal FROM scope JOIN observation member USING(run)
+    WHERE (
+        SELECT evidence.status FROM observation evidence JOIN measurement USING(run)
+        WHERE evidence.id = member.id AND evidence.source = member.source AND evidence.run >= scope.run
+          AND measurement.project = scope.project AND complete = 1
+        ORDER BY evidence.run DESC LIMIT 1
+    ) IN ('Survived', 'NoCoverage')
+)
+SELECT gaps.id, gaps.path, gaps.source FROM scope LEFT JOIN gaps ON 1 ORDER BY gaps.ordinal
 SQL
+    return unless @$rows;
+    return defined $rows->[0]{id} ? $rows : [];
 }
 
 1;

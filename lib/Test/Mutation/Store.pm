@@ -155,7 +155,7 @@ sub database ($path) {
             $db->do(
                 'CREATE TABLE measurement (run INTEGER PRIMARY KEY, project TEXT, finished REAL, anchor INTEGER, complete INTEGER)'
             );
-            $db->do('CREATE INDEX measured_scope ON measurement(project, anchor, finished DESC, run DESC)');
+            $db->do('CREATE INDEX measured_scope ON measurement(project, anchor, run DESC)');
             $db->do(
                 'CREATE TABLE observation (run INTEGER, ordinal INTEGER, id TEXT, path TEXT, source TEXT, status TEXT, data TEXT, PRIMARY KEY(run, id))'
             );

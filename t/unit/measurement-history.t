@@ -31,6 +31,11 @@ is Test::Mutation::Store::History::undetected($config), [ $gap->( $whole->entrie
 my $empty = Test::Mutation::Result->new( $whole->%*, entries => [], finished => 106 );
 Test::Mutation::Store::History::record( $config, $empty, 1 );
 is Test::Mutation::Store::History::undetected($config), [], 'a completed empty scope is distinct from missing history';
+my $merged =
+  Test::Mutation::Result->new( $whole->%*, entries => [ $whole->entries->[0] ], started => 80, finished => 90 );
+Test::Mutation::Store::History::record( $config, $merged, 1 );
+is Test::Mutation::Store::History::undetected($config), [ $gap->( $whole->entries->[0] ) ],
+  'merging older observed parts establishes the latest completed scope';
 my $off = Test::Mutation::Settings::of_call( { root => $root, cache => 0 } );
 is Test::Mutation::Store::History::undetected($off), undef, 'disabling the cache bypasses saved history';
 done_testing;
