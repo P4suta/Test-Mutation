@@ -1,5 +1,8 @@
 use v5.36;
 use Test2::V0;
+use File::Temp ();
+use IO::Handle ();
+use IO::Select ();
 use lib 't/contract/lib', 't/e2e/lib', 't/lib';
 use Gate;
 use Invariants;
@@ -8,6 +11,7 @@ use Space;
 use World;
 use Test::Mutation::CLI;
 use Test::Mutation::Runner;
+use Test::Mutation::Source;
 use Test::Mutation::Status;
 
 # S7, the progress: every sequence of up to four statuses, on a terminal and in a log.
@@ -153,5 +157,57 @@ Gate::findings( 'contract-progress-sum-progress',
 Gate::findings( 'contract-progress-final-progress',
     Space::folded( $violations{'progress-final'} || [], 'statuses', 'streams' ) );
 Gate::findings( 'contract-liveness-progress', Space::folded( $violations{liveness} || [], 'phases', 'streams' ) );
+
+subtest 'the CLI delays only regular file progress during preparation of a copy' => sub {
+    my $observe = sub ( $errors, $options, $event, $read ) {
+        my ( $now, @samples ) = 0;
+        my $world = { World::facts( cwd => $scratch, clock => sub { $now } ), out => $errors, err => $errors };
+        my $run   = Test::Mutation::CLI::plan( argv => [ 'run', '--jobs', '1', @$options ], world => $world );
+        no warnings 'redefine';
+        local *Test::Mutation::Runner::run = sub ( $config, $listen, $settings ) {
+            $listen->( 'phase', { name => 'resolve' } );
+            $now = 2;
+            $listen->( 'phase',    { name    => 'analyze' } );
+            $listen->( 'analyzed', { mutants => 1, files => 1, tests => 1 } );
+            push @samples, $read->();
+            $now = 9;
+            $listen->(@$event);
+            push @samples, $read->();
+            return $nothing;
+        };
+        Test::Mutation::CLI::execute( $run, $world );
+        return \@samples;
+    };
+    my $checked = [ 'phase', { name => 'baseline' } ];
+    for my $case (
+        [ $checked, qr/^Baseline \(0\/1 tests\) [|] 9s elapsed/m ],
+        [ [ 'baseline', { tests => 1, jobs => 1 } ], qr/^The unmodified run passed/m ],
+        [ [ 'phase',    { name  => 'conclude' } ],   qr/^Conclude [|] 9s elapsed/m ],
+        [ [ 'phase',    { name  => 'release' } ],    qr/^Release [|] 9s elapsed/m ],
+      )
+    {
+        my ( $file, $path ) = File::Temp::tempfile( UNLINK => 1 );
+        $file->autoflush(1);
+        my ( $before, $after ) =
+          $observe->( $file, [], $case->[0], sub { Test::Mutation::Source::read_bytes($path) } )->@*;
+        is $before, q{}, 'the file still holds its original contents during preparation';
+        like $after, qr/\AResolve [|] 0s elapsed\nAnalyze [|] 2s elapsed\n/,
+          'the queued events keep their original times';
+        like $after, $case->[1], 'the next safe stage releases the queue';
+        close $file or die $!;
+    }
+    pipe my $reader, my $writer or die $!;
+    $writer->autoflush(1);
+    my $pipe = IO::Select->new($reader);
+    is $observe->( $writer, [], $checked, sub { $pipe->can_read(0) ? 1 : 0 } ), [ 1, 1 ],
+      'a real pipe carries progress as soon as analysis succeeds';
+    close $writer or die $!;
+    close $reader or die $!;
+    my ( $file, $path ) = File::Temp::tempfile( UNLINK => 1 );
+    $file->autoflush(1);
+    is $observe->( $file, ['--in-place'], $checked, sub { -s $path ? 1 : 0 } ), [ 1, 1 ],
+      'in-place runs publish progress to a regular file immediately';
+    close $file or die $!;
+};
 
 done_testing;
