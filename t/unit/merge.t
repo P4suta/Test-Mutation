@@ -273,6 +273,16 @@ subtest 'a set that is not one complete run is refused' => sub {
       qr/invalid shard 3\/2/, 'an empty shard outside the declared split is refused';
 };
 
+subtest 'an interrupted collection can recover every missing shard' => sub {
+    my @reports = map { part( "$_/8", $_ <= 6 ? [ entry( $_, 'Killed' ) ] : [] ) } 1 .. 8;
+    my @held    = @reports[ 6, 0, 3 ];
+    like Raised::message( sub { merged(@held) } ), qr/\Aparts 2, 3, 5, 6, and 8 of 8 are missing/,
+      'the diagnostic identifies all missing parts including the empty eighth shard';
+    my $complete = merged( @held, @reports[ 1, 2, 4, 5, 7 ] );
+    is [ map { $_->{mutant}->id + 0 } $complete->entries->@* ], [ 1 .. 6 ],
+      'supplying exactly the listed parts recovers the measured inventory in order';
+};
+
 subtest 'refresh counts distinct compiled changes across both measurements' => sub {
     my $pass = { test => 't/a.t', result => 'pass', served => 1, load_failed => 0, bypassed => 0, syntax => undef };
     my $fail = { $pass->%*, result => 'fail' };
