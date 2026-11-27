@@ -103,6 +103,10 @@ subtest 'a survived mutant shows its place, change, and tests' => sub {
     like $text, qr/^    -     return \$n > 0 \? 1 : 0;$/m,   'the original line';
     like $text, qr/^    \+     return \$n >= 0 \? 1 : 0;$/m, 'the mutated line';
     like $text, qr/^    reached by t\/sign\.t$/m,            'the tests that reached it';
+    my $missing =
+      Test::Mutation::Report::Terminal::render( result( [ entry('Survived') ], sources => {} ), color => 0 );
+    like $missing, qr{\[Survived\]\n    reached by t/sign[.]t$}m,
+      'the coverage evidence follows the heading when source text is unavailable';
 };
 
 subtest 'many changes to one source share its lines' => sub {
