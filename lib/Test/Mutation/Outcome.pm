@@ -5,6 +5,7 @@ use Type::Params    qw(signature_for);
 use Test::Mutation::Exit;
 use Test::Mutation::Message;
 use Test::Mutation::Status;
+use Test::Mutation::Types qw(Assessment);
 
 our $VERSION = '0.001';
 
@@ -17,6 +18,10 @@ my $DECISION = Dict [
 signature_for of => ( positional => [ InstanceOf ['Test::Mutation::Result'], Maybe [Num] ], returns => $DECISION );
 
 sub of ( $result, $floor ) {
+    return _outcome( $result, $floor );
+}
+
+sub _outcome ( $result, $floor, $tally = undef ) {
     my $signal = $result->interrupted;
     return _decision( 'interrupted', $signal, Test::Mutation::Message::text_of( 'interrupted', signal => $signal ) )
       if defined $signal;
@@ -30,7 +35,7 @@ sub of ( $result, $floor ) {
             Test::Mutation::Message::text_of( 'invalid-mutant', id => $mutant->id, path => $mutant->path ) );
     }
 
-    my $tally      = $result->tally;
+    $tally //= $result->tally;
     my $score      = $tally->{score};
     my $counts     = $tally->{counts};
     my $incomplete = grep { $_->incomplete && $counts->{ $_->name } } Test::Mutation::Status::rows()->@*;
@@ -41,14 +46,38 @@ sub of ( $result, $floor ) {
       || !defined $score && $counts->{Timeout};
     my $gated = defined $floor && !defined $result->shard;
     if ( !defined $score ) {
+        my $scope = $result->measured_scope // $result->selection;
         return _decision( 'nothing', 'inconclusive', Test::Mutation::Message::text_of('inconclusive') )
-          if $gated && !keys $result->selection->%*;
+          if $gated && !keys %$scope;
         return _decision( 'nothing', 'success' );
     }
     return _decision( 'measured', 'below-gate',
         Test::Mutation::Message::text_of( 'below-gate', score => sprintf( '%.1f', $score ), gate => $floor ) )
       if $gated && $score < $floor;
     return _decision( 'measured', 'success' );
+}
+
+signature_for assessment =>
+  ( positional => [ InstanceOf ['Test::Mutation::Result'], Maybe [Num] ], returns => Assessment );
+
+sub assessment ( $result, $floor ) {
+    my $tally   = $result->tally;
+    my $outcome = _outcome( $result, $floor, $tally );
+    my $exit    = $outcome->{exit}->name;
+    my $gate =
+       !defined $floor                ? undef
+      : defined $result->shard        ? 'deferred until merge'
+      : $exit eq 'below-gate'         ? 'failed'
+      : $exit ne 'success'            ? 'unavailable'
+      : $outcome->{name} eq 'nothing' ? 'no mutants selected'
+      :                                 'passed';
+    return {
+        $tally->%*,
+        outcome  => $outcome->{name},
+        gate     => $gate,
+        minimum  => defined $floor ? 0 + $floor : undef,
+        exitCode => $outcome->{exit}->code
+    };
 }
 
 sub _decision ( $name, $exit, $diagnostic = undef ) {
@@ -76,5 +105,9 @@ Returns the outcome name, its exit catalog entry and an optional diagnostic.
 An interruption or failing original test takes priority over the mutant verdicts.
 A shard defers its score threshold until the parts have been merged.
 A whole project with no score fails a requested threshold, while an empty narrowed selection succeeds.
+
+=head2 assessment
+
+Returns the measured counts, score, outcome and threshold decision with their exit code.
 
 =cut

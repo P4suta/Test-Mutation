@@ -7,6 +7,7 @@ use Test::Mutation::Runner;
 use Test::Mutation::Select;
 use Test::Mutation::Settings;
 use Test::Mutation::Source;
+use Test::Mutation::Store::Key;
 use Test::Mutation::Workspace;
 
 my $root      = copy_of('calc');
@@ -84,21 +85,25 @@ subtest 'compilation retains the selected interpreter, file and working tree' =>
 };
 
 subtest 'every original compiler observation records the result before the job continues' => sub {
-    my $path = $mutants[0]->path;
+    my $path   = $mutants[0]->path;
+    my $inputs = { '/external/modules' => 'de' x 32 };
     for my $case ( [ 0, 'code', 'hash' ], [ 0, q{}, q{} ], [ 0, '0', 'hash' ], [ 2, 'compiler output', q{} ], ) {
         my ( $exit, $output, $digest ) = @$case;
         my $run    = {};
         my $result = {
-            exit       => $exit,
-            signal     => 0,
-            timed_out  => 0,
-            overflowed => 0,
-            duration   => 2.5,
-            output     => $output,
-            digest     => 'hash'
+            compiler_inputs => $inputs,
+            exit            => $exit,
+            signal          => 0,
+            timed_out       => 0,
+            overflowed      => 0,
+            duration        => 2.5,
+            output          => $output,
+            digest          => 'hash'
         };
         my $task = {
+            env     => { TEST_MUTATION_COMPILER_READS => q{} },
             payload => {
+                compile  => 1,
                 job      => {},
                 kind     => 'code-original',
                 original => $path,
@@ -108,7 +113,8 @@ subtest 'every original compiler observation records the result before the job c
         no warnings 'redefine';
         local *Test::Mutation::Runner::_after_code = sub { return 'handled' };    ## no critic (Variables::ProtectPrivateVars)
         is Test::Mutation::Runner::_after_task( $run, {}, $task, $result ), 'handled', 'the job can resume';
-        is $run->{original_compile}{$path}, { passed => $exit ? 0 : 1, duration => 2.5, code => $digest },
+        is [ $run->{original_compile}{$path}->@{qw(passed duration code inputs opaque)} ],
+          [ $exit ? 0 : 1, 2.5, $digest, $inputs, undef ],
           'syntax and equivalence share the same completed original compiler observation';
         my $shared = $run->{original_compile}{$path};
         delete $task->{payload}{original};
@@ -153,20 +159,27 @@ subtest 'interruptions retain completed verdicts and account for every attempted
     my ( $finished, $started, $repeated ) = @mutants;
     my $done    = { status        => 'Killed', by => 't/known.t' };
     my $entries = { $finished->id => $done };
-    my @jobs    = (
+    my $pass    = sub ($test) {
+        return { test => $test, result => 'pass', served => 1, load_failed => 0, bypassed => 0, syntax => undef };
+    };
+    my $observations = [ [ map { $pass->($_) } qw(t/add.t t/compare.t) ], [ $pass->('t/add.t') ] ];
+    my @unfinished   = (
         { mutant => $finished },
-        { mutant => $started, verdict => { tests => 0 }, tests => [], duration => 0 },
         {
-            mutant   => $repeated,
-            verdict  => { tests => 1 },
-            first    => { tests => 4 },
-            tests    => [qw(t/add.t t/compare.t)],
-            duration => 3
+            mutant       => $repeated,
+            verdict      => { tests => 1 },
+            first        => { tests => 2 },
+            tests        => [qw(t/add.t t/compare.t)],
+            duration     => 3,
+            observations => $observations,
         },
     );
-    Test::Mutation::Runner::_pending_jobs( \@jobs, $entries );
-    is $entries->{ $finished->id }, $done, 'a completed detection retains its test';
-    for my $pair ( [ $started, [], 0, 0 ], [ $repeated, [qw(t/add.t t/compare.t)], 5, 3 ] ) {
+    my @waiting = ( { mutant => $started, verdict => { tests => 0 }, tests => [], duration => 0 } );
+    Test::Mutation::Runner::_pending_jobs( sub { return shift @waiting }, $entries, @unfinished );
+    is $entries->{ $finished->id },               $done,         'a completed detection retains its test';
+    is $entries->{ $repeated->id }{observations}, $observations, 'a partial repeat retains its completed observations';
+
+    for my $pair ( [ $started, [], 0, 0 ], [ $repeated, [qw(t/add.t t/compare.t)], 3, 3 ] ) {
         my ( $mutant, $tests, $count, $duration ) = @$pair;
         my $entry = $entries->{ $mutant->id };
         is [ $entry->@{qw(mutant status reason by covered_by tests_run duration)} ],
@@ -300,6 +313,9 @@ subtest 'a fresh baseline after a cache mismatch supplies every original test fa
       'the report uses the newly measured test and duration';
     is $result->parallel_safe,     0,          'the new observation determines whether tests can run concurrently';
     is $result->baseline_failures, [$failure], 'the failure from the new original run reaches the result';
+    is $result->dependency_digest,
+      Test::Mutation::Store::Key::digest( 't/current.t', Test::Mutation::Store::Key::digest() ),
+      'the dependency fingerprint belongs to the original run that supplied the result';
 };
 
 done_testing;

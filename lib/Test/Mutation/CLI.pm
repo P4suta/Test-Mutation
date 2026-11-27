@@ -22,20 +22,19 @@ use Test::Mutation::Error;
 use Test::Mutation::Exit;
 use Test::Mutation::Host;
 use Test::Mutation::Interrupted;
-use Test::Mutation::Merge;
 use Test::Mutation::Outcome;
 use Test::Mutation::Message;
 use Test::Mutation::Mutator::Catalog;
 use Test::Mutation::Report::GitHub;
-use Test::Mutation::Report::Html;
-use Test::Mutation::Report::Json;
 use Test::Mutation::Report::Patch;
 use Test::Mutation::Report::Results;
 use Test::Mutation::Report::Live;
 use Test::Mutation::Report::Terminal;
-use Test::Mutation::Runner;
+use Test::Mutation::Store::History;
 use Test::Mutation::Select;
 use Test::Mutation::Settings;
+use Test::Mutation::Types qw(PathSelection);
+use POSIX                 ();
 use Test::Mutation::Signals;
 use Test::Mutation::Tree;
 use Test::Mutation::Try;
@@ -84,6 +83,7 @@ my $INVOCATION = $REFUSED | Dict [
     config     => Maybe [ InstanceOf ['Test::Mutation::Config'] ],
     operands   => ArrayRef [Str],
     selection  => Optional [ InstanceOf ['Test::Mutation::Selection'] ],
+    paths      => Optional [PathSelection],
     topic      => Optional [Str],
     processors => Maybe [ Dict [ count => PositiveInt, source => Str ] ],
 ];
@@ -228,11 +228,14 @@ sub _planned ( $argv, $world ) {
     if ( $row->operands eq 'paths' && $plan{operands}->@* ) {
         my $first = $plan{operands}[0];
         _unknown_command($first) if $parsed->{implicit} && $first !~ m{[./:]} && !-e _under( $inside, $first );
+        if ( $command eq 'run' ) {
+            $plan{paths} = Test::Mutation::Select::operand_paths( $plan{config}, $plan{operands} );
+            return \%plan;
+        }
         $plan{selection} = Test::Mutation::Select::resolve(
-            config   => $plan{config},
-            operands => $plan{operands},
-            reports  => $command eq 'run' ? 1 : 0,
-            summary  => $world->{env}{GITHUB_STEP_SUMMARY}
+            config    => $plan{config},
+            operands  => $plan{operands},
+            read_only => 1
         );
     }
     return \%plan;
@@ -306,17 +309,19 @@ sub _first_line ($error) {
 }
 
 sub _run ( $invocation, $world ) {
+    require Test::Mutation::Runner;
     my $config   = $invocation->{config};
     my $listener = _progress( $invocation, $world );
-    my $result   = Test::Mutation::Runner::run( $config, $listener,
-        $invocation->{selection}
-        ? { selection => $invocation->{selection} }
-        : { reports   => 1, summary => $world->{env}{GITHUB_STEP_SUMMARY} } );
+    my $options  = { reports => 1, summary => $world->{env}{GITHUB_STEP_SUMMARY} };
+    $options->{paths} = $invocation->{paths}                      if exists $invocation->{paths};
+    $options          = { selection => $invocation->{selection} } if $invocation->{selection};
+    my $result = Test::Mutation::Runner::run( $config, $listener, $options );
     _report( $result, $config, $world, $listener );
     return _concluded( $result, $config->min_score, $world );
 }
 
 sub _baseline ( $invocation, $world ) {
+    require Test::Mutation::Runner;
     my $config = $invocation->{config};
     my $result = Test::Mutation::Runner::run( $config, _progress( $invocation, $world ), { baseline_only => 1 } );
     say { $world->{out} } 'Baseline: ', _plural( scalar $result->tests->@*, 'test' );
@@ -339,15 +344,18 @@ sub _color ( $config, $world, $terminal ) {
 }
 
 sub _progress ( $invocation, $world ) {
-    return Test::Mutation::Report::Live::listener( $world->{err}, $world->{err_tty},
-        _color( $invocation->{config}, $world, $world->{err_tty} ),
-        $world->{clock}, Test::Mutation::Host::describe( $invocation->{processors} ) );
+    my $file = fileno $world->{err};
+    my $defer =
+      !$invocation->{config}->in_place && !$world->{err_tty} && defined $file && $file >= 0 && -f $world->{err};
+    return Test::Mutation::Report::Live::listener(
+        $world->{err}, $world->{err_tty}, _color( $invocation->{config}, $world, $world->{err_tty} ),
+        $world->{clock},
+        Test::Mutation::Host::describe( $invocation->{processors} ),
+        $defer ? 1 : 0
+    );
 }
 
-my %FILE_REPORT = (
-    json => [ 'mutation.json', \&Test::Mutation::Report::Json::render ],
-    html => [ 'mutation.html', \&Test::Mutation::Report::Html::render ],
-);
+my %FILE_REPORT = ( json => 'mutation.json', html => 'mutation.html' );
 
 sub _report ( $result, $config, $world, $listener = sub { return } ) {
     my %wanted = map { $_ => 1 } $config->format->@*;
@@ -356,7 +364,7 @@ sub _report ( $result, $config, $world, $listener = sub { return } ) {
         color => _color( $config, $world, $world->{out_tty} ),
         low   => $config->threshold_low,
         high  => $config->threshold_high,
-        floor => $config->min_score
+        floor => $result->min_score
     ) if $wanted{terminal};
 
     my @formats = grep { $wanted{$_} } qw(json html);
@@ -370,40 +378,42 @@ sub _report ( $result, $config, $world, $listener = sub { return } ) {
 }
 
 sub _file_reports ( $result, $config, $formats ) {
+    require Test::Mutation::Report::Publication;
     my $directory = $config->report_dir;
     my $target    = File::Spec->rel2abs( $directory, $config->root );
     Test::Mutation::Tree::make($target);
     sysopen my $lock, $target, O_RDONLY
       or Test::Mutation::Error::raise( 'directory-unopenable', path => $directory, reason => "$!" );
     flock $lock, LOCK_EX or Test::Mutation::Error::raise( 'file-unwritable', path => $directory, reason => "$!" );
-    my $saved = _refresh_report( $target, $result );
-    my @written;
+    my %output;
     for my $format (@$formats) {
-        my ( $name, $render ) = $FILE_REPORT{$format}->@*;
-        my $text = $render->( $saved, high => $config->threshold_high, low => $config->threshold_low );
-        _write( "$target/$name", "$directory/$name", '>', $text );
-        push @written, "$directory/$name";
+        my $name = $FILE_REPORT{$format};
+        $output{$format} = _stage_report( "$target/$name", "$directory/$name" );
     }
+    my @thresholds = ( high => $config->threshold_high, low => $config->threshold_low );
+    if ( $output{html} ) {
+        require Test::Mutation::Report::Html;
+        Test::Mutation::Report::Html::stream(
+            $result, @thresholds,
+            write => $output{html}{write},
+            $output{json} ? ( write_json => $output{json}{write} ) : ()
+        );
+    }
+    else {
+        require Test::Mutation::Report::Json;
+        Test::Mutation::Report::Json::stream( $result, @thresholds, write => $output{json}{write} );
+    }
+    _publish_report( $output{$_} ) for @$formats;
+    my %digests = map { $FILE_REPORT{$_} => $output{$_}{digest}->hexdigest } @$formats;
+    Test::Mutation::Report::Publication::record( $config->root, $target, \%digests );
     close $lock or Test::Mutation::Error::raise( 'file-unclosable', path => $directory, reason => "$!" );
-    return @written;
-}
-
-sub _refresh_report ( $directory, $result ) {
-    return $result if defined $result->shard                 || !defined $result->catalog_digest;
-    return $result unless exists $result->selection->{paths} || exists $result->selection->{mutants};
-    return _previous_report(
-        $directory,
-        sub ($prior) {
-            my $combined = Test::Mutation::Merge::refresh( $prior, $result );
-            return $combined == $result ? undef : $combined;
-        }
-    ) || $result;
+    return map { $output{$_}{name} } @$formats;
 }
 
 sub _previous_report ( $directory, $select ) {
     my @reports;
     for my $format (qw(json html)) {
-        my $path = "$directory/$FILE_REPORT{$format}[0]";
+        my $path = "$directory/$FILE_REPORT{$format}";
         my ( $mode, $modified ) = ( Time::HiRes::stat($path) )[ 2, 9 ];
         push @reports, { path => $path, modified => $modified } if defined $mode && S_ISREG($mode);
     }
@@ -418,6 +428,7 @@ sub _previous_report ( $directory, $select ) {
             ($text) = $text =~ m{\Q<script id="report" type="application/json">\E (.+?) </script>}sx;
             next unless defined $text;
         }
+        require Test::Mutation::Report::Json;
         my $parsed = Test::Mutation::Try::attempt( sub { Test::Mutation::Report::Json::parse($text) } );
         next unless exists $parsed->{value};
         my $selected = $select->( $parsed->{value} );
@@ -429,34 +440,50 @@ sub _previous_report ( $directory, $select ) {
 sub _report_to_github ( $result, $world, $config ) {
     my $path = $world->{env}{GITHUB_STEP_SUMMARY};
     if ( defined $path && length $path ) {
-        _write( File::Spec->rel2abs( $path, $config->root ),
-            $path, '>>', Test::Mutation::Report::GitHub::summary( $result, $config->min_score ) );
+        my @reports = map { File::Spec->catfile( $config->report_dir, $FILE_REPORT{$_} ) }
+          grep { exists $FILE_REPORT{$_} } $config->format->@*;
+        open my $file, '>>:encoding(UTF-8)', File::Spec->rel2abs( $path, $config->root )
+          or Test::Mutation::Error::raise( 'file-unwritable', path => $path, reason => "$!" );
+        flock $file, LOCK_EX or Test::Mutation::Error::raise( 'file-unwritable', path => $path, reason => "$!" );
+        print {$file} Test::Mutation::Report::GitHub::summary( $result, $result->min_score, \@reports, -s $file )
+          or Test::Mutation::Error::raise( 'file-unwritable', path => $path, reason => "$!" );
+        close $file or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
     }
     print { $world->{err} } Test::Mutation::Report::GitHub::annotations($result);
     return;
 }
 
-# Writes a text to a file, which an error names as the user knows it.
-sub _write ( $path, $name, $mode, $text ) {
-    if ( $mode eq '>>' ) {
-        open my $file, '>>:encoding(UTF-8)', $path
-          or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
-        print {$file} $text or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
-        close $file         or Test::Mutation::Error::raise( 'file-unclosable', path => $name, reason => "$!" );
-        return;
-    }
+sub _stage_report ( $path, $name ) {
+    require Digest::SHA;
+    require Encode;
     $path = Cwd::abs_path($path) if -l $path;
     my $temporary = File::Temp->new( DIR => File::Basename::dirname($path), PERMS => oct '666' );
     if ( -f $path ) {
         chmod( ( stat $path )[2] & oct('777'), $temporary->filename )
           or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
     }
-    binmode $temporary, ':encoding(UTF-8)'
+    binmode $temporary, ':raw'
       or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
-    print {$temporary} $text or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
-    close $temporary         or Test::Mutation::Error::raise( 'file-unclosable', path => $name, reason => "$!" );
-    rename $temporary->filename, $path
-      or Test::Mutation::Error::raise( 'file-unrenamable', path => $name, reason => "$!" );
+    my $digest = Digest::SHA->new(256);
+    return {
+        path   => $path,
+        name   => $name,
+        file   => $temporary,
+        digest => $digest,
+        write  => sub ($chunk) {
+            my $bytes = Encode::encode( 'UTF-8', $chunk );
+            $digest->add($bytes);
+            print {$temporary} $bytes
+              or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
+        }
+    };
+}
+
+sub _publish_report ($output) {
+    my $file = $output->{file};
+    close $file or Test::Mutation::Error::raise( 'file-unclosable', path => $output->{name}, reason => "$!" );
+    rename $file->filename, $output->{path}
+      or Test::Mutation::Error::raise( 'file-unrenamable', path => $output->{name}, reason => "$!" );
     return;
 }
 
@@ -474,25 +501,24 @@ sub _concluded ( $result, $floor, $world ) {
 }
 
 sub _list ( $invocation, $world ) {
-    my $selected = $invocation->{selection};
-    my $analysis =
-      $selected
-      ? { mutants => $selected->mutants, sources => $selected->sources }
-      : Test::Mutation::Runner::analyze( $invocation->{config} );
-    my $previous = _previous_entries( $invocation->{config}, $analysis->{sources}, $analysis->{mutants} );
-    for my $mutant ( $analysis->{mutants}->@* ) {
+    my $selected = $invocation->{selection}
+      || Test::Mutation::Select::resolve( config => $invocation->{config}, read_only => 1 );
+    my $previous = _previous_entries( $invocation->{config}, $selected->sources, $selected->mutants );
+    for my $mutant ( $selected->mutants->@* ) {
         my $entry = $previous->{ $mutant->id };
         say { $world->{out} } Test::Mutation::Report::Results::heading($mutant), _suppression($mutant),
-          $entry ? "  [$entry->{status}]" : q{};
+          $entry ? "  [$entry->{status}] " . _measured_at($entry) : q{};
     }
-    say { $world->{out} } _plural( scalar $analysis->{mutants}->@*, 'mutant' );
+    say { $world->{out} } _plural( scalar $selected->mutants->@*, 'mutant' );
     return 0;
 }
 
 sub _previous_entries ( $config, $sources, $mutants ) {
+    my $indexed = Test::Mutation::Store::History::entries( $config, $sources, $mutants );
+    my %entries = %{ $indexed || {} };
+    my %wanted  = map { $_->id => 1 } grep { !exists $entries{ $_->id } } @$mutants;
+    return \%entries unless keys %wanted;
     my $directory = File::Spec->rel2abs( $config->report_dir, $config->root );
-    my %wanted    = map { $_->id => 1 } $mutants->@*;
-    my %entries;
     _previous_report(
         $directory,
         sub ($prior) {
@@ -500,13 +526,19 @@ sub _previous_entries ( $config, $sources, $mutants ) {
               grep { exists $prior->sources->{$_} && $prior->sources->{$_} eq $sources->{$_}->text }
               keys $sources->%*;
             for my $entry ( $prior->entries->@* ) {
+                next if $entry->{status} eq 'Pending';
                 my $mutant = $entry->{mutant};
-                $entries{ $mutant->id } = $entry if $same{ $mutant->path } && delete $wanted{ $mutant->id };
+                $entries{ $mutant->id } = { %$entry, finished => $prior->finished }
+                  if $same{ $mutant->path } && delete $wanted{ $mutant->id };
             }
             return keys %wanted ? undef : \%entries;
         }
     );
     return \%entries;
+}
+
+sub _measured_at ($entry) {
+    return POSIX::strftime( '%Y-%m-%dT%H:%M:%SZ', gmtime $entry->{finished} );
 }
 
 sub _suppression ($mutant) {
@@ -518,24 +550,30 @@ sub _suppression ($mutant) {
 }
 
 sub _show ( $invocation, $world ) {
-    my $analysis = Test::Mutation::Runner::analyze( $invocation->{config} );
-    my $mutant   = Test::Mutation::Select::by_id( $analysis->{mutants}, $invocation->{operands}[0] );
-    my $previous = _previous_entries( $invocation->{config}, $analysis->{sources}, [$mutant] )->{ $mutant->id };
+    my $selected = Test::Mutation::Select::resolve(
+        config      => $invocation->{config},
+        identifiers => $invocation->{operands},
+        read_only   => 1
+    );
+    my $mutant   = $selected->mutants->[0];
+    my $previous = _previous_entries( $invocation->{config}, $selected->sources, [$mutant] )->{ $mutant->id };
     say { $world->{out} } Test::Mutation::Report::Results::heading($mutant);
     say { $world->{out} } 'Last result: ', $previous ? $previous->{status} : 'unmeasured';
     if ($previous) {
+        say { $world->{out} } 'Measured at: ', _measured_at($previous);
         say { $world->{out} } 'Reached by: ',
           $previous->{covered_by}->@* ? join( ', ', $previous->{covered_by}->@* ) : 'no test';
         say { $world->{out} } "Killed by: $previous->{by}" if defined $previous->{by};
     }
     print { $world->{out} } Test::Mutation::Report::Patch::render(
-        text   => $analysis->{sources}{ $mutant->path }->text,
+        text   => $selected->sources->{ $mutant->path }->text,
         mutant => $mutant
     );
     return 0;
 }
 
 sub _exec ( $invocation, $world ) {
+    require Test::Mutation::Runner;
     my $config = $invocation->{config};
     my ( $identifier, @command ) = $invocation->{operands}->@*;
     my $analysis = Test::Mutation::Runner::analyze($config);
@@ -544,6 +582,7 @@ sub _exec ( $invocation, $world ) {
 }
 
 sub _read_report ( $path, $root ) {
+    require Test::Mutation::Report::Json;
     open my $handle, '<:encoding(UTF-8)', File::Spec->rel2abs( $path, $root )
       or Test::Mutation::Error::raise( 'input-unreadable', path => $path, reason => "$!" );
     local $/ = undef;
@@ -556,12 +595,22 @@ sub _read_report ( $path, $root ) {
 }
 
 sub _merge ( $invocation, $world ) {
+    require Test::Mutation::Merge;
     my $config = $invocation->{config};
-    my $result = Test::Mutation::Merge::merge(
-        [ map { { name => $_, result => _read_report( $_, $config->root ) } } $invocation->{operands}->@* ] );
+    my @parts  = map { { name => $_, result => _read_report( $_, $config->root ) } } $invocation->{operands}->@*;
+    my $result = Test::Mutation::Merge::merge( \@parts, $config->min_score );
     Test::Mutation::Select::outputs( $config, $world->{env}{GITHUB_STEP_SUMMARY} );
     _report( $result, $config, $world );
-    return _concluded( $result, $config->min_score, $world );
+    if ( $config->cache ) {
+        my %measured;
+        for my $part (@parts) {
+            my $shard = $part->{result};
+            $measured{ $_->{mutant}->id } = $shard->finished for $shard->entries->@*;
+        }
+        Test::Mutation::Store::History::record( $config, $result, 1,
+            { completed => Time::HiRes::time(), measured => \%measured } );
+    }
+    return _concluded( $result, $result->min_score, $world );
 }
 
 sub _mutators ( $invocation, $world ) {

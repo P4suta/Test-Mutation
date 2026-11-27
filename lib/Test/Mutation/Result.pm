@@ -8,7 +8,7 @@ use Test::Mutation::Exit;
 use Test::Mutation::Outcome;
 use Test::Mutation::Score;
 use Test::Mutation::Status;
-use Test::Mutation::Types qw(Entry ReportSelection);
+use Test::Mutation::Types qw(Assessment Entry ReportSelection);
 
 our $VERSION = '0.001';
 
@@ -41,7 +41,12 @@ has cache_mismatch => ( is => 'ro', isa => Bool, default => 0 );
 has in_copies      => ( is => 'ro', isa => Bool, default => 0 );
 has shard          => ( is => 'ro', isa => Maybe [ StrMatch [qr{\A[1-9][0-9]*/[1-9][0-9]*\z}] ], default => undef );
 has selection      => ( is => 'ro', isa => ReportSelection, default => sub { {} } );
-has catalog_digest => ( is => 'ro', isa => Maybe [Str], default => undef );
+has measured_scope => ( is => 'ro', isa => Maybe [ReportSelection], default => undef );
+has min_score      => ( is => 'ro', isa => Maybe [Num],             default => undef );
+has catalog_digest => ( is => 'ro', isa => Maybe [Str],             default => undef );
+has measurement_digest => ( is => 'ro', isa => Maybe [ StrMatch [qr/\A[0-9a-f]{64}\z/] ],   default => undef );
+has dependency_digest  => ( is => 'ro', isa => Maybe [ StrMatch [qr/\A[0-9a-f]{64}\z/] ],   default => undef );
+has compiler_inputs    => ( is => 'ro', isa => HashRef [ StrMatch [qr/\A[0-9a-f]{64}\z/] ], default => sub { {} } );
 has inventory =>
   ( is => 'ro', isa => Maybe [ Dict [ mutants => Int, digest => StrMatch [qr/\A[0-9a-f]{64}\z/] ] ], default => undef );
 has started  => ( is => 'ro', isa => Num, required => 1 );
@@ -64,6 +69,12 @@ signature_for tally => (
 
 sub tally ($self) {
     return Test::Mutation::Score::tally( [ map { $_->{status} } $self->entries->@* ] );
+}
+
+signature_for assessment => ( method => 1, positional => [], returns => Assessment );
+
+sub assessment ($self) {
+    return Test::Mutation::Outcome::assessment( $self, $self->min_score );
 }
 
 signature_for invalid_entry => ( method => 1, positional => [], returns => Maybe [Entry] );
@@ -148,15 +159,26 @@ True when the tests ran in copies of the project, and false when they ran in the
 
 The part of the mutants that the run covered, such as C<2/4>, or undefined for a whole run.
 
-=head2 selection, catalog_digest
+=head2 selection, measured_scope, catalog_digest
 
 The selection records the paths, changed lines or mutant identifiers requested by the caller.
+The optional measured scope describes the verdicts included in a refreshed score when it keeps earlier entries.
 The catalog digest identifies the inputs that determine the available mutants.
+
+=head2 min_score
+
+The minimum requested score, or undefined when the caller did not request a threshold.
 
 =head2 inventory
 
-The count of the mutants before the split into parts, and the SHA-256 digest of their identifiers.
-Two results with the same inventory measured the same mutants of the same sources.
+The count of the mutants before the split into parts, and the SHA-256 digest of their identifiers in order.
+
+=head2 measurement_digest, dependency_digest, compiler_inputs
+
+The measurement digest identifies the project inputs, selected tests, interpreter, and execution settings.
+The dependency digest identifies the external libraries observed by the original tests.
+The compiler inputs map external path digests to content digests for libraries used only in standalone compilation.
+Earlier reports lack the evidence needed to merge their shards.
 
 =head2 started, finished
 
@@ -176,6 +198,10 @@ Such a run follows a failure of tests side by side and a change of the project b
 =head2 tally
 
 Returns the status counts and the score, as L<Test::Mutation::Score/tally> does.
+
+=head2 assessment
+
+Returns the tally, outcome, gate, minimum score and command exit code for the measured scope.
 
 =head2 invalid_entry
 

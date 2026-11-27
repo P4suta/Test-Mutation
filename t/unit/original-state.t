@@ -254,7 +254,7 @@ subtest 'in-place controls restore both the project and the effects of the unmod
     ok !-d $workspace->directory, 'the successful release removes its backup directory';
 };
 
-my $fixture_config = Test::Mutation::Settings::of_call( { root => 't/fixtures/calc' } );
+my $fixture_config = Test::Mutation::Settings::of_call( { root => Fixture::copy_of('calc') } );
 my $fixture_mutant = Test::Mutation::Select::resolve( config => $fixture_config )->mutants->[0];
 
 subtest 'each active job serves its installed source from a separate copy' => sub {

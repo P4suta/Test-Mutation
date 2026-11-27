@@ -40,9 +40,10 @@ my %HANDLER = (
     },
 );
 
-signature_for listener => ( positional => [ FileHandle | GlobRef, Bool, Bool, CodeRef, Str ], returns => CodeRef );
+signature_for listener =>
+  ( positional => [ FileHandle | GlobRef, Bool, Bool, CodeRef, Str, Bool, { default => 0 } ], returns => CodeRef );
 
-sub listener ( $stream, $terminal, $color, $clock, $processors ) {
+sub listener ( $stream, $terminal, $color, $clock, $processors, $defer ) {
     my $started = $clock->();
     my $view    = {
         stream      => $stream,
@@ -59,8 +60,14 @@ sub listener ( $stream, $terminal, $color, $clock, $processors ) {
         tested      => 0,
         counts      => {},
     };
+    $view->{pending} = [] if $defer;
     return sub ( $event, $data ) {
         my $handle = $HANDLER{$event} or return;
+        if ( $view->{pending}
+            && ( $event eq 'baseline' || $event eq 'phase' && $data->{name} =~ /\A(?:baseline|conclude|release)\z/ ) )
+        {
+            print {$stream} @{ delete $view->{pending} };
+        }
         return $handle->( $view, $data, $clock->() );
     };
 }
@@ -105,6 +112,10 @@ sub _plural ( $count, $word ) {
 }
 
 sub _message ( $view, $text ) {
+    if ( $view->{pending} ) {
+        push $view->{pending}->@*, "$text\n";
+        return;
+    }
     print { $view->{stream} } "\n" if delete $view->{open};
     print { $view->{stream} } "$text\n";
     return;
@@ -156,6 +167,7 @@ Test::Mutation::Report::Live - show the current measurement phase and work remai
 =head2 listener
 
 Takes the output handle, terminal and color flags, a clock in seconds, and the processor description.
+An optional flag delays the initial log lines until the input copy has been checked or the measurement ends.
 Returns a listener for the measurement events.
 The estimate uses the elapsed time per completed mutant in the current phase.
 The final position uses the counts from the finished measurement.

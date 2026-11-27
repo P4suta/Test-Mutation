@@ -62,6 +62,10 @@ run = "prove -l -j4 xt/discovery"
 description = "Measure the tests of Test::Mutation with its own command"
 run = "perl -Ilib bin/mutation"
 
+[tasks.benchmark-measurement]
+description = "Measure cold and warm runs and five indexed lookups among 8,064 mutants on macOS"
+run = "perl xt/bin/benchmark-measurement"
+
 [tasks.manual]
 description = "Generate the reference sections of the installed mutation command"
 run = "perl xt/bin/generate-manual"
@@ -96,6 +100,9 @@ run = [
   "mise run check",
   "mise run mutation-gate",
   "mise run release-compatibility",
+  "mise run dist",
+  "make disttest",
+  "mise run verify-install",
 ]
 
 [tasks.release-compatibility]
@@ -127,6 +134,10 @@ run = [
 description = "Pack the distribution archive"
 run = ["perl Makefile.PL", "perl xt/bin/distribution-manifest", "make dist"]
 
+[tasks.verify-install]
+description = "Install the distribution archive in an empty prefix and confirm a repaired test gap"
+run = "prove -lv xt/install"
+
 [tasks.audit]
 description = "Check the locked dependencies against the CPAN security advisories"
 # Modules bundled with the interpreter follow the Perl that runs the tool, so the audit covers the locked distributions.
@@ -136,14 +147,10 @@ run = "cpan-audit --no-corelist deps ."
 description = "Scan the tree for secrets"
 run = "gitleaks dir --no-banner ."
 
+[tasks.check-components]
+description = "Run component tests, discovery, structural checks, and audits"
+depends = ["test", "test-shim", "gate", "discover-fast", "audit", "secrets"]
+
 [tasks.check]
 description = "Run every fast gate"
-depends = [
-  "test",
-  "test-shim",
-  "e2e",
-  "gate",
-  "discover-fast",
-  "audit",
-  "secrets",
-]
+depends = ["check-components", "e2e"]

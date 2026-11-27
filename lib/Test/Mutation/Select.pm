@@ -2,24 +2,24 @@ package Test::Mutation::Select;
 use v5.36;
 use Cwd             ();
 use File::Spec      ();
-use Types::Standard qw(ArrayRef Bool InstanceOf Maybe Optional Str Undef);
+use Types::Standard qw(ArrayRef Bool HashRef InstanceOf Maybe Optional Str Undef);
 use Type::Params    qw(signature_for);
 use Digest::SHA     ();
 use File::Basename  ();
 use POSIX           ();
 use Test::Mutation::Diff;
 use Test::Mutation::Git;
-use Test::Mutation::Mutant::Generator;
 use Test::Mutation::Mutator::Catalog;
 use Test::Mutation::Project;
 use Test::Mutation::Selection;
 use Test::Mutation::Signals;
 use Test::Mutation::Source;
 use Test::Mutation::Suppression;
-use Test::Mutation::Syntax::PPI;
 use Test::Mutation::Error;
 use Test::Mutation::Types qw(PathSelection);
 use Test::Mutation::Store::Key;
+use Test::Mutation::Store;
+use Test::Mutation::Store::Analysis;
 
 our $VERSION = '0.001';
 
@@ -70,16 +70,31 @@ signature_for resolve => (
     named => [
         config   => InstanceOf ['Test::Mutation::Config'],
         paths    => Optional [ Maybe [PathSelection] ],
+        changed  => Optional [ Maybe [PathSelection] ],
         operands => ArrayRef [Str],
         { default => sub { [] } },
         baseline_only => Bool,
         { default => 0 },
+        read_only => Bool,
+        { default => 0 },
+        identifiers      => Optional [ ArrayRef [Str] ],
+        historical_paths => HashRef [Str],
+        { default => sub { {} } },
         reports => Bool,
         { default => 0 },
         summary => Optional [ Maybe [Str] ],
     ],
     returns => InstanceOf ['Test::Mutation::Selection'],
 );
+
+signature_for operand_paths => (
+    positional => [ InstanceOf ['Test::Mutation::Config'], ArrayRef [Str] ],
+    returns    => PathSelection
+);
+
+sub operand_paths ( $config, $operands ) {
+    return paths( $config->root, $operands, _files( $config, $config->root, 'source', {} ) );
+}
 
 sub resolve ($arg) {
     my $config = $arg->config;
@@ -97,17 +112,23 @@ sub resolve ($arg) {
     );
     my ( $program, $version ) = _interpreter( $root, $config->perl );
     my %matches;
-    my $files    = _files( $config, $root, 'source', \%matches );
-    my $tests    = _files( $config, $root, 'test',   \%matches );
-    my $changed  = defined $config->since ? Test::Mutation::Git::changed( $root, $config->since ) : undef;
-    my $paths    = $arg->operands->@*     ? paths( $root, $arg->operands, $files )                : $arg->paths;
+    my $files   = _files( $config, $root, 'source', \%matches );
+    my $tests   = _files( $config, $root, 'test',   \%matches );
+    my $changed = $arg->changed
+      // ( defined $config->since ? Test::Mutation::Git::changed( $root, $config->since ) : undef );
+    my $paths    = $arg->operands->@* ? paths( $root, $arg->operands, $files ) : $arg->paths;
+    my $prefixes = $arg->identifiers || $config->mutant;
+    my @pending;
     my $analysis = _analysis(
         $config, $files,
         $mutators,
         {
             root          => $root,
+            pending       => \@pending,
+            read_only     => $arg->read_only,
+            prefixes      => $prefixes,
             version       => $version,
-            paths         => $paths,
+            paths         => $arg->identifiers && !@$prefixes ? {} : $paths,
             changed       => $changed,
             report_inputs => $arg->reports,
             baseline_only => $arg->baseline_only
@@ -115,16 +136,7 @@ sub resolve ($arg) {
     );
     my @mutants = $analysis->{mutants}->@*;
 
-    if ( $config->mutant->@* ) {
-        my %wanted;
-        for my $prefix ( $config->mutant->@* ) {
-            Test::Mutation::Error::raise( 'mutant-unknown', identifier => $prefix ) if length($prefix) < 4;
-            my $id = by_id( \@mutants, $prefix )->id;
-            $wanted{$id} = 1;
-            $matches{mutant}{$prefix} = [$id];
-        }
-        @mutants = grep { $wanted{ $_->id } } @mutants;
-    }
+    @mutants = _named( $arg, $prefixes, \@mutants, \%matches ) if @$prefixes;
     my $inventory =
       { mutants => scalar @mutants, digest => Digest::SHA::sha256_hex( join "\n", map { $_->id } @mutants ) };
     if ( defined $config->shard ) {
@@ -141,7 +153,8 @@ sub resolve ($arg) {
         Test::Mutation::Store::Key::digest( map { $_->name } @$mutators ),
         map { ( $_, $digests->{$_} ) } sort keys %$digests
     );
-    outputs( $config, $arg->summary ) if $arg->reports;
+    outputs( $config, $arg->summary )                                                           if $arg->reports;
+    Test::Mutation::Store::Analysis::publish( Test::Mutation::Store::path($config), \@pending ) if @pending;
     return Test::Mutation::Selection->new(
         $analysis->%*,
         project        => $root,
@@ -159,6 +172,44 @@ sub resolve ($arg) {
               qw(source source-exclude test test-exclude since mutant enable disable profile shard)
         ) ? 1 : 0,
     );
+}
+
+sub _named ( $arg, $prefixes, $mutants, $matches ) {
+    my %wanted;
+    my $current = _matches_by_prefix( $prefixes, $mutants );
+    for my $prefix (@$prefixes) {
+        Test::Mutation::Error::raise( 'mutant-unknown', identifier => $prefix )
+          if !$arg->identifiers && length($prefix) < 4;
+        my $found = $current->{$prefix};
+        unless (@$found) {
+            my @stale = grep { index( $_, $prefix ) == 0 } keys $arg->historical_paths->%*;
+            Test::Mutation::Error::raise( 'mutant-ambiguous', identifier => $prefix ) if @stale > 1;
+            Test::Mutation::Error::raise(
+                'mutant-history-stale',
+                identifier => $stale[0],
+                path       => $arg->historical_paths->{ $stale[0] }
+            ) if @stale;
+            Test::Mutation::Error::raise( 'mutant-unknown', identifier => $prefix );
+        }
+        Test::Mutation::Error::raise( 'mutant-ambiguous', identifier => $prefix ) if @$found > 1;
+        $wanted{ $found->[0] } = 1;
+        $matches->{mutant}{$prefix} = $found;
+    }
+    return grep { $wanted{ $_->id } } @$mutants;
+}
+
+sub _matches_by_prefix ( $prefixes, $mutants ) {
+    my %found   = map { $_ => [] } @$prefixes;
+    my %lengths = map { length($_) => 1 } grep { /\A[0-9a-f]{1,12}\z/ } keys %found;
+    my @lengths = keys %lengths;
+    for my $mutant (@$mutants) {
+        my $id = $mutant->id;
+        for my $length (@lengths) {
+            my $matches = $found{ substr $id, 0, $length } or next;
+            push @$matches, $id if @$matches < 2;
+        }
+    }
+    return \%found;
 }
 
 sub _files ( $config, $root, $name, $matches ) {
@@ -267,56 +318,81 @@ sub _writable_file ($path) {
     return;
 }
 
-sub _analysis ( $config, $files, $mutators, $options ) {
-    my ( $root, $paths, $changed ) = $options->@{qw(root paths changed)};
-    my %chosen = map { $_->name => 1 } $mutators->@*;
-    my $others = [ grep { !$chosen{ $_->name } } Test::Mutation::Mutator::Catalog::mutators()->@* ];
-    my ( %sources, %digests, %left_out, @mutants, @problems, @rejected, @refusals );
-    for my $path ( $files->@* ) {
-        my $selected = ( !$changed || $changed->{$path} ) && ( !$paths || exists $paths->{$path} );
-        next unless $selected || $config->cache || $options->{report_inputs};
-        my $bytes  = Test::Mutation::Source::read_bytes("$root/$path");
-        my $source = Test::Mutation::Source->from_bytes( path => $path, bytes => $bytes );
-        $digests{$path} = Digest::SHA::sha256_hex($bytes);
-        next unless $selected;
-        if ( $options->{baseline_only} ) {
-            $sources{$path} = $source;
-            next;
+sub _parser_versions () {
+    return ( $PPI::VERSION, $PPIx::Regexp::VERSION ) if defined $PPI::VERSION && defined $PPIx::Regexp::VERSION;
+    unless ( grep { ref } @INC ) {
+        require Module::Metadata;
+        my @versions;
+        for my $module (qw(PPI PPIx::Regexp)) {
+            my $version = $module->VERSION;
+            unless ( defined $version ) {
+                my $metadata = Module::Metadata->new_from_module($module);
+                $version = $metadata && $metadata->version;
+            }
+            push @versions, "$version" if defined $version;
         }
-        my $analysis = Test::Mutation::Syntax::PPI::analyze($source);
-
-        # The analysis of a file is the longest step outside the tests, so a signal ends the work after the file it met.
-        Test::Mutation::Signals::check();
-        if ( defined $analysis->{problem} ) {
-            push @problems, { path => $path, problem => $analysis->{problem} };
-            next;
-        }
-        $sources{$path}  = $source;
-        $left_out{$path} = scalar $analysis->{dropped}->@* if $analysis->{dropped}->@*;
-        my $generated = Test::Mutation::Mutant::Generator::generate(
-            source   => $source,
-            analysis => $analysis,
-            mutators => $mutators,
-            perl     => $options->{version}
-        );
-        my $judged = Test::Mutation::Mutant::Generator::generate(
-            source   => $source,
-            analysis => $analysis,
-            mutators => $others,
-            perl     => $options->{version}
-        );
-        push @refusals,
-          Test::Mutation::Suppression::refusals(
-            path           => $path,
-            suppression    => $analysis->{suppressions},
-            mutants        => [ map { $_->{mutants}->@* } $generated, $judged ],
-            require_names  => $config->suppress_require_names,
-            require_reason => $config->suppress_require_reason,
-          )->@*;
-        push @mutants, grep { !$paths || !$paths->{$path}->@* || _in_changed_lines( $paths->{$path}, $_ ) }
-          grep { !$changed || _in_changed_lines( $changed->{$path}, $_ ) } $generated->{mutants}->@*;
-        push @rejected, map { { path => $path, $_->%* } } $generated->{rejected}->@*;
+        return @versions if @versions == 2;
     }
+    require Test::Mutation::Syntax::PPI;
+    return ( $PPI::VERSION, $PPIx::Regexp::VERSION );
+}
+
+sub _file_reader ( $config, $mutators, $options ) {
+    my %chosen     = map { $_->name => 1 } $mutators->@*;
+    my $others     = [ grep { !$chosen{ $_->name } } Test::Mutation::Mutator::Catalog::mutators()->@* ];
+    my $store      = Test::Mutation::Store::path( $config, 0 );
+    my $db         = $config->cache ? Test::Mutation::Store::read_database($store) : undef;
+    my $conditions = Test::Mutation::Store::Key::digest(
+        $VERSION, "$options->{version}", _parser_versions(),
+        $config->suppress_require_names,
+        $config->suppress_require_reason,
+        map { $_->name } @$mutators
+    );
+    return sub ( $batch, $visit ) {
+        my @identities = map { Test::Mutation::Store::Key::digest( $conditions, $_->@{qw(path digest)} ) } @$batch;
+        my $saved = $db ? Test::Mutation::Store::Analysis::read_files( $db, \@identities, $options->{prefixes} ) : {};
+        for my $index ( keys @$batch ) {
+            my ( $path, $source ) = $batch->[$index]->@{qw(path source)};
+            my $identity = $identities[$index];
+            my $file     = $saved->{$identity};
+            unless ($file) {
+                $file = _analyze_file( $config, $source->(), $mutators, $others, $options->{version} );
+                push $options->{pending}->@*, [ $identity, $file ] if $config->cache && !$options->{read_only};
+            }
+            $visit->( $path, $source, $file );
+        }
+        return;
+    };
+}
+
+sub _analysis ( $config, $files, $mutators, $options ) {
+    my ( $paths, $changed ) = $options->@{qw(paths changed)};
+    my %wanted  = map { $_         => 1 } $options->{prefixes}->@*;
+    my %lengths = map { length($_) => 1 } keys %wanted;
+    my ( %sources, %left_out, @mutants, @problems, @rejected, @refusals );
+    my $visit = sub ( $path, $source, $file ) {
+        push @refusals, $file->{refusals}->@*;
+        if ( defined $file->{problem} ) {
+            push @problems, { path => $path, problem => $file->{problem} };
+            return;
+        }
+        my $candidates = $file->{mutants};
+        if (%wanted) {
+            $candidates = [
+                grep {
+                    my $id = $_->id;
+                    grep { $wanted{ substr $id, 0, $_ } } keys %lengths
+                } @$candidates
+            ];
+        }
+        $sources{$path}  = $source->()       if !%wanted || @$candidates;
+        $left_out{$path} = $file->{left_out} if $file->{left_out};
+        push @mutants, grep { !$paths || !$paths->{$path}->@* || _in_changed_lines( $paths->{$path}, $_ ) }
+          grep { !$changed || _in_changed_lines( $changed->{$path}, $_ ) } @$candidates;
+        push @rejected, map { { path => $path, $_->%* } } $file->{rejected}->@*;
+        return;
+    };
+    my $digests = _read_sources( $config, $files, $mutators, $options, \%sources, $visit );
 
     # A run with a broken comment would measure other mutants than the comments ask for, so it measures none.
     Test::Mutation::Error::raise( 'suppressions-invalid', list => join q{; }, map { $_->{text} } @refusals )
@@ -327,16 +403,73 @@ sub _analysis ( $config, $files, $mutators, $options ) {
         unanalyzed => \@problems,
         rejected   => \@rejected,
         left_out   => \%left_out,
-        digests    => \%digests
+        digests    => $digests
     };
 }
 
-sub _in_changed_lines ( $ranges, $mutant ) {
-    my ( $first, $last ) = ( $mutant->from->[0], $mutant->to->[0] );
+sub _read_sources ( $config, $files, $mutators, $options, $sources, $visit ) {
+    my ( $root, $paths, $changed ) = $options->@{qw(root paths changed)};
+    my ( @batch, %digests, $read );
+    my $bytes_held = 0;
+    for my $path ( $files->@* ) {
+        my $selected = ( !$changed || $changed->{$path} ) && ( !$paths || exists $paths->{$path} );
+        next unless $selected || $config->cache || $options->{report_inputs};
+        my $bytes = Test::Mutation::Source::read_bytes("$root/$path");
+        my $decoded;
+        my $source = sub { return $decoded ||= Test::Mutation::Source->from_bytes( path => $path, bytes => $bytes ) };
+        $digests{$path} = Digest::SHA::sha256_hex($bytes);
+        next unless $selected;
+        if ( $options->{baseline_only} ) {
+            $sources->{$path} = $source->();
+            next;
+        }
+        $read ||= _file_reader( $config, $mutators, $options );
+        push @batch, { path => $path, digest => $digests{$path}, source => $source };
+        $bytes_held += length $bytes;
+        next if @batch < 64 && $bytes_held < 1024 * 1024;
+        $read->( \@batch, $visit );
+        @batch      = ();
+        $bytes_held = 0;
+    }
+    $read->( \@batch, $visit ) if @batch;
+    return \%digests;
+}
 
-    # An end at the first column of a line leaves that line outside the mutant.
-    $last-- if $mutant->to->[1] == 1;
-    return Test::Mutation::Diff::touches( $ranges, $first, $last );
+sub _analyze_file ( $config, $source, $mutators, $others, $version ) {
+    require Test::Mutation::Syntax::PPI;
+    require Test::Mutation::Mutant::Generator;
+    my $analysis = Test::Mutation::Syntax::PPI::analyze($source);
+    Test::Mutation::Signals::check();
+    my $file = {
+        problem  => $analysis->{problem},
+        left_out => scalar $analysis->{dropped}->@*,
+        rejected => [],
+        refusals => [],
+        mutants  => []
+    };
+    return $file if defined $analysis->{problem};
+    my ( $generated, $judged ) = map {
+        Test::Mutation::Mutant::Generator::generate(
+            source   => $source,
+            analysis => $analysis,
+            mutators => $_,
+            perl     => $version
+        );
+    } $mutators, $others;
+    $file->{mutants}  = $generated->{mutants};
+    $file->{rejected} = $generated->{rejected};
+    $file->{refusals} = Test::Mutation::Suppression::refusals(
+        path           => $source->path,
+        suppression    => $analysis->{suppressions},
+        mutants        => [ map { $_->{mutants}->@* } $generated, $judged ],
+        require_names  => $config->suppress_require_names,
+        require_reason => $config->suppress_require_reason,
+    );
+    return $file;
+}
+
+sub _in_changed_lines ( $ranges, $mutant ) {
+    return Test::Mutation::Diff::touches( $ranges, $mutant->line_span->@* );
 }
 
 1;
@@ -357,6 +490,10 @@ Test::Mutation::Select - resolve source path and line operands against a project
 
 Resolves the configured globs, changed lines, path operands, suppressions, mutant prefixes, and shard in order.
 Returns a L<Test::Mutation::Selection> before the runner acquires a workspace.
+
+=head2 operand_paths
+
+Resolves path and line operands against the configured source files.
 
 =head2 by_id
 

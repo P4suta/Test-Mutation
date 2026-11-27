@@ -38,7 +38,8 @@ subtest 'a project without a test gets a warning, and its mutants have no covera
     is $result->warnings, ['no test files match'], 'the warning';
     is [ map { [ $_->@{qw(status reason)} ] } $result->entries->@* ], [ ( [ 'NoCoverage', 'unreached' ] ) x 3 ],
       'every mutant is listed without coverage, since no test reaches it';
-    ok !-e "$root/.mutation", 'and no work directory appears';
+    is [ glob "$root/.mutation/*" ], ["$root/.mutation/measurement.sqlite"],
+      'the source index remains available without acquiring a work directory';
 };
 
 subtest 'the analysis keeps the files in the order of their paths and names each file it cannot use' => sub {
@@ -472,10 +473,10 @@ subtest 'the work directory leaves the project with its last file' => sub {
     run_fixture( $root, jobs => 1, in_place => 1, cache => 0 );
     ok !-e "$root/.mutation", 'nor does a run in the project itself';
     run_fixture( $root, jobs => 1, cache => 1 );
-    is [ map { s{\A\Q$root\E/}{}r } glob "$root/.mutation/*" ], [qw(.mutation/cache.json .mutation/cache.json.lock)],
-      'the cache and its writer lock remain in the cache directory';
+    is [ map { s{\A\Q$root\E/}{}r } glob "$root/.mutation/*" ], [qw(.mutation/measurement.sqlite)],
+      'the database remains in the cache directory';
     run_fixture( $root, jobs => 1, cache => 0 );
-    is [ map { s{\A\Q$root\E/}{}r } glob "$root/.mutation/*" ], [qw(.mutation/cache.json .mutation/cache.json.lock)],
+    is [ map { s{\A\Q$root\E/}{}r } glob "$root/.mutation/*" ], [qw(.mutation/measurement.sqlite)],
       'and a later run without a cache keeps it';
 };
 

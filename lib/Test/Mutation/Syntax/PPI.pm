@@ -3,7 +3,7 @@ use v5.36;
 use PPI;
 use PPIx::Regexp;
 use Scalar::Util    qw(refaddr);
-use Types::Standard qw(Bool InstanceOf Int Maybe Optional Tuple);
+use Types::Standard qw(ArrayRef Bool InstanceOf Int Maybe Optional Str Tuple);
 use Type::Params    qw(signature_for);
 use version         ();
 use Test::Mutation::Mutator::Providers;
@@ -146,6 +146,98 @@ sub inside_begin ( $source, $offset ) {
         return 1 if defined $first && defined $last && $first <= $offset && $offset <= $last;
     }
     return 0;
+}
+
+signature_for compile_reads =>
+  ( positional => [ Str, Optional [Bool] ], returns => Maybe [ ArrayRef [ Tuple [ Str, Str ] ] ] );
+
+sub compile_reads ( $source, $loaded = 0 ) {
+    return [] unless $loaded || $source =~ /\b(?:BEGIN|UNITCHECK|CHECK)\b/;
+    my $document = _document($source) or return;
+    return if $loaded && !_fixed_module_load($document);
+    my @reads;
+    for my $phase ( @{ $document->find('PPI::Statement::Scheduled') || [] } ) {
+        next unless $phase->first_token->content =~ /\A(?:BEGIN|UNITCHECK|CHECK)\z/;
+        my $body = $phase->schild(1);
+        return unless $body && $body->isa('PPI::Structure::Block');
+        my %handles;
+        for my $statement ( $body->schildren ) {
+            my $text = join q{ }, map { $_->content } grep { $_->significant } $statement->tokens;
+            $text =~ s/(?: \s+ | \A ) ; \z//x;
+            next if _known_phase_statement( $text, \%handles, \@reads );
+            return;
+        }
+    }
+    if ( $loaded || grep { $_->[0] eq 'env' } @reads ) {
+        return
+          if grep { $_->type ne 'require' && !_fixed_import($_) } @{ $document->find('PPI::Statement::Include') || [] };
+    }
+    return \@reads;
+}
+
+sub _fixed_module_load ($document) {
+    for my $statement ( $document->schildren ) {
+        if ( $statement->isa('PPI::Statement::Sub') ) {
+            my $name = $statement->name || q{};
+            return 0 if $name =~ /(?:\A|::) (?:import|unimport|AUTOLOAD|DESTROY) \z/x;
+        }
+        next if $statement->isa('PPI::Statement::Include') && _fixed_import($statement);
+        next unless _runs_at_load($statement);
+        my @value = grep { !_is_semicolon($_) } $statement->schildren;
+        return 0 unless @value == 1 && $value[0]->isa('PPI::Token::Number');
+    }
+    return 1;
+}
+
+sub _fixed_import ($include) {
+    my $module = $include->module   || q{};
+    return 0 unless length($module) || $include->version;
+    my @arguments = $include->arguments;
+    return 1 unless @arguments;
+    return 1 if @arguments == 1 && $arguments[0]->isa('PPI::Structure::List') && !$arguments[0]->schild(0);
+    my $text = join q{}, map { $_->content } @arguments;
+    return 1 if $module eq 'lib' && $text =~ /\A\$ENV\{\s*[a-zA-Z_]\w*\s*\}\z/;
+    return !grep {
+             !_is_operator( $_, q{,} )
+          && !$_->isa('PPI::Token::Quote::Single')
+          && !$_->isa('PPI::Token::QuoteLike::Words')
+          && !$_->isa('PPI::Token::Number')
+    } @arguments;
+}
+
+sub _known_phase_statement ( $text, $handles, $reads ) {
+    my $variable = qr{\$[a-zA-Z_]\w*};
+    my $literal  = qr{(?: '[^'\\]*' | "[^"\$\@\\]*" )}x;
+    my $operand  = qr{(?: $literal | \$ENV \s \{ \s [a-zA-Z_]\w* \s \} )}x;
+    return 1 if $text =~ /\A (?:unshift|push) \s \@INC \s , \s $operand (?:\s , \s $operand)* \z/x;
+    my $ends       = qr{(?: \s (?:or|\|\|) \s (?:CORE::)?die \s \$! )?}x;
+    my $filehandle = qr{(?: \( \s )? (?:my \s)? ($variable) \s , \s}x;
+    my $read_mode  = qr{(?: '<(?::raw)?' | "<(?::raw)?" ) \s , \s}x;
+    if ( $text =~ m{\A (?:CORE::)?open \s $filehandle $read_mode ($operand) (?: \s \) )? $ends \z}x ) {
+        my ( $handle, $path ) = ( $1, $2 );
+        $handles->{$handle} = 1;
+        push @$reads, $path =~ /\A\$ENV \{ (\w+) \}\z/ ? [ env => $1 ] : [ file => substr( $path, 1, -1 ) ];
+        return 1;
+    }
+    return 1 if $text eq q{} || $text eq 'require constant';
+    my $message   = qr{(?: '[^'\\]*' | "(?: [^"\$\@\\] | \\[nrt"\\] )*" )}x;
+    my $number    = qr{[0-9]+(?:[.][0-9]+)?};
+    my $operation = qr{(?: [+*/%<>-] | [!=<>]= )}x;
+    my $guard     = qr{$number (?: \s $operation \s $number )*}x;
+    return 1 if $text =~ /\A (?:CORE::)?die \s $message \s (?:if|unless) \s $guard \z/x;
+    return 1 if $text =~ /\A constant \s -> \s import \s \( \s $literal \s , \s $variable \s \) \z/x;
+
+    if ( $text =~ /\A(?:CORE::)?close ($variable)$ends\z/ ) {
+        return $handles->{$1};
+    }
+    my $expression = $text;
+    $expression =~ s{\A(?:my )?$variable = }{} or return;
+    my $atom = qr{(?:$variable|\d+(?:[.]\d+)?|$literal)};
+    return 1 if $expression =~ /\A$atom(?: [+\/*%-] $atom)*\z/;
+    if ( $expression =~ /\A (?:$atom \s [+\/*%-] \s)? < \s* ($variable) \s* > \z/x ) {
+        return $handles->{$1};
+    }
+    return;
 }
 
 signature_for witness_offsets =>
@@ -1381,6 +1473,12 @@ C<use v5.40> and a later version import the booleans and the rounding functions 
 =head2 inside_begin
 
 Returns true when the original source offset lies inside a C<BEGIN> block.
+
+=head2 compile_reads
+
+Returns the literal paths and environment-variable names read by a standalone compilation.
+An unrecognized scheduled statement leaves the input set unknown.
+The optional true argument also checks the file-scope statements and import hooks that can execute when Perl loads a module.
 
 =head2 witness_offsets
 

@@ -17,6 +17,7 @@ use Test::Mutation::Report::Terminal;
 use Test::Mutation::Runner;
 use Test::Mutation::Source;
 use Test::Mutation::Status;
+use Test::Mutation::Store::Key;
 
 # S6, the reports: results of every outcome, with each status present and absent, in every shape of source and every format.
 # Every format states the same counts, the report file reads back as it was written, and its score is the score of the run.
@@ -114,105 +115,94 @@ subtest 'a report update excludes a second writer until both formats are saved' 
         die "lock the report directory: $!" unless $!{EWOULDBLOCK} || $!{EAGAIN};
         return 0;
     };
-    my $sample = Samples::result( statuses => ['Killed'], letters => 'latin1' );
-    my $write  = Test::Mutation::CLI->can('_write');
+    my $sample      = Samples::result( statuses => ['Killed'], letters => 'latin1' );
+    my $stage       = Test::Mutation::CLI->can('_stage_report');
+    my $description = Test::Mutation::Mutant->can('description');
+    my $inputs      = Test::Mutation::Store::Key::tree( $root, [], 1 );
+    my $described   = 0;
     my @locks;
     no warnings 'redefine';
-    local *Test::Mutation::Runner::run = sub { return $sample };
-    local *Test::Mutation::CLI::_write = sub ( $path, $name, $mode, $text ) {    ## no critic (Variables::ProtectPrivateVars)
+    local *Test::Mutation::Runner::run         = sub { return $sample };
+    local *Test::Mutation::Mutant::description = sub ($self) { $described++; return $description->($self) };
+    local *Test::Mutation::CLI::_stage_report  = sub ( $path, $name ) {                                        ## no critic (Variables::ProtectPrivateVars)
         push @locks, [ $name, $available->() ];
-        return $write->( $path, $name, $mode, $text );
+        return $stage->( $path, $name );
     };
     my $observed = World::observe( [ 'run', '--report-dir', 'locked-reports', '--format', 'json', '--format', 'html' ],
         cwd => $root );
     is $observed->{exit}, 0, 'the writer saved both reports';
-    my $bytes = Test::Mutation::Source::read_bytes("$directory/mutation.json");
+    is $described,        1, 'publishing the same mutant to JSON and HTML encodes it once';
+    my $bytes      = Test::Mutation::Source::read_bytes("$directory/mutation.json");
+    my $html       = Test::Mutation::Source::read_bytes("$directory/mutation.html");
+    my ($embedded) = $html =~ m{<script id="report" type="application/json">(.+?)</script>}s;
+    is JSON::PP->new->utf8->decode($embedded), JSON::PP->new->utf8->decode($bytes),
+      'the viewer and the standalone report receive the same measurement';
     is JSON::PP->new->utf8->decode($bytes)->{files}{'lib/Sample.pm'}{source}, $sample->sources->{'lib/Sample.pm'},
       'a UTF-8 reader recovers the original accented source from the published report';
     is \@locks, [ [ 'locked-reports/mutation.json', 0 ], [ 'locked-reports/mutation.html', 0 ] ],
       'another writer cannot enter during either write';
     ok $available->(), 'another writer can update the directory after publication';
+    is Test::Mutation::Store::Key::tree( $root, [], 1 ), $inputs, 'publishing both reports adds no test inputs';
 };
 
-subtest 'only a selected whole run with a known catalog reads the previous report' => sub {
+subtest 'publishing a measurement streams its own scope regardless of earlier reports' => sub {
     my $root     = Space::scratch();
-    my $path     = "$root/refresh/mutation.json";
-    my $digest   = 'ac' x 32;
-    my $original = Samples::result( statuses => [qw(Survived Survived)], catalog_digest => $digest );
-    my $bytes    = Test::Mutation::Report::Json::render( $original, high => 80, low => 60 );
+    my $path     = "$root/scoped/mutation.json";
+    my $original = Samples::result( statuses => [qw(Survived Survived)] );
     my $id       = $original->entries->[0]{mutant}->id;
-    my $by_id    = { mutants => [$id] };
+    my $previous = Test::Mutation::Report::Json::render( $original, high => 80, low => 60 );
+    my $document = \&Test::Mutation::Report::Json::document;
     my $parse    = \&Test::Mutation::Report::Json::parse;
-    my $html     = "$root/refresh/mutation.html";
-    my $html_bytes =
-      Encode::encode( 'UTF-8', Test::Mutation::Report::Html::render( $original, high => 80, low => 60 ) );
-    my %reports = ( json => [ $path, $bytes ], html => [ $html, $html_bytes ] );
-    my $other   = Test::Mutation::Report::Json::render(
-        Samples::result( statuses => ['Survived'], catalog_digest => 'other' ),
-        high => 80,
-        low  => 60
-    );
 
     for my $case (
-        [ 'mutant identifier',                $by_id,                                 $digest, undef, 1 ],
-        [ 'source path',                      { paths => { 'lib/Sample.pm' => [] } }, $digest, undef, 1 ],
-        [ 'whole project',                    {},                                     $digest, undef, 0 ],
-        [ 'changed lines',                    { since => 'HEAD' },                    $digest, undef, 0 ],
-        [ 'shard',                            $by_id,                                 $digest, '1/2', 0 ],
-        [ 'older report format',              $by_id,                                 undef,   undef, 0 ],
-        [ 'empty latest report',              $by_id,                                 $digest, undef, 1, q{},    1 ],
-        [ 'malformed latest report',          $by_id,                                 $digest, undef, 1, '{',    2 ],
-        [ 'latest report of another catalog', $by_id,                                 $digest, undef, 1, $other, 2 ],
-        [ 'HTML without an embedded report',  $by_id, $digest, undef, 1, '<html></html>', 1, 'html' ],
+        [ 'whole project', {},                                     undef, $previous ],
+        [ 'named mutant',  { mutants => [$id] },                   undef, $previous ],
+        [ 'source path',   { paths => { 'lib/Sample.pm' => [] } }, undef, q{} ],
+        [ 'changed lines', { since => 'HEAD' },                    undef, '{' ],
+        [ 'shard',         {},                                     '1/2', $previous ],
       )
     {
-        my ( $name, $selection, $catalog, $shard, $refresh, $recent, $expected_reads, $latest_format ) = @$case;
-        for my $format (qw(json html)) {
-            my ( $file, $valid ) = $reports{$format}->@*;
-            my $latest = $format eq ( $latest_format // 'json' );
-            write_file( $file, $latest && defined $recent ? $recent : $valid );
-            my $stamp = $latest ? 2 : 1;
-            utime $stamp, $stamp, $file or die "set the saved report time: $!";
-        }
+        my ( $name, $selection, $shard, $saved ) = @$case;
+        write_file( $path,                        $saved );
+        write_file( "$root/scoped/mutation.html", '<html></html>' );
         my $result = Samples::result(
             statuses       => ['Killed'],
-            sources        => $original->sources,
             selection      => $selection,
-            catalog_digest => $catalog,
             shard          => $shard,
+            catalog_digest => 'ac' x 32,
         );
-        my $reads = 0;
+        my ( $parsed, $built ) = ( 0, 0 );
         {
             no warnings 'redefine';
-            local *Test::Mutation::Report::Json::parse = sub ($text) { $reads++; return $parse->($text) };
-            local *Test::Mutation::Runner::run         = sub { return $result };
-            my $run = World::observe( [ 'run', '--report-dir', 'refresh', '--format', 'json' ], cwd => $root );
-            is $run->{exit}, 0, "$name writes its report";
+            local *Test::Mutation::Runner::run            = sub { return $result };
+            local *Test::Mutation::Report::Json::parse    = sub (@args) { $parsed++; return $parse->(@args) };
+            local *Test::Mutation::Report::Json::document = sub (@args) { $built++;  return $document->(@args) };
+            my $run = World::observe( [ 'run', '--report-dir', 'scoped', '--format', 'json', '--format', 'html' ],
+                cwd => $root );
+            is $run->{exit}, 0, "$name publishes both formats";
         }
-        is $reads, $expected_reads // $refresh, "$name inspects the expected number of saved documents";
-        my $saved = $parse->( Test::Mutation::Source::read_bytes($path) );
-        is [ map { $_->{status} } $saved->entries->@* ], $refresh ? [qw(Killed Survived)] : ['Killed'],
-          "$name saves the measurements in scope";
+        is [ $parsed, $built ], [ 0, 0 ], "$name reads and builds zero whole report documents";
+        my $written = $parse->( Test::Mutation::Source::read_bytes($path) );
+        is [ map { $_->{status} } $written->entries->@* ], ['Killed'], "$name scores only the current observation";
     }
+};
 
-    my $different = Samples::result( statuses => [qw(Killed Killed)], catalog_digest => $digest );
-    write_file( $html,
-        Encode::encode( 'UTF-8', Test::Mutation::Report::Html::render( $different, high => 80, low => 60 ) ) );
-    write_file( $path, $bytes );
-    utime( 2, 2, $html, $path ) == 2 or die "set matching report times: $!";
-    my $latest = Samples::result(
-        statuses       => ['Killed'],
-        sources        => $original->sources,
-        selection      => $by_id,
-        catalog_digest => $digest,
-    );
+subtest 'GitHub uses the remaining space in a shared step summary' => sub {
+    my $root   = Space::scratch();
+    my $file   = "$root/step.md";
+    my @args   = ( 'run', '--github', '--format', 'json', '--report-dir', 'saved' );
+    my $sample = Samples::result( statuses => ['Survived'] );
     no warnings 'redefine';
-    local *Test::Mutation::Runner::run = sub { return $latest };
-    my $run = World::observe( [ 'run', '--report-dir', 'refresh', '--format', 'json' ], cwd => $root );
-    is $run->{exit}, 0, 'reports with the same timestamp can be refreshed';
-    my $saved = $parse->( Test::Mutation::Source::read_bytes($path) );
-    is [ map { $_->{status} } $saved->entries->@* ], [qw(Killed Survived)],
-      'matching timestamps give the JSON measurement priority over its HTML presentation';
+    local *Test::Mutation::Runner::run = sub { return $sample };
+    my $first = World::observe( \@args, cwd => $root, env => { GITHUB_STEP_SUMMARY => $file } );
+    is $first->{exit}, 0, 'the summary is written';
+    like Test::Mutation::Source::read_bytes($file), qr{saved/mutation[.]json}, 'the summary points to the actual file';
+    my $limit = 1024 * 1024;
+    write_file( $file, 'x' x ( $limit - 80 ) );
+    my $repeat = World::observe( \@args, cwd => $root, env => { GITHUB_STEP_SUMMARY => $file } );
+    is $repeat->{exit}, 0, 'a nearly full summary keeps its measurement outcome';
+    ok -s $file <= $limit, 'the append respects the bytes already present';
+    like Test::Mutation::Source::read_bytes($file), qr/Undetected: 1/, 'the compact summary still reports the gap';
 };
 
 my $count = 0;

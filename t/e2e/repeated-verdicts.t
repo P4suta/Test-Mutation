@@ -6,6 +6,7 @@ use lib 't/e2e/lib';
 use Fixture        qw(ran run_fixture write_file);
 use Test::Mutation ();
 use Test::Mutation::Store;
+use Test::Mutation::Report::Json;
 
 my $root = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
 write_file( "$root/lib/Adder.pm", "package Adder;\nsub add_one { return \$_[0] + 1 }\n1;\n" );
@@ -56,11 +57,23 @@ for my $order ( [qw(pass fail)], [qw(fail pass)] ) {
     like $entry->{detail}, qr/t\/add\.t/, 'the entry names the test';
     like $entry->{detail}, qr/pass/i,     'the entry names the passing observation';
     like $entry->{detail}, qr/fail/i,     'the entry names the failing observation';
+    my $portable =
+      Test::Mutation::Report::Json::parse( Test::Mutation::Report::Json::render( $result, high => 80, low => 60 ) );
+
+    for my $observed ( $entry, $portable->entries->[0] ) {
+        is [
+            map {
+                [ map { [ $_->@{qw(test result served)} ] } @$_ ]
+            } @{ $observed->{observations} || [] }
+          ],
+          [ map { [ [ 't/add.t', $_, 1 ] ] } @$order ],
+          'the API and serialized report retain the evidence of both attempts in order';
+    }
     ok !$result->conclusive, 'the run cannot give a score';
     is $result->tally->{valid},                       0, 'the mixed verdict contributes nothing to the score';
     is scalar( grep { $_ eq 'mutant' } $events->@* ), 1, 'one progress event for the final result';
     is $result->reused,                               0, 'both attempts run';
-    is Test::Mutation::Store::load("$root/.mutation/cache.json"), {}, 'the cache has no entry to reuse';
+    is Test::Mutation::Store::load("$root/.mutation/measurement.sqlite"), {}, 'the cache has no entry to reuse';
 }
 
 write_file( $ENV{OBSERVATIONS}, "fail\npass\n" );
@@ -92,7 +105,8 @@ for my $case ( [ 'pass', 'Survived' ], [ 'fail', 'Killed' ] ) {
     write_file( $ENV{OBSERVATIONS}, "pass\nfail\n" );
     my ($mixed) = run_fixture( $root, %settings, cache_dir => $cache_dir );
     is $mixed->entries->[0]{status}, 'NoVerdict', 'new conflicting observations supersede the cached verdict';
-    ok !exists Test::Mutation::Store::load("$root/$cache_dir/cache.json")->{$id}, 'the stale verdict is evicted';
+    ok !exists Test::Mutation::Store::load("$root/$cache_dir/measurement.sqlite")->{$id},
+      'the stale verdict is evicted';
 }
 
 subtest 'an interruption in the second attempt keeps the mutant pending' => sub {
@@ -101,7 +115,7 @@ subtest 'an interruption in the second attempt keeps the mutant pending' => sub 
     my ($partial) = run_fixture( $root, %settings );
     is $partial->interrupted,                               'TERM',           'the run reports the signal';
     is [ $partial->entries->[0]->@{qw(status tests_run)} ], [ 'Pending', 1 ], 'only the completed attempt counts';
-    ok !exists Test::Mutation::Store::load("$root/.mutation/cache.json")->{$id},
+    ok !exists Test::Mutation::Store::load("$root/.mutation/measurement.sqlite")->{$id},
       'the initial failure stays out of the cache';
 };
 

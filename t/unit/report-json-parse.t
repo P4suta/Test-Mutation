@@ -87,6 +87,17 @@ is $back->baseline_failures, [ { test => 't/broken.t', output => q{}, errors => 
 is $back->sources, { 'lib/Calc.pm' => $source }, 'the sources';
 is $back->stats, $result->stats, 'the work of the run';
 
+subtest 'an inconclusive verdict keeps the test that decided its reason' => sub {
+    for my $status (qw(Timeout NoVerdict CompileError)) {
+        my $original = Test::Mutation::Result->new( $result->%*,
+            entries => [ entry( $status, id => '000000000001', by => 't/sign.t' ) ] );
+        my $json = Test::Mutation::Report::Json::render( $original, high => 80, low => 60 );
+        is Test::Mutation::Report::Json::parse($json)->entries->[0]{by}, 't/sign.t',
+          "the JSON report keeps the deciding test for $status";
+        unlike $json, qr/"killedBy"/, 'only a detecting test occupies the schema detection field';
+    }
+};
+
 like Raised::message( sub { Test::Mutation::Report::Json::parse('{') } ), qr/\Athe text is no JSON document/,
   'broken JSON is refused';
 like Raised::message(
@@ -101,6 +112,15 @@ sub refusal ($change) {
     die 'the change matches nothing' if $changed eq $text;
     return Raised::message( sub { Test::Mutation::Report::Json::parse($changed) } );
 }
+
+subtest 'conflicting JSON fields are refused before deciding a verdict' => sub {
+    for my $change ( sub ($t) { $t =~ s/"jobs" : 3/"jobs" : 1, "jobs" : 3/r },
+        sub ($t) { $t =~ s/"status" : "Killed"/"status" : "Survived", "status" : "Killed"/r } )
+    {
+        is refusal($change), 'the report is malformed: a JSON object repeats a field name',
+          'a repeated field has no unambiguous value';
+    }
+};
 
 subtest 'a value of the wrong type is refused with its place in the report' => sub {
     my $mutant = q{->{"files"}->{"lib/Calc.pm"}->{"mutants"}->[0]};
@@ -161,6 +181,8 @@ subtest 'a location outside the source is refused' => sub {
           [ sub ($t) { $t =~ s/"line" : 3/"line" : 6/r }, 'a location lies outside the source of lib/Calc.pm' ],
         'a column after the end of the text' =>
           [ sub ($t) { $t =~ s/"line" : 3/"line" : 5/r }, 'a location lies outside the source of lib/Calc.pm' ],
+        'a column that points into the next line' =>
+          [ sub ($t) { $t =~ s/"column" : 16/"column" : 28/r }, 'a location lies outside the source of lib/Calc.pm' ],
         'an end before its start' =>
           [ sub ($t) { $t =~ s/"column" : 16/"column" : 2/r }, 'a location ends before its start in lib/Calc.pm' ],
     );

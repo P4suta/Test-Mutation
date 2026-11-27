@@ -29,6 +29,24 @@ The terminal report names a change to inspect with C<mutation show> and the test
 C<mutation exec> runs the requested command in a private project copy, including when the measurement configuration selects C<--in-place>.
 L<Test::Mutation> describes the Perl API.
 
+=head1 RECHECK A MISSED CHANGE
+
+Suppose a test expects C<sum(4, 0)> to return 4.
+Replacing addition with subtraction gives the same answer.
+Run C<mutation run> and inspect the patch and the tests under the surviving change.
+Add a test that expects C<sum(4, 1)> to return 5, then run the saved gaps again.
+
+    mutation run --undetected
+
+The command rechecks surviving and uncovered mutants from the last completed run or merge.
+It confirms a detection or survival with a second attempt.
+When no gaps remain, the command reports zero mutants without starting tests.
+Use C<mutation show> or C<mutation list> to read a dated result from another measurement.
+Each new report scores its own selection.
+
+Within the project, the report directory stores output digests in C<.test-mutation-outputs> so copied or edited reports count as test inputs.
+With C<--in-place>, write shard reports outside the project using C<--report-dir> so all shards measure the same inputs.
+
 =head1 PROGRESS
 
 The active phase and the elapsed time go to standard error.
@@ -42,7 +60,7 @@ Use the following setting to keep progress and reports plain.
 
 C<--github> writes workflow annotations to standard error.
 When C<GITHUB_ACTIONS> is C<true>, annotations are enabled by default.
-The C<GITHUB_STEP_SUMMARY> file receives the gate decision, file scores, and measured changes.
+The C<GITHUB_STEP_SUMMARY> file receives the measured scope, score, gate, gap count, examples and paths to the detailed reports.
 Use the following setting to request GitHub output explicitly.
 
     github = true
@@ -335,6 +353,13 @@ The configuration key is C<mutant>.
 The Perl argument is C<mutant>.
 The default is none.
 
+=item C<--undetected, --no-undetected>
+
+Recheck surviving and uncovered mutants from the last completed measurement.
+The configuration key is C<undetected>.
+The Perl argument is C<undetected>.
+The default is off.
+
 =item C<--since>
 
 Cover the lines changed since a Git revision.
@@ -557,6 +582,14 @@ Identifies the measured project inside a running test.
 
 Selects the shim generation for a nested measurement.
 
+=item C<TEST_MUTATION_COMPILER_INPUTS>
+
+The driver sets the path where a standalone Perl compiler records additional library inputs.
+
+=item C<TEST_MUTATION_COMPILER_READS>
+
+Names the file operands that the target Perl resolves during compilation.
+
 =item C<TEST_MUTATION_SPEC>
 
 Names the measurement instructions for the unnumbered shim.
@@ -691,6 +724,16 @@ The command line of merge names no report file.
 C<cannot enter {directory}: {reason}>
 The directory that --root names is absent, is no directory, or refuses the user.
 
+=item C<measurement-history-missing>
+
+C<no completed measurement is available for --undetected. Run mutation run first>
+The command needs a completed scope before it can recheck undetected changes.
+
+=item C<mutant-history-stale>
+
+C<mutant {identifier} is no longer present. Run mutation run {path} to measure the file again>
+The source no longer contains a mutant from the last completed measurement.
+
 =item C<mutant-unknown>
 
 C<no mutant has the identifier {identifier}>
@@ -730,6 +773,11 @@ The revision passed to --since must identify a commit in the project repository.
 
 C<{path} changed after analysis>
 The bytes of the copied source differ from the bytes used to generate its mutants.
+
+=item C<measurement-inputs-changed>
+
+C<measurement inputs changed while preparing the copy ({path}), so rerun the measurement>
+The prepared inputs must match the project data and test bytes recorded during analysis.
 
 =item C<option-unknown>
 
@@ -820,6 +868,11 @@ A report of a merge comes from a run without --shard.
 
 C<{name} names no inventory>
 A report of a merge lacks the count and the digest of the mutants of its run.
+
+=item C<merge-interrupted>
+
+C<{name} was interrupted by SIG{signal}, rerun that shard before merging>
+A shard received a signal before measurement finished.
 
 =item C<merge-failed-baseline>
 

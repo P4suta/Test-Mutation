@@ -107,7 +107,7 @@ PERL
       'the untouched consumer now fails when the original tests run together';
     is $result->stats->{baseline_tests}, 3, 'the trial of the changed test triggers a fresh run of the pair';
     ok !-e "$project/changed-input", 'trial and baseline artifacts stay inside their copies';
-    is Test::Mutation::Store::originals("$project/.mutation/cache.json")->{tests}, {},
+    is Test::Mutation::Store::originals("$project/.mutation/measurement.sqlite")->{tests}, {},
       'a failing original suite removes every stored passing observation';
     is $baseline->()->stats->{baseline_tests}, 2, 'a failed baseline invalidates the old passing observations';
 };
@@ -154,7 +154,7 @@ PERL
         }
         is [ map { $_->{status} } $rechecked->entries->@* ], [ ('Killed') x $count ],
           'the passing original validates the new detections';
-        my $facts = Test::Mutation::Store::originals("$project/.mutation/cache.json");
+        my $facts = Test::Mutation::Store::originals("$project/.mutation/measurement.sqlite");
         ok exists $facts->{tests}{'t/value.t'}{files}{'lib/Rule.pm'},
           'the fresh observation records the new dependency';
         my $reused_result = $measure->();

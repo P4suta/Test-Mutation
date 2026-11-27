@@ -110,6 +110,87 @@ subtest 'the time limit ends a test at its deadline and no earlier' => sub {
     is $clock->asked->[0], 3, 'the first wait lasts until the deadline';
 };
 
+subtest 'a pending checkpoint leaves a silent test under its deadline' => sub {
+    my $late  = gated( 'checkpoint-limit.t', $PLAN, $OK );
+    my @queue = ( task($late) );
+    my ( @checkpoints, @may_wait, $result );
+    my $pending = sub ( $clock, @ ) {
+        push @checkpoints, sub ($blocking) { push @may_wait, $blocking ? 1 : 0; return $blocking };
+        return $clock->move(0.1);
+    };
+    my $clock = ManualClock->new( steps => [ $pending, move_by(3), move_by(0.5) ] );
+    Test::Mutation::Pool::run(
+        jobs        => 1,
+        clock       => $clock,
+        checkpoints => \@checkpoints,
+        next        => sub { shift @queue },
+        done        => sub ( $task, $got ) { $result = $got; return },
+    );
+    is $result->{timed_out}, 1,  'the pool ends the silent test at its deadline';
+    is $may_wait[0],         0,  'the first attempt cannot wait while the test is running';
+    is $may_wait[-1],        1,  'the checkpoint can wait after the test has ended';
+    is \@checkpoints,        [], 'the final checkpoint completes before the pool returns';
+};
+
+subtest 'a follow-up waits for its checkpoint before taking the next slot' => sub {
+    my $quick = script( 'checkpoint-follow.t', $PLAN . $OK );
+    my @queue = map { task( $quick, payload => { name => $_ } ) } qw(first independent);
+    my ( @checkpoints, @spawns, @finished, %work );
+    Test::Mutation::Pool::run(
+        jobs        => 1,
+        work        => \%work,
+        checkpoints => \@checkpoints,
+        next        => sub { shift @queue },
+        done        => sub ( $task, $result ) {
+            push @finished, $task->{payload}{name};
+            return unless $finished[-1] eq 'first';
+            push @checkpoints, sub ($may_wait) { push @spawns, $work{spawns}; return @spawns > 1 };
+            return task( $quick, payload => { name => 'follow' } );
+        },
+    );
+    is \@spawns,   [ 1, 1 ],                       'no follow-up or fresh task starts before the checkpoint succeeds';
+    is \@finished, [qw(first follow independent)], 'the saved follow-up runs before fresh work';
+};
+
+subtest 'a task returned with a new checkpoint waits for that checkpoint' => sub {
+    my $quick = script( 'checkpoint-next.t', $PLAN . $OK );
+    my @queue = ( task($quick) );
+    my ( @checkpoints, @spawns, %work );
+    my $count = Test::Mutation::Pool::run(
+        jobs        => 1,
+        work        => \%work,
+        checkpoints => \@checkpoints,
+        next        => sub {
+            my $task = shift @queue or return;
+            push @checkpoints, sub ($may_wait) { push @spawns, $work{spawns} || 0; return @spawns > 1 };
+            return $task;
+        },
+        done => sub { return },
+    );
+    is \@spawns, [ 0, 0 ], 'the pool waits before spawning a newly supplied task';
+    is $count,   1,        'the deferred task runs once';
+};
+
+subtest 'draining more data does not retry a busy database at the same instant' => sub {
+    my $noisy = script( 'checkpoint-output.t', 'print STDERR "x" x 2_000_000; print "1..1\nok 1\n";' );
+    my @queue = ( task( $noisy, output_limit => 3_000_000 ) );
+    my ( @checkpoints, @attempts, $result );
+    my $pending = sub ( $clock, @ ) {
+        push @checkpoints, sub ($may_wait) { push @attempts, $clock->now if !$may_wait; return $may_wait };
+        return 1;
+    };
+    my $clock = ManualClock->new( steps => [$pending] );
+    Test::Mutation::Pool::run(
+        jobs        => 1,
+        clock       => $clock,
+        checkpoints => \@checkpoints,
+        next        => sub { shift @queue },
+        done        => sub ( $task, $got ) { $result = $got; return },
+    );
+    is $result->{passed}, 1,   'the noisy test finishes while the checkpoint is pending';
+    is \@attempts,        [0], 'all reads at the same instant share one write attempt';
+};
+
 subtest 'a test that ignores the request to end meets force when its grace ends and no earlier' => sub {
     my $deaf    = qq{\$SIG{TERM} = 'IGNORE';\n$NOTED$PLAN};
     my $patient = gated( 'within-grace.t', $deaf, $OK );

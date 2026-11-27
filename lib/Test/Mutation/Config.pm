@@ -43,6 +43,7 @@ has link             => ( is => 'ro', isa => $TYPE{link},             required =
 has keep_work        => ( is => 'ro', isa => $TYPE{keep_work},        required => 1 );
 has mutant           => ( is => 'ro', isa => $TYPE{mutant},           required => 1 );
 has since            => ( is => 'ro', isa => $TYPE{since},            required => 1 );
+has undetected       => ( is => 'ro', isa => $TYPE{undetected},       required => 1 );
 has shard            => ( is => 'ro', isa => $TYPE{shard},            required => 1 );
 has cache            => ( is => 'ro', isa => $TYPE{cache},            required => 1 );
 has cache_dir        => ( is => 'ro', isa => $TYPE{cache_dir},        required => 1 );
@@ -170,6 +171,10 @@ Whether the run keeps its private workspace under the system temporary directory
 
 Mutant identifiers; when set, the run covers these mutants.
 
+=head2 undetected
+
+Whether the command rechecks the remaining gaps in the last completed measurement.
+
 =head2 since
 
 A Git revision; when set, the run covers the lines changed since it.
@@ -181,7 +186,7 @@ N runs with K from 1 to N cover every mutant once.
 
 =head2 cache
 
-Whether the run reuses results from C<cache.json> in the cache directory and writes its own.
+Whether the run reuses verified observations from F<measurement.sqlite> in the cache directory and records its own.
 The store fingerprints the selected interpreter, libraries, configuration, environment, observers, and project files.
 Each test contributes its source and the targets it compiled.
 A run repeats a sample of the reused verdicts and discards the store when the fresh measurement disagrees.

@@ -52,13 +52,36 @@ like $shown, qr/^Last result: Killed$/m, 'a mutant missing from the newest shard
 is $reads, 2, 'the missing mutant requires the other saved format';
 my ( $recent_id, $earlier_id ) = map { $_->id } $recent, $earlier;
 my ( $listed, $list_reads ) = observed('list');
-like $listed, qr/^\Q$recent_id\E  .*  \[Survived\]$/m, 'the earlier report cannot replace the newer verdict';
-like $listed, qr/^\Q$earlier_id\E  .*  \[Killed\]$/m,  'the listing also finds the earlier mutant';
+like $listed, qr/^\Q$recent_id\E  .*  \[Survived\] 1970-01-01T00:01:41Z$/m, 'the newer verdict and its date';
+like $listed, qr/^\Q$earlier_id\E  .*  \[Killed\] 1970-01-01T00:01:41Z$/m,  'the earlier mutant and its date';
 is $list_reads, 2, 'listing every mutant needs both complementary reports';
 write_file( "$directory/mutation.html",
     Encode::encode( 'UTF-8', Test::Mutation::Report::Html::render( $full, high => 80, low => 60 ) ) );
 ( $listed, $list_reads ) = observed('list');
 unlike $listed, qr/\[Survived\]/, 'a complete newer measurement supplies every listed verdict';
 is $list_reads, 1, 'a complete current report satisfies list without decoding the older format';
+
+subtest 'a failed or narrower first measurement preserves observations in earlier report files' => sub {
+    write_file( "$root/t/fail.t", "use Test::More tests => 1;\nfail 'original';\n" );
+    my @args = ( 'run', '--jobs', 1, '--format', 'terminal' );
+    is World::observe( \@args, cwd => $root )->{exit}, 3, 'the original suite fails';
+    ( $shown, $reads ) = observed( 'show', $earlier_id );
+    like $shown, qr/^Last result: Killed$/m, 'a failed baseline leaves the last measured verdict visible';
+    unlink "$root/t/fail.t" or die "unlink failing test: $!";
+    is World::observe( [ @args, '--mutant', $recent_id ], cwd => $root )->{exit}, 0, 'one mutant is remeasured';
+    ( $shown, $reads ) = observed( 'show', $earlier_id );
+    like $shown, qr/^Last result: Killed$/m, 'a different mutant still finds its historical report';
+    ( $shown, $reads ) = observed( 'show', $recent_id );
+    is $reads, 0, 'the indexed mutant needs no reports';
+    ( $listed, $list_reads ) = observed('list');
+    like $listed, qr/^\Q$earlier_id\E .* \[Killed\]/m, 'listing combines indexed and earlier observations';
+    is $list_reads, 1, 'one complete historical report supplies the outstanding identifiers';
+};
+
+my $pending = saved_report( 'Pending', $earlier );
+write_file( "$directory/mutation.html",
+    Encode::encode( 'UTF-8', Test::Mutation::Report::Html::render( $pending, high => 80, low => 60 ) ) );
+( $shown, $reads ) = observed( 'show', $earlier_id );
+like $shown, qr/^Last result: Killed$/m, 'an unfinished report entry preserves the earlier measured verdict';
 
 done_testing;

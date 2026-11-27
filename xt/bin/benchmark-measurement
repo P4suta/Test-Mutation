@@ -1,0 +1,127 @@
+#!perl
+use v5.36;
+use Cwd         ();
+use File::Path  ();
+use File::Temp  ();
+use JSON::PP    ();
+use Time::HiRes qw(clock_gettime CLOCK_MONOTONIC);
+use lib 'xt/lib';
+use MeasurementBenchmark;
+
+my $smoke = @ARGV == 1 && $ARGV[0] eq '--smoke';
+die "usage: perl xt/bin/benchmark-measurement [--smoke]\n" if @ARGV   && !$smoke;
+die "the fixed lookup budget runs on macOS\n"              if !$smoke && $^O ne 'darwin';
+my ( $files, $functions ) = $smoke ? ( 2, 2 ) : ( 64, 42 );
+my $expected = $files * $functions * 3;
+my $scratch  = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+my $root     = "$scratch/project";
+my $library  = Cwd::abs_path('lib');
+my $command  = Cwd::abs_path('bin/mutation');
+my $mib      = 1024 * 1024;
+local $ENV{MUTATION_BENCHMARK_STARTS} = "$scratch/starts";
+local $ENV{LC_ALL}                    = 'C';
+File::Path::make_path( "$root/lib", "$root/t" );
+
+sub write_text ( $path, $text ) {
+    open my $file, '>:raw', $path or die "write $path: $!";
+    print {$file} $text or die "write $path: $!";
+    close $file         or die "close $path: $!";
+    return;
+}
+
+sub read_text ($path) {
+    open my $file, '<:raw', $path or die "read $path: $!";
+    local $/ = undef;
+    my $text = readline $file;
+    close $file or die "close $path: $!";
+    return $text // q{};
+}
+
+sub module_name ($number) { return sprintf 'Arithmetic%03d', $number }
+
+sub source ( $number, $changed ) {
+    my $module = module_name($number);
+    my $text   = "package $module;\n";
+    for my $method ( 1 .. $functions ) {
+        my $operator = $changed && $method == 1 ? q{-} : q{+};
+        $text .= sprintf "sub sum%02d { return \$_[0] %s \$_[1] }\n", $method, $operator;
+    }
+    write_text( "$root/lib/$module.pm", $text . "1;\n" );
+    return;
+}
+
+sub test_file ( $number, $stronger ) {
+    my $module = module_name($number);
+    my $text   = "use $module;\nuse Test::More tests => 1;\n" . <<'COUNTER';
+open my $count, '>>:raw', $ENV{MUTATION_BENCHMARK_STARTS} or die $!;
+print {$count} '+' or die $!;
+close $count or die $!;
+COUNTER
+    my ( $operand, $sum ) = $stronger ? ( 1, 5 ) : ( 0, 4 );
+    write_text( "$root/t/$module.t", $text . "is $module\::sum01(4, $operand), $sum;\n" );
+    return;
+}
+
+sub measure (@args) {
+    my $starts = $ENV{MUTATION_BENCHMARK_STARTS};
+    my $before = -s $starts;
+    my $now    = clock_gettime(CLOCK_MONOTONIC);
+    my $pid    = fork;
+    die "fork: $!" unless defined $pid;
+    if ( !$pid ) {
+        open STDOUT, '>:raw', "$scratch/stdout" or die "redirect standard output: $!";
+        open STDERR, '>:raw', "$scratch/stderr" or die "redirect standard error: $!";
+        my @time = $^O eq 'darwin' ? ('-l') : ( '-f', 'peak_kib %M' );
+        exec {'/usr/bin/time'} '/usr/bin/time', @time, $^X, "-I$library", $command, '--root', $root, @args
+          or die "start the measurement: $!";
+    }
+    waitpid( $pid, 0 ) == $pid or die "wait for the measurement: $!";
+    my $status  = $?;
+    my $seconds = clock_gettime(CLOCK_MONOTONIC) - $now;
+    my $errors  = read_text("$scratch/stderr");
+    die "mutation @args failed ($status):\n$errors" if $status;
+    my ($bytes) = $errors =~ /^\s*(\d+)\s+maximum resident set size$/m;
+    if ( $^O ne 'darwin' ) {
+        my ($kib) = $errors =~ /^peak_kib (\d+)$/m;
+        $bytes = $kib * 1024 if defined $kib;
+    }
+    die "the process reported no peak resident set size\n" unless $bytes;
+    return { seconds => $seconds, bytes => $bytes, tests => ( -s $starts ) - $before };
+}
+
+sub reading ( $name, $count, $trial ) {
+    printf "%s\t%d\t%.6f\t%.3f\t%d\n", $name, $count, $trial->{seconds}, $trial->{bytes} / $mib, $trial->{tests};
+    return;
+}
+
+write_text( $ENV{MUTATION_BENCHMARK_STARTS}, q{} );
+write_text( "$root/mutation.toml",           "jobs = 1\nequivalence = false\ngithub = false\n" );
+source( $_, 0 ) for 1 .. $files;
+test_file( $_, 0 ) for 1, 2;
+say "workload\tmutants\tseconds\tpeak_MiB\ttests_started";
+my ( $id, $verdict );
+for my $state (qw(cold warm source-change test-change)) {
+    source( 2, 1 )    if $state eq 'source-change';
+    test_file( 1, 1 ) if $state eq 'test-change';
+    my $trial  = measure( 'run', '--format', 'json' );
+    my $report = JSON::PP->new->utf8->decode( read_text("$root/mutation-report/mutation.json") );
+    my $count  = $report->{testMutation}{inventory}{mutants};
+    die "expected $expected mutants, measured $count\n" unless $count == $expected;
+    my $entry = $report->{files}{ 'lib/' . module_name($files) . '.pm' }{mutants}[-1];
+    ( $id, $verdict ) = ( $entry->{id}, $entry->{testMutation}{status} );
+    reading( $state, $count, $trial );
+}
+
+my @samples;
+for my $attempt ( 1 .. 5 ) {
+    my $trial  = measure( 'show', $id );
+    my $output = read_text("$scratch/stdout");
+    die "lookup did not return the recorded $verdict for $id\n"
+      unless $output =~ /\Q$id\E/ && $output =~ /\b\Q$verdict\E\b/;
+    die "lookup launched a test\n" if $trial->{tests};
+    reading( "show-$attempt", 1, $trial );
+    push @samples, $trial;
+}
+my $summary = MeasurementBenchmark::lookup( \@samples );
+printf "show median %.6f s, peak %.3f MiB\n", $summary->{median}, $summary->{peak} / $mib;
+die "lookup exceeded one second median or 128 MiB peak\n" unless $smoke || $summary->{passed};

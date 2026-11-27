@@ -68,6 +68,17 @@ my @ROWS = (
         'The directory that --root names is absent, is no directory, or refuses the user.'
     ],
     [
+        'measurement-history-missing',
+        'usage',
+        'no completed measurement is available for --undetected. Run mutation run first',
+        'The command needs a completed scope before it can recheck undetected changes.'
+    ],
+    [
+        'mutant-history-stale', 'usage',
+        'mutant {identifier} is no longer present. Run mutation run {path} to measure the file again',
+        'The source no longer contains a mutant from the last completed measurement.'
+    ],
+    [
         'mutant-unknown', 'usage',
         'no mutant has the identifier {identifier}',
         'No mutant of the project has an identifier that starts with the given text.'
@@ -103,6 +114,12 @@ my @ROWS = (
         'source-changed', 'environment',
         '{path} changed after analysis',
         'The bytes of the copied source differ from the bytes used to generate its mutants.'
+    ],
+    [
+        'measurement-inputs-changed',
+        'environment',
+        'measurement inputs changed while preparing the copy ({path}), so rerun the measurement',
+        'The prepared inputs must match the project data and test bytes recorded during analysis.'
     ],
     [
         'option-unknown', 'usage',
@@ -182,6 +199,11 @@ my @ROWS = (
     [
         'merge-without-inventory',   'usage',
         '{name} names no inventory', 'A report of a merge lacks the count and the digest of the mutants of its run.'
+    ],
+    [
+        'merge-interrupted', 'usage',
+        '{name} was interrupted by SIG{signal}, rerun that shard before merging',
+        'A shard received a signal before measurement finished.'
     ],
     [
         'merge-failed-baseline', 'usage',

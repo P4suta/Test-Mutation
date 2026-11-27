@@ -1,5 +1,6 @@
 use v5.36;
 use Test2::V0;
+use Encode ();
 use Test::Mutation::Mutant;
 use Test::Mutation::Report::GitHub;
 use Test::Mutation::Result;
@@ -95,7 +96,7 @@ subtest 'the summary states the score and the count of every status' => sub {
       qr/^Score: \*\*100\.0%\*\* \(1 of 1 valid mutant\)$/m, 'one valid mutant';
 };
 
-subtest 'annotations are bounded independently of the complete summary' => sub {
+subtest 'the summary names a sample of the gaps and the full report' => sub {
     my @entries;
     for my $status (qw(Survived Timeout)) {
         push @entries,
@@ -105,12 +106,43 @@ subtest 'annotations are bounded independently of the complete summary' => sub {
     my $commands = Test::Mutation::Report::GitHub::annotations($result);
     is scalar( () = $commands =~ /^::warning /mg ), 10, 'ten warnings';
     is scalar( () = $commands =~ /^::notice /mg ),  10, 'ten notices';
-    my $summary = Test::Mutation::Report::GitHub::summary( $result, 85 );
-    like $summary, qr/Gate: .*85%/, 'the summary includes the threshold decision';
-    for my $entry (@entries) {
-        like $summary, qr/\Q@{[ $entry->{mutant}->id ]}\E/, 'even a mutant beyond the annotation limit is listed';
+    my $summary = Test::Mutation::Report::GitHub::summary( $result, 85, ['artifacts/mutation.json'] );
+    like $summary,   qr/Gate: .*85%/,               'the summary includes the threshold decision';
+    like $summary,   qr/^Undetected: 12$/m,         'the full count excludes timeouts';
+    like $summary,   qr/000000000001/,              'the first undetected change is included';
+    unlike $summary, qr/00000000000c/,              'the sample leaves room for the report location';
+    like $summary,   qr{artifacts/mutation[.]json}, 'the summary names the published file';
+    unlike $summary, qr/\| lib\/A\|B[.]pm \|/,      'a pipe in a filename cannot split a table cell';
+};
+
+subtest 'the step limit counts encoded bytes' => sub {
+    my $huge    = "\x{65e5}" x 400_000;
+    my $saved   = result( [ entry( 'Survived', mutant => { description => $huge } ) ] );
+    my $summary = Test::Mutation::Report::GitHub::summary( $saved, 90, ['reports/mutation.html'] );
+    cmp_ok length( Encode::encode( 'UTF-8', $summary ) ), '<=', 1024 * 1024, 'the Markdown fits one step';
+    like $summary, qr/^Undetected: 1$/m,        'the count survives an oversized example';
+    like $summary, qr{reports/mutation[.]html}, 'the file location survives an oversized example';
+};
+
+subtest 'large selections reserve room for the gate and report location' => sub {
+    my $case = Test::Mutation::Result->new( result( [ entry('Survived') ] )->%*,
+        selection => { paths => { ( 'a' x 1200 ) => [] } } );
+    my $text = Test::Mutation::Report::GitHub::summary( $case, 70, ['reports/mutation.json'], 1024 * 1024 - 512 );
+    cmp_ok length( Encode::encode( 'UTF-8', $text ) ), '<=', 512, 'existing step text uses the same byte budget';
+    like $text, qr/Gate: failed/,            'a large selection still shows the gate';
+    like $text, qr{reports/mutation[.]json}, 'the destination remains available when paths must be abbreviated';
+};
+
+subtest 'a full step summary needs no measurement traversal' => sub {
+    my $case  = result( [ entry('Survived') ] );
+    my $tally = Test::Mutation::Result->can('tally');
+    my $calls = 0;
+    no warnings 'redefine';
+    local *Test::Mutation::Result::tally = sub ($self) { $calls++; return $tally->($self) };
+    for my $used ( 1024 * 1024, 1024 * 1024 + 1 ) {
+        is Test::Mutation::Report::GitHub::summary( $case, 70, [], $used ), q{}, 'the step has no room for text';
     }
-    unlike $summary, qr/\| lib\/A\|B[.]pm \|/, 'a pipe in a filename cannot split a table cell';
+    is $calls, 0, 'the occupied summary requires no mutant counts';
 };
 
 done_testing;

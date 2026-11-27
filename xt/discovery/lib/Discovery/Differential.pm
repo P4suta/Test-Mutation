@@ -194,7 +194,7 @@ sub _pristine ( $bench, $cache ) {
         $project->write( $path, $file{$path}, time => $FIXED_TIME ) if !defined $text || $text ne $file{$path};
     }
     $project->remove($_) for 'extra', '.mutation';
-    $project->write( '.mutation/cache.json', $cache ) if defined $cache;
+    $project->write( '.mutation/measurement.sqlite', $cache ) if defined $cache;
     _spew( "$bench->{outside}/Outside.pm", _provider('Outside') );
     _spew( $bench->{wrapper}, _wrapper(q{}), oct '755' );
     _spew( $bench->{config},  qq{switch = ["-Ilib"]\n} );
@@ -258,7 +258,7 @@ sub cache ( $engine, $bench, %option ) {
     my @truth = ( known => $bench->{plain}, coverage => 'line' );
     _pristine( $bench, undef );
     my $cold   = $engine->run( $project, %settings );
-    my $filled = $project->text('.mutation/cache.json');
+    my $filled = $project->text('.mutation/measurement.sqlite');
     my $again  = $engine->run( $project, %settings );
     my @found  = (
         _related( 'cache', 'cache cold', [$cold], run => $cold, @truth ),

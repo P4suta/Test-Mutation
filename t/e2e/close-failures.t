@@ -1,6 +1,7 @@
 use v5.36;
 use Test2::V0;
 use Cwd        ();
+use File::Copy ();
 use File::Temp ();
 
 # A close that fails means lost data or an unread error, so the run and the command check every close.
@@ -94,10 +95,12 @@ is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 5, 'mutation: cannot close part
   'a report that does not close is an error of the environment';
 
 {
+    mkdir "$root/scoped"                                                          or die $!;
+    File::Copy::copy( "$root/part1/mutation.json", "$root/scoped/mutation.json" ) or die $!;
     my ( $exit, $diagnostic ) = failing_in( qr/::CLI::_previous_report\z/,
-        sub { command( 'run', '--mutant', $mutant->id, '--format', 'json', '--report-dir', 'part1', '--jobs', 1 ) } );
-    is $exit, 5, 'a failed read of a previous report stops a narrower measurement from overwriting it';
-    like $diagnostic, qr{cannot close \Q$root\E/part1/mutation[.]json:}, 'the diagnostic names the previous report';
+        sub { command( 'run', '--mutant', $mutant->id, '--format', 'json', '--report-dir', 'scoped', '--jobs', 1 ) } );
+    is $exit, 0, 'a narrow measurement can replace an earlier report without reading it';
+    unlike $diagnostic, qr/cannot close/, 'publication only opens the output';
 
     mkdir "$root/nonfile"               or die $!;
     mkdir "$root/nonfile/mutation.html" or die $!;
@@ -108,7 +111,8 @@ is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 5, 'mutation: cannot close part
 }
 
 ( $status, $errors ) =
-  failing_in( qr/::CLI::_write\z/, sub { command( 'merge', @reports, '--format', 'json', '--report-dir', 'whole' ) } );
+  failing_in( qr/::CLI::_publish_report\z/,
+    sub { command( 'merge', @reports, '--format', 'json', '--report-dir', 'whole' ) } );
 is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 5, 'mutation: cannot close whole/mutation.json' ],
   'a report file that does not close after the write fails the command';
 
@@ -121,8 +125,8 @@ is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 5, 'mutation: cannot close whol
 
 {
     local $ENV{GITHUB_STEP_SUMMARY} = "$root/summary.md";
-    ( $status, $errors ) =
-      failing_in( qr/::CLI::_write\z/, sub { command( 'merge', @reports, '--format', 'terminal', '--github' ) } );
+    ( $status, $errors ) = failing_in( qr/::CLI::_report_to_github\z/,
+        sub { command( 'merge', @reports, '--format', 'terminal', '--github' ) } );
     is [ $status, $errors =~ s/: [^:\n]+\n\z//r ], [ 5, "mutation: cannot close $root/summary.md" ],
       'a job summary that does not close fails the command';
 }

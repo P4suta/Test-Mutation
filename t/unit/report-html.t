@@ -49,6 +49,34 @@ my $result = Test::Mutation::Result->new(
 
 my $html = Test::Mutation::Report::Html::render( $result, high => 80, low => 60 );
 
+subtest 'the writer escapes source text inside the embedded report' => sub {
+    my @chunks;
+    Test::Mutation::Report::Html::stream(
+        $result,
+        high  => 80,
+        low   => 60,
+        write => sub ($chunk) { push @chunks, $chunk }
+    );
+    my $text   = join q{}, @chunks;
+    my ($data) = $text =~ m{<script id="report" type="application/json">(.+?)</script>}s;
+    is JSON::PP->new->decode($data)->{files}{'lib/Page.pm'}{source}, $source, 'the embedded JSON round-trips';
+    ok scalar( grep { /00000000000|abcdefabcdef/ && !/<script/ } @chunks ), 'the file is emitted apart from the viewer';
+};
+
+subtest 'the visible report states its measured scope, gap count, score, and gate' => sub {
+    my $gated = Test::Mutation::Result->new(
+        $result->%*,
+        min_score => 70,
+        selection => { paths => { 'lib/<Page>.pm' => [] } }
+    );
+    my $page = Test::Mutation::Report::Html::render( $gated, high => 80, low => 60 );
+    my ($summary) = $page =~ m{<header>(.*?)</header>}s;
+    like $summary, qr/Scope: lib\/&lt;Page&gt;\.pm/, 'the source path is escaped as HTML text';
+    like $summary, qr/Undetected: 1/,                'the count is visible without running the viewer';
+    like $summary, qr/Score: 0\.0%/,                 'the visible score matches the selected entries';
+    like $summary, qr/Gate: failed \(minimum 70%\)/, 'the requested threshold is separate from the viewer colors';
+};
+
 subtest 'the page is one self-contained document' => sub {
     like $html,   qr/\A<!DOCTYPE html>\n<html lang="en">/, 'doctype and language';
     like $html,   qr/<meta charset="utf-8">/,              'character set';

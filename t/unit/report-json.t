@@ -75,6 +75,51 @@ my $result = Test::Mutation::Result->new(
 
 my $document = Test::Mutation::Report::Json::document( $result, high => 80, low => 60 );
 
+subtest 'the report retains the assessment and its threshold' => sub {
+    my $gated      = Test::Mutation::Result->new( $result->%*, min_score => 80 );
+    my $text       = Test::Mutation::Report::Json::render( $gated, high => 90, low => 50 );
+    my $assessment = JSON::PP->new->decode($text)->{testMutation}{assessment};
+    is $assessment,         $gated->assessment, 'the JSON decision and counts are the values returned by the API';
+    is $assessment->{gate}, 'failed',           'the requested minimum decides the gate';
+    is Test::Mutation::Report::Json::parse($text)->assessment, $assessment, 'reading a report restores its threshold';
+};
+
+subtest 'a writer receives each source file before the next file' => sub {
+    my @chunks;
+    Test::Mutation::Report::Json::stream(
+        $result,
+        high  => 80,
+        low   => 60,
+        write => sub ($chunk) { push @chunks, $chunk }
+    );
+    is JSON::PP->new->decode( join q{}, @chunks ), $document, 'streamed JSON carries every result field';
+    my @files = grep { /"language"\s*:\s*"perl"/ } @chunks;
+    is scalar @files, 2, 'each source is written separately';
+    like $files[0], qr{lib/Calc[.]pm},      'the populated source comes first';
+    like $files[1], qr{lib/Unmutated[.]pm}, 'the unmutated source comes second';
+};
+
+subtest 'the writer can consume the first mutant before the rest of a large file is built' => sub {
+    my @entries        = map { entry( 'Survived', id => sprintf( '%012x', $_ ) ) } 1 .. 256;
+    my $large          = Test::Mutation::Result->new( $result->%*, entries => \@entries );
+    my $description    = Test::Mutation::Mutant->can('description');
+    my $encode         = JSON::PP->can('encode');
+    my $perl_encodings = 0;
+    my ( $built, $first ) = ( 0, undef );
+    no warnings 'redefine';
+    local *JSON::PP::encode                    = sub (@args) { $perl_encodings++; return $encode->(@args) };
+    local *Test::Mutation::Mutant::description = sub ($self) { $built++;          return $description->($self) };
+    Test::Mutation::Report::Json::stream(
+        $large,
+        high  => 80,
+        low   => 60,
+        write => sub ($chunk) { $first = $built if !defined $first && $chunk =~ /"id":"000000000001"/ }
+    );
+    is $built, scalar @entries, 'each mutant was described once';
+    ok $perl_encodings < @entries,        'the stream avoids a pure Perl JSON encoding for every mutant';
+    ok defined $first && $first < $built, 'the first mutant reached the writer before the last was described';
+};
+
 subtest 'the document has the required top-level fields' => sub {
     is $document->{schemaVersion}, '2', 'schema version';
     is $document->{thresholds}, { high => 80, low => 60 }, 'thresholds';
@@ -172,6 +217,7 @@ subtest 'the document carries the facts of the run that the schema has no place 
         shard            => undef,
         inventory        => undef,
         selection        => {},
+        assessment       => $result->assessment,
         jobs             => 2,
         parallelSafe     => JSON::PP::true,
         interrupted      => undef,

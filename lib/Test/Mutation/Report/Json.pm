@@ -1,7 +1,8 @@
 package Test::Mutation::Report::Json;
 use v5.36;
-use JSON::PP               ();
-use Types::Standard        qw(ArrayRef Dict Enum HashRef InstanceOf Int Maybe Num Optional Str StrMatch Tuple);
+use Cpanel::JSON::XS ();
+use JSON::PP         ();
+use Types::Standard  qw(ArrayRef CodeRef Dict Enum HashRef InstanceOf Int Maybe Num Optional Str StrMatch Tuple Undef);
 use Types::Common::Numeric qw(PositiveInt PositiveOrZeroInt);
 use Type::Params           qw(signature_for);
 use Test::Mutation::Error;
@@ -11,7 +12,7 @@ use Test::Mutation::Result;
 use Test::Mutation::Source;
 use Test::Mutation::Status;
 use Test::Mutation::Try;
-use Test::Mutation::Types qw(Reason ReportSelection StatusName);
+use Test::Mutation::Types qw(Assessment Observations Reason ReportSelection StatusName);
 
 our $VERSION = '0.001';
 
@@ -47,11 +48,14 @@ my $MUTANT   = (
         duration       => Num,
         static         => $FLAG,
         testMutation   => Dict [
-            status     => StatusName,
-            reason     => Maybe [Reason],
-            scope      => Tuple [ Int, Int ],
-            suppressed => $FLAG,
-            comparable => $FLAG
+            status         => StatusName,
+            reason         => Maybe [Reason],
+            scope          => Tuple [ Int, Int ],
+            suppressed     => $FLAG,
+            comparable     => $FLAG,
+            compiledDigest => Optional [ StrMatch [qr/\A[0-9a-f]{64}\z/] ],
+            observations   => Optional [Observations],
+            decidingTest   => Optional [Str],
         ],
     ]
 )->where( sub { _consistent($_) } );
@@ -63,22 +67,27 @@ my $DOCUMENT = Dict [
     files         => HashRef [ Dict [ language => Str, source => Str, mutants => ArrayRef [$MUTANT] ] ],
     testFiles     => HashRef [ Dict [ tests    => ArrayRef [ Dict [ id => Str, name => Str ] ] ] ],
     testMutation  => Dict [
-        selection        => Optional [ReportSelection],
-        catalogDigest    => Optional [Str],
-        shard            => Maybe [ StrMatch [qr{\A[1-9][0-9]*/[1-9][0-9]*\z}] ],
-        inventory        => Maybe [ Dict [ mutants => Int, digest => StrMatch [qr/\A[0-9a-f]{64}\z/] ] ],
-        jobs             => PositiveInt,
-        parallelSafe     => $FLAG,
-        interrupted      => Maybe [ Enum [ Test::Mutation::Exit::signals()->@* ] ],
-        cacheMismatch    => Optional [$FLAG],
-        reused           => Int,
-        started          => Num,
-        finished         => Num,
-        warnings         => ArrayRef [Str],
-        problems         => ArrayRef [ Dict [ path => Str, problem => Str ] ],
-        baselineFailures => ArrayRef [Str],
-        tests            => ArrayRef [ Dict [ name => Str, duration => Num, neutral => Optional [$FLAG] ] ],
-        stats            => Dict [ map { $_ => PositiveOrZeroInt } values %WORK_KEY ],
+        assessment        => Optional [Assessment],
+        selection         => Optional [ReportSelection],
+        measuredScope     => Optional [ReportSelection],
+        catalogDigest     => Optional [Str],
+        measurementDigest => Optional [ StrMatch [qr/\A[0-9a-f]{64}\z/] ],
+        dependencyDigest  => Optional [ StrMatch [qr/\A[0-9a-f]{64}\z/] ],
+        compilerInputs    => Optional [ HashRef [ StrMatch [qr/\A[0-9a-f]{64}\z/] ] ],
+        shard             => Maybe [ StrMatch [qr{\A[1-9][0-9]*/[1-9][0-9]*\z}] ],
+        inventory         => Maybe [ Dict [ mutants => Int, digest => StrMatch [qr/\A[0-9a-f]{64}\z/] ] ],
+        jobs              => PositiveInt,
+        parallelSafe      => $FLAG,
+        interrupted       => Maybe [ Enum [ Test::Mutation::Exit::signals()->@* ] ],
+        cacheMismatch     => Optional [$FLAG],
+        reused            => Int,
+        started           => Num,
+        finished          => Num,
+        warnings          => ArrayRef [Str],
+        problems          => ArrayRef [ Dict [ path => Str, problem => Str ] ],
+        baselineFailures  => ArrayRef [Str],
+        tests             => ArrayRef [ Dict [ name => Str, duration => Num, neutral => Optional [$FLAG] ] ],
+        stats             => Dict [ map { $_ => PositiveOrZeroInt } values %WORK_KEY ],
     ],
 ];
 
@@ -96,17 +105,31 @@ signature_for document => (
 );
 
 sub document ( $result, $arg ) {
-    my %files = map { $_ => { language => 'perl', source => $result->sources->{$_}, mutants => [] } }
-      keys $result->sources->%*;
-    for my $entry ( $result->entries->@* ) {
-        push $files{ $entry->{mutant}->path }{mutants}->@*, _mutant($entry);
+    my %files;
+    _each_file(
+        $result,
+        sub ( $path, $source, $entries ) {
+            $files{$path} = { language => 'perl', source => $source, mutants => [ map { _mutant($_) } @$entries ] };
+        }
+    );
+    return { _metadata( $result, $arg )->%*, files => \%files };
+}
+
+sub _each_file ( $result, $visit ) {
+    my %entries;
+    push $entries{ $_->{mutant}->path }->@*, $_ for $result->entries->@*;
+    for my $path ( sort keys $result->sources->%* ) {
+        $visit->( $path, $result->sources->{$path}, $entries{$path} || [] );
     }
+    return;
+}
+
+sub _metadata ( $result, $arg ) {
     return {
         schemaVersion => '2',
         thresholds    => { high => int( $arg->high + 0.5 ), low => int( $arg->low + 0.5 ) },
         projectRoot   => $result->root,
         framework     => { name => 'Test::Mutation', version => $VERSION },
-        files         => \%files,
         testFiles     =>
           { map { $_->{name} => { tests => [ { id => $_->{name}, name => $_->{name} } ] } } $result->tests->@* },
         testMutation => _facts($result),
@@ -123,7 +146,12 @@ sub _facts ($result) {
     return {
         shard     => $result->shard,
         selection => $result->selection,
-        defined $result->catalog_digest ? ( catalogDigest => $result->catalog_digest ) : (),
+        defined $result->measured_scope ? ( measuredScope => $result->measured_scope ) : (),
+        assessment => $result->assessment,
+        defined $result->catalog_digest     ? ( catalogDigest     => $result->catalog_digest )     : (),
+        defined $result->measurement_digest ? ( measurementDigest => $result->measurement_digest ) : (),
+        defined $result->dependency_digest  ? ( dependencyDigest  => $result->dependency_digest )  : (),
+        keys $result->compiler_inputs->%*   ? ( compilerInputs    => $result->compiler_inputs )    : (),
         inventory    => $inventory ? { mutants => 0 + $inventory->{mutants}, digest => $inventory->{digest} } : undef,
         jobs         => 0 + $result->jobs,
         parallelSafe => _boolean( $result->parallel_safe ),
@@ -163,10 +191,13 @@ sub _mutant ($entry) {
             scope      => [ map { 0 + $_ } $mutant->scope->@* ],
             suppressed => _boolean( $mutant->suppressed ),
             comparable => _boolean( $mutant->comparable ),
+            defined $entry->{compiled_digest} ? ( compiledDigest => $entry->{compiled_digest} ) : (),
+            exists $entry->{observations}     ? ( observations   => $entry->{observations} )    : (),
         },
     );
-    $mutant{statusReason} = $entry->{detail} if defined $entry->{detail};
-    $mutant{killedBy}     = [ $entry->{by} ] if $entry->{status} eq 'Killed' && defined $entry->{by};
+    $mutant{statusReason}               = $entry->{detail} if defined $entry->{detail};
+    $mutant{killedBy}                   = [ $entry->{by} ] if $entry->{status} eq 'Killed' && defined $entry->{by};
+    $mutant{testMutation}{decidingTest} = $entry->{by}     if $entry->{status} ne 'Killed' && defined $entry->{by};
     return \%mutant;
 }
 
@@ -185,10 +216,45 @@ sub render ( $result, $arg ) {
     return JSON::PP->new->canonical->pretty->encode($document);
 }
 
+signature_for stream => (
+    head    => [ InstanceOf ['Test::Mutation::Result'] ],
+    named   => [ high => Num, low => Num, write => CodeRef ],
+    returns => Undef,
+);
+
+sub stream ( $result, $arg ) {
+    my $json  = Cpanel::JSON::XS->new->canonical->allow_nonref;
+    my $write = $arg->write;
+    $write->('{"files":{');
+    my $separator = q{};
+    _each_file(
+        $result,
+        sub ( $path, $source, $entries ) {
+            $write->( $separator . $json->encode($path) . ':{"language":"perl","mutants":[' );
+            my $comma = q{};
+            for my $entry (@$entries) {
+                $write->( $comma . $json->encode( _mutant($entry) ) );
+                $comma = ',';
+            }
+            $write->( '],"source":' . $json->encode($source) . '}' );
+            $separator = ",\n";
+        }
+    );
+    $write->('}');
+    my $meta = _metadata( $result, $arg );
+    for my $name ( sort keys %$meta ) {
+        $write->( ",\n" . $json->encode($name) . q{:} . $json->encode( $meta->{$name} ) );
+    }
+    $write->("}\n");
+    return;
+}
+
 signature_for parse => ( positional => [Str], returns => InstanceOf ['Test::Mutation::Result'] );
 
 sub parse ($text) {
-    my $read = Test::Mutation::Try::attempt( sub { return [ JSON::PP->new->decode($text) ] } );
+    my $read = Test::Mutation::Try::attempt( sub { return [ Cpanel::JSON::XS->new->decode($text) ] } );
+    Test::Mutation::Error::raise( 'report-malformed', reason => 'a JSON object repeats a field name' )
+      if $read->{error} && $read->{error} =~ /\ADuplicate keys not allowed/;
     my ($document) = ( $read->{value} || [] )->@*;
     Test::Mutation::Error::raise('report-not-json')      if ref $document ne 'HASH';
     Test::Mutation::Error::raise('report-without-facts') if !exists $document->{testMutation};
@@ -233,34 +299,36 @@ sub _result ($document) {
         push @entries, map { _entry( $source, $_ ) } $file->{mutants}->@*;
     }
     return Test::Mutation::Result->new(
-        root              => $document->{projectRoot},
-        sources           => \%sources,
-        tests             => \@tests,
-        entries           => \@entries,
-        problems          => $facts->{problems},
-        warnings          => $facts->{warnings},
-        baseline_failures => [ map { { test => $_, output => q{}, errors => q{} } } $facts->{baselineFailures}->@* ],
-        jobs              => $facts->{jobs},
-        parallel_safe     => $facts->{parallelSafe} ? 1 : 0,
-        interrupted       => $facts->{interrupted},
-        cache_mismatch    => $facts->{cacheMismatch} ? 1 : 0,
-        reused            => $facts->{reused},
-        shard             => $facts->{shard},
-        selection         => $facts->{selection} || {},
-        catalog_digest    => $facts->{catalogDigest},
-        inventory         => $facts->{inventory},
-        started           => $facts->{started},
-        finished          => $facts->{finished},
-        stats             => { map { $_ => $facts->{stats}{ $WORK_KEY{$_} } } keys %WORK_KEY },
+        root               => $document->{projectRoot},
+        sources            => \%sources,
+        tests              => \@tests,
+        entries            => \@entries,
+        problems           => $facts->{problems},
+        warnings           => $facts->{warnings},
+        baseline_failures  => [ map { { test => $_, output => q{}, errors => q{} } } $facts->{baselineFailures}->@* ],
+        jobs               => $facts->{jobs},
+        parallel_safe      => $facts->{parallelSafe} ? 1 : 0,
+        interrupted        => $facts->{interrupted},
+        cache_mismatch     => $facts->{cacheMismatch} ? 1 : 0,
+        reused             => $facts->{reused},
+        shard              => $facts->{shard},
+        selection          => $facts->{selection} || {},
+        measured_scope     => $facts->{measuredScope},
+        min_score          => $facts->{assessment} ? $facts->{assessment}{minimum} : undef,
+        catalog_digest     => $facts->{catalogDigest},
+        measurement_digest => $facts->{measurementDigest},
+        dependency_digest  => $facts->{dependencyDigest},
+        compiler_inputs    => $facts->{compilerInputs} || {},
+        inventory          => $facts->{inventory},
+        started            => $facts->{started},
+        finished           => $facts->{finished},
+        stats              => { map { $_ => $facts->{stats}{ $WORK_KEY{$_} } } keys %WORK_KEY },
     );
 }
 
 sub _offset ( $source, $position ) {
-    my $text   = $source->text;
-    my $offset = $position->{line} <= 1 + $text =~ tr/\n// ? $source->offset_of( $position->@{qw(line column)} ) : -1;
-    Test::Mutation::Error::raise( 'report-location-outside', path => $source->path )
-      if $offset < 0 || $offset > length $text;
-    return $offset;
+    return $source->offset_within_source( $position->@{qw(line column)} )
+      // Test::Mutation::Error::raise( 'report-location-outside', path => $source->path );
 }
 
 sub _entry ( $source, $mutant ) {
@@ -286,10 +354,12 @@ sub _entry ( $source, $mutant ) {
         status     => $extra->{status},
         reason     => $extra->{reason},
         detail     => $mutant->{statusReason},
-        by         => $mutant->{killedBy} ? $mutant->{killedBy}[0] : undef,
+        by         => $mutant->{killedBy} ? $mutant->{killedBy}[0] : $extra->{decidingTest},
         covered_by => $mutant->{coveredBy},
         tests_run  => $mutant->{testsCompleted},
         duration   => $duration / $MILLISECONDS,
+        defined $extra->{compiledDigest} ? ( compiled_digest => $extra->{compiledDigest} ) : (),
+        exists $extra->{observations}    ? ( observations    => $extra->{observations} )   : (),
     };
 }
 
@@ -326,6 +396,12 @@ The C<testMutation> key of the mutant holds its status in the run and the reason
 =head2 render
 
 Returns the report as JSON text with sorted keys.
+
+=head2 stream
+
+Writes each source file in path order through the C<write> callback.
+Mutants are written as they are encoded, including when a single source has many mutants.
+The callback receives character strings.
 
 =head2 parse
 

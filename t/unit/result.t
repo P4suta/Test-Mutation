@@ -57,6 +57,27 @@ subtest 'tally' => sub {
     ok abs( $tally->{score} - 200 / 3 ) < 1e-9, 'score';
 };
 
+subtest 'the public assessment applies the threshold to this scope' => sub {
+    my $report = result( [qw(Killed Survived)], min_score => 75 );
+    is $report->assessment,
+      { $report->tally->%*, minimum => 75, outcome => 'measured', gate => 'failed', exitCode => 1 },
+      'the API includes the same tally and exit status as the command';
+    my $part = result( ['Survived'], min_score => 75, shard => '1/2' )->assessment;
+    is [ $part->@{qw(score gate exitCode)} ], [ 0, 'deferred until merge', 0 ],
+      'a shard records its deferred threshold';
+};
+
+subtest 'an assessment decides and reports from one count of the entries' => sub {
+    my $report = result( [qw(Killed Survived)], min_score => 60 );
+    my $tally  = Test::Mutation::Result->can('tally');
+    my $calls  = 0;
+    no warnings 'redefine';
+    local *Test::Mutation::Result::tally = sub ($self) { $calls++; return $tally->($self) };
+    my $assessment = $report->assessment;
+    is [ $assessment->{score}, $assessment->{gate}, $calls ], [ 50, 'failed', 1 ],
+      'the score that failed the gate comes from the same traversal';
+};
+
 subtest 'conclusive' => sub {
     ok result( [qw(Killed Survived)] )->conclusive,       'valid mutants and nothing wrong';
     ok result( [] )->conclusive,                          'no mutant at all';

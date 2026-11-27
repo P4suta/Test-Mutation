@@ -251,6 +251,14 @@ my @ROWS = (
         { selects => 1 }
     ],
     [
+        'undetected', undef, 'flag', $BOOLEAN, undef,
+        'true or false',
+        sub { 0 },
+        'off', 'selection',
+        'Recheck surviving and uncovered mutants from the last completed measurement',
+        { selects => 1 }
+    ],
+    [
         'since', undef,  'value', $REVISION, 'REVISION', 'a Git revision',
         undef,   'none', 'selection',
         'Cover the lines changed since a Git revision',
@@ -318,7 +326,7 @@ my @INTERACTIONS = (
     {
         rule        => 'updates-report',
         settings    => ['mutant'],
-        description => 'A run of named mutants or paths updates the latest report of the same mutants.'
+        description => 'A run of named mutants or paths reports the results of the selected changes.'
     },
 );
 
@@ -544,6 +552,18 @@ sub configure ($arg) {
     return resolve( root => $arg->root, layers => [ @file, $arg->given ], facts => $arg->facts );
 }
 
+signature_for for_mutants =>
+  ( positional => [ $CONFIG, ArrayRef [Str], Optional [ Maybe [Str] ] ], returns => $CONFIG );
+
+sub for_mutants ( $config, $ids, $since = $config->since ) {
+    return Test::Mutation::Config->new(
+        $config->%*,
+        mutant    => $ids,
+        since     => $since,
+        specified => { $config->specified->%*, mutant => '--undetected' }
+    );
+}
+
 signature_for of_call => ( positional => [ HashRef [$ARGUMENT] ], returns => $CONFIG );
 
 sub of_call ($arguments) {
@@ -630,6 +650,12 @@ The function refuses settings that break an interaction of the table.
 
 Reads the configuration file of the directory and returns the configuration of the file and of the given layer.
 The file is the one that the setting C<config> names, or F<mutation.toml> when it exists.
+
+=head2 for_mutants
+
+Selects the saved mutant identifiers for a recheck with the current test settings.
+An optional revision limits the lookup to changed lines.
+Pass an undefined revision to search the full catalog for a prefix.
 
 =head2 of_call
 

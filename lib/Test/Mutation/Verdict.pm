@@ -1,10 +1,10 @@
 package Test::Mutation::Verdict;
 use v5.36;
-use Types::Standard qw(Bool Dict Enum Int Maybe Optional Str);
+use Types::Standard qw(ArrayRef Bool Dict Enum Int Maybe Optional Str);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Message;
 use Test::Mutation::Status;
-use Test::Mutation::Types qw(Reason StatusName);
+use Test::Mutation::Types qw(Entry Reason StatusName TestObservation);
 
 our $VERSION = '0.001';
 
@@ -26,23 +26,13 @@ my $TIMEOUTS_TRIED = 2;
 my %LIMIT  = ( timeout => 'time-limit', overflow => 'output-limit' );
 my $RESULT = Enum [ qw(pass fail), keys %LIMIT ];
 
-# A syntax check passes, or it fails with the kind of compile error that it found.
-my $OUTCOME = Dict [
-    test         => Str,
-    result       => $RESULT,
-    served       => Bool,
-    load_failed  => Bool,
-    bypassed     => Bool,
-    anomaly      => Optional [ Maybe [ Dict [ reason => Reason, detail => Str ] ] ],
-    invalid_call => Optional [ Maybe [Str] ],
-    read_check   => Optional [ Enum [qw(pass fail timeout overflow compile-error)] ],
-    syntax       => Maybe [ Enum [ 'ok', Test::Mutation::Status::of('CompileError')->reasons->@* ] ],
-];
 my %COMPILE_DETAIL = (
     parse           => 'Perl rejected the generated replacement',
     'compile-phase' => 'the mutant does not compile',
     standalone      => 'the original source fails a syntax check of its own',
 );
+my %OUTSIDE_TEST =
+  map { $_ => 1 } qw(same-code-as-original suppressed slot-not-restored build-copy-not-updated project-changed);
 
 signature_for start => ( positional => [], returns => $STATE );
 
@@ -59,7 +49,7 @@ sub start () {
     };
 }
 
-signature_for step => ( positional => [ $STATE, $OUTCOME ], returns => $STATE );
+signature_for step => ( positional => [ $STATE, TestObservation ], returns => $STATE );
 
 sub step ( $state, $outcome ) {
     return $state if defined $state->{status};
@@ -156,6 +146,50 @@ sub final ($state) {
     return conclude($state)->{status};
 }
 
+signature_for conclude_inventory => ( positional => [ ArrayRef [Entry] ], returns => ArrayRef [Entry] );
+
+sub conclude_inventory ($entries) {
+    my ( %first, @result );
+    for my $raw (@$entries) {
+        my $entry = _observed_verdict($raw);
+        my $code  = $entry->{compiled_digest};
+        if ( defined $code && Test::Mutation::Status::of( $entry->{status} )->role eq 'undetected' ) {
+            my $mutant = $entry->{mutant};
+            my $seen   = $first{ $mutant->path } ||= {};
+            if ( defined $seen->{$code} ) {
+                push @result,
+                  {
+                    $entry->%*,
+                    status => 'Ignored',
+                    reason => 'same-code-as-mutant',
+                    detail => "compiles to the same code as mutant $seen->{$code}"
+                  };
+                next;
+            }
+            $seen->{$code} = $mutant->id;
+        }
+        push @result, $entry;
+    }
+    return \@result;
+}
+
+sub _observed_verdict ($entry) {
+    my $attempts = $entry->{observations};
+    return $entry if !$attempts || $entry->{status} eq 'Pending';
+    my $duplicate = defined $entry->{reason} && $entry->{reason} eq 'same-code-as-mutant';
+    return $entry if !$attempts->@*           && ( $entry->{tests_run} || !$duplicate );
+    return $entry if defined $entry->{reason} && $OUTSIDE_TEST{ $entry->{reason} };
+    my @states;
+    for my $attempt (@$attempts) {
+        my $state = start();
+        $state = step( $state, $_ ) for @$attempt;
+        push @states, conclude($state);
+    }
+    my $result = @states == 2 ? confirm(@states) : $states[0];
+    $result //= conclude( start() );
+    return { $entry->%*, $result->%{qw(status reason detail by)}, tests_run => $result->{tests} };
+}
+
 signature_for limit => ( positional => [$RESULT], returns => Maybe [Reason] );
 
 sub limit ($result) {
@@ -225,5 +259,12 @@ Returns the status of the concluded state.
 
 Returns the reason of the limit that ended a test, C<time-limit> or C<output-limit>, for the result of an outcome.
 A test that ended on its own has no such reason.
+
+=head2 conclude_inventory
+
+Returns the verdicts in inventory order.
+Completed test attempts determine the verdict with the same rules for an individual run and a merged report.
+Among undetected mutants in one source file, the first with each compiled digest keeps its verdict.
+Later matches name the first mutant and leave the score.
 
 =cut

@@ -119,6 +119,8 @@ C<mutation merge> reads the C<mutation.json> of every part and reports the whole
 It refuses a set of files that misses a part or mixes two runs.
 The default cache reuses results when the interpreter, measurement settings, dependencies, environment, and measured sources and tests match.
 Each reused run measures a sample again and reports a disagreement as inconclusive.
+A run with C<undetected> selects the surviving and uncovered mutants in the last completed measurement or merge.
+The result's C<assessment> method returns the counts, score, threshold decision and exit code for the selected mutants.
 C<mutation_score_ok> asserts a score from a test file.
 
 =head1 CONFIGURATION
@@ -127,6 +129,8 @@ C<mutation run> measures modules in C<lib/> and Perl commands in C<bin/> and C<s
 The default test library is C<lib/>.
 A file named C<mutation.toml> in the project directory changes the defaults, and C<--config> names another file.
 A run writes its reports into C<mutation-report>, and C<--cache> keeps its results in C<.mutation>.
+The driver stores its analysis, dated observations and test results in C<.mutation/measurement.sqlite>.
+C<--no-cache> keeps measurement data in temporary storage.
 Both directories belong in C<.gitignore>.
 
 Use C<--min-score> on the command line, C<min-score> in the file, and C<min_score> in the Perl API.

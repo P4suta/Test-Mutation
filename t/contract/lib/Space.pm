@@ -1,8 +1,9 @@
 package Space;
 use v5.36;
-use Cwd        ();
-use File::Temp ();
-use Fixture    ();
+use Cwd         ();
+use Digest::SHA ();
+use File::Temp  ();
+use Fixture     ();
 use Samples;
 use World;
 use Test::Mutation ();
@@ -93,18 +94,24 @@ sub scratch () {
 }
 
 # What `mutation merge` decides for the two parts of a result, as its exit status.
-sub merged ( $result, @arguments ) {
+sub _piece ( $result, $part, $of ) {
     my @entries = $result->entries->@*;
+    return Test::Mutation::Result->new(
+        $result->%*,
+        entries            => [ @entries[ grep { $_ % $of == $part - 1 } 0 .. $#entries ] ],
+        shard              => "$part/$of",
+        measurement_digest => 'b' x 64,
+        dependency_digest  => 'c' x 64,
+        inventory          => {
+            mutants => scalar @entries,
+            digest  => Digest::SHA::sha256_hex( join "\n", map { $_->{mutant}->id } @entries )
+        },
+    );
+}
+
+sub merged ( $result, @arguments ) {
     for my $part ( 1, 2 ) {
-        my $piece = Test::Mutation::Result->new(
-            (
-                map { $_ => $result->$_ }
-                  qw(root sources tests problems warnings baseline_failures jobs parallel_safe started finished)
-            ),
-            entries   => [ @entries[ grep { $_ % 2 == $part - 1 } 0 .. $#entries ] ],
-            shard     => "$part/2",
-            inventory => { mutants => scalar @entries, digest => 'a' x 64 },
-        );
+        my $piece = _piece( $result, $part, 2 );
         Fixture::write_file( "$SCRATCH/part$part.json",
             Test::Mutation::Report::Json::render( $piece, high => 80, low => 60 ) );
     }
@@ -528,7 +535,7 @@ my %TINY = (
     'broken.toml'  => "jobs = = 1\n",
     'broken.json'  => "{\n",
     'part.json'    => Test::Mutation::Report::Json::render(
-        Samples::result( statuses => ['Killed'], shard => '1/1', inventory => { mutants => 1, digest => 'a' x 64 } ),
+        _piece( Samples::result( statuses => ['Killed'] ), 1, 1 ),
         high => 80,
         low  => 60
     ),

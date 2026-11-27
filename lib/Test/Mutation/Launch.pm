@@ -1,24 +1,18 @@
 package Test::Mutation::Launch;
 use v5.36;
-use Config                           qw(%Config);
-use File::Spec                       ();
-use Getopt::Long                     ();
-use List::Util                       qw(uniq);
-use TAP::Parser::SourceHandler::Perl ();
-use Text::ParseWords                 ();
-use Types::Standard                  qw(ArrayRef Bool Dict HashRef Int Maybe Optional Str);
-use Type::Params                     qw(signature_for);
+use Config           qw(%Config);
+use File::Spec       ();
+use Getopt::Long     ();
+use List::Util       qw(uniq);
+use Text::ParseWords ();
+use Types::Standard  qw(ArrayRef Bool Dict HashRef Int Maybe Optional Str);
+use Type::Params     qw(signature_for);
 use Test::Mutation::Build;
 use Test::Mutation::Error;
 use Test::Mutation::Try;
 
 our $VERSION = '0.001';
 
-my $HARNESS_VERSION = do {
-    local %ENV = %ENV;
-    require TAP::Harness;
-    TAP::Harness->VERSION;
-};
 my $DEFAULTS = Dict [ lib => ArrayRef [Str], switch => ArrayRef [Str] ];
 my $SHIM     = Dict [ generation => Int, directory => Str, spec => Str, record => Str ];
 
@@ -29,6 +23,7 @@ sub defaults ($root) {
     my $native    = Test::Mutation::Build::native($root);
     my $libraries = $native->{sources}->@* || $native->{objects}->@* ? [qw(blib/lib blib/arch)] : ['lib'];
     return { lib => $libraries, switch => [] } if !-e $file;
+    local %ENV = %ENV;
     require App::Prove;
     my $saved  = Getopt::Long::Configure();
     my $parsed = Test::Mutation::Try::attempt(
@@ -76,6 +71,12 @@ signature_for test_command => (
 );
 
 sub test_command ($arg) {
+    state $harness_version = do {
+        local %ENV = %ENV;
+        require TAP::Harness;
+        require TAP::Parser::SourceHandler::Perl;
+        TAP::Harness->VERSION;
+    };
     my $options = interpreter_options( $arg->root, $arg->lib, $arg->switch );
     my @lib     = $options->{lib}->@*;
     my @switch  = $options->{switch}->@*;
@@ -86,7 +87,7 @@ sub test_command ($arg) {
     my $inherited = $arg->env;
     my @prior_lib = grep { defined && length } $inherited->{PERL5LIB};
     my @prior_opt = grep { defined && length } $inherited->{PERL5OPT};
-    my %env = ( HARNESS_ACTIVE => 1, HARNESS_VERSION => $HARNESS_VERSION, PWD => $arg->root, TMPDIR => $arg->tmp );
+    my %env = ( HARNESS_ACTIVE => 1, HARNESS_VERSION => $harness_version, PWD => $arg->root, TMPDIR => $arg->tmp );
     $env{PERL_DL_NONLAZY} = 1 if grep { m{(?:\A|/)blib/(?:arch|lib)\z} } @lib;
     my ( @extra_lib, @instrument );
 

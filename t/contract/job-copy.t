@@ -204,8 +204,8 @@ subtest 'the shim distinguishes a placed source on disk from a load outside the 
     }
 };
 
-subtest 'only a cacheable original run records the Perl include directories' => sub {
-    for my $case ( [ 0, 'baseline', 0 ], [ 0, 'mutants/aa', 0 ], [ 1, 'baseline', 1 ], [ 1, 'mutants/aa', 0 ] ) {
+subtest 'original runs record the Perl include directories in both cache modes' => sub {
+    for my $case ( [ 0, 'baseline', 1 ], [ 0, 'mutants/aa', 0 ], [ 1, 'baseline', 1 ], [ 1, 'mutants/aa', 0 ] ) {
         my ( $cache, $name, $expected ) = @$case;
         my $project = ShimHarness::project();
         mkdir "$project/mutants" or die "mkdir: $!";
@@ -228,7 +228,7 @@ subtest 'only a cacheable original run records the Perl include directories' => 
 # A failed job can move to a verified original tree once for the same test.
 ## no critic (Subroutines::ProtectPrivateSubs Variables::ProtectPrivateVars)
 subtest 'a failed test runs again only when the original passes in a different tree' => sub {
-    my $config         = Test::Mutation::Settings::of_call( { root => 't/fixtures/calc' } );
+    my $config         = Test::Mutation::Settings::of_call( { root => Fixture::copy_of('calc') } );
     my $fixture_mutant = Test::Mutation::Select::resolve( config => $config )->mutants->[0];
     for my $case (
         [ 'baseline unchanged', 0, 0, {}, undef, 'observe' ],
@@ -348,7 +348,7 @@ subtest 'finishing a mutant removes its source and both specifications before re
     my @owned = ( $file, $spec, "$spec.disk" );
     write_file( $_,                           "private\n" ) for @owned;
     write_file( "$directory/other.spec.disk", "another job\n" );
-    my $config = Test::Mutation::Settings::of_call( { root => 't/fixtures/calc' } );
+    my $config = Test::Mutation::Settings::of_call( { root => Fixture::copy_of('calc'), equivalence => 0 } );
     my $job    = {
         file     => $file,
         spec     => $spec,
@@ -359,11 +359,15 @@ subtest 'finishing a mutant removes its source and both specifications before re
     };
     my @events;
     my $run = {
+        jobs     => 1,
+        stats    => {},
+        config   => $config,
         listener => sub ( $event, $entry ) {
             push @events, [ $event, $entry->{status}, grep { -e } @owned ];
         }
     };
-    Test::Mutation::Runner::_finish( $run, $job );
+    my @jobs = ($job);
+    Test::Mutation::Runner::_execute_jobs( $run, {}, sub { return shift @jobs }, {}, undef );
     is \@events, [ [ 'mutant', 'NoCoverage' ] ], 'the verdict arrives after all three private files have gone';
     is Test::Mutation::Source::read_bytes("$directory/other.spec.disk"), "another job\n",
       'a concurrent job keeps its own disk specification';

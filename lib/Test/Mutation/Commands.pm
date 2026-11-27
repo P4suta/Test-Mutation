@@ -8,7 +8,8 @@ use Test::Mutation::Settings;
 our $VERSION = '0.001';
 
 my @settings = grep { $_->offers('line') } Test::Mutation::Settings::rows()->@*;
-my @all      = map  { $_->name } @settings;
+my @run      = map  { $_->name } @settings;
+my @all      = grep { $_ ne 'undetected' } @run;
 my @baseline = map  { $_->name } grep { $_->name eq 'color' || $_->group =~ /\A(?:project|tests|cache)\z/ } @settings;
 my %grammar  = (
     paths      => [ '[PATH[:LINES]...]',           0, undef ],
@@ -19,7 +20,7 @@ my %grammar  = (
     command    => [ '[COMMAND]',                   0, 1 ],
 );
 my @rows = (
-    [ run      => 'paths',      \@all,      'Measure how many mutants the tests detect (the default)' ],
+    [ run      => 'paths',      \@run,      'Measure how many mutants the tests detect (the default)' ],
     [ baseline => 'none',       \@baseline, 'Run the unmodified tests and report failures' ],
     [ list     => 'paths',      \@all,      'Print the mutants without running a test' ],
     [ show     => 'identifier', \@all,      'Print one mutant as a unified diff' ],

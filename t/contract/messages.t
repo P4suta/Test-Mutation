@@ -121,9 +121,11 @@ sub part ( $shard, %arg ) {
     return {
         name   => "part-$shard",
         result => Samples::result(
-            statuses  => ['Killed'],
-            shard     => $shard,
-            inventory => { mutants => 2, digest => 'a' x 64 },
+            statuses           => ['Killed'],
+            shard              => $shard,
+            measurement_digest => 'c' x 64,
+            dependency_digest  => 'd' x 64,
+            inventory          => { mutants => 2, digest => 'a' x 64 },
             %arg
         )
     };
@@ -255,6 +257,21 @@ printed( [ 'run', '--perl',   "$tree/absent-perl" ] );
 raised( sub { Test::Mutation::Git::changed( Space::git_tree(), 'absent-revision' ) } );
 my $selection = Test::Mutation::Select::resolve( config => Test::Mutation::Settings::of_call( { root => $tree } ) );
 raised( sub { $selection->verify_copy( directory() ) } );
+my $selected_test = $selection->tests->[0];
+like raised(
+    sub {
+        Test::Mutation::run(
+            root     => $tree,
+            cache    => 0,
+            jobs     => 1,
+            on_event => sub ( $event, $data ) {
+                unlink "$data->{root}/$selected_test" or die "remove copied test: $!" if $event eq 'copy_finished';
+                return;
+            }
+        );
+    }
+  ),
+  qr/measurement inputs changed.*\Q$selected_test\E.*rerun/, 'a missing test identifies which prepared input changed';
 my $many = directory(
     'lib/Many.pm' => join( "\n", 'package Many;', ( map { "sub item$_ { return \$_[0] + $_ }" } 1 .. 20 ), '1;' ) );
 my $mutants = Test::Mutation::mutants( root => $many );
@@ -264,6 +281,16 @@ my ($ambiguous) = sort grep { $prefix{$_} > 1 } keys %prefix;
 raised( sub { Test::Mutation::Select::by_id( $mutants, $ambiguous ) } );
 
 isa_ok dies { Test::Mutation::Runner::analyze() }, ['Error::TypeTiny'], 'analysis requires a project configuration';
+like printed( [ 'run', '--undetected' ], cwd => directory() ), qr/no completed measurement/,
+  'an initial recheck names the missing history';
+raised(
+    sub {
+        Test::Mutation::Select::resolve(
+            config           => Test::Mutation::Settings::of_call( { root => $tree, mutant => ['deadbeef'] } ),
+            historical_paths => { deadbeef => 'lib/Old.pm' }
+        );
+    }
+);
 
 # The comments that suppress mutants: every refusal of the grammar in one file, and the two settings that ask for more.
 my $noted = join "\n", 'package Noted;', '## use mutate', 'sub one { return $_[0] + 1 }    ## no mutate (nonesuch)',
@@ -291,6 +318,7 @@ Test::Mutation::Suppression::refusals(
 merged();
 merged( { name => 'whole', result => Samples::result( statuses => ['Killed'] ) } );
 merged( part( '1/2', inventory         => undef ) );
+merged( part( '1/2', interrupted       => 'TERM' ) );
 merged( part( '1/2', baseline_failures => [ { test => 't/a.t', output => q{}, errors => q{} } ] ) );
 merged( part('1/2'), part('1/3') );
 merged( part('1/2'), part( '2/2', inventory => { mutants => 2, digest => 'b' x 64 } ) );
@@ -415,7 +443,7 @@ heard( 'command-unstartable', pooled( command => ["$scratch/no-such-program"] ) 
 # The defects of the tool: an error without a type, a message with other values, a shim without its lines, and a verdict.
 {
     no warnings 'redefine';
-    local *Test::Mutation::Runner::analyze = sub { die "the analysis broke\n" };
+    local *Test::Mutation::Select::resolve = sub { die "the analysis broke\n" };
     printed( ['list'] );
 }
 heard( 'message-slots', raised( sub { Test::Mutation::Message::text_of( 'inconclusive', reason => 'none' ) } ) );

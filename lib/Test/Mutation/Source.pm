@@ -2,7 +2,7 @@ package Test::Mutation::Source;
 use v5.36;
 use Moo;
 use Encode          ();
-use Types::Standard qw(ArrayRef Enum InstanceOf Int Str Tuple);
+use Types::Standard qw(ArrayRef Enum InstanceOf Int Maybe Str Tuple);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Error;
 use Test::Mutation::Try;
@@ -57,6 +57,16 @@ signature_for offset_of => ( method => 1, positional => [ Int, Int ], returns =>
 
 sub offset_of ( $self, $line, $column ) {
     return $self->_line_starts->[ $line - 1 ] + $column - 1;
+}
+
+signature_for offset_within_source => ( method => 1, positional => [ Int, Int ], returns => Maybe [Int] );
+
+sub offset_within_source ( $self, $line, $column ) {
+    my $starts = $self->_line_starts;
+    return if $line < 1 || $line > @$starts || $column < 1;
+    my $offset = $starts->[ $line - 1 ] + $column - 1;
+    my $limit  = $line < @$starts ? $starts->[$line] : length( $self->text ) + 1;
+    return $offset < $limit ? $offset : undef;
 }
 
 signature_for position_of => ( method => 1, positional => [Int], returns => Tuple [ Int, Int ] );
@@ -137,6 +147,11 @@ Encodes text with the encoding of the source.
 =head2 offset_of
 
 Returns the offset of a line and column.
+
+=head2 offset_within_source
+
+Returns the character offset, or an undefined value for a position outside its line.
+The position just past the last character is valid at the end of the file.
 
 =head2 position_of
 

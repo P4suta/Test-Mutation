@@ -46,7 +46,7 @@ sub configured ( $file, %given ) {
 
 subtest 'one row for each setting, with one name on every surface' => sub {
     my @names = map { $_->name } Test::Mutation::Settings::rows()->@*;
-    is scalar(@names),                                           35, 'the settings';
+    is scalar(@names),                                           36, 'the settings';
     is [ grep { $names[$_] eq $names[ $_ - 1 ] } 1 .. $#names ], [], 'no name twice in a row';
     my $score = $row{'min-score'};
     is [ $score->flag, $score->key, $score->attribute ], [ '--min-score', 'min-score', 'min_score' ], 'the three names';
@@ -55,7 +55,7 @@ subtest 'one row for each setting, with one name on every surface' => sub {
     is [ map { $_->name } grep { !$_->offers('file') } values %row ], bag { item 'root'; item 'config'; end },
       'the file holds every setting but the two that find it';
     is [ grep { !$_->offers('line') || !$_->offers('call') } values %row ], [], 'and the other surfaces hold every one';
-    is [ sort map { $_->name } grep { $_->selects } values %row ], [qw(mutant shard since)],
+    is [ sort map { $_->name } grep { $_->selects } values %row ], [qw(mutant shard since undetected)],
       'the settings that narrow a run';
     is [ map { $_->short // () } @row{qw(root jobs cache)} ], [ '-C', '-j' ], 'the short options';
     my @commands = Test::Mutation::Commands::rows()->@*;
@@ -115,6 +115,7 @@ subtest 'the default of every setting and its text' => sub {
         link               => ['local'],
         'keep-work'        => 0,
         mutant             => [],
+        undetected         => 0,
         since              => undef,
         shard              => undef,
         cache              => 1,
@@ -146,7 +147,7 @@ subtest 'the default of every setting and its text' => sub {
         is $setting->default_text, $text, 'the text of the default of ' . $setting->name;
         $count++;
     }
-    is $count, 27, 'the defaults that stay the same on the two projects';
+    is $count, 28, 'the defaults that stay the same on the two projects';
 };
 
 subtest 'the interactions that the table declares' => sub {

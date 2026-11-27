@@ -99,13 +99,34 @@ my $tasks = $data->{tasks};
 
 # The fast gate runs on every change, and the release gate adds the campaigns that take minutes.
 # The runs on real distributions need a container, so a task of their own belongs to the release gate.
-my $HEAVY   = qr{\Axt/(?:mutants|release|realworld)/};
+my $HEAVY   = qr{\Axt/(?:install|mutants|release|realworld)/};
 my $fast    = proves( commands( $tasks, 'check' ) );
 my $release = proves( commands( $tasks, 'release-gate' ) );
 
 my $workflow = CPAN::Meta::YAML->read_string( slurp('.github/workflows/check.yml') )->[0];
 is [ sort keys $workflow->{on}->%* ], [qw(merge_group pull_request)],
   'the fast checks run for pull requests and merge queues';
+my $gate_job = $workflow->{jobs}{gate};
+my @runners  = @{ $gate_job->{strategy}{matrix}{include} || [] };
+my @groups   = map { [ commands( $tasks, $_->{task} ) ] } @runners;
+my @hosted   = map { $_->@* } @groups;
+my @local    = commands( $tasks, 'check' );
+is [ sort @hosted ], [ sort @local ], 'the hosted jobs run every local fast check exactly once';
+is scalar( grep { $_->@* == 1 && $_->[0] eq $tasks->{e2e}{run} } @groups ), 1,
+  'the end-to-end tests have a runner to themselves';
+my $timeout = $gate_job->{'timeout-minutes'} || q{};
+my ($field) = $timeout =~ /\A \$\{\{ \s* matrix[.] (\w+) \s* \}\} \z/x;
+my %minutes;
+
+for my $runner (@runners) {
+    my $value = defined $field ? $runner->{$field} : $timeout;
+    $minutes{ $runner->{task} } = defined $value && $value =~ /\A[0-9]+\z/ ? 0 + $value : 0;
+}
+cmp_ok $minutes{e2e}, '>=', 30, 'the end-to-end job on pinned Perl has at least thirty minutes';
+is $minutes{'check-components'}, 20, 'the fast gate has twenty minutes';
+my ($run_group) =
+  grep { defined $_->{env}{CHECK_TASK} && $_->{env}{CHECK_TASK} eq '${{ matrix.task }}' } $gate_job->{steps}->@*;
+is $run_group && $run_group->{run}, 'mise run "$CHECK_TASK"', 'each hosted job passes its assigned task as an argument';
 my $distribution = CPAN::Meta::YAML->read_string( slurp('.github/workflows/release-gate.yml') )->[0];
 is [ sort keys $distribution->{on}->%* ], ['workflow_dispatch'], 'the release checks run on manual dispatch';
 my @mac     = grep { $_->{'runs-on'} =~ /\Amacos-/ } values $distribution->{jobs}->%*;
@@ -115,7 +136,10 @@ my @install = grep {
 } @mac;
 ok scalar @install, 'a macOS job builds and tests the unpacked distribution';
 
-my $driver = proves( map { defined $_->{run} ? $_->{run} : () } $workflow->{jobs}{driver}{steps}->@* );
+my @driver_commands = map { defined $_->{run} ? $_->{run} : () } $workflow->{jobs}{driver}{steps}->@*;
+my $driver          = proves(@driver_commands);
+my ($workers)       = map { /\bprove\b[^\n]*?\s(?:-j\s*|--jobs[=\s]+)(\d+)\b/ } @driver_commands;
+cmp_ok $workers || 1, '>=', 2, 'each driver runs independent test files in parallel';
 
 my @tests = grep { !m{\At/(?:fixtures|corpus)/} } map { Library::tests($_)->@* } 't', 'xt';
 my @heavy = grep { $_ =~ $HEAVY } @tests;

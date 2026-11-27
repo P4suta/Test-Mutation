@@ -1,11 +1,11 @@
 package Test::Mutation::Report::Html;
 use v5.36;
 use Encode          ();
-use JSON::PP        ();
-use Types::Standard qw(InstanceOf Num Str);
+use Types::Standard qw(CodeRef InstanceOf Num Optional Str Undef);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Error;
 use Test::Mutation::Report::Json;
+use Test::Mutation::Report::Results;
 
 our $VERSION = '0.001';
 
@@ -39,10 +39,33 @@ signature_for render => (
 );
 
 sub render ( $result, $arg ) {
-    my $document = Test::Mutation::Report::Json::document( $result, high => $arg->high, low => $arg->low );
-    my $data     = JSON::PP->new->canonical->encode($document) =~ s/</\\u003c/gr;
-    my $viewer   = viewer_script();
-    return <<"HTML";
+    my $page = q{};
+    stream( $result, high => $arg->high, low => $arg->low, write => sub ($chunk) { $page .= $chunk } );
+    return $page;
+}
+
+signature_for stream => (
+    head    => [ InstanceOf ['Test::Mutation::Result'] ],
+    named   => [ high => Num, low => Num, write => CodeRef, write_json => Optional [CodeRef] ],
+    returns => Undef,
+);
+
+sub stream ( $result, $arg ) {
+    my $write  = $arg->write;
+    my $viewer = viewer_script();
+    my $score  = $result->tally->{score};
+    my @lines  = (
+        Test::Mutation::Report::Results::overview($result)->@*,
+        defined $score ? sprintf( 'Score: %.1f%%', $score ) : 'Score: none',
+        Test::Mutation::Report::Results::decision( $result, $result->min_score )->@*
+    );
+    my @paragraphs;
+    for (@lines) {
+        my $text = $_ =~ s/&/&amp;/gr =~ s/</&lt;/gr =~ s/>/&gt;/gr;
+        push @paragraphs, "<p>$text</p>";
+    }
+    my $summary = join "\n", @paragraphs;
+    $write->(<<"HTML");
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -52,14 +75,31 @@ sub render ( $result, $arg ) {
 <script>$viewer</script>
 </head>
 <body>
+<header>
+<h1>Mutation report</h1>
+$summary
+</header>
 <mutation-test-report-app title-postfix="Test::Mutation"></mutation-test-report-app>
-<script id="report" type="application/json">$data</script>
+HTML
+    $write->('<script id="report" type="application/json">');
+    Test::Mutation::Report::Json::stream(
+        $result,
+        high  => $arg->high,
+        low   => $arg->low,
+        write => sub ($chunk) {
+            $arg->write_json->($chunk) if $arg->has_write_json;
+            $write->( $chunk =~ s/</\\u003c/gr );
+        }
+    );
+    $write->(<<'HTML');
+</script>
 <script>
 document.querySelector('mutation-test-report-app').report = JSON.parse(document.getElementById('report').textContent);
 </script>
 </body>
 </html>
 HTML
+    return;
 }
 
 1;
@@ -85,6 +125,11 @@ The viewer is a build of the Stryker project under the Apache License 2.0, shipp
 
 Returns the page as text.
 Every left angle bracket in the report data is escaped, so source text cannot end the data element.
+
+=head2 stream
+
+Writes the viewer and the escaped report through the C<write> callback.
+The optional C<write_json> callback receives the same JSON before HTML escaping.
 
 =head2 viewer_script
 

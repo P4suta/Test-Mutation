@@ -184,6 +184,8 @@ subtest 'public command examples run on the distributed Calc fixture' => sub {
         like $run->{stdout}, qr/6e3ea6bd4f6f/,     'the list contains the documented identifier' if $words[0] eq 'list';
         like $run->{stdout}, qr/Result: measured/, 'the shards combine into a scored run' if $words[0] eq 'merge';
     }
+    ok scalar( grep { $_ eq 'mutation run --undetected' } @invocations ),
+      'the installed manual runs the command for checking a repaired test';
     is [ sort keys %executed ], [ sort map { $_->name } @commands ],
       'the installed examples exercise every command in the catalog';
 };

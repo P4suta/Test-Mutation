@@ -1,7 +1,7 @@
 use v5.36;
 use Test2::V0;
 use File::Temp  ();
-use Config      ();
+use Config      qw(%Config);
 use Cwd         ();
 use Digest::SHA ();
 use Time::HiRes ();
@@ -37,6 +37,43 @@ is Test::Mutation::Store::Key::environment( { ANSWER => '1', SHLVL => '3' } ), $
 isnt Test::Mutation::Store::Key::environment( { ANSWER => '2', SHLVL => '2' } ), $env, 'a test can read any variable';
 isnt Test::Mutation::Store::Key::environment( { ANSWER => q{} } ), Test::Mutation::Store::Key::environment( {} ),
   'an empty variable differs from an absent variable';
+
+subtest 'search paths inside a checkout compare by their relative names' => sub {
+    my $input = sub ( $root, @dirs ) {
+        return Test::Mutation::Store::Key::environment( { PERL5LIB => join( $Config{path_sep}, @dirs ) }, $root );
+    };
+    my $first = $input->( '/a', '/shared', '/a', '/a/lib' );
+    is $input->( '/b', '/shared', '/b', '/b/lib' ), $first, 'relocating the checkout keeps the search path';
+    isnt $input->( '/b', '/shared', '/b/lib', '/b' ),         $first, 'the order remains significant';
+    isnt $input->( '/b', '/shared', '/b',     '/b-old/lib' ), $first, 'an adjacent directory stays external';
+};
+
+subtest 'a search directory outside the checkout keeps its location' => sub {
+    my $base = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    for my $site (qw(first second)) {
+        write_file( "$base/$site/repo/bin/tool", 'local' );
+        write_file( "$base/$site/tools/tool",    'external' );
+        symlink '../tools',          "$base/$site/repo/tool-link" or die "link external search directory: $!";
+        symlink 'bin',               "$base/$site/repo/alias"     or die "link local search directory: $!";
+        symlink "$base/first/tools", "$base/$site/repo/shared"    or die "link shared search directory: $!";
+    }
+    for my $name (qw(PATH PERL5LIB PERLLIB)) {
+        my $key = sub ( $site, $entry ) {
+            my $project = "$base/$site/repo";
+            $entry =~ s{^ROOT}{$project};
+            return Test::Mutation::Store::Key::environment( { $name => $entry }, $project );
+        };
+        for my $external (qw(ROOT/../tools ROOT/tool-link ROOT/tool-link/absent/lib ../tools tool-link)) {
+            isnt $key->( 'first', $external ), $key->( 'second', $external ), "$name distinguishes $external";
+        }
+        for my $local (qw(ROOT/bin ROOT/bin/../bin ROOT/absent/lib bin)) {
+            is $key->( 'first', $local ), $key->( 'second', $local ), "$name relocates $local";
+        }
+        isnt $key->( 'first', 'ROOT/bin' ), $key->( 'first', 'ROOT/alias' ), "a test can read the $name spelling";
+        is $key->( 'first', 'ROOT/shared' ), $key->( 'second', 'ROOT/shared' ),
+          "$name can refer to the same external directory from both checkouts";
+    }
+};
 
 subtest 'a fingerprint frames UTF-8 bytes and distinguishes run metadata from test inputs' => sub {
     is Test::Mutation::Store::Key::digest( q{}, '0', "\x{2603}" ), Digest::SHA::sha256_hex("0:1:03:\xe2\x98\x83"),
@@ -180,7 +217,7 @@ PERL
     my %settings = ( root => $project, jobs => 1, equivalence => 0 );
     my $enabled  = Test::Mutation::Settings::of_call( { %settings, cache => 1 } );
     Test::Mutation::Runner::run( $enabled, sub { return } );
-    my $file   = "$project/.mutation/cache.json";
+    my $file   = "$project/.mutation/measurement.sqlite";
     my $before = Test::Mutation::Store::load($file);
     my @other  = sort grep { $before->{$_}{path} eq $support } keys %$before;
     ok @other, 'the complete run saved verdicts outside the selection';
@@ -270,6 +307,25 @@ subtest 'a verdict depends on a complete original test and its external include 
     my $changed = $fingerprint->( [] );
     isnt $changed, $before_edit, 'an edit to an external library changes the key for a previously passing test';
     isnt $fingerprint->( [ $^X, 'Build' ] ), $changed, 'running an incremental build changes the key';
+    {
+        local $run->{config} =
+          Test::Mutation::Settings::of_call( { root => $project, in_place => 1, report_dir => 'spec' } );
+        write_file( "$project/spec/operand", 'first' );
+        my $stored = $fingerprint->( [] );
+        write_file( "$project/spec/operand", 'other' );
+        isnt $fingerprint->( [] ), $stored, 'in-place cached observations depend on data inside the report directory';
+    }
+    {
+        local $run->{config} =
+          Test::Mutation::Settings::of_call( { root => $project, link => ['linked'], report_dir => 'linked/reports' } );
+        write_file( "$project/linked/reports/value", 'first' );
+        my $cache_key   = $fingerprint->( [] );
+        my $project_key = Test::Mutation::Store::Key::project( $project, ['linked/reports'], ['linked'] )->{digest};
+        write_file( "$project/linked/reports/value", 'other' );
+        isnt $fingerprint->( [] ), $cache_key, 'a linked directory exposes report data to cached tests';
+        isnt Test::Mutation::Store::Key::project( $project, ['linked/reports'], ['linked'] )->{digest}, $project_key,
+          'shard inputs include report data nested under an explicitly linked directory';
+    }
     ok $workspace->release(0), 'the original test observation releases its workspace';
 };
 
