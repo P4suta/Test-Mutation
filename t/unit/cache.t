@@ -251,14 +251,14 @@ subtest 'each saved verdict requires the observations that justify its status' =
             detail     => undef,
           };
     }
-    Test::Mutation::Runner::_save_cache( $run, $cache, \@entries );
+    Test::Mutation::Runner::_save_observation( $run, $cache, $_ ) for @entries;
     $cache->{records} = Test::Mutation::Store::load( $cache->{path} );
     is [ sort keys $cache->{records}->%* ], [ sort map { $_->id } $hit, $uncovered ],
       'suppression, an unverified detector and a detector outside coverage leave independent verdicts intact';
     my $prior_key = $cache->{records}{ $hit->id }{inputs};
     $cache->{records}{ $hit->id }{inputs} = 'older input';
     my $reuse = sub ( $context, $mutant, $tests ) {
-        return Test::Mutation::Runner::_reused_entry( $run, $context, { mutant => $mutant, tests => $tests } );
+        return Test::Mutation::Runner::_reused_entry( $run, $context, $mutant, $tests );
     };
     is $reuse->( $cache, $hit, ['t/add.t'] ), undef, 'a recorded detection with changed inputs must be measured again';
     $cache->{records}{ $hit->id }{inputs} = $prior_key;
@@ -293,9 +293,11 @@ PERL
     my $sample_run = { config    => $settings, sample_killers => { $detected_id => 't/detect.t' } };
     my %entries;
     ## no critic (Subroutines::ProtectPrivateSubs)
-    my @jobs = Test::Mutation::Runner::_measurement_jobs( $sample_run, [ $detected, $other, $excluded ],
+    my $next_job = Test::Mutation::Runner::_measurement_jobs( $sample_run, [ $detected, $other, $excluded ],
         $baseline, undef, \%entries );
     ## use critic
+    my @jobs;
+    while ( my $job = $next_job->() ) { push @jobs, $job }
     is [ map { [ $_->{mutant}->id, $_->{tests} ] } @jobs ],
       [ [ $detected_id, ['t/detect.t'] ], [ $other_id, [qw(t/also.t t/detect.t)] ] ],
       'the sample uses the recorded detector and keeps all covering tests for an undetected mutant';

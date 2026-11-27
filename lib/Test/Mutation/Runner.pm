@@ -1754,7 +1754,8 @@ sub _reused_entry ( $run, $cache, $mutant, $tests ) {
 
 sub _save_observation ( $run, $cache, $entry ) {
     my $mutant = $entry->{mutant};
-    my $key    = _verdict_key( $cache, $mutant, $entry->{covered_by}, $entry->{status}, $entry->{by} );
+    return if $mutant->suppressed;
+    my $key = _verdict_key( $cache, $mutant, $entry->{covered_by}, $entry->{status}, $entry->{by} );
     return unless defined $key;
     my $record = {
         inputs => $key,
