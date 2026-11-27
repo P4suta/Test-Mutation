@@ -27,7 +27,7 @@ One JSON file per mutant needs a separate index for prefix searches and ordered 
 
 The driver gains two runtime dependencies.
 SQLite serializes writers and rolls back interrupted transactions.
-[SQLite transactions](https://www.sqlite.org/transactional.html) and [DBD::SQLite](https://metacpan.org/pod/DBD::SQLite) document the guarantees.
+The [SQLite documentation](https://www.sqlite.org/transactional.html) describes atomic commits, and the [Perl driver](https://metacpan.org/pod/DBD::SQLite) provides transaction support.
 
 ## Confirmation
 
