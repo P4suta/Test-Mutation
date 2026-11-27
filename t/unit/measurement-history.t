@@ -6,6 +6,7 @@ use Capability;
 use lib 't/contract/lib';
 use Samples;
 use Test::Mutation::Settings;
+use Test::Mutation::Source;
 use Test::Mutation::Store::History;
 use Test::Mutation::Store::Key;
 
@@ -24,6 +25,15 @@ my $gap = sub ($entry) {
 };
 is Test::Mutation::Store::History::undetected($config), [ map { $gap->($_) } $whole->entries->@[ 0, 1 ] ],
   'the latest completed scope yields only its undetected mutants in inventory order';
+my $uncertain = Samples::result( statuses => [qw(NoVerdict Timeout NoVerdict)], finished => 104 );
+Test::Mutation::Store::History::record( $config, $uncertain, 0 );
+is Test::Mutation::Store::History::undetected($config), [ map { $gap->($_) } $whole->entries->@[ 0, 1 ] ],
+  'inconclusive rechecks preserve known gaps and leave a confirmed detection closed';
+my $first   = $whole->entries->[0]{mutant};
+my $file    = $first->path;
+my $source  = Test::Mutation::Source->from_bytes( path => $file, bytes => $whole->sources->{$file} );
+my $history = Test::Mutation::Store::History::entries( $config, { $file => $source }, [$first] );
+is $history->{ $first->id }{status}, 'NoVerdict', 'the latest inconclusive observation is available for inspection';
 my $narrow  = Test::Mutation::Result->new( $whole->%*, entries => [ $whole->entries->[0] ], finished => 105 );
 my $changed = { $narrow->entries->[0]->%*, status => 'Killed', by => 't/verify.t' };
 $narrow = Test::Mutation::Result->new( $narrow->%*, entries => [$changed] );
