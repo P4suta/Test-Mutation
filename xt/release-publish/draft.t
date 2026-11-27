@@ -161,6 +161,57 @@ subtest 'the asset endpoint can confirm a receipt before the collection catches 
     ok !-e "$remote/$name.sha256.deleted", 'the completed receipt remains attached';
 };
 
+sub starter ( $file, $label = q{} ) {
+    write_file( $file,          q{} );
+    write_file( "$file.state",  'starter' );
+    write_file( "$file.author", 'github-actions[bot]' );
+    write_file( "$file.label",  $label );
+    return;
+}
+
+subtest 'staging accepts the checksum of an empty starter' => sub {
+    local %ENV = setup();
+    my $remote = $ENV{FAKE_REMOTE};
+    starter( "$remote/$name", $source );
+    write_file( "$remote/$name.digest", 'sha256:' . sha256_hex(q{}) );
+    like invoke('stage'), qr/^action=prepare$/m, 'the digest confirms an empty body';
+};
+
+subtest 'cleanup rejects an incomplete asset with conflicting metadata' => sub {
+    for my $case (
+        [ id     => '0' ],
+        [ id     => '010' ],
+        [ id     => '+10' ],
+        [ id     => '10/other' ],
+        [ name   => 'Other.tar.gz' ],
+        [ author => 'other-user' ],
+        [ label  => 'cd' x 20 ],
+        [ digest => 'sha256:' . $digest ],
+        [ state  => 'open' ],
+        [ q{}    => 'partial content' ],
+      )
+    {
+        local %ENV = setup();
+        my $remote = $ENV{FAKE_REMOTE};
+        starter("$remote/$name");
+        my ( $field, $value ) = @$case;
+        write_file( length($field) ? "$remote/$name.$field" : "$remote/$name", $value );
+        is invoke('stage'), undef, "reject conflicting $field metadata";
+        ok !-e "$remote/delete-used", 'no deletion request reached GitHub';
+    }
+};
+
+subtest 'a completed receipt protects its archive during recovery' => sub {
+    local %ENV = setup();
+    my $remote = $ENV{FAKE_REMOTE};
+    invoke('stage');
+    invoke('claim');
+    starter( "$remote/$name", $source );
+    is invoke('stage'), undef, 'a reservation and an incomplete original have inconsistent states';
+    ok !-e "$remote/delete-used", 'both remote assets were retained';
+    is read_file("$remote/$name.sha256"), "$digest  $name\n", 'the reservation still names the original bytes';
+};
+
 subtest 'recovery keeps the original verified bytes' => sub {
     local %ENV = setup();
     invoke('stage');

@@ -8,6 +8,8 @@ type Result<T> = std::result::Result<T, String>;
 const REPO: &str = "P4suta/Test-Mutation";
 const BOT: &str = "github-actions[bot]";
 const ASSET_FIELDS: &str = "[.id,.name,.digest,.label,.uploader.login,.state,.size]|@tsv";
+const EMPTY_DIGEST: &str =
+    "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
 fn required(name: &str) -> Result<String> {
     env::var(name).map_err(|_| format!("missing {name}"))
@@ -209,7 +211,7 @@ impl Candidate {
                 if !release.draft
                     || release.starter.is_some()
                     || *size != "0"
-                    || !hash.is_empty()
+                    || !matches!(*hash, "" | EMPTY_DIGEST)
                     || (!label.is_empty() && *label != self.sha)
                 {
                     return Err(format!("unexpected incomplete upload of {name}"));

@@ -11,7 +11,8 @@ my $source = 'ab' x 20;
 sub read_file ($file) {
     open my $in, '<:raw', "$root/$file" or die "read $file: $!";
     local $/ = undef;
-    return readline $in;
+    my $contents = readline $in;
+    return defined $contents ? $contents : q{};
 }
 
 sub write_file ( $file, $value ) {
@@ -30,8 +31,8 @@ sub asset_row ( $file, $id ) {
     my $state = value( "$file.state", 'uploaded' );
     my $hash  = $state eq 'starter' ? q{} : 'sha256:' . sha256_hex($bytes);
     my @row   = (
-        value( "$file.id", $id ),
-        $file,
+        value( "$file.id",     $id ),
+        value( "$file.name",   $file ),
         value( "$file.digest", $hash ),
         value( "$file.label",  q{} ),
         value( "$file.author", q{} ), $state
@@ -51,6 +52,7 @@ sub complete ( $file, $marker ) {
 my $command = shift @ARGV;
 if ( $command eq 'api' ) {
     write_file( 'api-used', 1 );
+    write_file( 'delete-used', 1 ) if grep { $_ eq 'DELETE' } @ARGV;
     my ($path) = grep { m{\Arepos/} } @ARGV;
     if ( $path =~ m{/releases/17\z} ) {
         say join "\t", 'v0.1.0', $source, read_file('draft'), '17';
@@ -85,7 +87,7 @@ if ( $command eq 'api' ) {
         if ( grep { $_ eq 'DELETE' } @ARGV ) {
             write_file( "$file.deleted", $id );
             unlink "$root/$file" or die "delete asset: $!";
-            unlink "$root/$file.state";
+            unlink map { "$root/$file.$_" } qw(id name label digest author state);
         }
         elsif ( grep { $_ eq '--jq' } @ARGV ) {
             say asset_row( $file, $id );
