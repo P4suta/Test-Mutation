@@ -5,6 +5,7 @@ use File::Temp ();
 use lib 't/e2e/lib';
 use Fixture qw(copy_of run_fixture statuses write_file);
 use Test::Mutation::Report::Terminal;
+use Test::Mutation::Store;
 
 my $root     = copy_of('calc');
 my ($first)  = run_fixture($root);
@@ -17,6 +18,23 @@ sub append ( $path, $text ) {
     close $handle         or die "close $path: $!";
     return;
 }
+
+subtest 'a legacy cache reuses only independently verifiable observations' => sub {
+    my $directory = "$root/.mutation";
+    my $database  = "$directory/measurement.sqlite";
+    my $records   = Test::Mutation::Store::load($database);
+    my $originals = Test::Mutation::Store::originals($database);
+    delete $_->{observations} for values %$records;
+    my ( $unidentified, $different ) = sort keys %$records;
+    delete $records->{$unidentified}->@{qw(path source)};
+    $records->{$different}{inputs} = 'previous inputs';
+    Test::Mutation::Store::save( "$directory/cache.json", $records, undef, {}, $originals );
+    unlink $database or die "unlink $database: $!";
+    my ($imported) = run_fixture( $root, cache => 1 );
+    is $imported->stats->{baseline_tests}, 0,             'matching original coverage survives migration';
+    is $imported->reused,                  $measured - 2, 'the two verdicts without matching inputs are measured again';
+    is statuses($imported), statuses($first), 'the migrated and newly measured verdicts agree with the clean run';
+};
 
 subtest 'a second run reuses every measured result' => sub {
     is $first->reused, 0, 'the first run measures every mutant';
