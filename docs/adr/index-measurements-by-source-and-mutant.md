@@ -11,11 +11,10 @@ Opening one of 7,723 mutants took 15.73 seconds to reparse sources and restore t
 
 ## Decision
 
-The driver records file analysis under its source digest and analysis settings in SQLite.
-An index maps each identifier to its file and inventory position.
-Separate rows hold reusable test observations and the verdicts of dated measurements.
-A transaction publishes each observation or completed measurement.
-The driver imports JSON cache records with verifiable inputs and checks their fingerprints before reuse.
+SQLite indexes analysis by source digest and settings, and mutant IDs by file and inventory position.
+Transactions publish reusable observations and dated verdicts separately.
+The driver verifies input fingerprints before reusing imported JSON records.
+Report directories record project-relative paths and SHA-256 digests so copied or edited reports count as test inputs.
 Target Perl needs no database driver.
 
 ## Alternatives
