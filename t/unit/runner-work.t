@@ -112,8 +112,8 @@ subtest 'every original compiler observation records the result before the job c
         no warnings 'redefine';
         local *Test::Mutation::Runner::_after_code = sub { return 'handled' };    ## no critic (Variables::ProtectPrivateVars)
         is Test::Mutation::Runner::_after_task( $run, {}, $task, $result ), 'handled', 'the job can resume';
-        is $run->{original_compile}{$path},
-          { passed => $exit ? 0 : 1, duration => 2.5, code => $digest, inputs => $inputs },
+        is [ $run->{original_compile}{$path}->@{qw(passed duration code inputs opaque)} ],
+          [ $exit ? 0 : 1, 2.5, $digest, $inputs, undef ],
           'syntax and equivalence share the same completed original compiler observation';
         my $shared = $run->{original_compile}{$path};
         delete $task->{payload}{original};
