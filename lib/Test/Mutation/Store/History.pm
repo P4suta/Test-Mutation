@@ -4,9 +4,10 @@ use Cwd             ();
 use JSON::PP        ();
 use Types::Standard qw(ArrayRef Bool Dict HashRef InstanceOf Maybe Num Str Undef);
 use Type::Params    qw(signature_for);
+use Test::Mutation::Diff;
 use Test::Mutation::Store;
 use Test::Mutation::Store::Key;
-use Test::Mutation::Types qw(StatusName);
+use Test::Mutation::Types qw(PathSelection StatusName);
 
 our $VERSION = '0.001';
 
@@ -40,6 +41,7 @@ sub record ( $config, $result, $anchor ) {
                 my ( $mutant, %facts ) = ( $entry->{mutant}, $entry->%* );
                 delete $facts{mutant};
                 my $path = $mutant->path;
+                $facts{lines} = $mutant->line_span;
                 $write->execute( $run, $order++, $mutant->id, $path, $sources{$path}, $entry->{status},
                     $JSON->encode( \%facts ) );
             }
@@ -82,10 +84,12 @@ sub entries ( $config, $sources, $mutants ) {
     return \%entries;
 }
 
-signature_for undetected =>
-  ( positional => [$CONFIG], returns => Maybe [ ArrayRef [ Dict [ id => Str, path => Str, source => Str ] ] ] );
+signature_for undetected => (
+    positional => [ $CONFIG, ArrayRef [PathSelection], { default => sub { [] } } ],
+    returns    => Maybe [ ArrayRef [ Dict [ id => Str, path => Str, source => Str ] ] ]
+);
 
-sub undetected ($config) {
+sub undetected ( $config, $filters ) {
     my $path = Test::Mutation::Store::path( $config, 0 );
     return unless $config->cache && -f $path;
     my $db      = Test::Mutation::Store::database($path);
@@ -94,7 +98,8 @@ sub undetected ($config) {
 WITH scope AS (
     SELECT run, project FROM measurement WHERE project = ? AND anchor = 1 ORDER BY run DESC LIMIT 1
 ), gaps AS (
-    SELECT member.id, member.path, member.source, member.ordinal FROM scope JOIN observation member USING(run)
+    SELECT member.id, member.path, member.source, member.ordinal, json_extract(member.data, '$.lines') AS lines
+    FROM scope JOIN observation member USING(run)
     WHERE (
         SELECT evidence.status FROM observation evidence JOIN measurement USING(run)
         WHERE evidence.id = member.id AND evidence.source = member.source AND evidence.run >= scope.run
@@ -102,10 +107,22 @@ WITH scope AS (
         ORDER BY evidence.run DESC LIMIT 1
     ) IN ('Survived', 'NoCoverage')
 )
-SELECT gaps.id, gaps.path, gaps.source FROM scope LEFT JOIN gaps ON 1 ORDER BY gaps.ordinal
+SELECT gaps.id, gaps.path, gaps.source, gaps.lines FROM scope LEFT JOIN gaps ON 1 ORDER BY gaps.ordinal
 SQL
-    return unless @$rows;
-    return defined $rows->[0]{id} ? $rows : [];
+    return    unless @$rows;
+    return [] unless defined $rows->[0]{id};
+    my @selected;
+
+    for my $row (@$rows) {
+        my $lines = delete $row->{lines};
+        my $span  = defined $lines ? $JSON->decode($lines) : undef;
+        next if grep {
+            my $ranges = $_->{ $row->{path} };
+            !$ranges || ( @$ranges && $span && !Test::Mutation::Diff::touches( $ranges, @$span ) )
+        } @$filters;
+        push @selected, $row;
+    }
+    return \@selected;
 }
 
 1;
@@ -126,6 +143,7 @@ A true final argument makes a completed run the scope of the next search for und
 =head2 undetected
 
 Returns the identifiers, files, and source digests of the gaps still present in the latest completed scope.
+Optional file and line filters intersect the recorded locations.
 An empty array marks a measured scope with no gaps.
 An undefined value marks missing history.
 

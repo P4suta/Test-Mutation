@@ -1,7 +1,8 @@
 package Test::Mutation::Mutant;
 use v5.36;
 use Moo;
-use Types::Standard qw(Bool Int Maybe Str StrMatch Tuple);
+use Types::Standard qw(Bool InstanceOf Int Maybe Str StrMatch Tuple);
+use Type::Params    qw(signature_for);
 
 our $VERSION = '0.001';
 
@@ -26,6 +27,13 @@ has introduced_call => (
     default => undef
 );
 has comparable => ( is => 'ro', isa => Bool, default => 1 );
+
+signature_for line_span => ( method => InstanceOf [__PACKAGE__], positional => [], returns => Tuple [ Int, Int ] );
+
+sub line_span ($self) {
+    my ( $last, $column ) = $self->to->@*;
+    return [ $self->from->[0], $column == 1 ? $last - 1 : $last ];
+}
 
 1;
 
@@ -76,6 +84,10 @@ The line and column of the first replaced character.
 =head2 to
 
 The line and column after the last replaced character.
+
+=head2 line_span
+
+Returns the inclusive first and last lines touched by the replacement.
 
 =head2 scope
 

@@ -397,11 +397,7 @@ sub _analyze_file ( $config, $source, $mutators, $others, $version ) {
 }
 
 sub _in_changed_lines ( $ranges, $mutant ) {
-    my ( $first, $last ) = ( $mutant->from->[0], $mutant->to->[0] );
-
-    # An end at the first column of a line leaves that line outside the mutant.
-    $last-- if $mutant->to->[1] == 1;
-    return Test::Mutation::Diff::touches( $ranges, $first, $last );
+    return Test::Mutation::Diff::touches( $ranges, $mutant->line_span->@* );
 }
 
 1;
