@@ -148,4 +148,23 @@ subtest 'publishing one format retains the other format and preserves hard-linke
       'a hard-linked metadata file cannot certify output paths';
 };
 
+subtest 'a project copy keeps a relative link target and reports dangling links without warnings' => sub {
+    my $project   = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    my $directory = "$project/history";
+    my %files     = ( 'mutation.json' => 'json data', 'mutation.html' => 'html data' );
+    write_file( "$directory/$_", $files{$_} ) for keys %files;
+    my %keys = map { $_ => Digest::SHA::sha256_hex( $files{$_} ) } keys %files;
+    Test::Mutation::Report::Publication::record( $project, $directory, \%keys );
+    symlink 'history/mutation.json', "$project/input"    or die "link report: $!";
+    symlink 'missing',               "$project/dangling" or die "link missing input: $!";
+    my $view;
+    is warnings { $view = Test::Mutation::Store::Key::project( $project, [], [] ) }, [],
+      'the layout can include a dangling project link';
+    my %omitted = map { $_ => 1 } $view->{outputs}->@*;
+    ok !$omitted{history} && !$omitted{'history/mutation.json'}, 'the link has its original directory and file';
+    ok $omitted{'history/mutation.html'}, 'a sibling publication that the link cannot reach stays hidden';
+    is Test::Mutation::Store::Key::project( $project, [], ['history'] )->{outputs}, [],
+      'a directory explicitly linked to the real project exposes all its contents';
+};
+
 done_testing;

@@ -15,7 +15,8 @@ Different tests or project data can produce the same inventory.
 
 Keep the test observations and compiler comparison with each measured mutant.
 Bind the measurement to its sources, tests, execution settings, interpreter, and dependencies.
-Exclude published reports only while their project-relative paths and content digests match the publication record.
+Omit unchanged published reports at their recorded paths from isolated copies and their input digests.
+Fingerprint reports visible in place or through linked inputs.
 Reuse a detection when every covering test through its first failure matches.
 Interleave shards and verify the resulting inventory digest before classifying duplicates.
 Keep the first undetected mutant with each compiled digest in each source file.
