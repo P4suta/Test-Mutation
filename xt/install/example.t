@@ -83,14 +83,15 @@ my $command = "$prefix/bin/mutation";
 ok -x $command, 'the distribution installed its executable in the fresh prefix';
 my $origins = <<'PERL';
 use Test::Mutation;
+use Cpanel::JSON::XS;
 use DBI;
 use DBD::SQLite;
-print "$INC{$_}\n" for qw(Test/Mutation.pm DBI.pm DBD/SQLite.pm);
+print "$INC{$_}\n" for qw(Test/Mutation.pm Cpanel/JSON/XS.pm DBI.pm DBD/SQLite.pm);
 PERL
-is run_in_project( $^X, '-e', $origins ), 0, 'the installed driver loads both database modules'
+is run_in_project( $^X, '-e', $origins ), 0, 'the installed driver loads its JSON and database modules'
   or diag read_text("$scratch/command.log");
 my @origins = split /\n/, read_text("$scratch/command.log");
-is scalar @origins, 3, 'each required module reports its path';
+is scalar @origins, 4, 'each required module reports its path';
 like $_, qr{\A\Q$prefix/\E}, 'the temporary installation supplies the module' for @origins;
 
 subtest 'the installed command rejects a test gap and confirms its repair' => sub {
