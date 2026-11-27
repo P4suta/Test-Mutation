@@ -38,6 +38,17 @@ isnt Test::Mutation::Store::Key::environment( { ANSWER => '2', SHLVL => '2' } ),
 isnt Test::Mutation::Store::Key::environment( { ANSWER => q{} } ), Test::Mutation::Store::Key::environment( {} ),
   'an empty variable differs from an absent variable';
 
+subtest 'search paths inside a checkout compare by their relative names' => sub {
+    my $input = sub ( $root, @dirs ) {
+        return Test::Mutation::Store::Key::environment( { PERL5LIB => join( $Config::Config{path_sep}, @dirs ) },
+            $root );
+    };
+    my $first = $input->( '/a', '/shared', '/a', '/a/lib' );
+    is $input->( '/b', '/shared', '/b', '/b/lib' ), $first, 'relocating the checkout keeps the search path';
+    isnt $input->( '/b', '/shared', '/b/lib', '/b' ),         $first, 'the order remains significant';
+    isnt $input->( '/b', '/shared', '/b',     '/b-old/lib' ), $first, 'an adjacent directory stays external';
+};
+
 subtest 'a fingerprint frames UTF-8 bytes and distinguishes run metadata from test inputs' => sub {
     is Test::Mutation::Store::Key::digest( q{}, '0', "\x{2603}" ), Digest::SHA::sha256_hex("0:1:03:\xe2\x98\x83"),
       'the length of a non-ASCII input counts its encoded bytes';

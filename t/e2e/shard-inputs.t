@@ -35,6 +35,11 @@ for my $checkout (qw(first second)) {
 }
 write_file( "$library/Defaults.pm", $external );
 
+sub checkout_library ( $checkout, $part ) {
+    local $ENV{PERL5LIB} = join q{:}, "$area/$checkout/lib", grep { defined } $ENV{PERL5LIB};
+    return shard( $checkout, $part );
+}
+
 sub shard ( $root, $part, %settings ) {
     my ($result) = run_fixture( "$area/$root", shard => "$part/2", cache => 0, %settings );
     return { name => $root, result => $result };
@@ -48,6 +53,8 @@ sub compare (%settings) {
 }
 
 ok lives { compare( cache => 1, jobs => 1 ) }, 'cached and uncached observations use compatible inputs';
+ok lives { Test::Mutation::Merge::merge( [ checkout_library( 'first', 1 ), checkout_library( 'second', 2 ) ] ) },
+  'checkout-relative Perl search paths identify identical project libraries';
 {
     my @parts;
     for my $number ( 1 .. 2 ) {

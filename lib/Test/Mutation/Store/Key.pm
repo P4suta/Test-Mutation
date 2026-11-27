@@ -30,12 +30,24 @@ sub digest ($parts) {
     return $sha->hexdigest;
 }
 
-signature_for environment => ( positional => [ HashRef [ Maybe [Str] ] ], returns => Str );
+signature_for environment => ( positional => [ HashRef [ Maybe [Str] ], Optional [ Maybe [Str] ] ], returns => Str );
 
-sub environment ($env) {
+sub environment ( $env, $project = undef ) {
     my @names = sort grep { defined $env->{$_} && !$volatile{$_} && $_ !~ /\ATEST_MUTATION_(?:SPEC|RECORD)_G[0-9]+\z/x }
       keys %$env;
-    return digest( map { ( $_, $env->{$_} ) } @names );
+    my %values = %$env;
+    if ( defined $project ) {
+        my $separator = $Config::Config{path_sep};
+        for my $name ( grep { defined $values{$_} } qw(PATH PERL5LIB PERLLIB) ) {
+            $values{$name} = digest(
+                map { index( "$_/", "$project/" ) == 0 ? ( 'project', substr( $_, length $project ) ) : ( 'path', $_ ) }
+                  split /\Q$separator\E/,
+                $values{$name},
+                -1
+            );
+        }
+    }
+    return digest( map { ( $_, $values{$_} ) } @names );
 }
 
 signature_for file => ( positional => [Str], returns => Str );
@@ -168,6 +180,7 @@ Hashes each input with its byte length so different input boundaries stay distin
 =head2 environment
 
 Hashes the environment that a test inherits after removing driver assignments and volatile run identifiers.
+With a project root, library and executable search paths within the project compare by their relative names.
 
 =head2 file
 

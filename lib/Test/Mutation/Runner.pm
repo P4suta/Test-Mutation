@@ -448,7 +448,7 @@ sub _measurement_digest ( $run, $selection ) {
         Test::Mutation::Store::Key::digest( map { ( $_, $selection->digests->{$_} ) } @sources ),
         Test::Mutation::Store::Key::interpreter_build( $selection->perl ),
         Test::Mutation::Store::Key::tree( $project, \@skip, 1 ),
-        Test::Mutation::Store::Key::environment( \%ENV ),
+        Test::Mutation::Store::Key::environment( \%ENV, $project ),
         _module_text($SHIM_FILE),
         _module_text('Test/Mutation/Witness.pm'),
         $config->mutant->@* ? 1 : 0,
