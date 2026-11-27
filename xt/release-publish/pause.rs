@@ -87,6 +87,17 @@ struct Response {
     body: Vec<u8>,
 }
 
+impl Response {
+    fn has_json(&self, condition: &str) -> bool {
+        let filter = format!("length == 1 and (.[0] | {condition})");
+        execute(
+            tool("/usr/bin/jq").args(["--slurp", "--exit-status", &filter]),
+            &self.body,
+        )
+        .is_ok()
+    }
+}
+
 fn request(protocol: &str, url: &str) -> Result<Response> {
     let mut curl = tool("/usr/bin/curl");
     curl.args([
@@ -142,13 +153,50 @@ fn reconcile(cpan: &str, protocol: &str, archive: &Archive) -> Result<Outcome> {
     }
 }
 
-pub(crate) fn run(_pause: &str, cpan: &str, _metacpan: &str, protocol: &str) -> ExitCode {
+fn token() -> Result<String> {
+    let input = env::var("PAUSE_TOKEN").unwrap_or_default();
+    let fields: Vec<_> = input.split(':').collect();
+    let hex = |value: &str, length| {
+        value.len() == length
+            && value
+                .bytes()
+                .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+    };
+    if matches!(fields.as_slice(), ["YASUNOBU", id, secret] if hex(id, 32) && hex(secret, 64)) {
+        Ok(input)
+    } else {
+        Err("PAUSE_TOKEN must contain the complete upload token issued to YASUNOBU".into())
+    }
+}
+
+fn permissions(metacpan: &str, protocol: &str) -> Result<String> {
+    let author = request(protocol, &format!("{metacpan}/author/YASUNOBU"))?;
+    if author.status != 200 || !author.has_json(r#".pauseid == "YASUNOBU""#) {
+        return Err("Cannot confirm PAUSE account YASUNOBU in MetaCPAN".into());
+    }
+    let permission = request(protocol, &format!("{metacpan}/permission/Test::Mutation"))?;
+    match permission.status {
+        404 if permission.has_json(r#".code == 404 and .message == "Not found""#) => {
+            Ok("Test::Mutation is unclaimed in the public permission index".into())
+        }
+        200 if permission.has_json(r#".module_name == "Test::Mutation" and
+            (.owner == "YASUNOBU" or (.co_maintainers | type == "array" and any(.[]; . == "YASUNOBU")))"#) => {
+            Ok("YASUNOBU holds indexing permission for Test::Mutation".into())
+        }
+        status => Err(format!("Cannot confirm indexing permission for Test::Mutation (HTTP {status})")),
+    }
+}
+
+pub(crate) fn run(_pause: &str, cpan: &str, metacpan: &str, protocol: &str) -> ExitCode {
     let args: Vec<_> = env::args().skip(1).collect();
     let outcome = match args.as_slice() {
+        [command] if command == "preflight" => token().and_then(|_| permissions(metacpan, protocol)).map(|permission| {
+            Outcome::Complete(format!("{permission}. Token format verified locally; PAUSE authentication remains unverified."))
+        }),
         [command, path, digest] if command == "reconcile" => {
             Archive::read(path, digest).and_then(|archive| reconcile(cpan, protocol, &archive))
         }
-        _ => Err("Usage: pause reconcile ARCHIVE SHA256".into()),
+        _ => Err("Usage: pause preflight | pause reconcile ARCHIVE SHA256".into()),
     };
     match outcome {
         Ok(Outcome::Complete(message)) => {

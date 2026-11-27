@@ -1,4 +1,5 @@
 import hashlib
+import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import subprocess
@@ -12,6 +13,9 @@ FILENAME = "Test-Mutation-0.001.tar.gz"
 PUBLISHED = "/authors/id/Y/YA/YASUNOBU/" + FILENAME
 CONTENT = b"verified archive\x00\xff\n"
 DIGEST = hashlib.sha256(CONTENT).hexdigest()
+TOKEN = ":".join(["YASUNOBU", "a" * 32, "b" * 64])
+AUTHOR = "/author/YASUNOBU"
+PERMISSION = "/permission/Test::Mutation"
 
 
 class Request(BaseHTTPRequestHandler):
@@ -57,6 +61,53 @@ class Pause(unittest.TestCase):
         if token is not None:
             env["PAUSE_TOKEN"] = token
         return subprocess.run([self.binary, *args], cwd=self.work.name, env=env, capture_output=True)
+
+    def author(self):
+        self.server.replies[AUTHOR] = (200, b'{"pauseid":"YASUNOBU"}')
+        self.server.replies[PERMISSION] = (404, b'{"code":404,"message":"Not found"}')
+
+    def test_preflight_checks_first_release_permissions_without_sending_the_token(self):
+        self.author()
+        result = self.run_adapter("preflight", token=TOKEN)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(b"unclaimed", result.stdout)
+        self.assertIn(b"authentication remains unverified", result.stdout)
+        self.assertNotIn(TOKEN.encode(), result.stderr + result.stdout)
+        self.assertEqual([path for _, path, _, _ in self.server.requests], [AUTHOR, PERMISSION])
+        for method, _, headers, _ in self.server.requests:
+            self.assertEqual(method, "GET")
+            self.assertIsNone(headers.get("Authorization"))
+
+    def test_preflight_checks_the_account_and_token_shape_locally(self):
+        for token in [None, "", TOKEN.replace("YASUNOBU", "OTHER"), TOKEN + "\n", TOKEN[:-1], TOKEN + ":extra"]:
+            with self.subTest(token=bool(token)):
+                result = self.run_adapter("preflight", token=token)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(b"PAUSE_TOKEN", result.stderr)
+                self.assertNotIn(("b" * 32).encode(), result.stderr + result.stdout)
+        self.assertEqual(self.server.requests, [])
+
+    def test_preflight_requires_the_named_account_and_an_indexing_permission(self):
+        for account, module, owner, maintainers, expected in [
+            ("YASUNOBU", "Test::Mutation", "YASUNOBU", [], 0),
+            ("YASUNOBU", "Test::Mutation", "OTHER", ["YASUNOBU"], 0),
+            ("YASUNOBU", "Test::Mutation", "OTHER", ["NOTME"], 1),
+            ("YASUNOBU", "Different", "YASUNOBU", [], 1),
+            ("OTHER", "Test::Mutation", "YASUNOBU", [], 1),
+        ]:
+            with self.subTest(account=account, module=module, owner=owner, maintainers=maintainers):
+                self.server.replies[AUTHOR] = (200, json.dumps({"pauseid": account}).encode())
+                body = {"module_name": module, "owner": owner, "co_maintainers": maintainers}
+                self.server.replies[PERMISSION] = (200, json.dumps(body).encode())
+                result = self.run_adapter("preflight", token=TOKEN)
+                self.assertEqual(result.returncode, expected, result.stderr)
+
+    def test_preflight_distinguishes_absent_permission_from_unavailable_metadata(self):
+        self.author()
+        for status, body in [(404, b"generic error"), (429, b"busy"), (200, b"{}{}")]:
+            with self.subTest(status=status):
+                self.server.replies[PERMISSION] = (status, body)
+                self.assertEqual(self.run_adapter("preflight", token=TOKEN).returncode, 1)
 
     def test_matches_the_exact_author_archive(self):
         self.server.replies[PUBLISHED] = (200, CONTENT)
