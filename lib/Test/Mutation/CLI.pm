@@ -232,16 +232,14 @@ sub _planned ( $argv, $world ) {
     if ( $row->operands eq 'paths' && $plan{operands}->@* ) {
         my $first = $plan{operands}[0];
         _unknown_command($first) if $parsed->{implicit} && $first !~ m{[./:]} && !-e _under( $inside, $first );
-        if ( $command eq 'run' && $plan{config}->undetected ) {
+        if ( $command eq 'run' ) {
             $plan{paths} = Test::Mutation::Select::operand_paths( $plan{config}, $plan{operands} );
             return \%plan;
         }
         $plan{selection} = Test::Mutation::Select::resolve(
             config    => $plan{config},
             operands  => $plan{operands},
-            read_only => $command eq 'run' ? 0 : 1,
-            reports   => $command eq 'run' ? 1 : 0,
-            summary   => $world->{env}{GITHUB_STEP_SUMMARY}
+            read_only => 1
         );
     }
     return \%plan;

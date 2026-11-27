@@ -7,6 +7,21 @@ use Test::Mutation::Runner;
 use Test::Mutation::Settings;
 use Test::Mutation::Store::History;
 
+subtest 'planning a path run leaves the catalog to execution' => sub {
+    my $project = copy_of('calc');
+    my @args    = ( 'run', 'lib/Calc.pm:12', '--format', 'terminal', '--jobs', 1 );
+    my $plan    = World::observe( \@args, cwd => $project, run => 'cheap' )->{plan};
+    ok !$plan->{refused},        'the plan accepts the file and range';
+    ok !-e "$project/.mutation", 'planning creates no cache in the project';
+    is World::observe( \@args, cwd => $project )->{exit}, 0, 'the selected range runs';
+    ok -f "$project/.mutation/measurement.sqlite", 'execution publishes the file analysis';
+    my $parsed  = 0;
+    my $analyze = Test::Mutation::Syntax::PPI->can('analyze');
+    no warnings 'redefine';
+    local *Test::Mutation::Syntax::PPI::analyze = sub (@arguments) { $parsed++; return $analyze->(@arguments) };
+    is World::observe( [ 'list', 'lib/Calc.pm:12' ], cwd => $project )->{exit}, 0, 'the measured range can be listed';
+    is $parsed, 0, 'the next lookup reads the warm file analysis';
+};
 my $root = copy_of('equivalent');
 write_file( "$root/lib/Other.pm", 'package Other; sub inc { return $_[0] + 1 } 1;' );
 my $config = Test::Mutation::Settings::of_call( { root => $root, jobs => 1 } );
