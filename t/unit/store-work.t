@@ -1,5 +1,6 @@
 use v5.36;
 use Test2::V0;
+use JSON::PP ();
 use lib 't/e2e/lib', 't/contract/lib';
 use Fixture qw(copy_of write_file);
 use World;
@@ -10,15 +11,17 @@ sub traced ($operation) {
     my %counts =
       ( writes => 0, writers => 0, totals => 0, history => 0, pruning => 0, connections => 0, verdict_files => {} );
     my $connect = Test::Mutation::Store->can('_connect');
-    my $decode  = JSON::PP->can('decode');
+    my $fetch   = DBI::st->can('fetchrow_arrayref');
+    my $json    = JSON::PP->new;
     my $save    = Test::Mutation::Store->can('save');
     my $phase   = {};
     no warnings 'redefine';
-    local *JSON::PP::decode = sub ( $json, $text ) {
-        my $data = $decode->( $json, $text );
-        $counts{verdict_files}{ $data->{path} }++
-          if ref $data eq 'HASH' && exists $data->{inputs} && exists $data->{status};
-        return $data;
+    local *DBI::st::fetchrow_arrayref = sub ( $statement, @args ) {
+        my $row = $fetch->( $statement, @args );
+        if ( $row && $statement->{Statement} =~ /\ASELECT id, data FROM verdict\b/ ) {
+            $counts{verdict_files}{ $json->decode( $row->[1] )->{path} }++;
+        }
+        return $row;
     };
     local *Test::Mutation::Store::save = sub (@args) {
         local $phase->{inventory} = ref $args[2] eq 'ARRAY' && $args[2]->@*;
@@ -64,8 +67,9 @@ my ( $narrow, $subset ) = traced(
         World::observe( [ 'run', 'lib/Other.pm', '--jobs', 1, '--format', 'terminal' ], cwd => $root );
     }
 );
-is $narrow->{exit},                            0,                'a single-file measurement consults the warm cache';
-is [ sort keys $subset->{verdict_files}->%* ], ['lib/Other.pm'], 'only verdicts in the selected file are decoded';
+is $narrow->{exit}, 0, 'a single-file measurement consults the warm cache';
+is [ sort keys $subset->{verdict_files}->%* ], ['lib/Other.pm'],
+  'the database returns verdicts only for the selected file';
 my ( $uncached, $private ) = traced(
     sub {
         World::observe( [ 'run', 'lib/Other.pm', '--no-cache', '--jobs', 1, '--format', 'terminal' ], cwd => $root );
