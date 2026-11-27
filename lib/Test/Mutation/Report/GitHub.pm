@@ -49,6 +49,7 @@ signature_for summary => (
 
 sub summary ( $result, $floor, $reports, $used ) {
     my $budget = 1024 * 1024 - $used;
+    return q{} if $budget <= 0;
     my $tally  = $result->tally;
     my $counts = $tally->{counts};
     my $score  = 'Score: none';

@@ -133,4 +133,16 @@ subtest 'large selections reserve room for the gate and report location' => sub 
     like $text, qr{reports/mutation[.]json}, 'the destination remains available when paths must be abbreviated';
 };
 
+subtest 'a full step summary needs no measurement traversal' => sub {
+    my $case  = result( [ entry('Survived') ] );
+    my $tally = Test::Mutation::Result->can('tally');
+    my $calls = 0;
+    no warnings 'redefine';
+    local *Test::Mutation::Result::tally = sub ($self) { $calls++; return $tally->($self) };
+    for my $used ( 1024 * 1024, 1024 * 1024 + 1 ) {
+        is Test::Mutation::Report::GitHub::summary( $case, 70, [], $used ), q{}, 'the step has no room for text';
+    }
+    is $calls, 0, 'the occupied summary requires no mutant counts';
+};
+
 done_testing;
