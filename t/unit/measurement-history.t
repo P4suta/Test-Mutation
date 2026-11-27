@@ -76,6 +76,42 @@ subtest 'a merge keeps the finish time of each part for inspection' => sub {
         map { $_ => $saved->{$_}{finished} } keys %$saved
     }, \%dates, 'each inspected mutant dates from its own shard';
 };
+
+subtest 'each merged mutant uses the latest eligible observation of its own source' => sub {
+    my $other   = Test::Mutation::Settings::of_call( { root => File::Temp::tempdir( CLEANUP => 1 ) } );
+    my $checked = Samples::result( statuses => [qw(Killed Survived Killed)], finished => 120 );
+    Test::Mutation::Store::History::record( $other, $checked, 0 );
+    my $joined  = Samples::result( statuses => [qw(Survived Killed NoCoverage)], finished => 121 );
+    my @mutants = map { $_->{mutant} } $joined->entries->@*;
+    my %measured;
+    @measured{ map { $_->id } @mutants } = ( 119, 121, 120 );
+    Test::Mutation::Store::History::record( $other, $joined, 1, { completed => 200, measured => \%measured } );
+    my $expected = [ $gap->( $joined->entries->[2] ) ];
+    is Test::Mutation::Store::History::undetected($other), $expected,
+      'the recheck at 120 beats the first shard, predates the next and loses the tie with the last';
+    my $inspect = Test::Mutation::Store::History::entries( $other, { $file => $source }, \@mutants );
+    is [ map { [ $inspect->{ $_->id }->@{qw(status finished)} ] } @mutants ],
+      [ [ 'Killed', 120 ], [ 'Killed', 121 ], [ 'NoCoverage', 120 ] ],
+      'inspection orders each verdict by the same measurement time and insertion order';
+    my $candidate = Samples::result( statuses => [qw(Survived Survived Killed)], finished => 210 );
+
+    for my $case (
+        [ 'another source revision', { sources     => { $file => $whole->sources->{$file} . "\n" } }, 0 ],
+        [ 'an interrupted run',      { interrupted => 'TERM' },                                       1 ],
+        [ 'an unmerged shard',       { shard       => '1/2' },                                        1 ],
+      )
+    {
+        my ( $label, $overrides, $anchor ) = @$case;
+        Test::Mutation::Store::History::record( $other, Test::Mutation::Result->new( $candidate->%*, %$overrides ),
+            $anchor );
+        is Test::Mutation::Store::History::undetected($other), $expected, "$label leaves the gaps in place";
+    }
+    my $unknown = Samples::result( statuses => [qw(Timeout NoVerdict Pending)], finished => 220 );
+    Test::Mutation::Store::History::record( $other, $unknown, 0 );
+    is Test::Mutation::Store::History::undetected($other), $expected,
+      'a recheck without a verdict leaves the gaps in place';
+};
+
 my $off = Test::Mutation::Settings::of_call( { root => $root, cache => 0 } );
 is Test::Mutation::Store::History::undetected($off), undef, 'disabling the cache bypasses saved history';
 subtest 'history follows finish times when concurrent writers commit out of order' => sub {
