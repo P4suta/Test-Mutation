@@ -73,6 +73,7 @@ sub run ($arg) {
     my $exhausted   = 0;
     my $completed   = 0;
     my $checkpoints = $arg->checkpoints;
+    my ( @follow_ups, $supplied );
 
     # A signal waits for the top of a turn, where every started test stands in a slot.
     my $turns = sub {
@@ -80,10 +81,17 @@ sub run ($arg) {
             Test::Mutation::Signals::check();
             $exhausted = 0 if _flush( $pool, $checkpoints );
             my $waiting = @$checkpoints;
-            while ( !@$checkpoints && !$exhausted && keys $pool->{slots}->%* < $arg->jobs ) {
-                my $task = $arg->next->();
-                $exhausted = 1 if !$task;
-                _start( $pool, $task ) if $task;
+            while ( !@$checkpoints && keys $pool->{slots}->%* < $arg->jobs ) {
+                if (@follow_ups) {
+                    _start( $pool, shift @follow_ups );
+                    next;
+                }
+                last if $exhausted;
+                $supplied ||= $arg->next->();
+                $exhausted = 1 unless $supplied;
+                last if !$supplied || @$checkpoints;
+                _start( $pool, $supplied );
+                $supplied = undef;
             }
             unless ( $pool->{slots}->%* ) {
                 last unless @$checkpoints;
@@ -96,7 +104,7 @@ sub run ($arg) {
                 $completed++;
                 $exhausted = 0 if $arg->retry_after_done;
                 my $follow_up = $arg->done->( $slot->{task}, _result($slot) );
-                _start( $pool, $follow_up ) if $follow_up;
+                push @follow_ups, $follow_up if $follow_up;
             }
         }
         return $completed;
