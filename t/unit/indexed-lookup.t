@@ -123,9 +123,11 @@ subtest 'lookup reads the current file identities in one group' => sub {
         is scalar @queries, 2, "$arguments->[0] uses one catalog query and one candidate query across both files";
     }
 };
-subtest 'a new lookup process loads only the code it uses' => sub {
+subtest 'a lookup with directory-based module loading uses disk metadata' => sub {
     my $probe = <<'PERL';
 END { print "loaded $_\n" for sort keys %INC }
+require Test::Mutation::CLI;
+local @INC = grep { !ref } @INC;
 do './bin/mutation';
 die $@ || $!;
 PERL
