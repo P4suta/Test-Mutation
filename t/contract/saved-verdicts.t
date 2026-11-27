@@ -84,4 +84,22 @@ write_file( "$directory/mutation.html",
 ( $shown, $reads ) = observed( 'show', $earlier_id );
 like $shown, qr/^Last result: Killed$/m, 'an unfinished report entry preserves the earlier measured verdict';
 
+subtest 'indexed results distinguish suppression from an unreached change' => sub {
+    write_file( "$root/lib/Unused.pm", <<'PERL' );
+package Unused;
+sub add { return $_[0] + $_[1] }
+sub fixed { return $_[0] + 1 }    ## no mutate (arithmetic): the step is fixed
+1;
+PERL
+    observed( 'run', 'lib/Unused.pm', '--jobs', 1, '--format', 'terminal' );
+    my ($catalog) = observed( 'list', 'lib/Unused.pm' );
+    like $catalog, qr/lib\/Unused[.]pm:3:.*\(suppressed: the step is fixed\)  \[Ignored\]/,
+      'the listed observation keeps the reason supplied by the source';
+    my ($id) = $catalog =~ /^([0-9a-f]{12})  lib\/Unused[.]pm:2:.*?  arithmetic  .*?\[NoCoverage\]/m;
+    ok defined $id, 'the other addition has a measured coverage gap';
+    my ($detail) = observed( 'show', $id );
+    like $detail,   qr/^Reached by: no test$/m, 'the stored observation reports that no test reached the mutant';
+    unlike $detail, qr/^Killed by:/m,           'an unreached mutant has no detecting test';
+};
+
 done_testing;
