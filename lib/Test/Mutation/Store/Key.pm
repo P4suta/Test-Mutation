@@ -71,6 +71,7 @@ signature_for tree => ( positional => [ Str, ArrayRef [Str], Optional [Bool] ], 
 sub tree ( $root, $skip, $omit_reports = 0 ) {
     return digest('absent') unless -d $root;
     my %skip = map { $_ => 1 } @$skip;
+    require Test::Mutation::Report::Publication if $omit_reports;
     my @files;
     _walk( $root, q{}, \%skip, {}, \@files, $omit_reports );
     return digest(@files);
@@ -87,13 +88,15 @@ sub _walk ( $root, $relative, $skip, $parents, $files, $omit_reports ) {
     my @names = sort grep { $_ ne q{.} && $_ ne q{..} } readdir $dir;
     closedir $dir or Test::Mutation::Error::raise( 'file-unclosable', path => $directory, reason => "$!" );
 
-    my $start    = @$files;
-    my $reported = 0;
+    my $start     = @$files;
+    my $reported  = 0;
+    my $published = $omit_reports ? Test::Mutation::Report::Publication::outputs( $directory, $relative ) : {};
     for my $name (@names) {
         my $path = length $relative ? "$relative/$name" : $name;
         next if $skip->{$path};
         my $absolute = "$root/$path";
-        if ( $omit_reports && $name =~ /\Amutation[.](?:json|html)\z/ && -f $absolute && _report($absolute) ) {
+        my ( $output, $digest ) = _published( $published, $name, $absolute );
+        if ($output) {
             $reported = 1;
             next;
         }
@@ -107,30 +110,18 @@ sub _walk ( $root, $relative, $skip, $parents, $files, $omit_reports ) {
             }
         }
         elsif ( -f $absolute ) {
-            push @$files, 'file', $path, ( ( stat $absolute )[2] & oct '111' ), file($absolute);
+            push @$files, 'file', $path, ( ( stat $absolute )[2] & oct '111' ), $digest || file($absolute);
         }
     }
     return $reported && @$files == $start;
 }
 
-sub _report ($path) {
-    open my $input, '<:raw', $path or return;
-    my $found = _report_framework( $input, $path );
-    close $input or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
-    return $found;
-}
-
-sub _report_framework ( $input, $path ) {
-    my $prior = q{};
-    while (1) {
-        my $count = sysread $input, my $chunk, 8192;
-        Test::Mutation::Error::raise( 'file-unreadable', path => $path, reason => "$!" ) unless defined $count;
-        last                                                                             unless $count;
-        my $text = $prior . $chunk;
-        return 1 if $text =~ /"framework" \s* : \s* \{ \s* "name" \s* : \s* "Test::Mutation"/x;
-        $prior = substr $text, -128;
-    }
-    return 0;
+sub _published ( $published, $name, $path ) {
+    return ( 0, undef ) if !exists $published->{$name} || -l $path || !-f $path;
+    my $expected = $published->{$name};
+    return ( 1, undef ) unless defined $expected;
+    my $digest = file($path);
+    return ( $digest eq $expected, $digest );
 }
 
 signature_for interpreter => ( positional => [Str], returns => Str );

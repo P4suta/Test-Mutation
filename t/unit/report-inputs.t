@@ -1,0 +1,74 @@
+use v5.36;
+use Test2::V0;
+use Cwd         ();
+use Digest::SHA ();
+use File::Copy  ();
+use File::Temp  ();
+use lib 't/e2e/lib';
+use Fixture qw(write_file);
+use Test::Mutation::Store::Key;
+
+my $root = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+
+sub tree ( $inside = $root ) {
+    return Test::Mutation::Store::Key::tree( $inside, [], 1 );
+}
+
+subtest 'project data can describe a mutation framework' => sub {
+    for my $format (qw(json html)) {
+        my $path    = "$root/data/mutation.$format";
+        my $content = '{"framework":{"name":"Test::Mutation"},"operand":0}';
+        $content = "<html><script>$content</script></html>" if $format eq 'html';
+        write_file( $path, $content );
+        my $before = tree();
+        write_file( $path, $content =~ s/operand":0/operand":1/r );
+        isnt tree(), $before, "changed $format input changes the measurement";
+    }
+};
+
+subtest 'only published bytes at their recorded paths leave the project input' => sub {
+    require Test::Mutation::Report::Publication;
+    my $output  = "$root/reports/parts";
+    my $before  = tree();
+    my %payload = (
+        'mutation.json' => '{"framework":{"name":"Test::Mutation"},"score":1}',
+        'mutation.html' => '<html><body>score 1</body></html>',
+    );
+    my %digests = map { $_ => Digest::SHA::sha256_hex( $payload{$_} ) } keys %payload;
+    write_file( "$output/$_", $payload{$_} ) for keys %payload;
+    Test::Mutation::Report::Publication::record( $root, $output, \%digests );
+    is tree(), $before, 'nested directories with only published artifacts leave the inputs alone';
+    write_file( "$output/z-data", 'first' );
+    isnt tree(), $before, 'a sibling after the published artifacts remains an input';
+    my $mixed = tree();
+    write_file( "$output/z-data", 'other' );
+    isnt tree(), $mixed, 'an edit to the ordinary sibling counts';
+
+    for my $name ( sort keys %payload ) {
+        my $with_sibling = tree();
+        write_file( "$output/$name", $payload{$name} =~ tr/1/2/r );
+        isnt tree(), $with_sibling, "a same-size edit to $name becomes part of the measurement";
+        write_file( "$output/$name", $payload{$name} );
+    }
+    my $archive = "$root/archive";
+    write_file( "$archive/$_", $payload{$_} ) for keys %payload;
+    File::Copy::copy( "$output/.test-mutation-outputs", "$archive/.test-mutation-outputs" ) or die "copy receipt: $!";
+    my $copied = tree();
+    write_file( "$archive/mutation.json", $payload{'mutation.json'} =~ tr/1/2/r );
+    isnt tree(), $copied, 'copying a whole report directory does not exempt its contents at another path';
+};
+
+subtest 'publishing preserves a user file with the metadata name and leaves external directories alone' => sub {
+    require Test::Mutation::Report::Publication;
+    my $directory = "$root/conflict";
+    write_file( "$directory/.test-mutation-outputs", 'project data' );
+    my $payload = { 'mutation.json' => 'c' x 64 };
+    my $before  = tree();
+    Test::Mutation::Report::Publication::record( $root, $directory, $payload );
+    is tree(), $before, 'an existing unrelated file stays unchanged';
+    my $outside = File::Temp::tempdir( CLEANUP => 1 );
+    Test::Mutation::Report::Publication::record( $root, $outside, $payload );
+    ok !-e "$outside/.test-mutation-outputs", 'publishing outside the measured tree needs no metadata';
+};
+
+done_testing;
