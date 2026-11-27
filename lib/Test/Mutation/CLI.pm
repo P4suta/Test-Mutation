@@ -345,8 +345,8 @@ sub _progress ( $invocation, $world ) {
 }
 
 my %FILE_REPORT = (
-    json => [ 'mutation.json', \&Test::Mutation::Report::Json::render ],
-    html => [ 'mutation.html', \&Test::Mutation::Report::Html::render ],
+    json => [ 'mutation.json', \&Test::Mutation::Report::Json::stream ],
+    html => [ 'mutation.html', \&Test::Mutation::Report::Html::stream ],
 );
 
 sub _report ( $result, $config, $world, $listener = sub { return } ) {
@@ -378,9 +378,15 @@ sub _file_reports ( $result, $config, $formats ) {
     flock $lock, LOCK_EX or Test::Mutation::Error::raise( 'file-unwritable', path => $directory, reason => "$!" );
     my @written;
     for my $format (@$formats) {
-        my ( $name, $render ) = $FILE_REPORT{$format}->@*;
-        my $text = $render->( $result, high => $config->threshold_high, low => $config->threshold_low );
-        _write( "$target/$name", "$directory/$name", '>', $text );
+        my ( $name, $stream ) = $FILE_REPORT{$format}->@*;
+        _write(
+            "$target/$name",
+            "$directory/$name",
+            '>',
+            sub ($write) {
+                $stream->( $result, high => $config->threshold_high, low => $config->threshold_low, write => $write );
+            }
+        );
         push @written, "$directory/$name";
     }
     close $lock or Test::Mutation::Error::raise( 'file-unclosable', path => $directory, reason => "$!" );
@@ -417,19 +423,28 @@ sub _report_to_github ( $result, $world, $config ) {
     my $path = $world->{env}{GITHUB_STEP_SUMMARY};
     if ( defined $path && length $path ) {
         _write( File::Spec->rel2abs( $path, $config->root ),
-            $path, '>>', Test::Mutation::Report::GitHub::summary( $result, $config->min_score ) );
+            $path, '>>',
+            sub ($write) { $write->( Test::Mutation::Report::GitHub::summary( $result, $config->min_score ) ) } );
     }
     print { $world->{err} } Test::Mutation::Report::GitHub::annotations($result);
     return;
 }
 
 # Writes a text to a file, which an error names as the user knows it.
-sub _write ( $path, $name, $mode, $text ) {
+sub _write ( $path, $name, $mode, $produce ) {
+    my $write_to = sub ($handle) {
+        $produce->(
+            sub ($chunk) {
+                print {$handle} $chunk
+                  or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
+            }
+        );
+    };
     if ( $mode eq '>>' ) {
         open my $file, '>>:encoding(UTF-8)', $path
           or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
-        print {$file} $text or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
-        close $file         or Test::Mutation::Error::raise( 'file-unclosable', path => $name, reason => "$!" );
+        $write_to->($file);
+        close $file or Test::Mutation::Error::raise( 'file-unclosable', path => $name, reason => "$!" );
         return;
     }
     $path = Cwd::abs_path($path) if -l $path;
@@ -440,8 +455,8 @@ sub _write ( $path, $name, $mode, $text ) {
     }
     binmode $temporary, ':encoding(UTF-8)'
       or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
-    print {$temporary} $text or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
-    close $temporary         or Test::Mutation::Error::raise( 'file-unclosable', path => $name, reason => "$!" );
+    $write_to->($temporary);
+    close $temporary or Test::Mutation::Error::raise( 'file-unclosable', path => $name, reason => "$!" );
     rename $temporary->filename, $path
       or Test::Mutation::Error::raise( 'file-unrenamable', path => $name, reason => "$!" );
     return;
