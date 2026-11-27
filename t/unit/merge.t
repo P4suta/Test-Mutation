@@ -82,6 +82,21 @@ subtest 'merging applies a common deferred threshold' => sub {
     my $result = merged( part( '1/2', \@first, min_score => 90 ), part( '2/2', \@rest, min_score => 90 ) );
     is [ $result->assessment->@{qw(minimum gate exitCode)} ], [ 90, 'failed', 1 ],
       'the combined score decides the threshold shared by the shard reports';
+    my $first = part( '1/2', \@first, min_score => 90 );
+    for my $other_floor ( undef, 50 ) {
+        my $other_part = part( '2/2', \@rest, min_score => $other_floor );
+        is [ merged( $first, $other_part )->assessment->@{qw(score minimum gate exitCode)} ],
+          [ 60, undef, undef, 0 ], 'shards without a common threshold still yield their combined score';
+    }
+    my $override = Test::Mutation::Merge::merge(
+        [
+            { name => 'first',  result => $first },
+            { name => 'second', result => part( '2/2', \@rest, min_score => 90 ) }
+        ],
+        60
+    );
+    is [ $override->assessment->@{qw(minimum gate exitCode)} ], [ 60, 'passed', 0 ],
+      'a threshold requested for the whole run takes precedence at the exact combined score';
 };
 
 subtest 'the parts of one run merge into the result of the whole run' => sub {
