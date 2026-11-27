@@ -13,6 +13,8 @@ Opening one of 7,723 mutants took 15.73 seconds to reparse sources and restore t
 
 SQLite indexes analysis by source digest and settings, and mutant IDs by file and inventory position.
 Separate transactions publish reusable observations and dated verdicts.
+Commit each observation before notifying listeners.
+Retry busy writes between pipe reads and deadline checks.
 The driver verifies input fingerprints before reusing imported JSON records.
 Report directories record project-relative paths and SHA-256 digests so copied or edited reports count as test inputs.
 Target Perl needs no database driver.

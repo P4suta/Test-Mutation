@@ -7,18 +7,20 @@ date: 2026-11-27
 
 ## Context
 
-The [earlier merge decision](merge-shard-reports-only-as-one-complete-run.md) checks the advertised inventory.
-In the Fold fixture a duplicate spans shards, lowering the score from 75.0% to 66.7%.
-Different tests or project data can produce the same inventory.
+The [existing merge](merge-shard-reports-only-as-one-complete-run.md) checks inventory.
+Splitting a Fold duplicate lowers its score from 75.0% to 66.7%.
+Different tests can share an inventory.
 
 ## Decision
 
-Keep the test observations and compiler comparison with each measured mutant.
-Bind the measurement to its sources, tests, execution settings, interpreter, and dependencies.
-Omit unchanged published reports at their recorded paths from isolated copies and their input digests.
+Store test observations and compiler comparisons per mutant.
+Fingerprint sources, tests, execution settings, interpreter, and dependencies.
+Verify the prepared copy and key cached observations to its inputs.
+Compare shared compiler inputs by content because shards can compile different modules.
+Exclude unchanged published reports at their recorded paths from isolated copies and fingerprints.
 Fingerprint reports visible in place or through linked inputs.
 Reuse a detection when every covering test through its first failure matches.
-Interleave shards and verify the resulting inventory digest before classifying duplicates.
+Interleave shards and verify inventory order before classifying duplicates.
 Keep the first undetected mutant with each compiled digest in each source file.
 
 ## Alternatives
