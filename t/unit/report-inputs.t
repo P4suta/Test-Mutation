@@ -1,9 +1,11 @@
 use v5.36;
 use Test2::V0;
-use Cwd         ();
-use Digest::SHA ();
-use File::Copy  ();
-use File::Temp  ();
+use Cwd              ();
+use Digest::SHA      ();
+use File::Copy       ();
+use File::Temp       ();
+use IO::Socket::UNIX ();
+use Socket           ();
 use lib 't/e2e/lib';
 use Fixture qw(write_file);
 use Test::Mutation::Store::Key;
@@ -165,6 +167,21 @@ subtest 'a project copy keeps a relative link target and reports dangling links 
     ok $omitted{'history/mutation.html'}, 'a sibling publication that the link cannot reach stays hidden';
     is Test::Mutation::Store::Key::project( $project, [], ['history'] )->{outputs}, [],
       'a directory explicitly linked to the real project exposes all its contents';
+};
+
+subtest 'a socket at a former report path is never opened as a report' => sub {
+    my $directory = File::Temp::tempdir( DIR => '/tmp', CLEANUP => 1 );
+    my $path      = write_file( "$directory/mutation.json", 'previous output' );
+    Test::Mutation::Report::Publication::record( $directory, $directory,
+        { 'mutation.json' => Digest::SHA::sha256_hex('previous output') } );
+    unlink $path or die "remove report: $!";
+    my $socket = IO::Socket::UNIX->new( Type => Socket::SOCK_STREAM(), Local => $path, Listen => 1 )
+      or die "listen: $!";
+    chmod 0600, $path or die "change socket mode: $!";
+    my $view;
+    ok lives { $view = Test::Mutation::Store::Key::project( $directory, [], [] ) },
+      'a measurement can start while the socket is in use';
+    is $view->{outputs}, ['.test-mutation-outputs'], 'only the publication record is generated';
 };
 
 done_testing;
