@@ -46,6 +46,7 @@ function remote() {
 			remote.tag = sha;
 			remote.release = {
 				id: 5,
+				author: { id: 1234, type: "Bot" },
 				tag_name: "v0.1.0",
 				draft: true,
 				prerelease: false,
@@ -189,4 +190,13 @@ test("checks the created draft and tag again after publication races", async () 
 	};
 	await assert.rejects(run(svc), /tag/);
 	assert.equal(svc.labels, 0);
+});
+test("refuses a matching draft created by another account", async () => {
+	const svc = remote();
+	await run(svc);
+	svc.release.author = { id: 5678, type: "Bot" };
+	await assert.rejects(run(svc), /author/);
+	delete svc.release.author;
+	await assert.rejects(run(svc), /author/);
+	assert.equal(svc.labels, 1);
 });

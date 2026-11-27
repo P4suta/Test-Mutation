@@ -62,6 +62,8 @@ async function draftForMerge({ pull, repository, slug, source }, service) {
 			"The GitHub draft does not match the intended release source",
 		);
 	if (!release.draft) return;
+	if (release.author?.type !== "Bot" || release.author.id !== pull.user.id)
+		throw new Error("The draft author differs from the preparation App");
 	await service.tagged(pull.number);
 	return { source_sha: source, tag, release_id: String(release.id), version };
 }
