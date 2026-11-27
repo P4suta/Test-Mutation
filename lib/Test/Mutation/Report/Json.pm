@@ -219,7 +219,7 @@ signature_for stream => (
 );
 
 sub stream ( $result, $arg ) {
-    my $json  = JSON::PP->new->canonical;
+    my $json  = Cpanel::JSON::XS->new->canonical->allow_nonref;
     my $write = $arg->write;
     $write->('{"files":{');
     my $separator = q{};
