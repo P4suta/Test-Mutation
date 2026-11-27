@@ -6,6 +6,7 @@ use POSIX      ();
 use lib 't/lib';
 use Capability;
 use Test::Mutation::Settings;
+use Test::Mutation::Source;
 use Test::Mutation::Store;
 
 my $directory = File::Temp::tempdir( CLEANUP => 1 );
@@ -59,6 +60,37 @@ subtest 'cache paths preserve filename punctuation' => sub {
     Test::Mutation::Store::save( $literal, { punctuated => $record } );
     ok -f $literal, 'the database occupies the complete requested path';
     is Test::Mutation::Store::load($literal), { punctuated => $record }, 'the requested database contains the verdict';
+};
+
+subtest 'a cache file in another format keeps its bytes and falls back to legacy records' => sub {
+    my $root = File::Temp::tempdir( CLEANUP => 1 );
+    my $path = "$root/measurement.sqlite";
+    my $data = "other application\0data\n";
+    open my $file, '>:raw', $path or die "create $path: $!";
+    print {$file} $data;
+    close $file or die "close $path: $!";
+    is lives { is Test::Mutation::Store::load($path), {}, 'a missing legacy cache yields no verdict' }, T(),
+      'reading an unrecognized file counts as a cache miss';
+    my $baseline = { build => ['perl'], tests => {} };
+    Test::Mutation::Store::save( "$root/cache.json", { previous => $record }, undef, {}, $baseline );
+    is lives {
+        is Test::Mutation::Store::load($path), { previous => $record }, 'verified legacy verdicts are available';
+        is Test::Mutation::Store::originals($path), $baseline, 'the legacy build is available';
+    }, T(), 'legacy fallback works when the SQLite path contains other bytes';
+    like dies { Test::Mutation::Store::save( $path, { later => $record } ) }, qr/\Q$path\E.*--no-cache.*--cache-dir/,
+      'a writer names ways to finish the measurement while preserving the file';
+    is Test::Mutation::Source::read_bytes($path), $data, 'both operations preserve the original bytes';
+};
+
+subtest 'an unsupported SQLite schema remains an actionable error' => sub {
+    my $path       = "$directory/future.sqlite";
+    my $connection = DBI->connect( "dbi:SQLite:dbname=$path", undef, undef, { RaiseError => 1, PrintError => 0 } );
+    $connection->do('PRAGMA user_version = 314');
+    like dies { Test::Mutation::Store::load($path) }, qr/unsupported database schema 314/,
+      'the reader reports the version of an existing SQLite database';
+    like dies { Test::Mutation::Store::save( $path, { later => $record } ) }, qr/unsupported database schema 314/,
+      'the writer preserves an unsupported schema';
+    is $connection->selectrow_array('PRAGMA user_version'), 314, 'the original schema version survives';
 };
 
 subtest 'an unreadable cached verdict is measured again without losing its neighbors' => sub {

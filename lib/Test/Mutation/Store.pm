@@ -18,7 +18,7 @@ use Test::Mutation::Status;
 use Test::Mutation::Tree;
 use Test::Mutation::Try;
 use Test::Mutation::Types  qw(Observations Reason StatusName);
-use DBD::SQLite::Constants qw(SQLITE_BUSY);
+use DBD::SQLite::Constants qw(SQLITE_BUSY SQLITE_NOTADB);
 use Test::Mutation::Clock;
 
 our $VERSION = '0.001';
@@ -174,7 +174,11 @@ sub _connect ( $path, $read_only = 0 ) {
             AutoInactiveDestroy => 1,
             sqlite_unicode      => 1,
             HandleError         => sub ( $message, @ ) {
-                Test::Mutation::Error::raise( 'file-unwritable', path => $path, reason => $message );
+                Test::Mutation::Error::raise(
+                    $read_only ? 'file-unreadable' : 'file-unwritable',
+                    path   => $path,
+                    reason => $message
+                );
             }
         }
     );
@@ -182,8 +186,18 @@ sub _connect ( $path, $read_only = 0 ) {
     return $db;
 }
 
-sub _initialized ( $db, $path ) {
-    my ($schema) = $db->selectrow_array('PRAGMA user_version');
+sub _initialized ( $db, $path, $read_only = 0 ) {
+    my $probe = Test::Mutation::Try::attempt( sub { return $db->selectrow_array('PRAGMA user_version') } );
+    if ( exists $probe->{error} ) {
+        die $probe->{error} unless ( ( $db->err // 0 ) & 255 ) == SQLITE_NOTADB;    ## no critic (ErrorHandling::RequireCarping)
+        return 0 if $read_only;
+        Test::Mutation::Error::raise(
+            'file-unwritable',
+            path   => $path,
+            reason => 'expected a SQLite database, so rerun with --no-cache or choose another --cache-dir'
+        );
+    }
+    my $schema = $probe->{value};
     return 1 if $schema == 1;
     Test::Mutation::Error::raise( 'file-unreadable', path => $path, reason => "unsupported database schema $schema" )
       if $schema;
@@ -195,7 +209,7 @@ signature_for read_database => ( positional => [Str], returns => Maybe [ Instanc
 sub read_database ($path) {
     return unless -f $path;
     my $db = _connect( $path, 1 );
-    return _initialized( $db, $path ) ? $db : undef;
+    return _initialized( $db, $path, 1 ) ? $db : undef;
 }
 
 signature_for database => ( positional => [ Str, Optional [ Maybe [Str] ] ], returns => InstanceOf ['DBI::db'] );
@@ -424,7 +438,7 @@ A later run reuses the record when the key of the same mutant is unchanged.
 
 =head2 read_database
 
-Opens an initialized store for reading and returns C<undef> when the store is missing or uninitialized.
+Opens an initialized store for reading and returns C<undef> for a missing file, an empty store, or another file format.
 
 =head2 database
 
