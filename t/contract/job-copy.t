@@ -204,8 +204,8 @@ subtest 'the shim distinguishes a placed source on disk from a load outside the 
     }
 };
 
-subtest 'only a cacheable original run records the Perl include directories' => sub {
-    for my $case ( [ 0, 'baseline', 0 ], [ 0, 'mutants/aa', 0 ], [ 1, 'baseline', 1 ], [ 1, 'mutants/aa', 0 ] ) {
+subtest 'original runs record the Perl include directories in both cache modes' => sub {
+    for my $case ( [ 0, 'baseline', 1 ], [ 0, 'mutants/aa', 0 ], [ 1, 'baseline', 1 ], [ 1, 'mutants/aa', 0 ] ) {
         my ( $cache, $name, $expected ) = @$case;
         my $project = ShimHarness::project();
         mkdir "$project/mutants" or die "mkdir: $!";
