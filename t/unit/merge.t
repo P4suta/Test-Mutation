@@ -6,6 +6,8 @@ use lib 't/lib';
 use Raised;
 use Test::Mutation::Merge;
 use Test::Mutation::Mutant;
+use Test::Mutation::Report::Json;
+use Test::Mutation::Report::Results;
 use Test::Mutation::Result;
 use Test::Mutation::Status;
 
@@ -285,6 +287,43 @@ subtest 'refresh replaces the selected verdicts and keeps independently measured
     is $saved->inventory, { mutants => 4, digest => Digest::SHA::sha256_hex( join "\n", @ids ) },
       'the inventory describes the resulting order';
     is $saved->selection, $current->selection, 'the report records the latest selection';
+    is Test::Mutation::Report::Json::document( $saved, high => 80, low => 60 )->{testMutation}{measuredScope},
+      { mutants => \@ids }, 'two overlapping partial measurements name the identifiers in the scored inventory';
+    is Test::Mutation::Report::Results::overview($saved)->[0], 'Scope: 4 selected mutants',
+      'the terminal scope counts every mutant in the refreshed score';
+
+    my $whole          = part( undef, [ map { entry( $_, 'Survived' ) } 1 .. 6 ], catalog_digest => $digest );
+    my $file_selection = part(
+        undef, [ entry( 5, 'Killed' ), entry( 6, 'NoCoverage' ) ],
+        catalog_digest => $digest,
+        selection      => { paths => { 'lib/B.pm' => [] } }
+    );
+    my $single = part(
+        undef, [ entry( 5, 'Killed' ) ],
+        catalog_digest => $digest,
+        selection      => { mutants => ['000000000005'] }
+    );
+
+    for my $case (
+        [ $whole,          $file_selection, 'configured sources', 6 ],
+        [ $file_selection, $single,         'lib/B.pm',           2 ],
+        [ $single,         $file_selection, 'lib/B.pm',           2 ],
+      )
+    {
+        my ( $before, $after, $scope, $count ) = @$case;
+        my $result = Test::Mutation::Merge::refresh( $before, $after );
+        is [ Test::Mutation::Report::Results::overview($result)->[0], $result->tally->{total} ],
+          [ "Scope: $scope", $count ], 'the terminal scope describes every row counted in the refreshed report';
+        my $parsed =
+          Test::Mutation::Report::Json::parse( Test::Mutation::Report::Json::render( $result, high => 80, low => 60 ) );
+        is [ $parsed->selection, Test::Mutation::Report::Results::overview($parsed)->[0] ],
+          [ $after->selection, "Scope: $scope" ], 'JSON keeps the requested selection and the scope of the score';
+    }
+    my $from_whole = Test::Mutation::Merge::refresh( $whole, $file_selection );
+    my $reopened =
+      Test::Mutation::Report::Json::parse( Test::Mutation::Report::Json::render( $from_whole, high => 80, low => 60 ) );
+    is Test::Mutation::Report::Results::overview( Test::Mutation::Merge::refresh( $reopened, $single ) )->[0],
+      'Scope: configured sources', 'a second update keeps the measured scope of the earlier report';
 
     my $file     = '98' x 32;
     my $data     = '54' x 32;

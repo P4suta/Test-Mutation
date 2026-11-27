@@ -69,6 +69,7 @@ my $DOCUMENT = Dict [
     testMutation  => Dict [
         assessment        => Optional [Assessment],
         selection         => Optional [ReportSelection],
+        measuredScope     => Optional [ReportSelection],
         catalogDigest     => Optional [Str],
         measurementDigest => Optional [ StrMatch [qr/\A[0-9a-f]{64}\z/] ],
         dependencyDigest  => Optional [ StrMatch [qr/\A[0-9a-f]{64}\z/] ],
@@ -143,8 +144,9 @@ sub _boolean ($value) {
 sub _facts ($result) {
     my $inventory = $result->inventory;
     return {
-        shard      => $result->shard,
-        selection  => $result->selection,
+        shard     => $result->shard,
+        selection => $result->selection,
+        defined $result->measured_scope ? ( measuredScope => $result->measured_scope ) : (),
         assessment => $result->assessment,
         defined $result->catalog_digest     ? ( catalogDigest     => $result->catalog_digest )     : (),
         defined $result->measurement_digest ? ( measurementDigest => $result->measurement_digest ) : (),
@@ -311,6 +313,7 @@ sub _result ($document) {
         reused             => $facts->{reused},
         shard              => $facts->{shard},
         selection          => $facts->{selection} || {},
+        measured_scope     => $facts->{measuredScope},
         min_score          => $facts->{assessment} ? $facts->{assessment}{minimum} : undef,
         catalog_digest     => $facts->{catalogDigest},
         measurement_digest => $facts->{measurementDigest},

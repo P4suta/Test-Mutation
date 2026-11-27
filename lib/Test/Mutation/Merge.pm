@@ -106,14 +106,22 @@ sub refresh ( $prior, $current ) {
     my @entries     = map { delete $replacement{ $_->{mutant}->id } || $_ } $prior->entries->@*;
     push @entries, grep { exists $replacement{ $_->{mutant}->id } } $current->entries->@*;
     my %tests = map { $_->{name} => $_ } $prior->tests->@*, $current->tests->@*;
+    my @ids   = map { $_->{mutant}->id } @entries;
+    my $scope = $current->measured_scope;
+
+    if ( @ids > $current->entries->@* ) {
+        $scope = $prior->measured_scope // $prior->selection;
+        $scope = { mutants => \@ids } if %replacement && keys %$scope;
+    }
     return Test::Mutation::Result->new(
         $current->%*,
-        entries   => \@entries,
-        tests     => [ map { $tests{$_} } sort keys %tests ],
-        sources   => { $prior->sources->%*, $current->sources->%* },
-        inventory => {
+        measured_scope => $scope,
+        entries        => \@entries,
+        tests          => [ map { $tests{$_} } sort keys %tests ],
+        sources        => { $prior->sources->%*, $current->sources->%* },
+        inventory      => {
             mutants => scalar @entries,
-            digest  => Digest::SHA::sha256_hex( join "\n", map { $_->{mutant}->id } @entries )
+            digest  => Digest::SHA::sha256_hex( join "\n", @ids )
         },
     );
 }
@@ -237,6 +245,7 @@ Updates the selected verdicts in a report from the same project and source catal
 Earlier verdicts require completed measurements with verified project, test, and compiler inputs.
 When the current measurement cannot confirm an earlier input, the function returns the current selection and its verdicts.
 The current test durations and entries take precedence.
+The requested selection stays available when the measured scope includes earlier verdicts.
 Shard reports remain independent until C<merge> joins them.
 
 =head2 merge
