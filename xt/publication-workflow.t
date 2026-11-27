@@ -2,6 +2,8 @@ use v5.36;
 use Test2::V0;
 use YAML::PP   ();
 use File::Temp ();
+use lib 't/lib';
+use Gate;
 
 my $path = '.github/workflows/publish-cpan.yml';
 ok -f $path, 'the Perl publication workflow exists' or bail_out('missing publication workflow');
@@ -45,7 +47,7 @@ subtest 'the release call verifies the selected source without a publication cre
     is $job->{environment}, 'cpan',   'only the publisher receives the publication environment';
 };
 
-subtest 'publication identifies the tested archive by its immutable artifact ID' => sub {
+subtest 'publication rejects a mismatched source or distribution artifact' => sub {
     my ($checkout) = grep { exists $_->{uses} && $_->{uses} =~ m{\Aactions/checkout@} } @steps;
     is $checkout->{with}{ref},                   '${{ github.sha }}', 'publication code comes from protected main';
     is $checkout->{with}{'persist-credentials'}, 'false',             'the checkout saves no deployment credentials';
@@ -85,4 +87,5 @@ subtest 'only a newly reserved submission can send the Perl archive' => sub {
       'the release controller rechecks the registry before making the release public';
 };
 
+Gate::checked( 'publication steps', scalar keys %steps, at_least => 8 );
 done_testing;

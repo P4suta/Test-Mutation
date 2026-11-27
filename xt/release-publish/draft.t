@@ -4,15 +4,17 @@ use Digest::SHA qw(sha256_hex);
 use File::Copy  qw(copy);
 use File::Temp  ();
 use FindBin     ();
-use lib 't/e2e/lib';
+use lib 't/e2e/lib', 't/lib';
 use Fixture qw(write_file);
+use Gate;
 
-my $root     = File::Temp::tempdir( CLEANUP => 1 );
-my $tool     = "$root/draft";
-my $source   = 'ab' x 20;
-my $name     = 'Test-Mutation-0.001.tar.gz';
-my $bytes    = 'the tested distribution';
-my $digest   = sha256_hex($bytes);
+my $root   = File::Temp::tempdir( CLEANUP => 1 );
+my $tool   = "$root/draft";
+my $source = 'ab' x 20;
+my $name   = 'Test-Mutation-0.001.tar.gz';
+my $bytes  = 'the tested distribution';
+my $digest = sha256_hex($bytes);
+my %commands;
 my $compiled = system( 'rustc', '--edition=2021', '-D', 'warnings', "$FindBin::Bin/draft.rs", '-o', $tool );
 is $compiled, 0, 'the draft controller compiles' or bail_out('the draft controller is unavailable');
 copy( "$FindBin::Bin/fake-gh", "$root/gh" ) or die "copy fake gh: $!";
@@ -47,6 +49,7 @@ sub setup () {
 }
 
 sub invoke ($action) {
+    ++$commands{$action};
     open my $output, q{-|}, $tool, $action or die "run $action: $!";
     local $/ = undef;
     my $text = readline $output;
@@ -54,7 +57,7 @@ sub invoke ($action) {
     return $ok ? ( $text // q{} ) : undef;
 }
 
-subtest 'invalid source, version and archive identities prevent draft writes' => sub {
+subtest 'staging rejects invalid source, version and archive identities' => sub {
     for my $case (
         [ CPAN_SOURCE_SHA     => 'cd' x 20 ],
         [ CPAN_TAG            => 'v0.0.1' ],
@@ -137,4 +140,5 @@ subtest 'final publication needs a matching registry archive' => sub {
     is read_file( $ENV{FAKE_REMOTE} . "/edits" ), 1, 'the draft becomes public once';
 };
 
+Gate::checked( 'publication commands', scalar keys %commands, at_least => 3 );
 done_testing;
