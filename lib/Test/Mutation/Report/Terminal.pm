@@ -84,13 +84,14 @@ sub _colored ( $text, $score, $arg ) {
 sub _section ( $result, $file ) {
     my @listed = grep { defined Test::Mutation::Status::of( $_->{status} )->heading } $file->{entries}->@*;
     return if !@listed;
-    return join "\n", $file->{path}, map { _entry( $result, $_ ) } @listed;
+    my $source = $result->sources->{ $file->{path} };
+    return join "\n", $file->{path}, map { _entry( $source, $_ ) } @listed;
 }
 
-sub _entry ( $result, $entry ) {
+sub _entry ( $source, $entry ) {
     my $mutant = $entry->{mutant};
     my @lines  = ( '  ' . Test::Mutation::Report::Results::heading($mutant) . "  [$entry->{status}]" );
-    push @lines, map { "    $_" } _change( $result->sources->{ $mutant->path }, $mutant );
+    push @lines, map { "    $_" } _change( $source, $mutant );
 
     my @tests = $entry->{covered_by}->@*;
     my $more  = @tests > $LISTED_TESTS ? sprintf ' and %d more', @tests - $LISTED_TESTS : q{};
@@ -108,13 +109,21 @@ sub _entry ( $result, $entry ) {
 
 sub _change ( $text, $mutant ) {
     return if !defined $text;
-    my $mutated = $text;
-    substr $mutated, $mutant->start, $mutant->end - $mutant->start, $mutant->replacement;
-    my $index    = $mutant->from->[0] - 1;
-    my $original = ( split /\n/, $text,    -1 )[$index];
-    my $changed  = ( split /\n/, $mutated, -1 )[$index];
+    my $start       = $mutant->start;
+    my $width       = $mutant->from->[1] - 1;
+    my $prefix      = substr $text, $start - $width, $width;
+    my $original    = $prefix . _line_tail( $text, $start );
+    my $replacement = $mutant->replacement;
+    my $break       = index $replacement, "\n";
+    my $changed =
+      $prefix . ( $break < 0 ? $replacement . _line_tail( $text, $mutant->end ) : substr( $replacement, 0, $break ) );
     my $ellipsis = $mutant->original =~ /\n/ ? ' ...' : q{};
     return ( "- $original$ellipsis", "+ $changed" );
+}
+
+sub _line_tail ( $text, $offset ) {
+    my $end = index $text, "\n", $offset;
+    return $end < 0 ? substr( $text, $offset ) : substr( $text, $offset, $end - $offset );
 }
 
 sub _baseline ($result) {

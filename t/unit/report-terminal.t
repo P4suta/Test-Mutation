@@ -5,6 +5,7 @@ use Test::Mutation::Report::GitHub;
 use Test::Mutation::Report::Results;
 use Test::Mutation::Report::Terminal;
 use Test::Mutation::Result;
+use Test::Mutation::Source;
 use Test::Mutation::Status;
 
 my $source = "sub is_positive {\n    my (\$n) = \@_;\n    return \$n > 0 ? 1 : 0;\n}\n";
@@ -102,6 +103,48 @@ subtest 'a survived mutant shows its place, change, and tests' => sub {
     like $text, qr/^    -     return \$n > 0 \? 1 : 0;$/m,   'the original line';
     like $text, qr/^    \+     return \$n >= 0 \? 1 : 0;$/m, 'the mutated line';
     like $text, qr/^    reached by t\/sign\.t$/m,            'the tests that reached it';
+};
+
+subtest 'many changes to one source share its lines' => sub {
+    my $sources = Test::Mutation::Result->can('sources');
+    my @reads;
+    for my $count ( 1, 64 ) {
+        my $result = result( [ map { entry('Survived') } 1 .. $count ] );
+        my $reads  = 0;
+        no warnings 'redefine';
+        local *Test::Mutation::Result::sources = sub ($self) { $reads++; return $sources->($self) };
+        my $text = Test::Mutation::Report::Terminal::render( $result, color => 0 );
+        is scalar( () = $text =~ /Recheck: mutation run --mutant/g ), $count, 'every change has a recheck command';
+        push @reads, $reads;
+    }
+    is $reads[1], $reads[0], 'source reads depend on files rather than mutant count';
+};
+
+subtest 'the changed line matches a literal edit for each shape of span' => sub {
+    my $text   = "ab\x{e9}\r\n\nlast";
+    my $source = Test::Mutation::Source->new( path => 'lib/Calc.pm', text => $text, encoding => 'UTF-8' );
+    for my $case ( [ 0, 0, "\n" ], [ 1, 7, "X\nY" ], [ 3, 6, q{} ], [ 4, 5, '!' ], [ 10, 10, '?' ] ) {
+        my ( $start, $end, $replacement ) = @$case;
+        my $from = $source->position_of($start);
+        my $edit = mutant(
+            start       => $start,
+            end         => $end,
+            from        => $from,
+            to          => $source->position_of($end),
+            original    => substr( $text, $start, $end - $start ),
+            replacement => $replacement
+        );
+        my $report = Test::Mutation::Report::Terminal::render(
+            result( [ entry( 'Survived', mutant => $edit ) ], sources => { 'lib/Calc.pm' => $text } ),
+            color => 0 );
+        my $changed  = $source->replace_span( $start, $end, $replacement );
+        my $index    = $from->[0] - 1;
+        my $before   = ( split /\n/, $text,    -1 )[$index];
+        my $after    = ( split /\n/, $changed, -1 )[$index];
+        my $ellipsis = $edit->original =~ /\n/ ? ' ...' : q{};
+        like $report, qr/^    - \Q$before$ellipsis\E\n    \+ \Q$after\E$/m,
+          "the preview matches editing $start to $end";
+    }
 };
 
 subtest 'a mutant that spans lines shows its first line' => sub {
