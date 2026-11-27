@@ -100,6 +100,16 @@ subtest 'recovery keeps the original verified bytes' => sub {
     is read_file( $ENV{CPAN_STAGING_DIR} . "/$name" ), $bytes, 'the public copy must match the original Linux artifact';
 };
 
+subtest 'an unreserved archive must match the current release gate' => sub {
+    local %ENV = setup();
+    invoke('stage');
+    write_file( $ENV{FAKE_REMOTE} . "/$name", 'an unverified archive' );
+    is invoke('stage'), undef, 'the workflow refuses to prepare different bytes without a reservation';
+    write_file( $ENV{CPAN_STAGING_DIR} . "/$name", 'an unverified archive' );
+    is invoke('claim'), undef, 'a direct claim also verifies the original candidate checksum';
+    ok !-e $ENV{FAKE_REMOTE} . "/$name.sha256", 'the conflicting archive cannot acquire a receipt';
+};
+
 subtest 'foreign assets and conflicting receipts stop recovery' => sub {
     local %ENV = setup();
     invoke('stage');

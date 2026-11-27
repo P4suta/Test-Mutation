@@ -199,6 +199,14 @@ impl Candidate {
                 digest: hash.to_owned(),
             });
         }
+        if release.receipt.is_none()
+            && release
+                .archive
+                .as_ref()
+                .is_some_and(|asset| asset.digest != self.checksum)
+        {
+            return Err("the unreserved archive differs from the verified candidate".into());
+        }
         Ok(release)
     }
 
