@@ -11,9 +11,10 @@ Opening one of 7,723 mutants took 15.73 seconds to reparse sources and restore t
 
 ## Decision
 
-SQLite indexes analysis by source digest and settings, and mutant IDs by file and inventory position.
-Separate transactions publish reusable observations and dated verdicts.
-Commit each observation before notifying listeners.
+SQLite indexes analysis by digest and settings, and mutant IDs by file and position.
+Separate transactions publish dated verdicts and commit reusable observations before notifying listeners.
+Scopes sort by completion time, then insertion order.
+Merged observations keep shard timestamps in JSON.
 Retry busy writes between pipe reads and deadline checks.
 The driver verifies input fingerprints before reusing imported JSON records.
 Report directories record project-relative paths and SHA-256 digests so copied or edited reports count as test inputs.
@@ -21,8 +22,8 @@ Target Perl needs no database driver.
 
 ## Alternatives
 
-An index beside a JSON report speeds up reads but requires coordinating two files after an interrupted write.
-One JSON file per mutant needs a separate index for prefix searches and ordered selections.
+A separate JSON index requires coordinating interrupted writes across two files.
+Individual JSON files need an index for prefix searches and inventory order.
 
 ## Consequences
 
