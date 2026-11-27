@@ -33,4 +33,14 @@ subtest 'literal numeric guards have no external compiler inputs' => sub {
     is reads(q{BEGIN { die "@{[read_limit()]}" if 1 }}),            undef, 'the error message can execute code';
 };
 
+subtest 'an imported module must preserve an environment-derived file operand' => sub {
+    my $at_load = sub ($source) { return scalar Test::Mutation::Syntax::PPI::compile_reads( $source, 1 ) };
+    is $at_load->(q{package Data; use strict; sub count { return 3 } 1;}), [],
+      'declarations and the module return value do not change a binding';
+    is $at_load->(q{package Data; $ENV{TABLE} = 'other'; 1;}), undef, 'a file-scope assignment runs on import';
+    is $at_load->(q{package Data; apply_settings(); 1;}),      undef, 'a file-scope helper can alter the environment';
+    is $at_load->(q{package Data; sub import { $ENV{TABLE} = 'other' } 1;}), undef, 'an import hook executes on use';
+    is $at_load->(q{package Data; use Settings apply_settings(); 1;}), undef, 'an import argument can execute a helper';
+};
+
 done_testing;

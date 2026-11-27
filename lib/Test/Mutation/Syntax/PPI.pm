@@ -148,11 +148,13 @@ sub inside_begin ( $source, $offset ) {
     return 0;
 }
 
-signature_for compile_reads => ( positional => [Str], returns => Maybe [ ArrayRef [ Tuple [ Str, Str ] ] ] );
+signature_for compile_reads =>
+  ( positional => [ Str, Optional [Bool] ], returns => Maybe [ ArrayRef [ Tuple [ Str, Str ] ] ] );
 
-sub compile_reads ($source) {
-    return [] unless $source =~ /\b(?:BEGIN|UNITCHECK|CHECK)\b/;
+sub compile_reads ( $source, $loaded = 0 ) {
+    return [] unless $loaded || $source =~ /\b(?:BEGIN|UNITCHECK|CHECK)\b/;
     my $document = _document($source) or return;
+    return if $loaded && !_fixed_module_load($document);
     my @reads;
     for my $phase ( @{ $document->find('PPI::Statement::Scheduled') || [] } ) {
         next unless $phase->first_token->content =~ /\A(?:BEGIN|UNITCHECK|CHECK)\z/;
@@ -166,7 +168,41 @@ sub compile_reads ($source) {
             return;
         }
     }
+    if ( $loaded || grep { $_->[0] eq 'env' } @reads ) {
+        return
+          if grep { $_->type ne 'require' && !_fixed_import($_) } @{ $document->find('PPI::Statement::Include') || [] };
+    }
     return \@reads;
+}
+
+sub _fixed_module_load ($document) {
+    for my $statement ( $document->schildren ) {
+        if ( $statement->isa('PPI::Statement::Sub') ) {
+            my $name = $statement->name || q{};
+            return 0 if $name =~ /(?:\A|::) (?:import|unimport|AUTOLOAD|DESTROY) \z/x;
+        }
+        next if $statement->isa('PPI::Statement::Include') && _fixed_import($statement);
+        next unless _runs_at_load($statement);
+        my @value = grep { !_is_semicolon($_) } $statement->schildren;
+        return 0 unless @value == 1 && $value[0]->isa('PPI::Token::Number');
+    }
+    return 1;
+}
+
+sub _fixed_import ($include) {
+    my $module = $include->module   || q{};
+    return 0 unless length($module) || $include->version;
+    my @arguments = $include->arguments;
+    return 1 unless @arguments;
+    return 1 if @arguments == 1 && $arguments[0]->isa('PPI::Structure::List') && !$arguments[0]->schild(0);
+    my $text = join q{}, map { $_->content } @arguments;
+    return 1 if $module eq 'lib' && $text =~ /\A\$ENV\{\s*[a-zA-Z_]\w*\s*\}\z/;
+    return !grep {
+             !_is_operator( $_, q{,} )
+          && !$_->isa('PPI::Token::Quote::Single')
+          && !$_->isa('PPI::Token::QuoteLike::Words')
+          && !$_->isa('PPI::Token::Number')
+    } @arguments;
 }
 
 sub _known_phase_statement ( $text, $handles, $reads ) {
@@ -1442,6 +1478,7 @@ Returns true when the original source offset lies inside a C<BEGIN> block.
 
 Returns the literal paths and environment-variable names read by a standalone compilation.
 An unrecognized scheduled statement leaves the input set unknown.
+The optional true argument also checks the file-scope statements and import hooks that can execute when Perl loads a module.
 
 =head2 witness_offsets
 

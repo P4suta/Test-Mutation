@@ -217,6 +217,24 @@ PERL
     is $warm->{result}->reused, 0, 'the path assigned after the read cannot validate a prior verdict';
     like dies { Test::Mutation::Merge::merge( [ $prior, $warm ] ) }, qr/measurement inputs differ/,
       'different values read before the path changes reject the merge';
+
+    local $ENV{TEST_PROJECT_ORIGINAL} = $ENV{TEST_PROJECT_TABLE};
+    write_file( "$area/rebind-library/SwitchInput.pm",
+        'package SwitchInput; $ENV{TEST_PROJECT_TABLE} = $ENV{TEST_PROJECT_LATER}; 1;' );
+    write_file( $rebind, 'package Rebind; $ENV{TEST_PROJECT_TABLE} = $ENV{TEST_PROJECT_ORIGINAL}; 1;' );
+    my $switched = $reader =~ s/^BEGIN/use SwitchInput;\nBEGIN/mr;
+    write_file( "$area/$_/lib/Idle.pm", $switched ) for qw(bound-first bound-second);
+    my $before_restore = shard( 'bound-first',  1, cache => 1 );
+    my $restored       = shard( 'bound-second', 2, cache => 1 );
+    ok !( grep { defined $_->{compiled_digest} } $restored->{result}->entries->@* ),
+      'restoring the original path cannot prove which file an intervening read used';
+    ok lives { Test::Mutation::Merge::merge( [ $before_restore, $restored ] ) },
+      'equal observed compilations survive a temporary change';
+    write_file( "$area/after.dat", "17\n" );
+    my $changed = shard( 'bound-second', 2, cache => 1 );
+    is $changed->{result}->reused, 0, 'the restored path cannot validate results for the intermediate file';
+    like dies { Test::Mutation::Merge::merge( [ $before_restore, $changed ] ) }, qr/measurement inputs differ/,
+      'changing the intermediate file rejects the merge';
 };
 
 subtest 'a library loaded by the compiler reads an external data file' => sub {
