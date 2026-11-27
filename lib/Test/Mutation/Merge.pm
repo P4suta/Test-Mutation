@@ -116,7 +116,7 @@ sub refresh ( $prior, $current ) {
     return Test::Mutation::Result->new(
         $current->%*,
         measured_scope => $scope,
-        entries        => \@entries,
+        entries        => Test::Mutation::Verdict::conclude_inventory( \@entries ),
         tests          => [ map { $tests{$_} } sort keys %tests ],
         sources        => { $prior->sources->%*, $current->sources->%* },
         inventory      => {

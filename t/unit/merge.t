@@ -258,6 +258,39 @@ subtest 'a set that is not one complete run is refused' => sub {
       qr/invalid shard 3\/2/, 'an empty shard outside the declared split is refused';
 };
 
+subtest 'refresh counts distinct compiled changes across both measurements' => sub {
+    my $pass = { test => 't/a.t', result => 'pass', served => 1, load_failed => 0, bypassed => 0, syntax => undef };
+    my $fail = { $pass->%*, result => 'fail' };
+    my @rows = map {
+        my $killed = $_ == 1;
+        +{
+            entry( $_, $killed ? 'Killed' : 'Survived' )->%*,
+            compiled_digest => '31' x 32,
+            observations    => [ [ $killed ? $fail : $pass ] ]
+        }
+    } 1 .. 3;
+    my %inputs = ( catalog_digest => inventory(3)->{digest}, inventory => inventory(3), min_score => 45 );
+    my $first  = part( undef, [ @rows[ 0, 1 ] ], %inputs, selection => { mutants => [qw(000000000001 000000000002)] } );
+    my $last   = part( undef, [ $rows[2] ],      %inputs, selection => { mutants => ['000000000003'] } );
+    my $saved  = Test::Mutation::Merge::refresh( $first, $last );
+    is [ map { $_->{status} } $saved->entries->@* ], [qw(Killed Survived Ignored)],
+      'only the first undetected mutant with the same code counts';
+    is [ $saved->assessment->@{qw(score gate exitCode)} ], [ 50, 'passed', 0 ],
+      'one kill and one distinct survivor meet the threshold';
+    like $saved->entries->[2]{detail}, qr/000000000002/, 'the duplicate identifies the survivor in the earlier report';
+
+    my $whole = merged( part( '1/1', \@rows, %inputs ) );
+    is $saved->assessment, $whole->assessment, 'refresh and a whole inventory give the same score and counts';
+    my $reopened =
+      Test::Mutation::Report::Json::parse( Test::Mutation::Report::Json::render( $whole, high => 80, low => 60 ) );
+    my $updated = part( undef, [ { $rows[1]->%*, status => 'Killed', observations => [ [$fail] ] } ],
+        %inputs, selection => { mutants => ['000000000002'] } );
+    my $again = Test::Mutation::Merge::refresh( $reopened, $updated );
+    is [ map { $_->{status} } $again->entries->@* ], [qw(Killed Killed Survived)],
+      'a saved duplicate counts its passing test when its former representative is killed';
+    is $again->entries->[2]{observations}, [ [$pass] ], 'the promoted survivor keeps the observation that supports it';
+};
+
 subtest 'a refreshed threshold uses every row in the measured scope' => sub {
     my $whole  = part( undef, [ map { entry( $_, 'Ignored' ) } 1 .. 6 ], catalog_digest => $digest, min_score => 80 );
     my $single = part(
