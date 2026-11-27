@@ -372,6 +372,7 @@ sub _report ( $result, $config, $world, $listener = sub { return } ) {
 }
 
 sub _file_reports ( $result, $config, $formats ) {
+    require Test::Mutation::Report::Publication;
     my $directory = $config->report_dir;
     my $target    = File::Spec->rel2abs( $directory, $config->root );
     Test::Mutation::Tree::make($target);
@@ -397,6 +398,8 @@ sub _file_reports ( $result, $config, $formats ) {
         Test::Mutation::Report::Json::stream( $result, @thresholds, write => $output{json}{write} );
     }
     _publish_report( $output{$_} ) for @$formats;
+    my %digests = map { $FILE_REPORT{$_} => $output{$_}{digest}->hexdigest } @$formats;
+    Test::Mutation::Report::Publication::record( $config->root, $target, \%digests );
     close $lock or Test::Mutation::Error::raise( 'file-unclosable', path => $directory, reason => "$!" );
     return map { $output{$_}{name} } @$formats;
 }
@@ -444,20 +447,26 @@ sub _report_to_github ( $result, $world, $config ) {
 }
 
 sub _stage_report ( $path, $name ) {
+    require Digest::SHA;
+    require Encode;
     $path = Cwd::abs_path($path) if -l $path;
     my $temporary = File::Temp->new( DIR => File::Basename::dirname($path), PERMS => oct '666' );
     if ( -f $path ) {
         chmod( ( stat $path )[2] & oct('777'), $temporary->filename )
           or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
     }
-    binmode $temporary, ':encoding(UTF-8)'
+    binmode $temporary, ':raw'
       or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
+    my $digest = Digest::SHA->new(256);
     return {
-        path  => $path,
-        name  => $name,
-        file  => $temporary,
-        write => sub ($chunk) {
-            print {$temporary} $chunk
+        path   => $path,
+        name   => $name,
+        file   => $temporary,
+        digest => $digest,
+        write  => sub ($chunk) {
+            my $bytes = Encode::encode( 'UTF-8', $chunk );
+            $digest->add($bytes);
+            print {$temporary} $bytes
               or Test::Mutation::Error::raise( 'file-unwritable', path => $name, reason => "$!" );
         }
     };

@@ -17,6 +17,7 @@ use Test::Mutation::Report::Terminal;
 use Test::Mutation::Runner;
 use Test::Mutation::Source;
 use Test::Mutation::Status;
+use Test::Mutation::Store::Key;
 
 # S6, the reports: results of every outcome, with each status present and absent, in every shape of source and every format.
 # Every format states the same counts, the report file reads back as it was written, and its score is the score of the run.
@@ -117,6 +118,7 @@ subtest 'a report update excludes a second writer until both formats are saved' 
     my $sample      = Samples::result( statuses => ['Killed'], letters => 'latin1' );
     my $stage       = Test::Mutation::CLI->can('_stage_report');
     my $description = Test::Mutation::Mutant->can('description');
+    my $inputs      = Test::Mutation::Store::Key::tree( $root, [], 1 );
     my $described   = 0;
     my @locks;
     no warnings 'redefine';
@@ -140,6 +142,7 @@ subtest 'a report update excludes a second writer until both formats are saved' 
     is \@locks, [ [ 'locked-reports/mutation.json', 0 ], [ 'locked-reports/mutation.html', 0 ] ],
       'another writer cannot enter during either write';
     ok $available->(), 'another writer can update the directory after publication';
+    is Test::Mutation::Store::Key::tree( $root, [], 1 ), $inputs, 'publishing both reports adds no test inputs';
 };
 
 subtest 'publishing a measurement streams its own scope regardless of earlier reports' => sub {
