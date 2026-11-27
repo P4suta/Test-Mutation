@@ -86,8 +86,7 @@ run = [
 [tasks.shim-mutation]
 description = "Measure the installed shim with Perl 5.10, 5.14, and 5.18"
 run = [
-  "docker build --quiet --target tool --file xt/realworld/Dockerfile --tag test-mutation-release-driver:perl-5.44 .",
-  "docker build --quiet --file xt/release/Dockerfile.shim --tag test-mutation-shim-release .",
+  "docker build --quiet --target shim --file xt/realworld/Dockerfile --tag test-mutation-shim-release .",
   "docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 256 --cpus 2 --memory 1g --tmpfs /work:exec,size=512m,uid=1000,gid=1000,mode=0755 --tmpfs /tmp:exec,size=128m,mode=1777 --volume {{config_root}}:/repo:ro test-mutation-shim-release",
 ]
 
