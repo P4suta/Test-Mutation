@@ -228,7 +228,7 @@ subtest 'original runs record the Perl include directories in both cache modes' 
 # A failed job can move to a verified original tree once for the same test.
 ## no critic (Subroutines::ProtectPrivateSubs Variables::ProtectPrivateVars)
 subtest 'a failed test runs again only when the original passes in a different tree' => sub {
-    my $config         = Test::Mutation::Settings::of_call( { root => 't/fixtures/calc' } );
+    my $config         = Test::Mutation::Settings::of_call( { root => Fixture::copy_of('calc') } );
     my $fixture_mutant = Test::Mutation::Select::resolve( config => $config )->mutants->[0];
     for my $case (
         [ 'baseline unchanged', 0, 0, {}, undef, 'observe' ],
@@ -348,7 +348,7 @@ subtest 'finishing a mutant removes its source and both specifications before re
     my @owned = ( $file, $spec, "$spec.disk" );
     write_file( $_,                           "private\n" ) for @owned;
     write_file( "$directory/other.spec.disk", "another job\n" );
-    my $config = Test::Mutation::Settings::of_call( { root => 't/fixtures/calc', equivalence => 0 } );
+    my $config = Test::Mutation::Settings::of_call( { root => Fixture::copy_of('calc'), equivalence => 0 } );
     my $job    = {
         file     => $file,
         spec     => $spec,
