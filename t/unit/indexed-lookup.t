@@ -63,9 +63,9 @@ my $id = $entry->{mutant}->id;
 subtest 'a parser already loaded by the application takes precedence over disk metadata' => sub {
     my $parsed  = 0;
     my $analyze = Test::Mutation::Syntax::PPI->can('analyze');
-    local @INC          = grep { !ref } @INC;
-    local $PPI::VERSION = '9.001';
-    local $PPIx::Regexp::VERSION;
+    local @INC                   = grep { !ref } @INC;
+    local $PPI::VERSION          = '9.001';
+    local $PPIx::Regexp::VERSION = undef;
     no warnings 'redefine';
     local *Test::Mutation::Syntax::PPI::analyze = sub (@arguments) { ++$parsed; return $analyze->(@arguments) };
     is World::observe( [ 'show', $id ], cwd => $root )->{exit}, 0, 'the current parser can analyze the sources';
