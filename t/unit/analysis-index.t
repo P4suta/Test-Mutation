@@ -51,6 +51,27 @@ subtest 'a missing historical identifier names its previous file' => sub {
     is \@refused, [ 'mutant-history-stale', { identifier => $prefix, path => 'lib/Previous.pm' } ],
       'the diagnostic carries the identifier and the file to remeasure';
 };
+subtest 'an unfiltered catalog decodes candidates as it reads them' => sub {
+    my $db = Test::Mutation::Store::database( Test::Mutation::Store::path( $config->(), 0 ) );
+    my ($analysis) =
+      $db->selectrow_array( 'SELECT analysis FROM candidate WHERE id = ? ORDER BY analysis LIMIT 1', undef, $id );
+    my @events;
+    my $fetch     = DBI::st->can('fetchrow_array');
+    my $construct = Test::Mutation::Mutant->can('new');
+    no warnings 'redefine';
+    local *DBI::st::fetchrow_array = sub ( $query, @arguments ) {
+        push @events, 'read' if $query->{Statement} =~ /\bFROM candidate\b/i;
+        return $fetch->( $query, @arguments );
+    };
+    local *Test::Mutation::Mutant::new = sub (@arguments) {
+        push @events, 'decode';
+        return $construct->(@arguments);
+    };
+    my $file = Test::Mutation::Store::Analysis::read_file( $db, $analysis, [] );
+    cmp_ok scalar $file->{mutants}->@*, '>', 1, 'the file contains multiple candidates';
+    is [ @events[ 0 .. 3 ] ], [qw(read decode read decode)],
+      'the cursor releases each encoded row before fetching another';
+};
 subtest 'thousands of named mutants fit within SQLite query limits' => sub {
     my $project = File::Temp::tempdir( CLEANUP => 1 );
     my $methods = join "\n", map { sprintf 'sub sum%03d { return $_[0] + $_[1] }', $_ } 1 .. 96;
@@ -101,7 +122,8 @@ subtest 'thousands of named mutants fit within SQLite query limits' => sub {
     is [ sort keys %$found ], [ sort @$analyses ], 'a large file catalog returns facts only for current analyses';
     is [
         map {
-            map { $_->id } $_->{mutants}->@*
+            map { $_->id }
+              $_->{mutants}->@*
         } values %$found
       ],
       [ $ids[0] ],

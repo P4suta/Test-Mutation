@@ -48,6 +48,16 @@ sub _read_group ( $db, $identities, $prefixes, $files ) {
         push @hits, $id;
         $files->{$id} = { $JSON->decode($text)->%*, mutants => [] };
     }
+    return unless @hits;
+    unless (@$prefixes) {
+        my $select =
+          $db->prepare("SELECT analysis,data FROM candidate WHERE analysis IN ($slots) ORDER BY analysis,ordinal");
+        $select->execute(@$identities);
+        while ( my ( $id, $data ) = $select->fetchrow_array ) {
+            push $files->{$id}{mutants}->@*, Test::Mutation::Mutant->new( $JSON->decode($data) );
+        }
+        return;
+    }
     my $rows = _candidate_rows( $db, \@hits, $prefixes );
     for my $id ( keys %$rows ) {
         $files->{$id}{mutants} = [
@@ -59,7 +69,6 @@ sub _read_group ( $db, $identities, $prefixes, $files ) {
 }
 
 sub _candidate_rows ( $db, $analyses, $prefixes ) {
-    return {} unless @$analyses;
     my $hits = join ',', ('?') x @$analyses;
     my %rows;
     my $read = sub ( $filter, @parameters ) {
@@ -68,7 +77,6 @@ sub _candidate_rows ( $db, $analyses, $prefixes ) {
         while ( my ( $id, $ordinal, $data ) = $select->fetchrow_array ) { $rows{$id}{$ordinal} = $data }
         return;
     };
-    $read->(q{}) unless @$prefixes;
     my %wanted = map  { $_ => 1 } grep { /\A[0-9a-f]{1,12}\z/ } @$prefixes;
     my @exact  = grep { length($_) == 12 } keys %wanted;
     while (@exact) {
