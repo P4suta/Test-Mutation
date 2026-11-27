@@ -121,6 +121,7 @@ PERL
 };
 
 subtest 'data opened during compilation identifies cached and merged verdicts' => sub {
+    delete local $ENV{PERL5OPT};
     my $idle = <<'PERL';
 package Idle;
 BEGIN {
@@ -175,6 +176,7 @@ PERL
 };
 
 subtest 'loaded modules cannot replace the input that a phase block read' => sub {
+    delete local $ENV{PERL5OPT};
     local $ENV{TEST_PROJECT_LIBRARY} = "$area/rebind-library";
     local $ENV{TEST_PROJECT_TABLE}   = "$area/before.dat";
     local $ENV{TEST_PROJECT_LATER}   = "$area/after.dat";
@@ -238,6 +240,7 @@ PERL
 };
 
 subtest 'a library loaded by the compiler reads an external data file' => sub {
+    delete local $ENV{PERL5OPT};
     local $ENV{TEST_PROJECT_LIBRARY} = "$area/data-library";
     local $ENV{TEST_PROJECT_TABLE}   = "$area/imported-limit";
     my $defaults = <<'PERL';
