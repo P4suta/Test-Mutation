@@ -485,11 +485,12 @@ subtest 'extended mutators' => sub {
     is changes( 'sub grouped { qr/(?im:x)(?-i:y)/ }', 'regex-flag', %extended ),
       [ [ '?im:', '?m:' ], [ '?im:', '?i:' ], [ '?-i:', '?:' ] ],
       'a scoped modifier keeps its group and drops an empty negative flag list';
-    is changes( 'sub f { return /[\w][^^]\d\W\s\S/g }', 'regex-class', %extended ),
+    is changes( 'sub f { return /[\w][^^][^0]\d\W\s\S/g }', 'regex-class', %extended ),
       [
         [ '[\w]', '[^\w]' ],
         [ '\w',   '\W' ],
         [ '[^^]', '[\^]' ],
+        [ '[^0]', '[0]' ],
         [ '\d',   '\D' ],
         [ '\W',   '\w' ],
         [ '\s',   '\S' ],
