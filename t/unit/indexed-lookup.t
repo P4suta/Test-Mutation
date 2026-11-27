@@ -63,6 +63,8 @@ PERL
         my @analysis =
           grep { m{\Aloaded (?:PPI|PPIx/Regexp|Test/Mutation/(?:Syntax/PPI|Mutant/Generator))[.]pm\n\z} } @output;
         is \@analysis, [], "$arguments->[0] uses the installed analyzer versions without loading the parsers";
+        my @harness = grep { m{\Aloaded TAP/(?:Harness|Parser/SourceHandler/Perl)[.]pm\n\z} } @output;
+        is \@harness, [], "$arguments->[0] does not start the test harness";
     }
 };
 my ( $parsed, $reports, $restored ) = ( 0, 0, 0 );
