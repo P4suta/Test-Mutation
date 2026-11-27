@@ -341,7 +341,7 @@ sub _file_reader ( $config, $mutators, $options ) {
     my %chosen     = map { $_->name => 1 } $mutators->@*;
     my $others     = [ grep { !$chosen{ $_->name } } Test::Mutation::Mutator::Catalog::mutators()->@* ];
     my $store      = Test::Mutation::Store::path( $config, 0 );
-    my $db         = $config->cache && -f $store ? Test::Mutation::Store::database($store) : undef;
+    my $db         = $config->cache ? Test::Mutation::Store::read_database($store) : undef;
     my $conditions = Test::Mutation::Store::Key::digest(
         $VERSION, "$options->{version}", _parser_versions(),
         $config->suppress_require_names,

@@ -151,9 +151,10 @@ sub transaction ( $db, $operation ) {
     die $committed->{error};    ## no critic (ErrorHandling::RequireCarping)
 }
 
-sub _connect ($path) {
+sub _connect ( $path, $read_only = 0 ) {
     my $uri = $path;
     $uri =~ s/([%;?#])/sprintf '%%%02X', ord $1/ge;
+    $uri .= '?mode=ro' if $read_only;
     my $db = DBI->connect(
         "dbi:SQLite:uri=file:$uri",
         undef, undef,
@@ -171,16 +172,29 @@ sub _connect ($path) {
     return $db;
 }
 
+sub _initialized ( $db, $path ) {
+    my ($schema) = $db->selectrow_array('PRAGMA user_version');
+    return 1 if $schema == 1;
+    Test::Mutation::Error::raise( 'file-unreadable', path => $path, reason => "unsupported database schema $schema" )
+      if $schema;
+    return 0;
+}
+
+signature_for read_database => ( positional => [Str], returns => Maybe [ InstanceOf ['DBI::db'] ] );
+
+sub read_database ($path) {
+    return unless -f $path;
+    my $db = _connect( $path, 1 );
+    return _initialized( $db, $path ) ? $db : undef;
+}
+
 signature_for database => ( positional => [ Str, Optional [ Maybe [Str] ] ], returns => InstanceOf ['DBI::db'] );
 
 sub database ( $path, $legacy = undef ) {
     my $directory = File::Basename::dirname($path);
     Test::Mutation::Tree::make($directory) unless -d $directory;
     my $db = _connect($path);
-    my ($schema) = $db->selectrow_array('PRAGMA user_version');
-    return $db if $schema == 1;
-    Test::Mutation::Error::raise( 'file-unreadable', path => $path, reason => "unsupported database schema $schema" )
-      if $schema;
+    return $db if _initialized( $db, $path );
     transaction(
         $db,
         sub {
@@ -373,6 +387,10 @@ No field is named after a key, because a secret scanner reads such a name next t
 A later run reuses the record when the key of the same mutant is unchanged.
 
 =head1 FUNCTIONS
+
+=head2 read_database
+
+Opens an initialized store for reading and returns C<undef> when the store is missing or uninitialized.
 
 =head2 database
 

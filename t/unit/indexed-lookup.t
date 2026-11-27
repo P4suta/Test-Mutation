@@ -36,6 +36,28 @@ subtest 'a cached identifier is resolved against the current source and settings
       'a missing configured interpreter still fails the lookup';
 };
 
+subtest 'catalog planning reads an existing store without initializing it' => sub {
+    my $project = copy_of('calc');
+    my $store   = write_file( "$project/.mutation/measurement.sqlite", q{} );
+    my $plan    = World::observe( [ 'list', 'lib/Calc.pm' ], cwd => $project, run => 'cheap' )->{plan};
+    ok scalar $plan->{selection}->mutants->@*, 'the source supplies the catalog when the index is empty';
+    is -s $store, 0, 'planning leaves the uninitialized database untouched';
+    my $config = $plan->{config};
+    Test::Mutation::Select::resolve( config => $config );
+    my $read = Test::Mutation::Store::Analysis->can('read_files');
+    my @write_errors;
+    no warnings 'redefine';
+    local *Test::Mutation::Store::Analysis::read_files = sub ( $db, @query ) {
+        my $error = dies { $db->do('UPDATE setting SET data = data WHERE 0') };
+        push @write_errors, $error ? "$error" : q{};
+        return $read->( $db, @query );
+    };
+    my $cached = World::observe( [ 'list', 'lib/Calc.pm' ], cwd => $project, run => 'cheap' )->{plan};
+    is $cached->{selection}->inventory, $plan->{selection}->inventory,
+      'planning reads the previously published catalog';
+    is \@write_errors, [ match qr/readonly database/ ], 'SQLite denies writes through the catalog reader';
+};
+
 subtest 'planning a path run leaves the catalog to execution' => sub {
     my $project = copy_of('calc');
     my @args    = ( 'run', 'lib/Calc.pm:12', '--format', 'terminal', '--jobs', 1 );
@@ -73,10 +95,10 @@ subtest 'a parser already loaded by the application takes precedence over disk m
 };
 subtest 'lookup reads the current file identities in one group' => sub {
     my @queries;
-    my $database = Test::Mutation::Store->can('database');
+    my $connect = Test::Mutation::Store->can('_connect');
     no warnings 'redefine';
-    local *Test::Mutation::Store::database = sub (@arguments) {
-        my $connection = $database->(@arguments);
+    local *Test::Mutation::Store::_connect = sub (@arguments) {    ## no critic (Variables::ProtectPrivateVars)
+        my $connection = $connect->(@arguments);
         $connection->sqlite_trace( sub ($sql) { push @queries, $sql if $sql =~ /\bFROM (?:analysis|candidate)\b/i } );
         return $connection;
     };

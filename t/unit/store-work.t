@@ -27,8 +27,8 @@ sub traced ($operation) {
         local $phase->{inventory} = ref $args[2] eq 'ARRAY' && $args[2]->@*;
         return $save->(@args);
     };
-    local *Test::Mutation::Store::_connect = sub ($path) {    ## no critic (Variables::ProtectPrivateVars)
-        my $db = $connect->($path);
+    local *Test::Mutation::Store::_connect = sub (@arguments) {    ## no critic (Variables::ProtectPrivateVars)
+        my $db = $connect->(@arguments);
         $counts{connections}++;
         my $writes = 0;
         $db->sqlite_trace(
