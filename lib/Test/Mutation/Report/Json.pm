@@ -11,7 +11,7 @@ use Test::Mutation::Result;
 use Test::Mutation::Source;
 use Test::Mutation::Status;
 use Test::Mutation::Try;
-use Test::Mutation::Types qw(Observations Reason ReportSelection StatusName);
+use Test::Mutation::Types qw(Assessment Observations Reason ReportSelection StatusName);
 
 our $VERSION = '0.001';
 
@@ -65,6 +65,7 @@ my $DOCUMENT = Dict [
     files         => HashRef [ Dict [ language => Str, source => Str, mutants => ArrayRef [$MUTANT] ] ],
     testFiles     => HashRef [ Dict [ tests    => ArrayRef [ Dict [ id => Str, name => Str ] ] ] ],
     testMutation  => Dict [
+        assessment        => Optional [Assessment],
         selection         => Optional [ReportSelection],
         catalogDigest     => Optional [Str],
         measurementDigest => Optional [ StrMatch [qr/\A[0-9a-f]{64}\z/] ],
@@ -140,8 +141,9 @@ sub _boolean ($value) {
 sub _facts ($result) {
     my $inventory = $result->inventory;
     return {
-        shard     => $result->shard,
-        selection => $result->selection,
+        shard      => $result->shard,
+        selection  => $result->selection,
+        assessment => $result->assessment,
         defined $result->catalog_digest     ? ( catalogDigest     => $result->catalog_digest )     : (),
         defined $result->measurement_digest ? ( measurementDigest => $result->measurement_digest ) : (),
         inventory    => $inventory ? { mutants => 0 + $inventory->{mutants}, digest => $inventory->{digest} } : undef,
@@ -296,6 +298,7 @@ sub _result ($document) {
         reused             => $facts->{reused},
         shard              => $facts->{shard},
         selection          => $facts->{selection} || {},
+        min_score          => $facts->{assessment} ? $facts->{assessment}{minimum} : undef,
         catalog_digest     => $facts->{catalogDigest},
         measurement_digest => $facts->{measurementDigest},
         inventory          => $facts->{inventory},

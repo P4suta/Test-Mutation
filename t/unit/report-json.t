@@ -75,6 +75,15 @@ my $result = Test::Mutation::Result->new(
 
 my $document = Test::Mutation::Report::Json::document( $result, high => 80, low => 60 );
 
+subtest 'the report retains the assessment and its threshold' => sub {
+    my $gated      = Test::Mutation::Result->new( $result->%*, min_score => 80 );
+    my $text       = Test::Mutation::Report::Json::render( $gated, high => 90, low => 50 );
+    my $assessment = JSON::PP->new->decode($text)->{testMutation}{assessment};
+    is $assessment,         $gated->assessment, 'the JSON decision and counts are the values returned by the API';
+    is $assessment->{gate}, 'failed',           'the requested minimum decides the gate';
+    is Test::Mutation::Report::Json::parse($text)->assessment, $assessment, 'reading a report restores its threshold';
+};
+
 subtest 'a writer receives each source file before the next file' => sub {
     my @chunks;
     Test::Mutation::Report::Json::stream(
@@ -187,6 +196,7 @@ subtest 'the document carries the facts of the run that the schema has no place 
         shard            => undef,
         inventory        => undef,
         selection        => {},
+        assessment       => $result->assessment,
         jobs             => 2,
         parallelSafe     => JSON::PP::true,
         interrupted      => undef,

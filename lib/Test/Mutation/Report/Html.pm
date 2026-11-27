@@ -5,6 +5,7 @@ use Types::Standard qw(CodeRef InstanceOf Num Str Undef);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Error;
 use Test::Mutation::Report::Json;
+use Test::Mutation::Report::Results;
 
 our $VERSION = '0.001';
 
@@ -52,6 +53,16 @@ signature_for stream => (
 sub stream ( $result, $arg ) {
     my $write  = $arg->write;
     my $viewer = viewer_script();
+    my $score  = $result->tally->{score};
+    my @lines  = (
+        Test::Mutation::Report::Results::overview($result)->@*,
+        defined $score ? sprintf( 'Score: %.1f%%', $score ) : 'Score: none',
+        Test::Mutation::Report::Results::decision( $result, $result->min_score )->@*
+    );
+    my $summary = join "\n", map {
+        my $text = $_ =~ s/&/&amp;/gr =~ s/</&lt;/gr =~ s/>/&gt;/gr;
+        "<p>$text</p>"
+    } @lines;
     $write->(<<"HTML");
 <!DOCTYPE html>
 <html lang="en">
@@ -62,6 +73,10 @@ sub stream ( $result, $arg ) {
 <script>$viewer</script>
 </head>
 <body>
+<header>
+<h1>Mutation report</h1>
+$summary
+</header>
 <mutation-test-report-app title-postfix="Test::Mutation"></mutation-test-report-app>
 HTML
     $write->('<script id="report" type="application/json">');

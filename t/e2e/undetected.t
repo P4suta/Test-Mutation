@@ -22,7 +22,8 @@ unlike ran( 0, $project, 'help', 'list' )->{stdout}, qr/--undetected/, 'the rech
 my $ordinary = ran( 0, $project, 'run', @options );
 my ($id) = $ordinary->{stdout} =~ /^  ([a-f0-9]+)  .*?\[Survived\]/m;
 ok defined $id, 'the original test misses the arithmetic change';
-my $api = Test::Mutation::run( root => $project, jobs => 1, undetected => 1 );
+my $api = Test::Mutation::run( root => $project, jobs => 1, undetected => 1, min_score => 100 );
+is $api->assessment->{exitCode}, 1, 'the missed change fails the requested threshold in the API';
 is [ map { [ $_->{mutant}->id, $_->{status} ] } $api->entries->@* ], [ [ $id, 'Survived' ] ],
   'the Perl API measures the same remaining gap';
 write_file( "$project/t/positive.t", "use Test::More tests => 1;\nuse Totals;\nis Totals::sum(4, 1), 5;\n" );
@@ -31,6 +32,7 @@ my $result =
   Test::Mutation::Report::Json::parse( Test::Mutation::Source::read_bytes("$project/mutation-report/mutation.json") );
 is [ map { [ $_->{mutant}->id, $_->{status}, $_->{by}, $_->{tests_run} ] } $result->entries->@* ],
   [ [ $id, 'Killed', 't/positive.t', 2 ] ], 'only the saved gap runs and the new test confirms it twice';
+is $result->assessment->{gate}, 'passed', 'the CLI stores the same gate that accepted the repaired test';
 ok $result->selection->{undetected}, 'the report identifies a recheck of undetected mutants';
 my $empty = ran( 0, $project, 'run', '--undetected', @options, '--min-score', 100 );
 like $empty->{stdout},   qr/^0 mutants$/m, 'a repaired scope has zero mutants';
