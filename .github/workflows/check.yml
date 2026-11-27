@@ -41,7 +41,7 @@ jobs:
   driver:
     name: driver on Perl ${{ matrix.perl }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -75,7 +75,7 @@ jobs:
           # Build native modules for this interpreter in a fresh local directory.
           enable-modules-cache: false
       - run: perl -S cpm install --top-level-phase configure,build,test,runtime
-      - run: perl -S prove -lr t/unit t/shim t/assumptions t/contract t/discovery t/e2e
+      - run: perl -S prove -lr -j2 t/unit t/shim t/assumptions t/contract t/discovery t/e2e
         env:
           TEST_MUTATION_REQUIRE: ${{ matrix.require }}
 

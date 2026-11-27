@@ -125,7 +125,10 @@ my @install = grep {
 } @mac;
 ok scalar @install, 'a macOS job builds and tests the unpacked distribution';
 
-my $driver = proves( map { defined $_->{run} ? $_->{run} : () } $workflow->{jobs}{driver}{steps}->@* );
+my @driver_commands = map { defined $_->{run} ? $_->{run} : () } $workflow->{jobs}{driver}{steps}->@*;
+my $driver          = proves(@driver_commands);
+my ($workers)       = map { /\bprove\b[^\n]*?\s(?:-j\s*|--jobs[=\s]+)(\d+)\b/ } @driver_commands;
+cmp_ok $workers || 1, '>=', 2, 'each driver runs independent test files in parallel';
 
 my @tests = grep { !m{\At/(?:fixtures|corpus)/} } map { Library::tests($_)->@* } 't', 'xt';
 my @heavy = grep { $_ =~ $HEAVY } @tests;
