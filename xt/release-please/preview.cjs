@@ -38,7 +38,6 @@ async function preview(root) {
 		*mergeCommitIterator(_branch, { maxResults }) {
 			const fields = git(
 				"log",
-				"--first-parent",
 				`--max-count=${maxResults}`,
 				"--format=%H%x00%B%x00",
 				head,

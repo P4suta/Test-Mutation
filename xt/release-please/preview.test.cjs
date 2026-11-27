@@ -9,6 +9,7 @@ const { preview } = require("./preview.cjs");
 test("previews the upstream proposal from committed inputs without changing the checkout", async (t) => {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "release-proposal-"));
 	t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+	let timestamp = 1_700_000_000;
 	const git = (...args) =>
 		execFileSync(
 			"git",
@@ -23,7 +24,11 @@ test("previews the upstream proposal from committed inputs without changing the 
 				"core.hooksPath=/dev/null",
 				...args,
 			],
-			{ cwd: root, encoding: "utf8" },
+			{
+				cwd: root,
+				encoding: "utf8",
+				env: { ...process.env, GIT_COMMITTER_DATE: `${timestamp++} +0000` },
+			},
 		);
 	const write = (name, contents) =>
 		fs.writeFileSync(path.join(root, name), contents);
@@ -80,4 +85,14 @@ test("previews the upstream proposal from committed inputs without changing the 
 		/our \$VERSION = '0\.001001'/,
 	);
 	assert.match(patch.files.Changes, /retain covered mutants/);
+
+	git("switch", "--quiet", "--create", "report");
+	git("commit", "--allow-empty", "-m", "feat: report skipped mutants");
+	git("switch", "--quiet", "main");
+	git("merge", "--no-ff", "-m", "Merge branch 'report'", "report");
+	const merged = await preview(root);
+	assert.equal(merged.tag, "v0.2.0");
+	assert.equal(merged.version, "0.002");
+	assert.match(merged.files.Changes, /retain covered mutants/);
+	assert.match(merged.files.Changes, /report skipped mutants/);
 });
