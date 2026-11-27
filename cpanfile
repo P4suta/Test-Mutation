@@ -2,6 +2,8 @@ use strict;
 use warnings;
 requires 'perl', '5.036';
 
+requires 'DBI',          '1.643';
+requires 'DBD::SQLite',  '1.72';
 requires 'Moo',          '2.005005';
 requires 'PPI',          '1.291';
 requires 'PPIx::Regexp', '0.092';

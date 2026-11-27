@@ -1,11 +1,13 @@
 package Test::Mutation::Store;
 use v5.36;
+use DBI             ();
 use Fcntl           qw(:flock);
 use List::Util      ();
 use POSIX           ();
 use File::Basename  ();
+use File::Spec      ();
 use JSON::PP        ();
-use Types::Standard qw(ArrayRef Bool Dict HashRef Int Maybe Num Optional Str);
+use Types::Standard qw(ArrayRef Bool CodeRef Defined Dict HashRef InstanceOf Int Maybe Num Optional Str);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Error;
 use Test::Mutation::Store::Key;
@@ -15,6 +17,8 @@ use Test::Mutation::Try;
 use Test::Mutation::Types qw(Reason StatusName);
 
 our $VERSION = '0.001';
+
+my $JSON = JSON::PP->new->canonical;
 
 my $FORMAT   = 5;
 my $LINES    = HashRef [Bool];
@@ -65,13 +69,111 @@ sub sample ( $ids, $seed ) {
 signature_for load => ( positional => [Str], returns => HashRef [$RECORD] );
 
 sub load ($path) {
+    return _stored( database($path), 'verdict' ) if $path =~ /[.]sqlite\z/;
     return _validated( _read($path)->{mutants}, $RECORD );
 }
 
 signature_for originals => ( positional => [Str], returns => $ORIGINALS );
 
 sub originals ($path) {
+    if ( $path =~ /[.]sqlite\z/ ) {
+        my $db = database($path);
+        my ($build) = $db->selectrow_array("SELECT data FROM setting WHERE id = 'build'");
+        return { build => defined $build ? $JSON->decode($build) : [], tests => _stored( $db, 'original' ) };
+    }
     return _originals( _read($path) );
+}
+
+sub _stored ( $db, $table ) {
+    my $rows = $db->selectall_arrayref("SELECT id, data FROM $table");
+    return { map { $_->[0] => $JSON->decode( $_->[1] ) } @$rows };
+}
+
+signature_for path => ( positional => [ InstanceOf ['Test::Mutation::Config'] ], returns => Str );
+
+sub path ($config) {
+    return File::Spec->catfile( File::Spec->rel2abs( $config->cache_dir, $config->root ), 'measurement.sqlite' );
+}
+
+signature_for transaction => ( positional => [ InstanceOf ['DBI::db'], CodeRef ], returns => Defined );
+
+sub transaction ( $db, $operation ) {
+    $db->begin_work;
+    my $committed = Test::Mutation::Try::attempt(
+        sub {
+            my $value = $operation->();
+            $db->commit;
+            return $value;
+        },
+        'interruption'
+    );
+    return $committed->{value} if exists $committed->{value};
+    $db->rollback unless $db->{AutoCommit};
+    die $committed->{error};    ## no critic (ErrorHandling::RequireCarping)
+}
+
+signature_for database => ( positional => [Str], returns => InstanceOf ['DBI::db'] );
+
+sub database ($path) {
+    my $directory = File::Basename::dirname($path);
+    Test::Mutation::Tree::make($directory) unless -d $directory;
+    my $db = DBI->connect( "dbi:SQLite:dbname=$path", undef, undef,
+        { RaiseError => 1, PrintError => 0, AutoInactiveDestroy => 1, sqlite_unicode => 1 } );
+    $db->sqlite_busy_timeout(30_000);
+    my ($schema) = $db->selectrow_array('PRAGMA user_version');
+    return $db if $schema == 1;
+    Test::Mutation::Error::raise( 'file-unreadable', path => $path, reason => "unsupported database schema $schema" )
+      if $schema;
+    transaction(
+        $db,
+        sub {
+            return 1 if ( $db->selectrow_array('PRAGMA user_version') )[0];
+            $db->do('CREATE TABLE verdict (id TEXT PRIMARY KEY, path TEXT, source TEXT, data TEXT NOT NULL)');
+            $db->do('CREATE INDEX verdict_path ON verdict(path)');
+            $db->do('CREATE TABLE original (id TEXT PRIMARY KEY, data TEXT NOT NULL)');
+            $db->do('CREATE TABLE setting (id TEXT PRIMARY KEY, data TEXT NOT NULL)');
+            my $old      = _read("$directory/cache.json");
+            my $verdicts = _validated( $old->{mutants}, $RECORD );
+            my $matching = { map { $_ => $verdicts->{$_} } grep { defined $verdicts->{$_}{source} } keys %$verdicts };
+            _update( $db, $matching, undef, {}, _originals($old) );
+            $db->do('PRAGMA user_version = 1');
+            return 1;
+        }
+    );
+    return $db;
+}
+
+sub _update ( $db, $updates, $inventory, $sources, $changes ) {
+    if ($changes) {
+        $db->do( 'INSERT OR REPLACE INTO setting VALUES (?,?)', undef, 'build', $JSON->encode( $changes->{build} ) );
+        $db->do('DELETE FROM original') if $changes->{reset};
+        for my $test ( keys $changes->{tests}->%* ) {
+            my $record = $changes->{tests}{$test};
+            if ($record) {
+                $db->do( 'INSERT OR REPLACE INTO original VALUES (?,?)', undef, $test, $JSON->encode($record) );
+            }
+            else { $db->do( 'DELETE FROM original WHERE id = ?', undef, $test ) }
+        }
+    }
+    my $write = $db->prepare('INSERT OR REPLACE INTO verdict VALUES (?,?,?,?)');
+    for my $id ( keys %$updates ) {
+        my $record = $updates->{$id};
+        if ( Test::Mutation::Status::of( $record->{status} )->cached ) {
+            $write->execute( $id, $record->@{qw(path source)}, $JSON->encode($record) );
+        }
+        else { $db->do( 'DELETE FROM verdict WHERE id = ?', undef, $id ) }
+    }
+    if ( defined $inventory ) {
+        $db->do('CREATE TEMP TABLE eligible (id TEXT PRIMARY KEY)');
+        my $keep = $db->prepare('INSERT OR IGNORE INTO eligible VALUES (?)');
+        $keep->execute($_) for @$inventory;
+        $db->do('DELETE FROM verdict WHERE id NOT IN (SELECT id FROM eligible)');
+        $db->do('DROP TABLE eligible');
+    }
+    for my $file ( keys %$sources ) {
+        $db->do( 'DELETE FROM verdict WHERE path = ? AND source <> ?', undef, $file, $sources->{$file} );
+    }
+    return ( $db->selectrow_array('SELECT count(*) FROM verdict') )[0];
 }
 
 sub _originals ($data) {
@@ -111,6 +213,10 @@ signature_for save => (
 );
 
 sub save ( $path, $updates, $inventory, $sources, $originals ) {
+    if ( $path =~ /[.]sqlite\z/ ) {
+        my $db = database($path);
+        return transaction( $db, sub { _update( $db, $updates, $inventory, $sources, $originals ) } );
+    }
     Test::Mutation::Tree::make( File::Basename::dirname($path) );
     open my $lock, '>>', "$path.lock"
       or Test::Mutation::Error::raise( 'file-unwritable', path => "$path.lock", reason => "$!" );
@@ -173,6 +279,18 @@ No field is named after a key, because a secret scanner reads such a name next t
 A later run reuses the record when the key of the same mutant is unchanged.
 
 =head1 FUNCTIONS
+
+=head2 database
+
+Opens the indexed store and imports reusable records from the previous cache on creation.
+
+=head2 path
+
+Returns the database path for a configured project.
+
+=head2 transaction
+
+Runs a database update and commits its return value with the completed work.
 
 =head2 format_version
 
