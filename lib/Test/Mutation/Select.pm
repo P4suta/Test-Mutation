@@ -9,14 +9,12 @@ use File::Basename  ();
 use POSIX           ();
 use Test::Mutation::Diff;
 use Test::Mutation::Git;
-use Test::Mutation::Mutant::Generator;
 use Test::Mutation::Mutator::Catalog;
 use Test::Mutation::Project;
 use Test::Mutation::Selection;
 use Test::Mutation::Signals;
 use Test::Mutation::Source;
 use Test::Mutation::Suppression;
-use Test::Mutation::Syntax::PPI;
 use Test::Mutation::Error;
 use Test::Mutation::Types qw(PathSelection);
 use Test::Mutation::Store::Key;
@@ -305,13 +303,29 @@ sub _writable_file ($path) {
     return;
 }
 
+sub _parser_versions () {
+    return ( $PPI::VERSION, $PPIx::Regexp::VERSION ) if defined $PPI::VERSION && defined $PPIx::Regexp::VERSION;
+    unless ( grep { ref } @INC ) {
+        require Module::Metadata;
+        my @versions;
+        for my $module (qw(PPI PPIx::Regexp)) {
+            my $metadata = Module::Metadata->new_from_module($module);
+            my $version  = $metadata && $metadata->version;
+            push @versions, "$version" if defined $version;
+        }
+        return @versions if @versions == 2;
+    }
+    require Test::Mutation::Syntax::PPI;
+    return ( $PPI::VERSION, $PPIx::Regexp::VERSION );
+}
+
 sub _file_reader ( $config, $mutators, $options ) {
     my %chosen     = map { $_->name => 1 } $mutators->@*;
     my $others     = [ grep { !$chosen{ $_->name } } Test::Mutation::Mutator::Catalog::mutators()->@* ];
     my $store      = Test::Mutation::Store::path( $config, 0 );
     my $db         = $config->cache && -f $store ? Test::Mutation::Store::database($store) : undef;
     my $conditions = Test::Mutation::Store::Key::digest(
-        $VERSION, "$options->{version}", $PPI::VERSION, $PPIx::Regexp::VERSION,
+        $VERSION, "$options->{version}", _parser_versions(),
         $config->suppress_require_names,
         $config->suppress_require_reason,
         map { $_->name } @$mutators
@@ -382,6 +396,8 @@ sub _analysis ( $config, $files, $mutators, $options ) {
 }
 
 sub _analyze_file ( $config, $source, $mutators, $others, $version ) {
+    require Test::Mutation::Syntax::PPI;
+    require Test::Mutation::Mutant::Generator;
     my $analysis = Test::Mutation::Syntax::PPI::analyze($source);
     Test::Mutation::Signals::check();
     my $file = {

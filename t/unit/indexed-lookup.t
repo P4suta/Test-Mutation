@@ -45,6 +45,9 @@ PERL
         ok scalar( grep { /\Q$id\E/ } @output ), "$arguments->[0] displays the measured mutant";
         my @modules = grep { m{\Aloaded Test/Mutation/(?:Runner|Merge)[.]pm\n\z} } @output;
         is \@modules, [], "$arguments->[0] runs without loading the test runner or merging reports";
+        my @analysis =
+          grep { m{\Aloaded (?:PPI|PPIx/Regexp|Test/Mutation/(?:Syntax/PPI|Mutant/Generator))[.]pm\n\z} } @output;
+        is \@analysis, [], "$arguments->[0] uses the installed analyzer versions without loading the parsers";
     }
 };
 my ( $parsed, $reports, $restored ) = ( 0, 0, 0 );
