@@ -32,5 +32,13 @@ subtest 'the release test rejects shard numbers in the measured environment' => 
     is invocation( $step->{run} ), $expected, 'the release passes the index only as a selection argument';
 };
 
+subtest 'the packaged command runs after disttest on both release systems' => sub {
+    for my $job (qw(release macos)) {
+        my @runs = map { $_->{run} } grep { exists $_->{run} } $workflow->{jobs}{$job}{steps}->@*;
+        is [ @runs[ -2, -1 ] ], [ 'mise x -- make disttest', 'mise run verify-install' ],
+          "$job checks an installation of the archive that passed disttest";
+    }
+};
+
 Gate::checked( 'release jobs', scalar keys $workflow->{jobs}->%*, at_least => 4 );
 done_testing;
