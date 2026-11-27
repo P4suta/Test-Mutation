@@ -5,6 +5,7 @@ use File::Temp ();
 use lib 't/e2e/lib';
 use Fixture qw(run_fixture write_file);
 use Test::Mutation::Merge;
+use Test::Mutation::Report::Json;
 use Test::Mutation::Runner;
 use Test::Mutation::Settings;
 
@@ -13,7 +14,7 @@ my $library = "$area/external";
 local $ENV{TEST_PROJECT_LIBRARY} = $library;
 local $ENV{TEST_PROJECT_LIMIT}   = 5;
 my $module   = "package Boundary; sub positive { return \$_[0] > 0 } 1;\n";
-my $external = "package Defaults; sub count { 3 } 1;\n";
+my $external = "package Defaults; sub count () { 3 } 1;\n";
 my $test     = <<'PERL';
 use Test::More tests => 1;
 use lib $ENV{TEST_PROJECT_LIBRARY};
@@ -102,6 +103,21 @@ PERL
     like dies { Test::Mutation::Merge::merge( [ $start, shard( 'idle-second', 2 ) ] ) },
       qr/measurement inputs differ/, 'a fresh shard binds the library loaded only by the compiler';
     write_file( "$library/Defaults.pm", $external );
+    my $link = "$area/compiler-library";
+    local $ENV{TEST_PROJECT_LIBRARY} = $link;
+    symlink $library, $link or die $!;
+    my $linked = shard( 'idle-second', 2, cache => 1 );
+    my $json   = Test::Mutation::Report::Json::render( $linked->{result}, high => 80, low => 60 );
+    $linked->{result} = Test::Mutation::Report::Json::parse($json);
+    ok lives { Test::Mutation::Merge::merge( [ $linked, shard( 'idle-first', 1, cache => 1 ) ] ) },
+      'a report keeps its compiler inputs across a JSON round trip';
+    write_file( "$area/replacement/Defaults.pm", $external =~ s/\b3\b/8/r );
+    unlink $link or die $!;
+    symlink "$area/replacement", $link or die $!;
+    like dies { Test::Mutation::Merge::merge( [ $linked, shard( 'idle-first', 1, cache => 1 ) ] ) },
+      qr/measurement inputs differ/, 'a cached compiler checks the current target of a library link';
+    like dies { Test::Mutation::Merge::merge( [ $linked, shard( 'idle-first', 1 ) ] ) },
+      qr/measurement inputs differ/, 'a fresh compiler identifies the library by its search path';
 };
 
 my $wrapped = shard( 'first', 1, perl => 'tools/perl' );
