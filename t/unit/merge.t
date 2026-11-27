@@ -145,6 +145,38 @@ subtest 'the ordered test observations decide the final verdicts' => sub {
       'a contradictory repeat keeps its own reason';
 };
 
+subtest 'a compiled duplicate names the first undetected mutant in its own file' => sub {
+    my @candidates = map { entry( $_ + 1, (qw(Killed Survived NoCoverage Survived NoCoverage Survived))[$_] ) } 0 .. 5;
+    $_->{compiled_digest} = '31' x 32 for @candidates[ 0, 1, 2, 4, 5 ];
+    my $whole = merged( part( '1/2', [ @candidates[ 0, 2, 4 ] ] ), part( '2/2', [ @candidates[ 1, 3, 5 ] ] ) );
+    is [ map { $_->{status} } $whole->entries->@* ], [qw(Killed Survived Ignored Survived NoCoverage Ignored)],
+      'detected mutants, missing digests, and other files are independent';
+    for my $pair ( [ 2, 1 ], [ 5, 4 ] ) {
+        my ( $duplicate, $first ) = $whole->entries->@[@$pair];
+        my $identifier = $first->{mutant}->id;
+        is $duplicate->{reason}, 'same-code-as-mutant', 'a duplicate does not count as a missed change';
+        like $duplicate->{detail}, qr/\Q$identifier\E/, 'the report identifies the earlier change';
+    }
+    is $whole->tally->{score}, 25, 'one detection among four distinct valid mutants';
+};
+
+subtest 'an empty shard cannot hide conflicting inputs from two measured siblings' => sub {
+    my $inventory = inventory(2);
+    my $one       = part( '1/3', [ entry( 1, 'Killed' ) ], inventory => $inventory );
+    my $two   = sub (%inputs) { return part( '2/3', [ entry( 2, 'Survived' ) ], inventory => $inventory, %inputs ) };
+    my $empty = part( '3/3', [], tests => [], inventory => $inventory, dependency_digest => undef );
+    for my $order ( [ 2, 0, 1 ], [ 0, 2, 1 ], [ 0, 1, 2 ] ) {
+        my $merge = sub (%inputs) { return merged( ( $one, $two->(%inputs), $empty )[@$order] ) };
+        is $merge->()->tally->{score}, 50, 'an empty part contributes its inventory position';
+        like dies { $merge->( dependency_digest => '03' x 32 ) }, qr/measurement inputs differ/,
+          'different dependencies invalidate the combined score';
+        like dies { $merge->( measurement_digest => '04' x 32 ) }, qr/measurement inputs differ/,
+          'different tests or execution settings invalidate the combined score';
+        like dies { $merge->( dependency_digest => undef ) }, qr/inputs are missing.*rerun every shard/,
+          'a measured part needs dependency evidence';
+    }
+};
+
 subtest 'merging interleaves uneven shards and omits empty positions' => sub {
     for my $case ( [ 0, [ [], [], [], [] ] ], [ 2, [ [1], [2], [], [] ] ], [ 5, [ [ 1, 5 ], [2], [3], [4] ] ] ) {
         my ( $count, $groups ) = @$case;
