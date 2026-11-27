@@ -503,12 +503,7 @@ sub _measure_tests ( $run, $selection, $plan ) {
     _prepare_witnesses($run) if defined $run->{copies};
     Test::Mutation::Event::phase( $listener, 'baseline' );
     my $baseline = _complete_baseline( $run, $plan );
-    my $result   = {
-        parallel_safe     => $baseline->{parallel_safe},
-        baseline_failures => $baseline->{failures},
-        tests             => _test_list( $baseline->{tests} ),
-        dependency_digest => scalar _available_digest( sub { _dependencies( $baseline->{tests} ) } ),
-    };
+    my $result   = _baseline_facts($baseline);
 
     if ( $baseline->{failures}->@* ) {
         $listener->( 'baseline_finished', { failures => $baseline->{failures} } );
@@ -518,15 +513,19 @@ sub _measure_tests ( $run, $selection, $plan ) {
     $listener->( 'baseline', { tests => scalar $run->{test_paths}->@*, jobs => $run->{jobs} } );
     return $result if $run->{options}{baseline_only};
     Test::Mutation::Event::phase( $listener, 'mutants' );
-    $result->{entries} = _mutants( $run, $selection->mutants, $baseline );
-    $listener->( 'mutants_finished', { total => scalar $result->{entries}->@* } );
+    my $entries = _mutants( $run, $selection->mutants, $baseline );
+    $listener->( 'mutants_finished', { total => scalar @$entries } );
+    $result = _baseline_facts( $run->{rechecked_baseline} ) if $run->{rechecked_baseline};
+    return { $result->%*, entries => $entries };
+}
 
-    if ( my $fresh = $run->{rechecked_baseline} ) {
-        $result->{tests}             = _test_list( $fresh->{tests} );
-        $result->{parallel_safe}     = $fresh->{parallel_safe};
-        $result->{baseline_failures} = $fresh->{failures};
-    }
-    return $result;
+sub _baseline_facts ($baseline) {
+    return {
+        parallel_safe     => $baseline->{parallel_safe},
+        baseline_failures => $baseline->{failures},
+        tests             => _test_list( $baseline->{tests} ),
+        dependency_digest => scalar _available_digest( sub { _dependencies( $baseline->{tests} ) } ),
+    };
 }
 
 sub _dependencies ($tests) {

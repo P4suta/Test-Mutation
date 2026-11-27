@@ -7,6 +7,7 @@ use Test::Mutation::Runner;
 use Test::Mutation::Select;
 use Test::Mutation::Settings;
 use Test::Mutation::Source;
+use Test::Mutation::Store::Key;
 use Test::Mutation::Workspace;
 
 my $root      = copy_of('calc');
@@ -307,6 +308,9 @@ subtest 'a fresh baseline after a cache mismatch supplies every original test fa
       'the report uses the newly measured test and duration';
     is $result->parallel_safe,     0,          'the new observation determines whether tests can run concurrently';
     is $result->baseline_failures, [$failure], 'the failure from the new original run reaches the result';
+    is $result->dependency_digest,
+      Test::Mutation::Store::Key::digest( 't/current.t', Test::Mutation::Store::Key::digest() ),
+      'the dependency fingerprint belongs to the original run that supplied the result';
 };
 
 done_testing;
