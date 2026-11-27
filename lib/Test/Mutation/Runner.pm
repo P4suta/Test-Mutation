@@ -1466,14 +1466,13 @@ sub _mutants ( $run, $mutants, $baseline, $sample_only = 0 ) {
 }
 
 sub _execute_jobs ( $run, $baseline, $next_job, $entries, $cache ) {
-    my %unfinished;
+    my ( %unfinished, @checkpoints );
     my $schedule = { ready => [], active => {}, retrying => {}, locked => {}, compatible => {} };
     my $finish   = sub ($job) {
         _release( $run, $job );
-        my $entry = $entries->{ $job->{mutant}->id } = _finish( $run, $job );
-        _save_observation( $run, $cache, $entry ) if $cache;
-        delete $unfinished{ $job->{mutant}->id };
-        $run->{listener}->( 'mutant', $entry );
+        my $publish = _publish_finished( $run, $cache, _finish( $run, $job ), $entries, \%unfinished );
+        if ($cache) { push @checkpoints, $publish }
+        else        { $publish->(1) }
         return;
     };
     my $measure = sub {
@@ -1484,6 +1483,7 @@ sub _execute_jobs ( $run, $baseline, $next_job, $entries, $cache ) {
                     return $prepared if $prepared;
                     return           if keys %unfinished >= $run->{jobs};
                     my $job = $next_job->() or return;
+                    $cache->{checkpoint} ||= Test::Mutation::Store::checkpoints( $cache->{path} ) if $cache;
                     $unfinished{ $job->{mutant}->id } = $job;
                     my $task = $job->{tests}->@* ? _next_test( $run, $job, $baseline ) : _next_code( $run, $job );
                     if ($task) { push $schedule->{ready}->@*, $task }
@@ -1501,6 +1501,7 @@ sub _execute_jobs ( $run, $baseline, $next_job, $entries, $cache ) {
         return Test::Mutation::Pool::run(
             jobs             => $run->{jobs},
             retry_after_done => 1,
+            checkpoints      => \@checkpoints,
             work             => $run->{stats},
             done             => $once->{done},
             next             => sub {
@@ -1517,8 +1518,21 @@ sub _execute_jobs ( $run, $baseline, $next_job, $entries, $cache ) {
     my $error = $attempt->{error};
     die $error if !$INTERRUPTION->check($error);    ## no critic (ErrorHandling::RequireCarping)
     $run->{interrupted} = $error->signal;
+    $_->(1) for @checkpoints;
     _pending_jobs( $next_job, $entries, values %unfinished );
     return;
+}
+
+sub _publish_finished ( $run, $cache, $entry, $entries, $unfinished ) {
+    my $id = $entry->{mutant}->id;
+    return sub ($may_wait) {
+        return 1 if $entries->{$id};
+        return 0 if $cache && !_save_observation( $run, $cache, $entry, $may_wait );
+        $entries->{$id} = $entry;
+        delete $unfinished->{$id};
+        $run->{listener}->( 'mutant', $entry );
+        return 1;
+    };
 }
 
 sub _pending_jobs ( $next_job, $entries, @unfinished ) {
@@ -1830,12 +1844,11 @@ sub _reused_entry ( $run, $cache, $mutant, $tests ) {
     return $entry;
 }
 
-sub _save_observation ( $run, $cache, $entry ) {
+sub _save_observation ( $run, $cache, $entry, $may_wait = 1 ) {
     my $mutant = $entry->{mutant};
-    return if $mutant->suppressed;
-    return if $run->{unbound_compiler}{ $mutant->id };
+    return 1 if $mutant->suppressed || $run->{unbound_compiler}{ $mutant->id };
     my $key = _verdict_key( $cache, $mutant, $entry->{covered_by}, $entry->{status}, $entry->{by} );
-    return unless defined $key;
+    return 1 unless defined $key;
     my $record = {
         inputs => $key,
         path   => $mutant->path,
@@ -1848,8 +1861,7 @@ sub _save_observation ( $run, $cache, $entry ) {
         exists $entry->{observations} ? ( observations => $entry->{observations} ) : ()
     };
     my $checkpoint = $cache->{checkpoint} ||= Test::Mutation::Store::checkpoints( $cache->{path} );
-    $checkpoint->( $mutant->id, $record );
-    return;
+    return $checkpoint->( $mutant->id, $record, $may_wait );
 }
 
 sub _next_code ( $run, $job ) {
