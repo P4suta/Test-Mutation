@@ -318,6 +318,7 @@ Test::Mutation::Suppression::refusals(
 merged();
 merged( { name => 'whole', result => Samples::result( statuses => ['Killed'] ) } );
 merged( part( '1/2', inventory         => undef ) );
+merged( part( '1/2', interrupted       => 'TERM' ) );
 merged( part( '1/2', baseline_failures => [ { test => 't/a.t', output => q{}, errors => q{} } ] ) );
 merged( part('1/2'), part('1/3') );
 merged( part('1/2'), part( '2/2', inventory => { mutants => 2, digest => 'b' x 64 } ) );

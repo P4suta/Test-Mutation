@@ -201,6 +201,11 @@ my @ROWS = (
         '{name} names no inventory', 'A report of a merge lacks the count and the digest of the mutants of its run.'
     ],
     [
+        'merge-interrupted', 'usage',
+        '{name} was interrupted by SIG{signal}, rerun that shard before merging',
+        'A shard received a signal before measurement finished.'
+    ],
+    [
         'merge-failed-baseline', 'usage',
         '{name} has failing tests in its unmodified run, so its part measured nothing',
         'A report of a merge comes from a part whose tests fail without a mutant.'

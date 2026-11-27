@@ -5,6 +5,7 @@ use lib 't/e2e/lib';
 use Fixture qw(copy_of ran run_fixture statuses write_file);
 use Test::Mutation::Merge;
 use Test::Mutation::Report::Json;
+use Test::Mutation::Store;
 
 my $root    = copy_of('calc');
 my ($whole) = run_fixture($root);
@@ -47,6 +48,21 @@ subtest 'the merged score meets the threshold of a run' => sub {
     my $result = Test::Mutation::Report::Json::parse( slurp("$root/whole/mutation.json") );
     is [ $result->assessment->@{qw(minimum gate exitCode)} ], [ 100, 'failed', 1 ],
       'merging records the decision made at the requested threshold';
+};
+
+subtest 'refusing an interrupted shard preserves the last report and its measurement history' => sub {
+    my $file    = "$root/whole/mutation.json";
+    my $before  = slurp($file);
+    my $source  = Test::Mutation::Report::Json::parse( slurp("$root/part1/mutation.json") );
+    my $stopped = Test::Mutation::Result->new( $source->%*, interrupted => 'TERM' );
+    write_file( "$root/interrupted.json", Test::Mutation::Report::Json::render( $stopped, high => 80, low => 60 ) );
+    my $db     = Test::Mutation::Store::read_database("$root/.mutation/measurement.sqlite");
+    my ($last) = $db->selectrow_array('SELECT MAX(run) FROM measurement');
+    my $merge  = ran( 2, $root, 'merge', $reports[0], 'interrupted.json', '--report-dir', 'whole', @options );
+    like $merge->{stderr}, qr/interrupted[.]json.*SIGTERM.*rerun/i, 'the diagnostic identifies the shard to rerun';
+    is slurp($file), $before, 'the earlier completed report stays at its published path';
+    is scalar $db->selectrow_array('SELECT MAX(run) FROM measurement'), $last,
+      'the interrupted contribution creates no new measurement for an undetected recheck';
 };
 
 subtest 'duplicate compiled code across shard boundaries has one verdict in inventory order' => sub {

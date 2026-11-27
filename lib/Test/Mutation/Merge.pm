@@ -76,8 +76,7 @@ sub merge ( $reports, $floor = undef ) {
         warnings           => [ uniq map { $_->warnings->@* } @results ],
         baseline_failures  => [],
         jobs               => max( map { $_->jobs } @results ),
-        parallel_safe      => ( all { $_->parallel_safe } @results ) ? 1 : 0,
-        interrupted        => ( first { defined } map { $_->interrupted } @results ),
+        parallel_safe      => ( all { $_->parallel_safe } @results )  ? 1 : 0,
         cache_mismatch     => ( any { $_->cache_mismatch } @results ) ? 1 : 0,
         reused             => sum0( map { $_->reused } @results ),
         inventory          => $results[0]->inventory,
@@ -131,7 +130,9 @@ sub _parts ($reports) {
     my ( @parts, $whole );
     for my $report ( $reports->@* ) {
         my ( $name, $result ) = $report->@{qw(name result)};
-        Test::Mutation::Error::raise( 'merge-whole-run',         name => $name ) if !defined $result->shard;
+        Test::Mutation::Error::raise( 'merge-whole-run', name => $name ) if !defined $result->shard;
+        Test::Mutation::Error::raise( 'merge-interrupted', name => $name, signal => $result->interrupted )
+          if defined $result->interrupted;
         Test::Mutation::Error::raise( 'merge-without-inventory', name => $name ) if !$result->inventory;
         Test::Mutation::Error::raise( 'merge-failed-baseline',   name => $name ) if $result->baseline_failures->@*;
         my ( $part, $of ) = split m{/}, $result->shard;
@@ -224,7 +225,7 @@ Shard reports remain independent until C<merge> joins them.
 
 Takes the results with the names that error messages use, and returns one L<Test::Mutation::Result>.
 The function dies with a L<Test::Mutation::Error> of the kind C<usage> unless the results are the parts 1 to C<N> of one run, each exactly once.
-Every result must name the same C<N> and the same inventory, and hold the mutants of its part.
+Every shard must finish, name the same C<N> and inventory, and hold the mutants of its part.
 
 The merged result lists the mutants in the order of a whole run.
 It keeps each test with its longest duration, each warning and problem once, the largest job count, and the whole time span.

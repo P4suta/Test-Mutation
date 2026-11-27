@@ -128,9 +128,11 @@ subtest 'the parts of one run merge into the result of the whole run' => sub {
       'the largest job count, the sum of the reused results, and the whole time span';
 };
 
-subtest 'a part that is unsafe side by side or interrupted marks the whole' => sub {
-    my $whole = merged( part( '1/2', \@first, parallel_safe => 0 ), part( '2/2', \@rest, interrupted => 'TERM' ) );
-    is [ $whole->parallel_safe, $whole->interrupted ], [ 0, 'TERM' ], 'the weaker fact wins';
+subtest 'parallel safety carries over and every shard must finish' => sub {
+    my $one = part( '1/2', \@first, parallel_safe => 0 );
+    ok !merged( $one, part( '2/2', \@rest ) )->parallel_safe, 'unsafe parallel tests remain unsafe after merging';
+    like Raised::message( sub { merged( $one, part( '2/2', \@rest, interrupted => 'TERM' ) ) } ),
+      qr/report 2.*SIGTERM.*rerun/i, 'an interrupted shard must finish even when every identifier is present';
 };
 
 subtest 'the ordered test observations decide the final verdicts' => sub {
