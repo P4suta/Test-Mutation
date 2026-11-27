@@ -121,23 +121,23 @@ subtest 'many changes to one source share its lines' => sub {
 };
 
 subtest 'the changed line matches a literal edit for each shape of span' => sub {
-    my $text   = "ab\x{e9}\r\n\nlast";
-    my $source = Test::Mutation::Source->new( path => 'lib/Calc.pm', text => $text, encoding => 'UTF-8' );
+    my $text     = "ab\x{e9}\r\n\nlast";
+    my $document = Test::Mutation::Source->new( path => 'lib/Calc.pm', text => $text, encoding => 'UTF-8' );
     for my $case ( [ 0, 0, "\n" ], [ 1, 7, "X\nY" ], [ 3, 6, q{} ], [ 4, 5, '!' ], [ 10, 10, '?' ] ) {
         my ( $start, $end, $replacement ) = @$case;
-        my $from = $source->position_of($start);
+        my $from = $document->position_of($start);
         my $edit = mutant(
             start       => $start,
             end         => $end,
             from        => $from,
-            to          => $source->position_of($end),
+            to          => $document->position_of($end),
             original    => substr( $text, $start, $end - $start ),
             replacement => $replacement
         );
         my $report = Test::Mutation::Report::Terminal::render(
             result( [ entry( 'Survived', mutant => $edit ) ], sources => { 'lib/Calc.pm' => $text } ),
             color => 0 );
-        my $changed  = $source->replace_span( $start, $end, $replacement );
+        my $changed  = $document->replace_span( $start, $end, $replacement );
         my $index    = $from->[0] - 1;
         my $before   = ( split /\n/, $text,    -1 )[$index];
         my $after    = ( split /\n/, $changed, -1 )[$index];

@@ -63,7 +63,7 @@ signature_for offset_within_source => ( method => 1, positional => [ Int, Int ],
 
 sub offset_within_source ( $self, $line, $column ) {
     my $starts = $self->_line_starts;
-    return undef if $line < 1 || $line > @$starts || $column < 1;
+    return if $line < 1 || $line > @$starts || $column < 1;
     my $offset = $starts->[ $line - 1 ] + $column - 1;
     my $limit  = $line < @$starts ? $starts->[$line] : length( $self->text ) + 1;
     return $offset < $limit ? $offset : undef;

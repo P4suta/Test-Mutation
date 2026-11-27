@@ -45,12 +45,12 @@ subtest 'cache paths preserve filename punctuation' => sub {
 subtest 'an unreadable cached verdict is measured again without losing its neighbors' => sub {
     my $path = "$directory/damaged/measurement.sqlite";
     Test::Mutation::Store::save( $path, { map { $_ => $record } qw(ambiguous broken missing intact) } );
-    my $database = Test::Mutation::Store::database($path);
-    $database->do(
+    my $connection = Test::Mutation::Store::database($path);
+    $connection->do(
         q{UPDATE verdict SET data = replace(data,'"status":"Survived"','"status":"Killed","status":"Survived"') WHERE id = 'ambiguous'}
     );
-    $database->do( 'UPDATE verdict SET data = ? WHERE id = ?', undef, '{',    'broken' );
-    $database->do( 'UPDATE verdict SET data = ? WHERE id = ?', undef, 'null', 'missing' );
+    $connection->do( 'UPDATE verdict SET data = ? WHERE id = ?', undef, '{',    'broken' );
+    $connection->do( 'UPDATE verdict SET data = ? WHERE id = ?', undef, 'null', 'missing' );
     is Test::Mutation::Store::load($path), { intact => $record }, 'only the intact verdict can be reused';
 };
 subtest 'concurrent writers publish only committed observations' => sub {
