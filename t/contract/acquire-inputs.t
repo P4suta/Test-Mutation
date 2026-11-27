@@ -7,7 +7,6 @@ use File::Temp     ();
 use IO::Select     ();
 use POSIX          ();
 use Symbol         ();
-use Time::HiRes    ();
 our $faults;    ## no critic (Variables::ProhibitPackageVars)
 
 sub _open : prototype(*;$@) {    ## no critic (Subroutines::RequireArgUnpacking)
@@ -250,7 +249,7 @@ PROGRAM
     local $ENV{PATH} = "$project/tools";
     my $run = sub (%fault) {
         local $faults = { read_errors => [], wait_errors => [], finished => {}, %fault };
-        local $SIG{ALRM} = sub { die "Git did not finish a ready stream\n" };
+        local $SIG{ALRM} = sub { die "Git did not finish its fixture commands\n" };
         my $ready = \&IO::Select::can_read;
         my $count = \&IO::Select::count;
         my ( $reads, $checks ) = ( 0, 0 );
@@ -266,14 +265,14 @@ PROGRAM
             die "Git left an unfinished pipe outside its wait set\n"
               if @pipes + keys(%$finished) != 2 || grep { $finished->{ fileno $_ } } @pipes;
             die "Git left its ready streams undrained\n" if ++$reads > 1000;
-            Time::HiRes::alarm(3);
-            my @readable = $ready->(@args);
-            Time::HiRes::alarm(0);
-            return @readable;
+            return $ready->(@args);
         };
+
+        # A writer that stays open after the child exits can prevent EOF.
+        alarm 120;
         my $observed = eval { Test::Mutation::Git::changed( $project, 'HEAD' ) };
         my $error    = $@;
-        Time::HiRes::alarm(0);
+        alarm 0;
         die $error if !ref $error && $error =~ /Git (?:left|did not finish)/;
         is $faults->{reaped}, 3, 'Git reaps the revision, diff and listing processes after interruption' if $observed;
         return $observed || $error;
