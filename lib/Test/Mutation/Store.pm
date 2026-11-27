@@ -17,7 +17,9 @@ use Test::Mutation::Store::Key;
 use Test::Mutation::Status;
 use Test::Mutation::Tree;
 use Test::Mutation::Try;
-use Test::Mutation::Types qw(Observations Reason StatusName);
+use Test::Mutation::Types  qw(Observations Reason StatusName);
+use DBD::SQLite::Constants qw(SQLITE_BUSY);
+use Test::Mutation::Clock;
 
 our $VERSION = '0.001';
 
@@ -277,13 +279,37 @@ sub _verdict_writer ($db) {
 signature_for checkpoints => ( positional => [Str], returns => CodeRef );
 
 sub checkpoints ($path) {
-    return sub ( $id, $record ) { save( $path, { $id => $record } ); return }
-      unless $path =~ /[.]sqlite\z/;
-    my $write = _verdict_writer( database($path) );
-    return sub ( $id, $record ) {
+    unless ( $path =~ /[.]sqlite\z/ ) {
+        return sub ( $id, $record, $may_wait = undef ) {
+            return 0 if defined $may_wait && !$may_wait;
+            save( $path, { $id => $record } );
+            return defined $may_wait ? 1 : undef;
+        };
+    }
+    my $db      = database($path);
+    my $write   = _verdict_writer($db);
+    my $clock   = Test::Mutation::Clock->new;
+    my $budget  = $db->sqlite_busy_timeout;
+    my $timeout = $budget;
+    my $deadline;
+    return sub ( $id, $record, $may_wait = undef ) {
         Str->assert_valid($id);
         $RECORD->assert_valid($record);
-        return $write->( $id, $record );
+        my $blocking = $may_wait // 1;
+        my $wait     = $blocking ? $budget : 0;
+        $wait = List::Util::max( 0, int( ( $deadline - $clock->now ) * 1000 ) ) if $blocking && defined $deadline;
+        $db->sqlite_busy_timeout( $timeout = $wait ) if $timeout != $wait;
+        my $attempt = Test::Mutation::Try::attempt( sub { $write->( $id, $record ); return 1 } );
+        if ( exists $attempt->{error} ) {
+            if ( !$blocking && ( ( $db->err // 0 ) & 255 ) == SQLITE_BUSY ) {
+                my $now = $clock->now;
+                $deadline //= $now + $budget / 1000;
+                return 0 if $now < $deadline;
+            }
+            die $attempt->{error};    ## no critic (ErrorHandling::RequireCarping)
+        }
+        $deadline = undef;
+        return defined $may_wait ? 1 : undef;
     };
 }
 
@@ -419,6 +445,8 @@ Runs a database update and commits its return value with the completed work.
 
 Returns a writer that commits one verdict at a time for the duration of a measurement.
 Each call takes a mutant identifier and its observation.
+An optional third argument controls whether the writer can wait for another transaction.
+With that argument the writer returns true after a commit or false when a busy database needs another attempt.
 
 =head2 format_version
 

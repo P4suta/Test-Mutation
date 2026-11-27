@@ -132,6 +132,21 @@ subtest 'concurrent writers publish only committed observations' => sub {
     is Test::Mutation::Store::load($path), $both, 'a rolled-back write preserves every committed observation';
 };
 
+subtest 'a nonblocking checkpoint retries only a competing writer' => sub {
+    my $path  = "$directory/checkpoints/measurement.sqlite";
+    my $write = Test::Mutation::Store::checkpoints($path);
+    my $peer  = Test::Mutation::Store::database($path);
+    $peer->do('BEGIN IMMEDIATE');
+    is $write->( 'example', $record, 0 ), 0, 'a competing write lock leaves the observation pending';
+    is $peer->selectrow_array('SELECT count(*) FROM verdict'), 0, 'no partial observation is visible';
+    $peer->do('COMMIT');
+    is $write->( 'example', $record, 0 ), 1, 'the pending observation commits when the lock clears';
+    is Test::Mutation::Store::load($path), { example => $record }, 'another connection sees the commit';
+    $peer->do(q{CREATE TRIGGER reject BEFORE INSERT ON verdict BEGIN SELECT RAISE(ABORT,'rejected record'); END});
+    like dies { $write->( 'refused', $record, 0 ) }, qr/rejected record/,
+      'a rejected write passes its failure to the caller';
+};
+
 subtest 'measurements in a read-only checkout' => sub {
     Capability::need( 'unprivileged', $> != 0, 'the superuser can write to read-only directories' );
     my $read_only = File::Temp::tempdir( CLEANUP => 1 );
