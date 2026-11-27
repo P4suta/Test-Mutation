@@ -1,7 +1,7 @@
 package Test::Mutation::Report::Json;
 use v5.36;
-use JSON::PP               ();
-use Types::Standard        qw(ArrayRef Dict Enum HashRef InstanceOf Int Maybe Num Optional Str StrMatch Tuple);
+use JSON::PP        ();
+use Types::Standard qw(ArrayRef CodeRef Dict Enum HashRef InstanceOf Int Maybe Num Optional Str StrMatch Tuple Undef);
 use Types::Common::Numeric qw(PositiveInt PositiveOrZeroInt);
 use Type::Params           qw(signature_for);
 use Test::Mutation::Error;
@@ -96,17 +96,33 @@ signature_for document => (
 );
 
 sub document ( $result, $arg ) {
-    my %files = map { $_ => { language => 'perl', source => $result->sources->{$_}, mutants => [] } }
-      keys $result->sources->%*;
-    for my $entry ( $result->entries->@* ) {
-        push $files{ $entry->{mutant}->path }{mutants}->@*, _mutant($entry);
+    my %files;
+    _each_file( $result, sub ( $path, $file ) { $files{$path} = $file } );
+    return { _metadata( $result, $arg )->%*, files => \%files };
+}
+
+sub _each_file ( $result, $visit ) {
+    my %entries;
+    push $entries{ $_->{mutant}->path }->@*, $_ for $result->entries->@*;
+    for my $path ( sort keys $result->sources->%* ) {
+        $visit->(
+            $path,
+            {
+                language => 'perl',
+                source   => $result->sources->{$path},
+                mutants  => [ map { _mutant($_) } @{ $entries{$path} || [] } ]
+            }
+        );
     }
+    return;
+}
+
+sub _metadata ( $result, $arg ) {
     return {
         schemaVersion => '2',
         thresholds    => { high => int( $arg->high + 0.5 ), low => int( $arg->low + 0.5 ) },
         projectRoot   => $result->root,
         framework     => { name => 'Test::Mutation', version => $VERSION },
-        files         => \%files,
         testFiles     =>
           { map { $_->{name} => { tests => [ { id => $_->{name}, name => $_->{name} } ] } } $result->tests->@* },
         testMutation => _facts($result),
@@ -183,6 +199,33 @@ signature_for render => (
 sub render ( $result, $arg ) {
     my $document = document( $result, high => $arg->high, low => $arg->low );
     return JSON::PP->new->canonical->pretty->encode($document);
+}
+
+signature_for stream => (
+    head    => [ InstanceOf ['Test::Mutation::Result'] ],
+    named   => [ high => Num, low => Num, write => CodeRef ],
+    returns => Undef,
+);
+
+sub stream ( $result, $arg ) {
+    my $json  = JSON::PP->new->canonical;
+    my $write = $arg->write;
+    $write->('{"files":{');
+    my $separator = q{};
+    _each_file(
+        $result,
+        sub ( $path, $file ) {
+            $write->( $separator . $json->encode($path) . q{:} . $json->encode($file) );
+            $separator = ",\n";
+        }
+    );
+    $write->('}');
+    my $meta = _metadata( $result, $arg );
+    for my $name ( sort keys %$meta ) {
+        $write->( ",\n" . $json->encode($name) . q{:} . $json->encode( $meta->{$name} ) );
+    }
+    $write->("}\n");
+    return;
 }
 
 signature_for parse => ( positional => [Str], returns => InstanceOf ['Test::Mutation::Result'] );
@@ -326,6 +369,11 @@ The C<testMutation> key of the mutant holds its status in the run and the reason
 =head2 render
 
 Returns the report as JSON text with sorted keys.
+
+=head2 stream
+
+Writes each source file in path order through the C<write> callback.
+The callback receives character strings.
 
 =head2 parse
 

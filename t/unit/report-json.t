@@ -75,6 +75,21 @@ my $result = Test::Mutation::Result->new(
 
 my $document = Test::Mutation::Report::Json::document( $result, high => 80, low => 60 );
 
+subtest 'a writer receives each source file before the next file' => sub {
+    my @chunks;
+    Test::Mutation::Report::Json::stream(
+        $result,
+        high  => 80,
+        low   => 60,
+        write => sub ($chunk) { push @chunks, $chunk }
+    );
+    is JSON::PP->new->decode( join q{}, @chunks ), $document, 'streamed JSON carries every result field';
+    my @files = grep { /"language"\s*:\s*"perl"/ } @chunks;
+    is scalar @files, 2, 'each source is written separately';
+    like $files[0],   qr/000000000001/, 'the populated source comes first';
+    unlike $files[1], qr/000000000001/, 'the next source has its own payload';
+};
+
 subtest 'the document has the required top-level fields' => sub {
     is $document->{schemaVersion}, '2', 'schema version';
     is $document->{thresholds}, { high => 80, low => 60 }, 'thresholds';

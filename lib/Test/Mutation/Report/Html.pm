@@ -1,8 +1,7 @@
 package Test::Mutation::Report::Html;
 use v5.36;
 use Encode          ();
-use JSON::PP        ();
-use Types::Standard qw(InstanceOf Num Str);
+use Types::Standard qw(CodeRef InstanceOf Num Str Undef);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Error;
 use Test::Mutation::Report::Json;
@@ -39,10 +38,21 @@ signature_for render => (
 );
 
 sub render ( $result, $arg ) {
-    my $document = Test::Mutation::Report::Json::document( $result, high => $arg->high, low => $arg->low );
-    my $data     = JSON::PP->new->canonical->encode($document) =~ s/</\\u003c/gr;
-    my $viewer   = viewer_script();
-    return <<"HTML";
+    my $page = q{};
+    stream( $result, high => $arg->high, low => $arg->low, write => sub ($chunk) { $page .= $chunk } );
+    return $page;
+}
+
+signature_for stream => (
+    head    => [ InstanceOf ['Test::Mutation::Result'] ],
+    named   => [ high => Num, low => Num, write => CodeRef ],
+    returns => Undef,
+);
+
+sub stream ( $result, $arg ) {
+    my $write  = $arg->write;
+    my $viewer = viewer_script();
+    $write->(<<"HTML");
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -53,13 +63,23 @@ sub render ( $result, $arg ) {
 </head>
 <body>
 <mutation-test-report-app title-postfix="Test::Mutation"></mutation-test-report-app>
-<script id="report" type="application/json">$data</script>
+HTML
+    $write->('<script id="report" type="application/json">');
+    Test::Mutation::Report::Json::stream(
+        $result,
+        high  => $arg->high,
+        low   => $arg->low,
+        write => sub ($chunk) { $write->( $chunk =~ s/</\\u003c/gr ) }
+    );
+    $write->(<<'HTML');
+</script>
 <script>
 document.querySelector('mutation-test-report-app').report = JSON.parse(document.getElementById('report').textContent);
 </script>
 </body>
 </html>
 HTML
+    return;
 }
 
 1;
@@ -85,6 +105,10 @@ The viewer is a build of the Stryker project under the Apache License 2.0, shipp
 
 Returns the page as text.
 Every left angle bracket in the report data is escaped, so source text cannot end the data element.
+
+=head2 stream
+
+Writes the viewer and the escaped report through the C<write> callback.
 
 =head2 viewer_script
 
