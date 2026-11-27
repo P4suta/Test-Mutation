@@ -321,7 +321,9 @@ my $UNSTABLE =
 sub record () {
     my $tests =
       { command => [ 'prove', '-lr', 't' ], exit => 0, seconds => 1, files => 2, assertions => 7, tail => [] };
-    my @mutants = map { { id => "m$_", file => 'lib/Example.pm', status => $_ < 2 ? 'Killed' : 'Survived' } } 0 .. 3;
+    my @mutants =
+      map { { id => sprintf( '%012x', $_ ), file => 'lib/Example.pm', status => $_ < 2 ? 'Killed' : 'Survived' } }
+      0 .. 3;
     return copy(
         {
             run      => 'Example',
@@ -419,8 +421,12 @@ subtest 'an explicitly different reference suite identifies each failing file' =
       'the test target of the distribution must still pass';
 };
 
-my $PINNED   = { $RUN->%*, hash_seed => '01' };
-my @REJECTED = (
+my ($WITH_VERDICTS) =
+  RealWorld::runs( $TABLE . qq{verdicts = { "000000000000" = "Killed", "000000000002" = "Survived" }\n} )->@*;
+my $VERDICT_FINDING = 'the verdicts differ for the listed mutant IDs';
+my $PINNED          = { $RUN->%*, hash_seed => '01' };
+my @REJECTED        = (
+    [ $WITH_VERDICTS, sub ($r) { $r->{report}{mutants}[2]{id} = '000000000004' }, [$VERDICT_FINDING] ],
     [
         $DIFFERENT_SUITE, sub ($r) { stopped($r) },
         ['the unmodified run differs from recursive prove on the declared failing tests']
@@ -521,8 +527,18 @@ my @REJECTED = (
 );
 
 subtest 'the judge rejects an observation outside the expectation of its run' => sub {
-    is RealWorld::findings( $RUN, record() ), [], 'an observation inside every expectation gives no finding';
-    is RealWorld::findings( $RUN, undef ),    ['Example: the run has no record'], 'a run without a record';
+    is RealWorld::findings( $RUN,           record() ), [], 'an observation inside every expectation gives no finding';
+    is RealWorld::findings( $RUN,           undef ),    ['Example: the run has no record'], 'a run without a record';
+    is RealWorld::findings( $WITH_VERDICTS, record() ), [], 'each listed mutant has its expected verdict';
+    my $swapped = record();
+    my $mutants = $swapped->{report}{mutants};
+    ( $mutants->[0]{status}, $mutants->[2]{status} ) = ( $mutants->[2]{status}, $mutants->[0]{status} );
+    is RealWorld::findings( $WITH_VERDICTS, $swapped ), ["Example: $VERDICT_FINDING"],
+      'exchanging verdicts keeps the score but fails the gate';
+    my $repeated = record();
+    $repeated->{report}{mutants}[3]{id} = $repeated->{report}{mutants}[2]{id};
+    is RealWorld::findings( $WITH_VERDICTS, $repeated ), ["Example: $VERDICT_FINDING"],
+      'a listed mutant ID must appear exactly once';
 
     my %rejected = ( 'the run has no record' => 1 );
     for my $case (@REJECTED) {

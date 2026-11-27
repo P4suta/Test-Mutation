@@ -338,6 +338,18 @@ sub _unexpected_compile ( $expected, $mutants ) {
     return scalar keys %unseen;
 }
 
+sub _different_verdicts ( $expected, $mutants ) {
+    return 0 unless $expected;
+    my %unseen = %$expected;
+    for my $mutant (@$mutants) {
+        my $id = $mutant->{id};
+        next unless defined $id && exists $expected->{$id};
+        my $status = delete $unseen{$id};
+        return 1 unless defined $status && $mutant->{status} eq $status;
+    }
+    return scalar keys %unseen;
+}
+
 sub _seen ( $run, $record ) {
     my $report = $record->{report};
     my $tally  = tally( $report ? $report->{mutants} : [] );
@@ -401,6 +413,12 @@ my @INVARIANTS = (
         'the compile errors differ from the expected mutants or causes',
         sub ( $run, $record, $seen ) {
             return $seen->{report} && _unexpected_compile( $run->{expect}{compile}, $seen->{report}{mutants} );
+        }
+    ],
+    [
+        'the verdicts differ for the listed mutant IDs',
+        sub ( $run, $record, $seen ) {
+            return $seen->{report} && _different_verdicts( $run->{expect}{verdicts}, $seen->{report}{mutants} );
         }
     ],
     [ 'the run reports a mutant without a verdict', sub ( $run, $record, $seen ) { $seen->{counts}{NoVerdict} } ],
