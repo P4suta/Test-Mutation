@@ -237,5 +237,26 @@ subtest 'a failed baseline keeps its test name and TAP in the shard log' => sub 
       'the JSON report records the same baseline failure';
 };
 
+subtest 'a failed shard uploads its JSON and blocks the distribution' => sub {
+    my $shard     = $jobs->{'self-measurement'};
+    my ($measure) = grep { ( $_->{run}  || q{} ) =~ /--shard\b/ } $shard->{steps}->@*;
+    my ($upload)  = grep { ( $_->{uses} || q{} ) =~ m{\Aactions/upload-artifact@} } $shard->{steps}->@*;
+    ok $measure,       'the shard runs the measurement' or return;
+    ok $upload,        'the shard uploads its report'   or return;
+    ok $measure->{id}, 'the upload can identify the measurement step';
+    my $outcome = 'steps.' . ( $measure->{id} || q{} ) . '.outcome';
+    is $upload->{if}, "\${{ !cancelled() && ($outcome == 'success' || $outcome == 'failure') }}",
+      'completed measurements upload after success or failure and skip cancellation and unstarted measurements';
+    is $upload->{with}{path}, 'mutation-report/mutation.json', 'the upload retains the report from the measurement';
+    is $upload->{with}{'if-no-files-found'}, 'error',          'a successful measurement must produce its report';
+
+    for my $entry ( $shard, $measure, $upload ) {
+        is $entry->{'continue-on-error'} || 'false', 'false', 'measurement and upload failures fail the shard';
+    }
+    is $measure->{if}, undef, 'a configured shard runs once setup succeeds';
+    like $jobs->{release}{needs}, qr/\bself-measurement\b/, 'the distribution waits for the whole matrix';
+    is $jobs->{release}{if}, undef, 'GitHub requires every prerequisite to succeed before building the distribution';
+};
+
 Gate::checked( 'release jobs', scalar keys %$jobs, at_least => 4 );
 done_testing;

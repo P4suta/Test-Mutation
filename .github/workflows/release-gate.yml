@@ -135,6 +135,7 @@ jobs:
           tar -xzf "$RUNNER_TEMP/self-runtime/perl.tar.gz" -C "$MISE_DATA_DIR"
           tar -xzf "$RUNNER_TEMP/self-runtime/libraries.tar.gz"
       - name: Measure one part of the inventory
+        id: measure
         env:
           SHARD: ${{ matrix.shard }}
           SHARDS: ${{ strategy.job-total }}
@@ -144,6 +145,7 @@ jobs:
           env -i LC_ALL=C TZ=UTC PATH="${perl%/*}:$PWD/local/bin:/usr/bin:/bin" PERL5LIB="$PWD/local/lib/perl5" \
             "$perl" -Ilib bin/mutation --no-cache --shard "$SHARD/$SHARDS" --format json --format terminal
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() && (steps.measure.outcome == 'success' || steps.measure.outcome == 'failure') }}
         with:
           name: self-mutation-${{ matrix.shard }}
           path: mutation-report/mutation.json
