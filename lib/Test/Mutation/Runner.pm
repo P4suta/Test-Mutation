@@ -13,6 +13,7 @@ use Type::Params    qw(signature_for);
 use Test::Mutation::Attribution;
 use Test::Mutation::Build;
 use Test::Mutation::Store;
+use Test::Mutation::Store::History;
 use Test::Mutation::Coverage;
 use Test::Mutation::Error;
 use Test::Mutation::Event;
@@ -99,6 +100,7 @@ signature_for run => (
 );
 
 sub run ( $config, $notify, $options = {} ) {
+    ( $config, $options ) = _recheck( $config, $options ) if $config->undetected && !$options->{baseline_only};
     my %events   = ( analyzed => 'resolved', baseline => 'baseline_finished', mutant => 'mutant_finished' );
     my $listener = sub ( $event, $data ) {
         $notify->( $event,          $data );
@@ -144,7 +146,31 @@ sub run ( $config, $notify, $options = {} ) {
         finished => Time::HiRes::time()
     );
     $listener->( 'finished', $measurement->tally );
+    Test::Mutation::Store::History::record( $config, $measurement,
+        !$config->mutant->@* && !$config->undetected ? 1 : 0 )
+      unless $options->{baseline_only};
     return $measurement;
+}
+
+sub _recheck ( $config, $options ) {
+    my $gaps = Test::Mutation::Store::History::undetected($config);
+    Test::Mutation::Error::raise('measurement-history-missing') unless defined $gaps;
+    my @ids       = map { $_->{id} } @$gaps;
+    my $named     = Test::Mutation::Settings::for_mutants( $config, \@ids );
+    my $selection = Test::Mutation::Select::resolve(
+        config  => $named,
+        reports => $options->{reports} || 0,
+        summary => $options->{summary},
+        @ids ? () : ( paths => {} )
+    );
+    return (
+        $named,
+        {
+            selection => Test::Mutation::Selection->new(
+                $selection->%*, selection => { $selection->selection->%*, mutants => \@ids, undetected => 1 }
+            )
+        }
+    );
 }
 
 # The tests run in a copy of the project, so a file that a test writes or removes leaves the project as it was.

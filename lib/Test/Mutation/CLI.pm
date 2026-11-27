@@ -34,6 +34,7 @@ use Test::Mutation::Report::Results;
 use Test::Mutation::Report::Live;
 use Test::Mutation::Report::Terminal;
 use Test::Mutation::Runner;
+use Test::Mutation::Store::History;
 use Test::Mutation::Select;
 use Test::Mutation::Settings;
 use Test::Mutation::Signals;
@@ -308,10 +309,9 @@ sub _first_line ($error) {
 sub _run ( $invocation, $world ) {
     my $config   = $invocation->{config};
     my $listener = _progress( $invocation, $world );
-    my $result   = Test::Mutation::Runner::run( $config, $listener,
-        $invocation->{selection}
-        ? { selection => $invocation->{selection} }
-        : { reports   => 1, summary => $world->{env}{GITHUB_STEP_SUMMARY} } );
+    my $options  = { reports => 1, summary => $world->{env}{GITHUB_STEP_SUMMARY} };
+    $options = { selection => $invocation->{selection} } if $invocation->{selection};
+    my $result = Test::Mutation::Runner::run( $config, $listener, $options );
     _report( $result, $config, $world, $listener );
     return _concluded( $result, $config->min_score, $world );
 }
@@ -563,6 +563,7 @@ sub _merge ( $invocation, $world ) {
         [ map { { name => $_, result => _read_report( $_, $config->root ) } } $invocation->{operands}->@* ] );
     Test::Mutation::Select::outputs( $config, $world->{env}{GITHUB_STEP_SUMMARY} );
     _report( $result, $config, $world );
+    Test::Mutation::Store::History::record( $config, $result, 1 );
     return _concluded( $result, $config->min_score, $world );
 }
 

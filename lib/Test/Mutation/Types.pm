@@ -12,7 +12,12 @@ our $VERSION = '0.001';
 declare PathSelection, as HashRef [ ArrayRef [ Tuple [ Int, Int ] ] ];
 
 declare ReportSelection,
-  as Dict [ paths => Optional [PathSelection], since => Optional [Str], mutants => Optional [ ArrayRef [Str] ] ];
+  as Dict [
+    paths      => Optional [PathSelection],
+    since      => Optional [Str],
+    mutants    => Optional [ ArrayRef [Str] ],
+    undetected => Optional [Bool]
+  ];
 
 declare StatusName, as Enum [ Test::Mutation::Status::names()->@* ];
 

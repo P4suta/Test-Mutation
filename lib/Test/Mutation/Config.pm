@@ -43,6 +43,7 @@ has link             => ( is => 'ro', isa => $TYPE{link},             required =
 has keep_work        => ( is => 'ro', isa => $TYPE{keep_work},        required => 1 );
 has mutant           => ( is => 'ro', isa => $TYPE{mutant},           required => 1 );
 has since            => ( is => 'ro', isa => $TYPE{since},            required => 1 );
+has undetected       => ( is => 'ro', isa => $TYPE{undetected},       required => 1 );
 has shard            => ( is => 'ro', isa => $TYPE{shard},            required => 1 );
 has cache            => ( is => 'ro', isa => $TYPE{cache},            required => 1 );
 has cache_dir        => ( is => 'ro', isa => $TYPE{cache_dir},        required => 1 );
@@ -169,6 +170,10 @@ Whether the run keeps its private workspace under the system temporary directory
 =head2 mutant
 
 Mutant identifiers; when set, the run covers these mutants.
+
+=head2 undetected
+
+Whether the command rechecks the remaining gaps in the last completed measurement.
 
 =head2 since
 

@@ -68,6 +68,12 @@ my @ROWS = (
         'The directory that --root names is absent, is no directory, or refuses the user.'
     ],
     [
+        'measurement-history-missing',
+        'usage',
+        'no completed measurement is available for --undetected. Run mutation run first',
+        'The command needs a completed scope before it can recheck undetected changes.'
+    ],
+    [
         'mutant-unknown', 'usage',
         'no mutant has the identifier {identifier}',
         'No mutant of the project has an identifier that starts with the given text.'

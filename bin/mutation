@@ -335,6 +335,13 @@ The configuration key is C<mutant>.
 The Perl argument is C<mutant>.
 The default is none.
 
+=item C<--undetected, --no-undetected>
+
+Recheck surviving and uncovered mutants from the last completed measurement.
+The configuration key is C<undetected>.
+The Perl argument is C<undetected>.
+The default is off.
+
 =item C<--since>
 
 Cover the lines changed since a Git revision.
@@ -690,6 +697,11 @@ The command line of merge names no report file.
 
 C<cannot enter {directory}: {reason}>
 The directory that --root names is absent, is no directory, or refuses the user.
+
+=item C<measurement-history-missing>
+
+C<no completed measurement is available for --undetected. Run mutation run first>
+The command needs a completed scope before it can recheck undetected changes.
 
 =item C<mutant-unknown>
 

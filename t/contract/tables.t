@@ -70,7 +70,7 @@ subtest 'the resolution of the settings builds every configuration' => sub {
 };
 
 subtest 'the settings table names a flag and a key for every setting' => sub {
-    is scalar( Space::flags()->@* ),                                35,                'the settings with a flag';
+    is scalar( Space::flags()->@* ),                                36,                'the settings with a flag';
     is [ map { $_->name } grep { !$_->offers('file') } @settings ], [qw(root config)], 'the settings outside the file';
 };
 

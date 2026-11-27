@@ -28,7 +28,7 @@ sub answer ( $surface, $said ) {
     return Space::library( $project, $said->@* ) if $surface eq 'library';
     write_file( "$project/case.toml", $said )    if $surface eq 'file';
     my @line        = $surface eq 'file' ? ( '--config', 'case.toml' ) : $said->@*;
-    my $observation = World::observe( [ 'list', @line ], cwd => $project, run => 'cheap' );
+    my $observation = World::observe( [ 'run', @line ], cwd => $project, run => 'cheap' );
     die "the plan died: $observation->{died}\n" if defined $observation->{died};
     return $observation->{plan}{refused} ? ( undef, $observation ) : $observation->{plan}{config};
 }
@@ -153,6 +153,7 @@ my %CONTRACT = (
     disable                   => 'none',
     since                     => 'none',
     mutant                    => 'none',
+    undetected                => 'off',
     shard                     => 'none',
     jobs                      => 'one less than the processors, and at least one',
     coverage                  => 'line',

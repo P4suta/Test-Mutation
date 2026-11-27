@@ -264,6 +264,8 @@ my ($ambiguous) = sort grep { $prefix{$_} > 1 } keys %prefix;
 raised( sub { Test::Mutation::Select::by_id( $mutants, $ambiguous ) } );
 
 isa_ok dies { Test::Mutation::Runner::analyze() }, ['Error::TypeTiny'], 'analysis requires a project configuration';
+like printed( [ 'run', '--undetected' ], cwd => directory() ), qr/no completed measurement/,
+  'an initial recheck names the missing history';
 
 # The comments that suppress mutants: every refusal of the grammar in one file, and the two settings that ask for more.
 my $noted = join "\n", 'package Noted;', '## use mutate', 'sub one { return $_[0] + 1 }    ## no mutate (nonesuch)',
