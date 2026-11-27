@@ -101,7 +101,7 @@ sub refresh ( $prior, $current ) {
       && defined $current->catalog_digest
       && $prior->catalog_digest eq $current->catalog_digest;
     return $current unless exists $current->selection->{paths} || exists $current->selection->{mutants};
-    return $current if $current->baseline_failures->@*;
+    return $current unless _confirms_inputs( $prior, $current );
     my %replacement = map { $_->{mutant}->id => $_ } $current->entries->@*;
     my @entries     = map { delete $replacement{ $_->{mutant}->id } || $_ } $prior->entries->@*;
     push @entries, grep { exists $replacement{ $_->{mutant}->id } } $current->entries->@*;
@@ -116,6 +116,22 @@ sub refresh ( $prior, $current ) {
             digest  => Digest::SHA::sha256_hex( join "\n", map { $_->{mutant}->id } @entries )
         },
     );
+}
+
+sub _confirms_inputs ( $prior, $current ) {
+    for my $report ( $prior, $current ) {
+        return 0 if defined $report->interrupted || $report->baseline_failures->@* || $report->cache_mismatch;
+        return 0 unless defined $report->measurement_digest;
+        return 0 if $report->tests->@* && !defined $report->dependency_digest;
+    }
+    return 0 if $prior->measurement_digest ne $current->measurement_digest;
+    my $dependencies = $prior->dependency_digest;
+    return 0
+      if defined $dependencies
+      && ( !defined $current->dependency_digest || $dependencies ne $current->dependency_digest );
+    my $before = $prior->compiler_inputs;
+    my $after  = $current->compiler_inputs;
+    return all { exists $after->{$_} && $after->{$_} eq $before->{$_} } keys %$before;
 }
 
 sub _work (@results) {
@@ -218,6 +234,8 @@ This module joins the results of all parts into the result that one run without 
 =head2 refresh
 
 Updates the selected verdicts in a report from the same project and source catalog.
+Earlier verdicts require completed measurements with verified project, test, and compiler inputs.
+When the current measurement cannot confirm an earlier input, the function returns the current selection and its verdicts.
 The current test durations and entries take precedence.
 Shard reports remain independent until C<merge> joins them.
 

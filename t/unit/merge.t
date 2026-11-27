@@ -286,14 +286,48 @@ subtest 'refresh replaces the selected verdicts and keeps independently measured
       'the inventory describes the resulting order';
     is $saved->selection, $current->selection, 'the report records the latest selection';
 
+    my $file     = '98' x 32;
+    my $data     = '54' x 32;
+    my $compiled = Test::Mutation::Result->new( $prior->%*, compiler_inputs => { $file => $data } );
+    my $superset =
+      Test::Mutation::Result->new( $current->%*, compiler_inputs => { $file => $data, '32' x 32 => $data } );
+    my $verified = Test::Mutation::Merge::refresh( $compiled, $superset );
+    is [ map { $_->{mutant}->id } $verified->entries->@* ], \@ids,
+      'current compiler observations can verify every earlier input and add a new one';
+    is $verified->compiler_inputs, $superset->compiler_inputs,
+      'the refreshed result carries the evidence for every input';
+
     for my $case (
-        [ 'a prior shard',           { shard => '1/2' },              {} ],
-        [ 'a current shard',         {},                              { shard => '2/2' } ],
-        [ 'another project',         { root => '/other' },            {} ],
-        [ 'a legacy prior report',   { catalog_digest => undef },     {} ],
-        [ 'a legacy current report', {},                              { catalog_digest => undef } ],
-        [ 'another catalog',         { catalog_digest => 'cd' x 32 }, {} ],
-        [ 'a whole run',             {},                              { selection => {} } ],
+        [ 'a prior shard',                      { shard => '1/2' },              {} ],
+        [ 'a current shard',                    {},                              { shard => '2/2' } ],
+        [ 'another project',                    { root => '/other' },            {} ],
+        [ 'a legacy prior report',              { catalog_digest => undef },     {} ],
+        [ 'a legacy current report',            {},                              { catalog_digest => undef } ],
+        [ 'another catalog',                    { catalog_digest => 'cd' x 32 }, {} ],
+        [ 'a whole run',                        {},                              { selection          => {} } ],
+        [ 'changed measurement inputs',         {},                              { measurement_digest => 'ab' x 32 } ],
+        [ 'missing earlier measurement inputs', { measurement_digest => undef }, {} ],
+        [ 'missing current measurement inputs', {},                              { measurement_digest => undef } ],
+        [ 'changed test libraries',             {},                              { dependency_digest  => 'ab' x 32 } ],
+        [ 'missing earlier test libraries',     { dependency_digest => undef },  {} ],
+        [ 'missing current test libraries',     {},                              { dependency_digest => undef } ],
+        [
+            'a different compiler input',
+            { compiler_inputs => { $file => $data } },
+            { compiler_inputs => { $file => 'ab' x 32 } }
+        ],
+        [
+            'an earlier compiler input absent from the current measurement',
+            { compiler_inputs => { $file => $data } }, {}
+        ],
+        [ 'an interrupted earlier measurement', { interrupted => 'TERM' }, {} ],
+        [ 'an interrupted current measurement', {}, { interrupted => 'INT' } ],
+        [
+            'an earlier baseline failure',
+            { baseline_failures => [ { test => 't/a.t', output => 'not ok', errors => q{} } ] }, {}
+        ],
+        [ 'an earlier cache verification failure', { cache_mismatch => 1 }, {} ],
+        [ 'a current cache verification failure',  {}, { cache_mismatch => 1 } ],
         [
             'a failed original test',
             {}, { baseline_failures => [ { test => 't/a.t', output => 'not ok', errors => q{} } ] }
@@ -304,7 +338,7 @@ subtest 'refresh replaces the selected verdicts and keeps independently measured
         my $before = Test::Mutation::Result->new( $prior->%*,   %$older );
         my $after  = Test::Mutation::Result->new( $current->%*, %$newer );
         is refaddr( Test::Mutation::Merge::refresh( $before, $after ) ), refaddr($after),
-          "$label preserves the current report independently";
+          "returns the current scope and evidence for $label";
     }
     isa_ok dies { Test::Mutation::Merge::refresh( $prior, {} ) }, ['Error::TypeTiny'],
       'the refresh boundary requires two measured results';
