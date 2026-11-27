@@ -103,4 +103,49 @@ subtest 'publishing preserves a user file with the metadata name and leaves exte
     ok !-e "$outside/.test-mutation-outputs", 'publishing outside the measured tree needs no metadata';
 };
 
+subtest 'a file moved onto the metadata path during publication survives' => sub {
+    my $payload = { 'mutation.json' => 'a' x 64 };
+    for my $existing ( 0, 1 ) {
+        my $directory = "$root/race-$existing";
+        my $marker    = "$directory/.test-mutation-outputs";
+        my $other     = write_file( "$directory/operand", 'a concurrent input' );
+        Test::Mutation::Report::Publication::record( $root, $directory, $payload ) if $existing;
+        my $hash  = \&Digest::SHA::sha256_hex;
+        my $moved = 0;
+        {
+            no warnings 'redefine';
+            local *Digest::SHA::sha256_hex = sub (@bytes) {
+                if ( !$moved++ ) {
+                    rename $other, $marker or die "publish concurrent input: $!";
+                }
+                return $hash->(@bytes);
+            };
+            Test::Mutation::Report::Publication::record( $root, $directory, $payload );
+        }
+        ok $moved, 'the input moved onto the path while recording the publication';
+        is Test::Mutation::Store::Key::file($marker), Digest::SHA::sha256_hex('a concurrent input'),
+          "the concurrent input wins when an earlier record exists: $existing";
+    }
+};
+
+subtest 'publishing one format retains the other format and preserves hard-linked metadata' => sub {
+    my $before    = tree();
+    my $directory = "$root/formats";
+    for my $format (qw(json html json)) {
+        my $name = "mutation.$format";
+        my $text = -f "$directory/$name" ? 'revised' : 'original';
+        write_file( "$directory/$name", $text );
+        Test::Mutation::Report::Publication::record( $root, $directory, { $name => Digest::SHA::sha256_hex($text) } );
+        is tree(), $before, "publishing $text $name preserves measurements";
+    }
+    my $marker = "$directory/.test-mutation-outputs";
+    my $data   = "$directory/input";
+    link $marker, $data or die "link metadata: $!";
+    my $original = Test::Mutation::Store::Key::file($data);
+    Test::Mutation::Report::Publication::record( $root, $directory, { 'mutation.json' => 'b' x 64 } );
+    is Test::Mutation::Store::Key::file($data), $original, 'a second hard link retains its original bytes';
+    is Test::Mutation::Report::Publication::outputs( $directory, 'formats' ), {},
+      'a hard-linked metadata file cannot certify output paths';
+};
+
 done_testing;

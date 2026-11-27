@@ -2,8 +2,8 @@ package Test::Mutation::Report::Publication;
 use v5.36;
 use Cwd             ();
 use Digest::SHA     ();
+use Fcntl           qw(O_CREAT O_EXCL O_NOFOLLOW O_NONBLOCK O_RDONLY O_RDWR SEEK_SET S_ISREG);
 use File::Spec      ();
-use File::Temp      ();
 use Types::Standard qw(Dict HashRef Maybe Optional Str StrMatch Undef);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Error;
@@ -27,11 +27,17 @@ signature_for outputs => ( positional => [ Str, Str ], returns => HashRef [ Mayb
 
 sub outputs ( $directory, $relative ) {
     my $path = "$directory/$NAME";
-    return {} if -l $path || !-f $path;
-    return {} if ( stat $path )[2] & oct '111';
-    open my $input, '<:raw', $path or return {};
-    my $size = sysread( $input, my $text, $MAX_BYTES );
+    sysopen my $input, $path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK or return {};
+    my $values = _outputs( $input, $relative );
     close $input or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
+    return $values;
+}
+
+sub _outputs ( $input, $relative ) {
+    my ( $mode, $links ) = ( stat $input )[ 2, 3 ];
+    return {} unless S_ISREG($mode);
+    return {} if $links != 1 || $mode & oct '111';
+    my $size = sysread( $input, my $text, $MAX_BYTES );
     return {} if !defined $size || $size >= $MAX_BYTES;
     my ( $seal, @values ) = split /\n/, $text, -1;
     return {} unless @values == 3 && pop(@values) eq q{} && $seal eq _seal( $relative, @values );
@@ -45,15 +51,22 @@ sub record ( $root, $directory, $digests ) {
     my $relative = File::Spec->abs2rel( Cwd::abs_path($directory), Cwd::abs_path($root) );
     return if $relative eq q{..} || index( $relative, '../' ) == 0;
     my $path = "$directory/$NAME";
-    my $old  = outputs( $directory, $relative );
-    return if lstat($path) && !exists $old->{$NAME};
+    my $old  = {};
+    my $file;
+    if ( !sysopen $file, $path, O_RDWR | O_CREAT | O_EXCL, oct '600' ) {
+        Test::Mutation::Error::raise( 'file-unwritable', path => $path, reason => "$!" ) unless $!{EEXIST};
+        sysopen $file, $path, O_RDWR | O_NOFOLLOW | O_NONBLOCK or return;
+        $old = _outputs( $file, $relative );
+        return unless exists $old->{$NAME};
+        sysseek $file, 0, SEEK_SET or Test::Mutation::Error::raise( 'file-unwritable', path => $path, reason => "$!" );
+    }
     my %values = ( %$old, %$digests );
     my @slots  = map { $values{$_} || q{-} } @FILES;
-    my $temp   = File::Temp->new( DIR => $directory, TEMPLATE => '.test-mutation-outputs-XXXXXX', UNLINK => 1 );
-    print {$temp} join( "\n", _seal( $relative, @slots ), @slots, q{} )
-      or Test::Mutation::Error::raise( 'file-unwritable', path => $path, reason => "$!" );
-    close $temp or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
-    rename $temp->filename, $path or Test::Mutation::Error::raise( 'file-unwritable', path => $path, reason => "$!" );
+    my $text   = join "\n", _seal( $relative, @slots ), @slots, q{};
+    my $size   = syswrite $file, $text;
+    Test::Mutation::Error::raise( 'file-unwritable', path => $path, reason => "$!" )
+      if !defined $size || $size != length $text;
+    close $file or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
     return;
 }
 
