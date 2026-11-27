@@ -131,10 +131,11 @@ subtest 'the gate rejects an undecided key, a declined key with a mutant, and a 
     is Census::undecided( \%refused, {} ), [], 'a key whose changes the generator refuses with a rule has its reason';
 };
 
-subtest 'removing the implicit return of the parent process ID is detected' => sub {
+subtest 'the parent process ID is measured in statement and value contexts' => sub {
     my $source = Oracle::file_source('t/corpus/findings/ParentProcess.pm');
     my $census = census_of( $source->text );
-    is $census->{claimed}{'word getppid'}, 1, 'the lookup is the head of its statement';
+    is $census->{observed}{'word getppid'}, 2, 'both parent lookups appear in the corpus';
+    is $census->{claimed}{'word getppid'},  1, 'only the lookup at the head of its statement is claimed';
     my $root = File::Temp::tempdir( CLEANUP => 1 );
     write_file( "$root/lib/ParentProcess.pm", $source->text );
     write_file( "$root/t/parent.t",           <<'TEST' );
@@ -142,13 +143,25 @@ use Test::More tests => 1;
 use ParentProcess;
 is ParentProcess::parent_pid(), getppid(), 'the parent PID is returned';
 TEST
-    my ($remove) = grep { $_->mutator eq 'statement-removal' && $_->original eq 'getppid()' }
-      Test::Mutation::mutants( root => $root )->@*;
+    write_file( "$root/t/profile.t", <<'TEST' );
+use Test::More tests => 2;
+use ParentProcess;
+is ParentProcess::profile_pid($$), $$, 'the initial process uses its own PID';
+is ParentProcess::profile_pid(getppid()), getppid(), 'a child uses its parent PID';
+TEST
+    my @mutants = Test::Mutation::mutants( root => $root )->@*;
+    my ($remove) = grep { $_->mutator eq 'statement-removal' && $_->original eq 'getppid()' } @mutants;
     ok $remove, 'the generator removes the implicit return' or return;
     is $remove->replacement, q{}, 'the empty body returns undef in scalar context';
-    my ($result) = run_fixture( $root, cache => 0, jobs => 1, equivalence => 0, mutant => [ $remove->id ] );
-    is $result->baseline_failures,                  [], 'the project first returns the actual parent PID';
-    is [ $result->entries->[0]->@{qw(status by)} ], [ 'Killed', 't/parent.t' ], 'the test detects the missing PID';
+    my ($swap) = grep { $_->mutator eq 'condition-negation' } @mutants;
+    ok $swap, 'the generator swaps the profile PID branches' or return;
+    is $swap->replacement, 'getppid() : $$', 'both swapped branches still produce a PID';
+    my ($result) = run_fixture( $root, cache => 0, jobs => 1, equivalence => 0, mutant => [ $remove->id, $swap->id ] );
+    is $result->baseline_failures, [], 'the project first returns the expected process IDs';
+    my %detections = map { $_->{mutant}->mutator => [ $_->@{qw(status by)} ] } $result->entries->@*;
+    is \%detections,
+      { 'statement-removal' => [ 'Killed', 't/parent.t' ], 'condition-negation' => [ 'Killed', 't/profile.t' ] },
+      'the tests detect a missing PID and a PID from the wrong process';
 };
 
 subtest 'a statement that no mutant touches counts for its class' => sub {
