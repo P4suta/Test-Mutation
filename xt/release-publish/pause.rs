@@ -70,6 +70,9 @@ impl Archive {
             return Err("Expected a stable Test-Mutation distribution archive".into());
         }
         let bytes = fs::read(path).map_err(|e| format!("Cannot read candidate: {e}"))?;
+        if bytes.is_empty() {
+            return Err("The candidate archive is empty".into());
+        }
         let digest = sha256(&bytes)?;
         if digest != expected {
             return Err("Local archive SHA-256 differs from the approved digest".into());

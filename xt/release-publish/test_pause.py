@@ -129,6 +129,13 @@ class Pause(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(self.server.requests, [])
 
+    def test_refuses_an_empty_archive_even_with_its_expected_digest(self):
+        self.archive.write_bytes(b"")
+        self.server.replies[PUBLISHED] = (200, b"")
+        result = self.run_adapter("reconcile", self.archive, hashlib.sha256(b"").hexdigest())
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(self.server.requests, [])
+
     def test_refuses_another_distribution_or_a_non_release_version(self):
         for name in ["Other-0.001.tar.gz", "Test-Mutation-0.001_01.tar.gz", "Test-Mutation-.tar.gz"]:
             with self.subTest(name=name):
