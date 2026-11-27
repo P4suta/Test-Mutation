@@ -19,10 +19,11 @@ use Test::Mutation::Witness;
 
 our $VERSION = '0.001';
 
-my $KEPT_BYTES    = 262_144;
-my $CHUNK_BYTES   = 65_536;
-my $DRAIN_SECONDS = 1;
-my $GRACE_SECONDS = 0.5;
+my $KEPT_BYTES       = 262_144;
+my $CHUNK_BYTES      = 65_536;
+my $DRAIN_SECONDS    = 1;
+my $GRACE_SECONDS    = 0.5;
+my $CHECKPOINT_RETRY = 0.05;
 
 # Perl runs the handler of a signal after the system call that the signal met.
 # A signal between the last look of a turn and its wait therefore waits with it, and this bound ends such a wait.
@@ -54,6 +55,8 @@ signature_for run => (
         { default => sub { Test::Mutation::Clock->new } },
         work => HashRef [Int],
         { default => sub { {} } },
+        checkpoints => ArrayRef [CodeRef],
+        { default => sub { [] } },
     ],
     returns => Int,
 );
@@ -67,20 +70,26 @@ sub run ($arg) {
         select => IO::Select->new($wake),
         slots  => {},
     };
-    my $exhausted = 0;
-    my $completed = 0;
+    my $exhausted   = 0;
+    my $completed   = 0;
+    my $checkpoints = $arg->checkpoints;
 
     # A signal waits for the top of a turn, where every started test stands in a slot.
     my $turns = sub {
         while (1) {
             Test::Mutation::Signals::check();
-            while ( !$exhausted && keys $pool->{slots}->%* < $arg->jobs ) {
+            $exhausted = 0 if _flush( $checkpoints, !keys $pool->{slots}->%* );
+            my $waiting = @$checkpoints;
+            while ( !@$checkpoints && !$exhausted && keys $pool->{slots}->%* < $arg->jobs ) {
                 my $task = $arg->next->();
                 $exhausted = 1 if !$task;
                 _start( $pool, $task ) if $task;
             }
-            last if !$pool->{slots}->%*;
-            my $now = _turn($pool);
+            unless ( $pool->{slots}->%* ) {
+                last unless @$checkpoints;
+                next unless $waiting;
+            }
+            my $now = _turn( $pool, @$checkpoints ? $CHECKPOINT_RETRY : $LONGEST_WAIT );
             for my $slot ( grep { _finished( $_, $now ) } values $pool->{slots}->%* ) {
                 _close_streams( $pool, $slot );
                 delete $pool->{slots}{ $slot->{pid} };
@@ -105,6 +114,15 @@ sub run ($arg) {
     );
 }
 
+sub _flush ( $checkpoints, $may_wait ) {
+    my $completed = 0;
+    while ( @$checkpoints && $checkpoints->[0]->($may_wait) ) {
+        shift @$checkpoints;
+        $completed++;
+    }
+    return $completed;
+}
+
 sub _start ( $pool, $task ) {
     my $slot = _spawn( $TASK->assert_return($task), $pool->{clock}->now );
     $pool->{work}{spawns}++;
@@ -114,9 +132,9 @@ sub _start ( $pool, $task ) {
 }
 
 # One turn waits once, for a pipe, a signal, or the nearest deadline, and then looks at every test.
-sub _turn ($pool) {
+sub _turn ( $pool, $maximum ) {
     my $clock = $pool->{clock};
-    my $ready = $clock->wait_for( $pool->{select}, _patience( $pool, $clock->now ) );
+    my $ready = $clock->wait_for( $pool->{select}, List::Util::min( $maximum, _patience( $pool, $clock->now ) ) );
     _take( $pool, $_ ) for $ready->@*;
     my $now = $clock->now;
     _supervise( $pool, $_, $now ) for values $pool->{slots}->%*;
@@ -426,6 +444,9 @@ Before a forced end the pool lists the descendants of the task with C<ps>, and i
 Runs tasks until C<next> returns nothing and every started task has finished, and returns the number of tasks.
 With C<retry_after_done>, a completion may release a scheduling constraint and the pool asks C<next> for work again.
 C<done> receives each task with its result, and a task it returns runs before any task from C<next>.
+C<checkpoints> holds completion callbacks in publication order.
+Each callback returns true after publication and may block only when its argument is true and all children have finished.
+While a checkpoint is pending, the pool supervises active children and retries before starting more work.
 C<clock> gives the time and the wait, and L<Test::Mutation::Clock> is its default.
 C<work> is a hash where the pool adds the processes that it started under C<spawns> and the process listings that it read under C<listings>.
 

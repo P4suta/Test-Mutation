@@ -110,6 +110,28 @@ subtest 'the time limit ends a test at its deadline and no earlier' => sub {
     is $clock->asked->[0], 3, 'the first wait lasts until the deadline';
 };
 
+subtest 'a pending checkpoint leaves a silent test under its deadline' => sub {
+    my $late  = gated( 'checkpoint-limit.t', $PLAN, $OK );
+    my $clock = ManualClock->new( steps => [ move_by(0.1), move_by(3), move_by(0.5) ] );
+    my @queue = ( task($late) );
+    my ( @checkpoints, @may_wait, $result );
+    Test::Mutation::Pool::run(
+        jobs        => 1,
+        clock       => $clock,
+        checkpoints => \@checkpoints,
+        next        => sub {
+            my $task = shift @queue or return;
+            push @checkpoints, sub ($blocking) { push @may_wait, $blocking ? 1 : 0; return $blocking };
+            return $task;
+        },
+        done => sub ( $task, $got ) { $result = $got; return },
+    );
+    is $result->{timed_out}, 1,  'the pool ends the silent test at its deadline';
+    is $may_wait[0],         0,  'the first attempt cannot wait while the test is running';
+    is $may_wait[-1],        1,  'the checkpoint can wait after the test has ended';
+    is \@checkpoints,        [], 'the final checkpoint completes before the pool returns';
+};
+
 subtest 'a test that ignores the request to end meets force when its grace ends and no earlier' => sub {
     my $deaf    = qq{\$SIG{TERM} = 'IGNORE';\n$NOTED$PLAN};
     my $patient = gated( 'within-grace.t', $deaf, $OK );
