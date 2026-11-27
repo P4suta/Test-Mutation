@@ -10,5 +10,9 @@
 ^pm_to_blib$
 ^MANIFEST\.bak$
 ^Test-Mutation-
+^release-please-config\.json$
+^xt/(?:release-please|release-publish)/
+^xt/(?:publication-workflow|release-archive|release-workflow)\.t$
+^xt/bin/verify-release-archive$
 \.log$
 \.tar\.gz$
