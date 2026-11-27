@@ -2,7 +2,8 @@ use v5.36;
 use Test2::V0;
 use JSON::PP ();
 use lib 't/e2e/lib';
-use Fixture qw(copy_of ran run_fixture statuses write_file);
+use Fixture        qw(copy_of ran run_fixture statuses write_file);
+use Test::Mutation ();
 use Test::Mutation::Merge;
 use Test::Mutation::Report::Json;
 use Test::Mutation::Store;
@@ -82,6 +83,24 @@ subtest 'duplicate compiled code across shard boundaries has one verdict in inve
         push @observed, [ map { [ $_->{mutant}->id, $_->@{qw(status reason detail by)} ] } $result->entries->@* ];
     }
     is $observed[1], $observed[0], 'the same mutant stays and each duplicate names the same representative';
+};
+
+subtest 'refresh keeps the first uncovered change when its duplicate was measured first' => sub {
+    my $fold = copy_of('equivalent');
+    write_file( "$fold/t/fold.t", "use Test::More tests => 1;\nuse Fold;\nis Fold::size(), 'big';\n" );
+    my %ids = map { $_->description => $_->id } Test::Mutation::mutants( root => $fold )->@*;
+    my ( $branch, $negation ) = @ids{ 'replaced if with unless', 'removed !' };
+    my ($earlier) = run_fixture( $fold, mutant => [$negation],            cache => 0 );
+    my ($both)    = run_fixture( $fold, mutant => [ $branch, $negation ], cache => 0 );
+    is [ $both->entries->[1]->@{qw(reason observations tests_run)} ], [ 'same-code-as-mutant', [], 0 ],
+      'the duplicate records that no test ran against the change';
+    my $saved = Test::Mutation::Merge::refresh( $earlier, $both );
+    is [ map { [ $_->{mutant}->id, $_->@{qw(status reason detail)} ] } $saved->entries->@* ],
+      [
+        [ $negation, 'NoCoverage', 'unreached',           undef ],
+        [ $branch,   'Ignored',    'same-code-as-mutant', "compiles to the same code as mutant $negation" ]
+      ],
+      'the later duplicate names the first uncovered change in the refreshed inventory';
 };
 
 subtest 'a set that is not one complete run is a usage error' => sub {

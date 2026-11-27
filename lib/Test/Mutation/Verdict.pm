@@ -175,7 +175,9 @@ sub conclude_inventory ($entries) {
 
 sub _observed_verdict ($entry) {
     my $attempts = $entry->{observations};
-    return $entry if !$attempts || !$attempts->@* || $entry->{status} eq 'Pending';
+    return $entry if !$attempts || $entry->{status} eq 'Pending';
+    my $duplicate = defined $entry->{reason} && $entry->{reason} eq 'same-code-as-mutant';
+    return $entry if !$attempts->@*           && ( $entry->{tests_run} || !$duplicate );
     return $entry if defined $entry->{reason} && $OUTSIDE_TEST{ $entry->{reason} };
     my @states;
     for my $attempt (@$attempts) {
@@ -184,6 +186,7 @@ sub _observed_verdict ($entry) {
         push @states, conclude($state);
     }
     my $result = @states == 2 ? confirm(@states) : $states[0];
+    $result //= conclude( start() );
     return { $entry->%*, $result->%{qw(status reason detail by)}, tests_run => $result->{tests} };
 }
 

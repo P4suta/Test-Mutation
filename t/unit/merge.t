@@ -289,6 +289,15 @@ subtest 'refresh counts distinct compiled changes across both measurements' => s
     is [ map { $_->{status} } $again->entries->@* ], [qw(Killed Killed Survived)],
       'a saved duplicate counts its passing test when its former representative is killed';
     is $again->entries->[2]{observations}, [ [$pass] ], 'the promoted survivor keeps the observation that supports it';
+
+    my %old_duplicate = $reopened->entries->[2]->%*;
+    delete $old_duplicate{observations};
+    for my $record ( { tests_run => 0 }, { observations => [] } ) {
+        my $legacy =
+          Test::Mutation::Result->new( $reopened->%*, entries => [ @rows[ 0, 1 ], { %old_duplicate, $record->%* } ] );
+        is Test::Mutation::Merge::refresh( $legacy, $updated )->entries->[2]{status}, 'Ignored',
+          'an incomplete record cannot establish the outcome of an earlier duplicate';
+    }
 };
 
 subtest 'a refreshed threshold uses every row in the measured scope' => sub {
