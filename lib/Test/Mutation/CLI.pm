@@ -344,9 +344,15 @@ sub _color ( $config, $world, $terminal ) {
 }
 
 sub _progress ( $invocation, $world ) {
-    return Test::Mutation::Report::Live::listener( $world->{err}, $world->{err_tty},
-        _color( $invocation->{config}, $world, $world->{err_tty} ),
-        $world->{clock}, Test::Mutation::Host::describe( $invocation->{processors} ) );
+    my $file = fileno $world->{err};
+    my $defer =
+      !$invocation->{config}->in_place && !$world->{err_tty} && defined $file && $file >= 0 && -f $world->{err};
+    return Test::Mutation::Report::Live::listener(
+        $world->{err}, $world->{err_tty}, _color( $invocation->{config}, $world, $world->{err_tty} ),
+        $world->{clock},
+        Test::Mutation::Host::describe( $invocation->{processors} ),
+        $defer ? 1 : 0
+    );
 }
 
 my %FILE_REPORT = ( json => 'mutation.json', html => 'mutation.html' );
