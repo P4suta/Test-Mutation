@@ -28,3 +28,9 @@ The adapter recognizes HTTP 200 with `{"result":"Upload succeeded"}` as the [ack
 It returns 0 for a matching SHA-256 digest, 3 for HTTP 404, and 1 for an error or conflicting bytes.
 After a duplicate response, an interrupted request, or a lost acknowledgement, repeat the read-only reconciliation with the original archive and digest.
 If the archive stays absent, inspect the PAUSE upload acknowledgement and pending uploads before authorizing any further submission.
+
+## Recover a draft asset upload
+
+A GitHub upload that returns HTTP 502 can leave an empty asset in the [`starter` state](https://docs.github.com/en/rest/releases/assets#upload-a-release-asset).
+Rerun the failed publication job to recover an unfinished archive or checksum upload.
+The controller checks the draft, asset name, uploader, and state before removing an unfinished upload.
