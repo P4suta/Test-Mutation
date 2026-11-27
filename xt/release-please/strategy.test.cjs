@@ -8,6 +8,9 @@ const { buildStrategy } = require("release-please/build/src/factory");
 const { parseConventionalCommits } = require("release-please/build/src/commit");
 const { Version } = require("release-please/build/src/version");
 const { TagName } = require("release-please/build/src/util/tag-name");
+const {
+	PullRequestBody,
+} = require("release-please/build/src/util/pull-request-body");
 const { perlVersion } = require("./version.cjs");
 require("./strategy.cjs");
 const root = path.resolve(__dirname, "../..");
@@ -24,6 +27,11 @@ const firstChanges =
 const firstModule = "package Test::Mutation;\nour $VERSION = '0.001';\n1;\n";
 const repo = {
 	repository: { owner: "P4suta", repo: "Test-Mutation" },
+	getFileContentsOnBranch: async (file, branch) => {
+		assert.equal(file, "Changes");
+		assert.equal(branch, "main");
+		return { parsedContent: firstChanges };
+	},
 	findFilesByGlobAndRef: async (pattern, ref) => {
 		assert.equal(pattern, "lib/**/*.pm");
 		assert.equal(ref, "main");
@@ -51,6 +59,9 @@ test("bootstrap dates the authored Changes and includes all distributed modules"
 	const proposal = await proposed("feat(release): publish Test-Mutation");
 	assert.equal(proposal.version.toString(), "0.1.0");
 	assert.equal(proposal.headRefName, "release-please--branches--main");
+	const [release] = PullRequestBody.parse(proposal.body.toString()).releaseData;
+	assert.equal(release.version.toString(), "0.1.0");
+	assert.match(release.notes, /^- Measure Perl modules\.$/m);
 	assert.deepEqual(
 		proposal.updates.map((u) => u.path).sort(),
 		["Changes", ...files].sort(),

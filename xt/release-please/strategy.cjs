@@ -2,6 +2,7 @@
 const { registerReleaseType } = require("release-please");
 const { BaseStrategy } = require("release-please/build/src/strategies/base");
 const { perlVersion } = require("./version.cjs");
+const releaseHeading = /^(\d+\.\d+)(?:[ \t]+(\d{4}-\d{2}-\d{2}))?[ \t]*$/m;
 
 function moduleVersion(path, previous, next) {
 	return {
@@ -35,15 +36,13 @@ function nativeChanges(path, previous, next, date, notes) {
 		createIfMissing: true,
 		updater: {
 			updateContent(content) {
-				const heading =
-					/^(0|[1-9]\d*)\.(\d+)(?:[ \t]+(\d{4}-\d{2}-\d{2}))?[ \t]*$/m;
-				const current = heading.exec(content ?? "");
+				const current = releaseHeading.exec(content ?? "");
 				if (!current) throw new Error(`${path} has no Perl release heading`);
-				const version = `${current[1]}.${current[2]}`;
-				if (!previous && version === next && !current[3]) {
-					return content.replace(heading, `${next}  ${date}`);
+				const [, version, dated] = current;
+				if (!previous && version === next && !dated) {
+					return content.replace(releaseHeading, `${next}  ${date}`);
 				}
-				if (!current[3] || version !== previous)
+				if (!dated || version !== previous)
 					throw new Error(
 						`${path} does not begin with the previous release ${previous}`,
 					);
@@ -73,6 +72,26 @@ function nativeChanges(path, previous, next, date, notes) {
 }
 
 class PerlDistribution extends BaseStrategy {
+	async buildReleaseNotes(commits, version, tag, previous, raw) {
+		if (previous)
+			return super.buildReleaseNotes(commits, version, tag, previous, raw);
+		const { parsedContent } = await this.github.getFileContentsOnBranch(
+			"Changes",
+			this.targetBranch,
+		);
+		const heading = releaseHeading.exec(parsedContent);
+		if (!heading || heading[1] !== perlVersion(version) || heading[2])
+			throw new Error(
+				"Changes must start with the undated first distribution version",
+			);
+		const [entry] = parsedContent
+			.slice(heading.index + heading[0].length)
+			.split(releaseHeading);
+		if (!/^ {4}- \S/m.test(entry))
+			throw new Error("The first distribution has no release notes");
+		return `## ${version}\n\n${entry.replace(/^ {4}/gm, "").trim()}`;
+	}
+
 	async buildUpdates({ newVersion, latestVersion, changelogEntry }) {
 		const next = perlVersion(newVersion);
 		const previous = latestVersion ? perlVersion(latestVersion) : undefined;
