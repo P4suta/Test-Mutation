@@ -148,8 +148,9 @@ signature_for conclude_inventory => ( positional => [ ArrayRef [Entry] ], return
 
 sub conclude_inventory ($entries) {
     my ( %first, @result );
-    for my $entry (@$entries) {
-        my $code = $entry->{compiled_digest};
+    for my $raw (@$entries) {
+        my $entry = _observed_verdict($raw);
+        my $code  = $entry->{compiled_digest};
         if ( defined $code && Test::Mutation::Status::of( $entry->{status} )->role eq 'undetected' ) {
             my $mutant = $entry->{mutant};
             my $seen   = $first{ $mutant->path } ||= {};
@@ -168,6 +169,22 @@ sub conclude_inventory ($entries) {
         push @result, $entry;
     }
     return \@result;
+}
+
+sub _observed_verdict ($entry) {
+    my $attempts = $entry->{observations};
+    return $entry if !$attempts || !$attempts->@* || $entry->{status} eq 'Pending';
+    return $entry
+      if defined $entry->{reason}
+      && $entry->{reason} =~ /\A(?:same-code-as-original|suppressed|slot-not-restored|build-copy-not-updated)\z/;
+    my @states;
+    for my $attempt (@$attempts) {
+        my $state = start();
+        $state = step( $state, $_ ) for @$attempt;
+        push @states, conclude($state);
+    }
+    my $result = @states == 2 ? confirm(@states) : $states[0];
+    return { $entry->%*, $result->%{qw(status reason detail by)}, tests_run => $result->{tests} };
 }
 
 signature_for limit => ( positional => [$RESULT], returns => Maybe [Reason] );
@@ -243,6 +260,7 @@ A test that ended on its own has no such reason.
 =head2 conclude_inventory
 
 Returns the verdicts in inventory order.
+Completed test attempts determine the verdict with the same rules for an individual run and a merged report.
 Among undetected mutants in one source file, the first with each compiled digest keeps its verdict.
 Later matches name the first mutant and leave the score.
 

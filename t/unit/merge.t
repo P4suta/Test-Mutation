@@ -127,6 +127,19 @@ subtest 'a part that is unsafe side by side or interrupted marks the whole' => s
     is [ $whole->parallel_safe, $whole->interrupted ], [ 0, 'TERM' ], 'the weaker fact wins';
 };
 
+subtest 'the ordered test observations decide the final verdicts' => sub {
+    my $pass  = { test => 't/a.t', result => 'pass', served => 1, load_failed => 0, bypassed => 0, syntax => undef };
+    my $fail  = { $pass->%*, result => 'fail' };
+    my $whole = merged(
+        part( '1/2', [ { $first[0]->%*, observations => [ [$pass] ] },          @first[ 1, 2 ] ] ),
+        part( '2/2', [ { $rest[0]->%*,  observations => [ [$pass], [$fail] ] }, @rest[ 1, 2 ] ] ),
+    );
+    is [ $whole->entries->[0]->@{qw(status reason tests_run)} ], [ 'Survived', undef, 1 ],
+      'the loaded target and the passing test determine survival';
+    is [ $whole->entries->[1]->@{qw(status reason tests_run)} ], [ 'NoVerdict', 'unstable-test', 2 ],
+      'a contradictory repeat keeps its own reason';
+};
+
 subtest 'merging interleaves uneven shards and omits empty positions' => sub {
     for my $case ( [ 0, [ [], [], [], [] ] ], [ 2, [ [1], [2], [], [] ] ], [ 5, [ [ 1, 5 ], [2], [3], [4] ] ] ) {
         my ( $count, $groups ) = @$case;
