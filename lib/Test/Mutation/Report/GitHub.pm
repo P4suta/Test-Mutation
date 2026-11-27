@@ -62,11 +62,18 @@ sub summary ( $result, $floor, $reports, $used ) {
       @$reports
       ? 'Detailed reports: ' . join( ', ', map { _cell($_) } @$reports )
       : 'Detailed report: run mutation run --format json';
-    my $head = join "\n", '## Mutation testing', q{}, _cell($scope), $undetected,
-      Test::Mutation::Report::Results::decision( $result, $floor )->@*, q{}, $score, q{},
+    my @decision = Test::Mutation::Report::Results::decision( $result, $floor )->@*;
+    my $head     = join "\n", '## Mutation testing', q{}, _cell($scope), $undetected,
+      @decision, q{}, $score, q{},
       _row( map { ucfirst $_->word } @rows ), _row( ('---') x @rows ), _row( map { $counts->{ $_->name } } @rows ), q{};
     my $tail      = "\n$details\n\n" . Test::Mutation::Report::Results::next_step( $result, $floor ) . "\n";
     my $remaining = $budget - length Encode::encode( 'UTF-8', $head . $tail );
+
+    if ( $remaining < 0 ) {
+        $head      = join "\n", '## Mutation testing', q{}, $undetected, @decision, $score, q{};
+        $tail      = "\n$details\n";
+        $remaining = $budget - length Encode::encode( 'UTF-8', $head . $tail );
+    }
     if ( $remaining < 0 ) {
         my $brief = "$undetected\n$score\n";
         return length( Encode::encode( 'UTF-8', $brief ) ) <= $budget ? $brief : q{};

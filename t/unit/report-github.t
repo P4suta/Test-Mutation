@@ -124,4 +124,13 @@ subtest 'the step limit counts encoded bytes' => sub {
     like $summary, qr{reports/mutation[.]html}, 'the file location survives an oversized example';
 };
 
+subtest 'large selections reserve room for the gate and report location' => sub {
+    my $case = Test::Mutation::Result->new( result( [ entry('Survived') ] )->%*,
+        selection => { paths => { ( 'a' x 1200 ) => [] } } );
+    my $text = Test::Mutation::Report::GitHub::summary( $case, 70, ['reports/mutation.json'], 1024 * 1024 - 512 );
+    cmp_ok length( Encode::encode( 'UTF-8', $text ) ), '<=', 512, 'existing step text uses the same byte budget';
+    like $text, qr/Gate: failed/,            'a large selection still shows the gate';
+    like $text, qr{reports/mutation[.]json}, 'the destination remains available when paths must be abbreviated';
+};
+
 done_testing;
