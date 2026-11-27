@@ -1,8 +1,8 @@
-package Test::Mutation::Shim;
 use 5.010;
+
+package Test::Mutation::Shim;
 use strict;
 use warnings;
-
 our $VERSION = '0.001';
 
 # The driver copies this file under a generation-specific package name and rewrites the next line.

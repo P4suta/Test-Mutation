@@ -3,6 +3,9 @@ use Test2::V0;
 use File::Path ();
 use File::Temp ();
 use Test::Mutation::Runner;
+use Test::Mutation::Source;
+use Test::Mutation::Syntax::PPI;
+use Test::Mutation::Witness;
 
 # The run copies the source of the shim from the first entry of @INC that supplies it.
 # An entry is a directory or a hook, and an outer run serves the file through its own hook.
@@ -41,6 +44,28 @@ subtest 'the shim of the distribution is renamed for its generation' => sub {
     like $text,   qr/^package Test::Mutation::Shim::G3;$/m, 'the package carries the generation';
     like $text,   qr/^my \$GENERATION = 3;$/m,              'the generation number is set';
     unlike $text, qr/^package Test::Mutation::Shim;$/m,     'the original package line is gone';
+};
+
+subtest 'a traced distribution shim supplies the next generation' => sub {
+    my $path = 'lib/Test/Mutation/Shim.pm';
+    my $source =
+      Test::Mutation::Source->from_bytes( path => $path, bytes => Test::Mutation::Source::read_bytes($path) );
+    my $offset = Test::Mutation::Syntax::PPI::witness_offsets($source)->[0];
+    my $traced = Test::Mutation::Witness::trace(
+        text       => $source->text,
+        offset     => $offset,
+        line       => $source->position_of($offset)->[0],
+        generation => 2,
+        index      => 0,
+        target     => $path,
+        work       => '/work',
+        descriptor => 3,
+    );
+    my $tracer = substr $traced, $offset, length($traced) - length( $source->text );
+    my $nested = shim_through( hook( sub { return handle_of($traced) } ), @INC );
+    is index( $nested, $tracer ), $offset, 'the outer tracer keeps its source position';
+    $nested =~ s/\Q$tracer\E//;
+    ok $nested eq Test::Mutation::Runner::shim_text(3), 'all source lines match the untraced next generation';
 };
 
 subtest 'a directory supplies the text, and the text gets the generation' => sub {
@@ -83,6 +108,10 @@ subtest 'a missing file and an unexpected text stop the run' => sub {
         is shim_through( directory_with($text), @INC ), "died: cannot prepare the shim for generation 3\n",
           'a text without ' . ( $text =~ /GENERATION/ ? 'the package line' : 'the generation line' );
     }
+    my $quoted = "package Other;\nmy \$hint = q{package Test::Mutation::Shim;};\nmy \$GENERATION = 0;\n1;\n";
+    is shim_through( hook( sub { return handle_of($quoted) } ), @INC ),
+      "died: cannot prepare the shim for generation 3\n",
+      'a package name inside a string does not declare the shim';
 };
 
 done_testing;
