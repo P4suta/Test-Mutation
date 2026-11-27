@@ -90,4 +90,37 @@ waitpid $locker, 0;
 is $? >> 8,             0,             'the other test drains its diagnostics while a SQLite write lock is held';
 is [ sort @published ], [ sort @ids ], 'each completion is published after its durable checkpoint';
 is [ map { $_->{status} } $result->entries->@* ], [qw(Killed Killed)], 'both tests retain their observed verdicts';
+subtest 'an interrupt commits a completed test before reporting its unfinished peer' => sub {
+    unlink "$control/locked", "$control/drained" or die "reset checkpoint gates: $!";
+    my $path = Test::Mutation::Store::path( $config, 0 );
+    my $db   = Test::Mutation::Store::database($path);
+    $db->do('DELETE FROM verdict');
+    my ( $completed, @notified );
+    no warnings 'redefine';
+    local *Test::Mutation::Store::checkpoints = sub ($path) {
+        my $write = $checkpoints->($path);
+        return sub ( $id, $record, $may_wait ) {
+            unless ( defined $completed ) {
+                $completed = $id;
+                ok !$may_wait, 'the other test is still running';
+                kill 'TERM', $$;
+                return 0;
+            }
+            return $write->( $id, $record, $may_wait );
+        };
+    };
+    my $interrupted = Test::Mutation::run(
+        root          => $project,
+        jobs          => 2,
+        mutant        => \@ids,
+        timeout_floor => 12,
+        on_event      => sub ( $event, $entry ) { push @notified, $entry->{mutant}->id if $event eq 'mutant'; return }
+    );
+    is $interrupted->interrupted, 'TERM', 'the measurement reports the signal';
+    is [ sort map { $_->{status} } $interrupted->entries->@* ], [qw(Killed Pending)],
+      'only the unfinished peer stays pending';
+    is $db->selectcol_arrayref('SELECT id FROM verdict'), [$completed],
+      'a resumed process can read the completed verdict';
+    is \@notified, [$completed], 'the committed result is published once';
+};
 done_testing;
