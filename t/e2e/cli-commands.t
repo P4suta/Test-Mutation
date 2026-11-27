@@ -28,16 +28,17 @@ subtest 'command help and reference settings are available outside a project' =>
 };
 
 subtest 'path operands narrow both the listing and the measurement to matching lines' => sub {
-    my $all = ran( 0, $root, 'list' )->{stdout};
-    is ran( 0, $root, 'list', 'lib' )->{stdout}, $all, 'a directory includes its sources';
-    my $selected = ran( 0, $root, 'list', 'lib/Calc.pm:7,17-18' )->{stdout};
+    my $project = copy_of('calc');
+    my $all     = ran( 0, $project, 'list' )->{stdout};
+    is ran( 0, $project, 'list', 'lib' )->{stdout}, $all, 'a directory includes its sources';
+    my $selected = ran( 0, $project, 'list', 'lib/Calc.pm:7,17-18' )->{stdout};
     like $selected,   qr/lib\/Calc[.]pm:7:\d+\s+arithmetic/,  'the first range selects the addition';
     like $selected,   qr/lib\/Calc[.]pm:17:\d+\s+arithmetic/, 'the second range selects the multiplication';
     unlike $selected, qr/lib\/Calc[.]pm:12:\d+\s+comparison/, 'a line outside the ranges is absent';
-    my $run = ran( 0, $root, 'run', '--format', 'terminal', 'lib/Calc.pm:7' );
+    my $run = ran( 0, $project, 'run', '--format', 'terminal', 'lib/Calc.pm:7' );
     like $run->{stderr}, qr/\b3 mutants in 1 file/, 'run measures the addition, return and containing subroutine';
-    like ran( 2, $root, 'list', 'lib/Calc.pm:8-7' )->{stderr}, qr/8-7/,          'a reversed range names the input';
-    like ran( 2, $root, 'list', 'missing.pm' )->{stderr},      qr/missing[.]pm/, 'an absent path names the input';
+    like ran( 2, $project, 'list', 'lib/Calc.pm:8-7' )->{stderr}, qr/8-7/,          'a reversed range names the input';
+    like ran( 2, $project, 'list', 'missing.pm' )->{stderr},      qr/missing[.]pm/, 'an absent path names the input';
 };
 
 subtest 'baseline runs the unmodified tests without mutating or replacing a report' => sub {
