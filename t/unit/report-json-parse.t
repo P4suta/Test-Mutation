@@ -172,6 +172,8 @@ subtest 'a location outside the source is refused' => sub {
           [ sub ($t) { $t =~ s/"line" : 3/"line" : 6/r }, 'a location lies outside the source of lib/Calc.pm' ],
         'a column after the end of the text' =>
           [ sub ($t) { $t =~ s/"line" : 3/"line" : 5/r }, 'a location lies outside the source of lib/Calc.pm' ],
+        'a column that points into the next line' =>
+          [ sub ($t) { $t =~ s/"column" : 16/"column" : 28/r }, 'a location lies outside the source of lib/Calc.pm' ],
         'an end before its start' =>
           [ sub ($t) { $t =~ s/"column" : 16/"column" : 2/r }, 'a location ends before its start in lib/Calc.pm' ],
     );

@@ -53,6 +53,20 @@ subtest 'a trailing newline starts an empty line at the end of the source' => su
       if $ended;
 };
 
+subtest 'a position must belong to its stated line or the end of the file' => sub {
+    for my $text ( q{}, "日\r\n\n", "a\né" ) {
+        my $source = Test::Mutation::Source->new( path => 'x', text => $text, encoding => 'UTF-8' );
+        for my $offset ( 0 .. length $text ) {
+            my $position = $source->position_of($offset);
+            is $source->offset_within_source(@$position), $offset, "character $offset in [$text]";
+        }
+        is $source->offset_within_source( 0, 1 ),  undef, 'line zero has no offset';
+        is $source->offset_within_source( 1, 0 ),  undef, 'column zero has no offset';
+        is $source->offset_within_source( 4, 1 ),  undef, 'a missing line has no offset';
+        is $source->offset_within_source( 1, 10 ), undef, 'a column beyond its line has no offset';
+    }
+};
+
 subtest 'replace_span changes the span alone' => sub {
     my $source = Test::Mutation::Source->new( path => 'x', text => 'a + b', encoding => 'UTF-8' );
     is $source->replace_span( 2, 3, '-' ), 'a - b', 'operator replaced';

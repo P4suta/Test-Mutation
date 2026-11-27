@@ -314,11 +314,8 @@ sub _result ($document) {
 }
 
 sub _offset ( $source, $position ) {
-    my $text   = $source->text;
-    my $offset = $position->{line} <= 1 + $text =~ tr/\n// ? $source->offset_of( $position->@{qw(line column)} ) : -1;
-    Test::Mutation::Error::raise( 'report-location-outside', path => $source->path )
-      if $offset < 0 || $offset > length $text;
-    return $offset;
+    return $source->offset_within_source( $position->@{qw(line column)} )
+      // Test::Mutation::Error::raise( 'report-location-outside', path => $source->path );
 }
 
 sub _entry ( $source, $mutant ) {
