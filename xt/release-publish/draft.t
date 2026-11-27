@@ -81,6 +81,15 @@ subtest 'only the release tag can identify the source' => sub {
     ok !-e $ENV{FAKE_REMOTE} . "/$name", 'the rejected reference leaves the draft empty';
 };
 
+subtest 'publication rejects versions that Perl cannot distinguish' => sub {
+    local %ENV               = setup();
+    local $ENV{CPAN_TAG}     = 'v2147483648.1.0';
+    local $ENV{CPAN_VERSION} = '2147483648.001';
+    write_file( $ENV{CPAN_CANDIDATE_DIR} . '/Test-Mutation-2147483648.001.tar.gz', $bytes );
+    is invoke('stage'), undef, 'the overflowing version cannot select a release';
+    ok !-e $ENV{FAKE_REMOTE} . '/api-used', 'the controller rejects the version before calling GitHub';
+};
+
 subtest 'only the first reservation may submit the archive' => sub {
     local %ENV = setup();
     like invoke('stage'), qr/^action=prepare$/m, 'the verified archive is ready for a reservation';

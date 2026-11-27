@@ -25,7 +25,7 @@ fn perl_version(tag: &str) -> Option<String> {
         return None;
     };
     let number = |s: &str| {
-        let parsed = s.parse::<u32>().ok()?;
+        let parsed = s.parse::<i32>().ok().filter(|n| *n >= 0)?;
         (s == parsed.to_string()).then_some(parsed)
     };
     let (major, minor, patch) = (number(major)?, number(minor)?, number(patch)?);

@@ -23,6 +23,7 @@ sub write_file ( $file, $value ) {
 
 my $command = shift @ARGV;
 if ( $command eq 'api' ) {
+    write_file( 'api-used', 1 );
     my ($path) = grep { m{\Arepos/} } @ARGV;
     if ( $path =~ m{/releases/17\z} ) {
         say join "\t", 'v0.1.0', $source, read_file('draft'), '17';
