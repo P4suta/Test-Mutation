@@ -122,27 +122,30 @@ my %distribution = (
     },
 );
 
-# Sets the time of every file of a tree ten seconds back, to a whole second.
-sub age {
-    my ($tree) = @_;
-    for my $path ( sort keys %{ snapshot($tree) } ) {
-        my $earlier = int( modified("$tree/$path") ) - 10;
-        utime $earlier, $earlier, "$tree/$path" or die "utime $path: $!";
-    }
+# Distinct whole seconds preserve the order of build inputs even in a copy that rounds timestamps down.
+sub next_second {
+    my $next = time + 1;
+    my $remaining;
+    Time::HiRes::sleep($remaining) while ( $remaining = $next - Time::HiRes::time() ) > 0;
     return;
 }
 
 # Both distributions build before the first assertion, because a platform that cannot build them has no answer to give.
-# The configuration looks ten seconds older than the build, which a distribution of some size brings about by itself.
-# A build within the second of its configuration leaves a manual page that a later make writes again.
-my %log;
+# Makefile must also stay newer than the interpreter's installed Config.pm and config.h after a move.
+my ( %configured, %log );
 for my $name ( sort keys %distribution ) {
     my $tree = "$root/$name/original";
     write_file( "$tree/$_", $distribution{$name}{$_} ) for sort keys %{ $distribution{$name} };
-    my $configured = in_tree( $tree, $^X, 'Makefile.PL' );
-    age($tree);
-    my $built = $configured->{status} == 0 ? in_tree( $tree, $make ) : $configured;
-    $log{$name} = "$configured->{output}$built->{output}" if $built->{status} != 0;
+}
+next_second();
+for my $name ( sort keys %distribution ) {
+    $configured{$name} = in_tree( "$root/$name/original", $^X, 'Makefile.PL' );
+}
+next_second();
+for my $name ( sort keys %distribution ) {
+    my $config = $configured{$name};
+    my $built  = $config->{status} == 0 ? in_tree( "$root/$name/original", $make ) : $config;
+    $log{$name} = "$config->{output}$built->{output}" if $built->{status} != 0;
 }
 diag $log{$_} for sort keys %log;
 need( 'toolchain', !%log, "the platform builds no distribution with $make and $compiler" );
@@ -223,15 +226,10 @@ for my $name ( sort keys %distribution ) {
     }
 }
 
-# A copy whose build looks ten seconds old, so a file that changes now is newer at any precision of a clock.
-sub aged_copy {
-    my ( $from, $to ) = @_;
-    return copy_tree( $from, $to, sub { return utime int( $_[0] ) - 10, int( $_[1] ) - 10, $_[2] } );
-}
-
 # The control: make decides by the times alone, and a Makefile.PL that looks newer than the Makefile restarts the build.
-my $stale = aged_copy( "$root/pure/original", "$root/pure/stale" );
-my $later = 2 + int modified("$stale/Makefile");
+next_second();
+my $stale = $copy{'whole seconds'}->( "$root/pure/original", "$root/pure/stale" );
+my $later = time;
 utime $later, $later, "$stale/Makefile.PL" or die "utime: $!";
 my $restarted = in_tree( $stale, $make );
 isnt $restarted->{status}, 0, 'E15: make fails once where Makefile.PL is newer than the Makefile';
@@ -246,7 +244,7 @@ my %placed = ( pure => 'sub answer { return 40 }', fast => 'sub twice { return 3
 my %source = ( pure => 'sub answer { return 41 }', fast => 'sub twice { return 2 * answer() }' );
 for my $name ( sort keys %distribution ) {
     my $path     = $module{$name};
-    my $tree     = aged_copy( "$root/$name/original", "$root/$name/placed" );
+    my $tree     = $copy{'whole seconds'}->( "$root/$name/original", "$root/$name/placed" );
     my $original = slurp("$tree/$path");
     my $old_time = int modified("$tree/$path");
     ( my $mutant = $original ) =~ s/\Q$source{$name}\E/$placed{$name}/ or die 'no place for the mutant';
@@ -270,7 +268,7 @@ for my $name ( sort keys %distribution ) {
 
 # The build compares a manual page with the Makefile, and it writes a page of the same age once more.
 # A copy that cuts the times to whole seconds can leave a page of a quick build in that state.
-my $same_second = aged_copy( "$root/pure/original", "$root/pure/same-second" );
+my $same_second = $copy{'whole seconds'}->( "$root/pure/original", "$root/pure/same-second" );
 if ($pages) {
     my $configured = int modified("$same_second/Makefile");
     utime $configured, $configured, "$same_second/$page" or die "utime: $!";

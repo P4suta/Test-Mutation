@@ -13,7 +13,7 @@ use Library;
 sub proves (@commands) {
     my @proves;
     for my $command (@commands) {
-        my ( $program, @words ) = split q{ }, $command;
+        my ( $program, @words ) = split q{ }, $command =~ s/\Aperl\s+-S\s+//r;
         next if !defined $program || $program ne 'prove';
         my @switches = grep { /\A-/ } @words;
         push @proves,
@@ -70,8 +70,10 @@ subtest 'the gate rejects a test file that no command reaches' => sub {
           qw(t/unit/a.t t/unit/deep/a.t t/assumptions/a.t xt/a.t xt/corpus/a.t xt/corpus/b.t xt/deep/a.t t/e2e/a.t) ],
       [ 1, 1, 1, 1, 1, 0, 0, 0 ],
       'a recursive command walks down, another one reads its own directory, and a named file counts';
-    is reached( proves('prove --recurse t'), 't/e2e/a.t' ), 1, 'the long switch walks down too';
-    is reached( proves('prove -l txt'),      't/a.t' ),     0, 'a path that only starts alike reaches nothing';
+    is reached( proves('prove --recurse t'),   't/e2e/a.t' ),  1, 'the long switch walks down too';
+    is reached( proves('prove -l txt'),        't/a.t' ),      0, 'a path that only starts alike reaches nothing';
+    is reached( proves('perl -S prove -lr t'), 't/unit/a.t' ), 1, 'the selected Perl runs prove';
+    is proves('perl -S cpm install prove'), [], 'another program cannot claim test coverage';
 
     my %tasks = (
         check => { depends => [ 'test', 'gate' ] },
