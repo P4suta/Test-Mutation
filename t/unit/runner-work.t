@@ -153,20 +153,27 @@ subtest 'interruptions retain completed verdicts and account for every attempted
     my ( $finished, $started, $repeated ) = @mutants;
     my $done    = { status        => 'Killed', by => 't/known.t' };
     my $entries = { $finished->id => $done };
-    my @unfinished = (
+    my $pass    = sub ($test) {
+        return { test => $test, result => 'pass', served => 1, load_failed => 0, bypassed => 0, syntax => undef };
+    };
+    my $observations = [ [ map { $pass->($_) } qw(t/add.t t/compare.t) ], [ $pass->('t/add.t') ] ];
+    my @unfinished   = (
         { mutant => $finished },
         {
-            mutant   => $repeated,
-            verdict  => { tests => 1 },
-            first    => { tests => 4 },
-            tests    => [qw(t/add.t t/compare.t)],
-            duration => 3
+            mutant       => $repeated,
+            verdict      => { tests => 1 },
+            first        => { tests => 2 },
+            tests        => [qw(t/add.t t/compare.t)],
+            duration     => 3,
+            observations => $observations,
         },
     );
     my @waiting = ( { mutant => $started, verdict => { tests => 0 }, tests => [], duration => 0 } );
     Test::Mutation::Runner::_pending_jobs( sub { return shift @waiting }, $entries, @unfinished );
-    is $entries->{ $finished->id }, $done, 'a completed detection retains its test';
-    for my $pair ( [ $started, [], 0, 0 ], [ $repeated, [qw(t/add.t t/compare.t)], 5, 3 ] ) {
+    is $entries->{ $finished->id },               $done,         'a completed detection retains its test';
+    is $entries->{ $repeated->id }{observations}, $observations, 'a partial repeat retains its completed observations';
+
+    for my $pair ( [ $started, [], 0, 0 ], [ $repeated, [qw(t/add.t t/compare.t)], 3, 3 ] ) {
         my ( $mutant, $tests, $count, $duration ) = @$pair;
         my $entry = $entries->{ $mutant->id };
         is [ $entry->@{qw(mutant status reason by covered_by tests_run duration)} ],

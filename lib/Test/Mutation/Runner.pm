@@ -1461,8 +1461,10 @@ sub _pending_jobs ( $next_job, $entries, @unfinished ) {
         next if $entries->{ $job->{mutant}->id };
         my $tests_run = $job->{verdict}{tests};
         $tests_run += $job->{first}{tests} if $job->{first};
-        $entries->{ $job->{mutant}->id } = _entry( $job->{mutant}, 'Pending', 'interrupted', 'the run was interrupted',
+        my $entry = _entry( $job->{mutant}, 'Pending', 'interrupted', 'the run was interrupted',
             undef, $job->{tests}, $tests_run, $job->{duration} );
+        $entry->{observations} = $job->{observations} if exists $job->{observations};
+        $entries->{ $job->{mutant}->id } = $entry;
     }
     return;
 }
