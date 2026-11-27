@@ -8,8 +8,9 @@ use Test::Mutation ();
 use Test::Mutation::Store;
 use Test::Mutation::Report::Json;
 
-my $root = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
-write_file( "$root/lib/Adder.pm", "package Adder;\nsub add_one { return \$_[0] + 1 }\n1;\n" );
+my $root  = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+my $adder = "package Adder;\nsub add_one { return \$_[0] + 1 }\n1;\n";
+write_file( "$root/lib/Adder.pm", $adder );
 write_file( "$root/t/add.t",      <<'PERL' );
 use strict;
 use warnings;
@@ -148,6 +149,42 @@ subtest 'each attempt starts in a restored or replacement copy' => sub {
     my ($result) = run_fixture( $root, %settings, cache => 0 );
     is [ $result->entries->[0]->@{qw(status reason)} ], [ 'NoVerdict', 'slot-not-restored' ],
       'an unrecovered final restoration failure makes the verdict inconclusive';
+};
+
+subtest 'a nested measurement still observes changes to its enclosing project' => sub {
+    my $outer = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    my $inner = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    write_file( "$outer/lib/Adder.pm", $adder );
+    write_file( "$inner/lib/Scale.pm", "package Scale;\nsub double { return \$_[0] * 2 }\n1;\n" );
+    write_file( "$inner/t/scale.t",    <<'TEST' );
+use Test::More tests => 2;
+use Adder;
+use Scale;
+is Adder::add_one(2), 3, 'the dependency adds one';
+is Scale::double(3), 6, 'the inner project doubles its input';
+TEST
+    write_file( "$outer/t/nested.t", <<'TEST' );
+use Test::More tests => 1;
+use Cwd ();
+use lib $ENV{NESTED_DRIVER_LIB};
+use Test::Mutation ();
+my $measured = Test::Mutation::run(
+    root => $ENV{NESTED_PROJECT}, jobs => 1, cache => 0, equivalence => 0,
+    lib => [ 'lib', Cwd::abs_path('lib') ], mutant => [$ENV{NESTED_MUTANT}],
+);
+my ($inner) = $measured->entries->@*;
+is_deeply [ scalar $measured->baseline_failures->@*, $inner ? $inner->@{qw(status by tests_run)} : () ],
+  [ 0, 'Killed', 't/scale.t', 2 ], 'the inner project passes with the original dependency and detects its own change';
+TEST
+    my ($scale) = grep { $_->original eq '*' } Test::Mutation::mutants( root => $inner )->@*;
+    local $ENV{NESTED_DRIVER_LIB} = Cwd::abs_path('lib');
+    local $ENV{NESTED_PROJECT}    = $inner;
+    local $ENV{NESTED_MUTANT}     = $scale->id;
+    my ($measured) = run_fixture( $outer, %settings, cache => 0 );
+    is $measured->baseline_failures, [], 'the inner measurement succeeds during the outer baseline';
+    my ($entry) = $measured->entries->@*;
+    is [ $entry->{mutant}->id, $entry->@{qw(status by tests_run)} ], [ $id, 'Killed', 't/nested.t', 2 ],
+      'the outer test detects its dependency change through both nested test processes';
 };
 
 subtest 'the cache distinguishes the hash traversal settings of the child interpreter' => sub {
