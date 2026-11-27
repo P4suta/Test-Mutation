@@ -37,7 +37,7 @@ my %blobs;
         die "invalid candidate tree record\n" unless defined $path;
         next if $skip->($path);
         die "unsupported candidate source file $path\n" unless $kind eq 'blob' && $mode =~ /\A100(?:644|755)\z/;
-        $blobs{$path} = $hash;
+        $blobs{$path} = { hash => $hash, mode => $mode };
     }
 }
 close $tree or die "read the candidate tree for $source_sha\n";
@@ -65,10 +65,12 @@ for my $entry ( $tar->get_files ) {
         die "incorrect package version in $path\n"   unless defined $meta->{version} && $meta->{version} eq $version;
         next;
     }
-    my $hash = delete $blobs{$path};
-    die "unexpected archive member $path\n" unless defined $hash;
+    my $blob = delete $blobs{$path};
+    die "unexpected archive member $path\n" unless defined $blob;
+    my $mode = $entry->mode & oct('100') ? '100755' : '100644';
+    die "archive mode differs from the candidate in $path\n" unless $mode eq $blob->{mode};
     die "archive differs from the candidate in $path\n"
-      unless Digest::SHA::sha1_hex( 'blob ' . length($content) . "\0" . $content ) eq $hash;
+      unless Digest::SHA::sha1_hex( 'blob ' . length($content) . "\0" . $content ) eq $blob->{hash};
 }
 my @missing = sort( keys %generated, keys %blobs );
 die "missing archive member $missing[0]\n" if @missing;

@@ -33,9 +33,12 @@ $files{'META.json'} = JSON::PP->new->encode( { name => 'Test-Mutation', version 
 $files{'META.yml'}  = "---\nname: Test-Mutation\nversion: '$version'\n";
 $files{MANIFEST}    = join q{}, map { "$_\n" } sort( keys %files, 'MANIFEST' );
 
-sub archive ($members) {
+sub archive ( $members, $modes = {} ) {
     my $tar = Archive::Tar->new;
-    $tar->add_data( "$name/$_", $members->{$_} ) for sort keys %$members;
+    for my $path ( sort keys %$members ) {
+        my $mode = exists $modes->{$path} ? $modes->{$path} : oct '644';
+        $tar->add_data( "$name/$path", $members->{$path}, { mode => $mode } );
+    }
     $tar->write( $path, Archive::Tar::COMPRESS_GZIP() ) or die 'write the candidate archive';
     open my $file, '<:raw', $path or die "read the candidate archive: $!";
     my $digest = Digest::SHA->new(256)->addfile($file)->hexdigest;
@@ -75,6 +78,9 @@ subtest 'verification rejects an incorrect archive identity' => sub {
 };
 
 subtest 'verification rejects altered source and metadata in a correctly named archive' => sub {
+    my $executable = verify( $path, $commit, $version, archive( \%files, { 'bin/mutation' => oct '755' } ) );
+    isnt $executable->[0], 0, 'the archive must preserve the Git executable bit';
+    like $executable->[1], qr/bin\/mutation/, 'the diagnostic identifies the changed mode';
     for my $case (
         [ 'bin/mutation',         '# another revision',                           qr/bin\/mutation/ ],
         [ 'lib/Test/Mutation.pm', undef,                                          qr/lib\/Test\/Mutation[.]pm/ ],
