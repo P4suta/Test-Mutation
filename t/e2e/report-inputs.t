@@ -158,17 +158,18 @@ subtest 'cache entries describe the input bytes actually run in the copy' => sub
     my $later = Test::Mutation::run(%settings);
     is subtraction($later), 'Killed', 'the later measurement of one cannot reuse the old subtraction verdict';
     for my $relative (qw(t/add.t lib/Calc.pm)) {
+        my %fresh = ( %settings, cache_dir => Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) ) );
         my $path  = "$root/$relative";
         my $bytes = Test::Mutation::Source::read_bytes($path);
         Test::Mutation::run(
-            %settings,
+            %fresh,
             on_event => sub ( $name, $data ) {
                 write_file( $path, "$bytes\n# changed checkout\n" ) if $name eq 'copy_finished';
                 return;
             }
         );
         my $current = Test::Mutation::Runner::run(
-            Test::Mutation::Settings::of_call( \%settings ),
+            Test::Mutation::Settings::of_call( \%fresh ),
             sub (@) { return },
             { baseline_only => 1 }
         );
