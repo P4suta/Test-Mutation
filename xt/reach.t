@@ -106,6 +106,15 @@ my $release = proves( commands( $tasks, 'release-gate' ) );
 my $workflow = CPAN::Meta::YAML->read_string( slurp('.github/workflows/check.yml') )->[0];
 is [ sort keys $workflow->{on}->%* ], [qw(merge_group pull_request)],
   'the fast checks run for pull requests and merge queues';
+my $gate_job = $workflow->{jobs}{gate};
+my @groups   = map { [ commands( $tasks, $_->{task} ) ] } @{ $gate_job->{strategy}{matrix}{include} || [] };
+my @hosted   = map { $_->@* } @groups;
+my @local    = commands( $tasks, 'check' );
+is [ sort @hosted ], [ sort @local ], 'the hosted jobs run every local fast check exactly once';
+is scalar( grep { $_->@* == 1 && $_->[0] eq $tasks->{e2e}{run} } @groups ), 1,
+  'the end-to-end tests have a runner to themselves';
+ok scalar( grep { defined $_->{run} && $_->{run} eq 'mise run ${{ matrix.task }}' } $gate_job->{steps}->@* ),
+  'each hosted job runs its assigned task';
 my $distribution = CPAN::Meta::YAML->read_string( slurp('.github/workflows/release-gate.yml') )->[0];
 is [ sort keys $distribution->{on}->%* ], ['workflow_dispatch'], 'the release checks run on manual dispatch';
 my @mac     = grep { $_->{'runs-on'} =~ /\Amacos-/ } values $distribution->{jobs}->%*;
