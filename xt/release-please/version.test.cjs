@@ -12,6 +12,7 @@ test("maps stable tags to ordered Perl decimal versions", () => {
 		["1.0.0", "1.000"],
 		["2.35.48", "2.035048"],
 		["2.999.999", "2.999999"],
+		["2147483647.0.0", "2147483647.000"],
 	])
 		assert.equal(perlVersion(version), expected);
 	for (const version of [
@@ -20,6 +21,7 @@ test("maps stable tags to ordered Perl decimal versions", () => {
 		"0.01.0",
 		"1.1000.0",
 		"1.0.1000",
+		"2147483648.0.0",
 		"1.0.0-rc.1",
 		"1.0.0+build",
 	]) {
