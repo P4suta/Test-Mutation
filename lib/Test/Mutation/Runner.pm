@@ -194,7 +194,7 @@ sub _explicit_gaps ( $config, $historical, $all ) {
         push @request, $prefix;
     }
     return unless @request;
-    my $catalog  = Test::Mutation::Config->new( $config->%*, mutant => \@request, since => undef );
+    my $catalog  = Test::Mutation::Settings::for_mutants( $config, \@request, undef );
     my $explicit = Test::Mutation::Select::resolve(
         config           => $catalog,
         historical_paths => $historical,

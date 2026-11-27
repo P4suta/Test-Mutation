@@ -552,12 +552,14 @@ sub configure ($arg) {
     return resolve( root => $arg->root, layers => [ @file, $arg->given ], facts => $arg->facts );
 }
 
-signature_for for_mutants => ( positional => [ $CONFIG, ArrayRef [Str] ], returns => $CONFIG );
+signature_for for_mutants =>
+  ( positional => [ $CONFIG, ArrayRef [Str], Optional [ Maybe [Str] ] ], returns => $CONFIG );
 
-sub for_mutants ( $config, $ids ) {
+sub for_mutants ( $config, $ids, $since = $config->since ) {
     return Test::Mutation::Config->new(
         $config->%*,
         mutant    => $ids,
+        since     => $since,
         specified => { $config->specified->%*, mutant => '--undetected' }
     );
 }
@@ -652,6 +654,8 @@ The file is the one that the setting C<config> names, or F<mutation.toml> when i
 =head2 for_mutants
 
 Selects the saved mutant identifiers for a recheck with the current test settings.
+An optional revision limits the lookup to changed lines.
+Pass an undefined revision to search the full catalog for a prefix.
 
 =head2 of_call
 
