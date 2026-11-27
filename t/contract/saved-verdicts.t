@@ -52,8 +52,8 @@ like $shown, qr/^Last result: Killed$/m, 'a mutant missing from the newest shard
 is $reads, 2, 'the missing mutant requires the other saved format';
 my ( $recent_id, $earlier_id ) = map { $_->id } $recent, $earlier;
 my ( $listed, $list_reads ) = observed('list');
-like $listed, qr/^\Q$recent_id\E  .*  \[Survived\]$/m, 'the earlier report cannot replace the newer verdict';
-like $listed, qr/^\Q$earlier_id\E  .*  \[Killed\]$/m,  'the listing also finds the earlier mutant';
+like $listed, qr/^\Q$recent_id\E  .*  \[Survived\] 1970-01-01T00:01:41Z$/m, 'the newer verdict and its date';
+like $listed, qr/^\Q$earlier_id\E  .*  \[Killed\] 1970-01-01T00:01:41Z$/m,  'the earlier mutant and its date';
 is $list_reads, 2, 'listing every mutant needs both complementary reports';
 write_file( "$directory/mutation.html",
     Encode::encode( 'UTF-8', Test::Mutation::Report::Html::render( $full, high => 80, low => 60 ) ) );

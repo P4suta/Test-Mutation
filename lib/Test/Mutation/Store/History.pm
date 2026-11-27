@@ -2,10 +2,11 @@ package Test::Mutation::Store::History;
 use v5.36;
 use Cwd             ();
 use JSON::PP        ();
-use Types::Standard qw(ArrayRef Bool Dict InstanceOf Maybe Str Undef);
+use Types::Standard qw(ArrayRef Bool Dict HashRef InstanceOf Maybe Num Str Undef);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Store;
 use Test::Mutation::Store::Key;
+use Test::Mutation::Types qw(StatusName);
 
 our $VERSION = '0.001';
 
@@ -46,6 +47,40 @@ sub record ( $config, $result, $anchor ) {
         }
     );
     return;
+}
+
+signature_for entries => (
+    positional => [
+        $CONFIG, HashRef [ InstanceOf ['Test::Mutation::Source'] ], ArrayRef [ InstanceOf ['Test::Mutation::Mutant'] ]
+    ],
+    returns => Maybe [
+        HashRef [ Dict [ status => StatusName, finished => Num, covered_by => ArrayRef [Str], by => Maybe [Str] ] ]
+    ],
+);
+
+sub entries ( $config, $sources, $mutants ) {
+    my $path = Test::Mutation::Store::path($config);
+    return unless $config->cache && -f $path;
+    my $db         = Test::Mutation::Store::database($path);
+    my $project    = Cwd::abs_path( $config->root );
+    my ($measured) = $db->selectrow_array( 'SELECT 1 FROM measurement WHERE project = ? LIMIT 1', undef, $project );
+    return unless $measured;
+    my $latest = $db->prepare(
+        'SELECT observation.data, measurement.finished FROM observation JOIN measurement USING(run)
+         WHERE project = ? AND id = ? AND source = ? ORDER BY finished DESC, run DESC LIMIT 1'
+    );
+    my ( %digests, %entries );
+
+    for my $mutant (@$mutants) {
+        my $file   = $mutant->path;
+        my $digest = $digests{$file} ||= Test::Mutation::Store::Key::digest( $sources->{$file}->text );
+        $latest->execute( $project, $mutant->id, $digest );
+        my ( $text, $finished ) = $latest->fetchrow_array;
+        next unless defined $text;
+        my $facts = $JSON->decode($text);
+        $entries{ $mutant->id } = { $facts->%{qw(status covered_by by)}, finished => $finished };
+    }
+    return \%entries;
 }
 
 signature_for undetected =>
@@ -91,5 +126,10 @@ A true final argument makes a completed run the scope of the next search for und
 Returns the identifiers, files, and source digests of the gaps still present in the latest completed scope.
 An empty array marks a measured scope with no gaps.
 An undefined value marks missing history.
+
+=head2 entries
+
+Returns the latest matching observation and finish time for each requested mutant.
+The result is undefined when the project has no indexed measurement.
 
 =cut

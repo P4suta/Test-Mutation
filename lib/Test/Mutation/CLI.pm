@@ -37,6 +37,8 @@ use Test::Mutation::Runner;
 use Test::Mutation::Store::History;
 use Test::Mutation::Select;
 use Test::Mutation::Settings;
+use Test::Mutation::Store::History;
+use POSIX ();
 use Test::Mutation::Signals;
 use Test::Mutation::Tree;
 use Test::Mutation::Try;
@@ -486,13 +488,15 @@ sub _list ( $invocation, $world ) {
     for my $mutant ( $analysis->{mutants}->@* ) {
         my $entry = $previous->{ $mutant->id };
         say { $world->{out} } Test::Mutation::Report::Results::heading($mutant), _suppression($mutant),
-          $entry ? "  [$entry->{status}]" : q{};
+          $entry ? "  [$entry->{status}] " . _measured_at($entry) : q{};
     }
     say { $world->{out} } _plural( scalar $analysis->{mutants}->@*, 'mutant' );
     return 0;
 }
 
 sub _previous_entries ( $config, $sources, $mutants ) {
+    my $indexed = Test::Mutation::Store::History::entries( $config, $sources, $mutants );
+    return $indexed if defined $indexed;
     my $directory = File::Spec->rel2abs( $config->report_dir, $config->root );
     my %wanted    = map { $_->id => 1 } $mutants->@*;
     my %entries;
@@ -504,12 +508,17 @@ sub _previous_entries ( $config, $sources, $mutants ) {
               keys $sources->%*;
             for my $entry ( $prior->entries->@* ) {
                 my $mutant = $entry->{mutant};
-                $entries{ $mutant->id } = $entry if $same{ $mutant->path } && delete $wanted{ $mutant->id };
+                $entries{ $mutant->id } = { %$entry, finished => $prior->finished }
+                  if $same{ $mutant->path } && delete $wanted{ $mutant->id };
             }
             return keys %wanted ? undef : \%entries;
         }
     );
     return \%entries;
+}
+
+sub _measured_at ($entry) {
+    return POSIX::strftime( '%Y-%m-%dT%H:%M:%SZ', gmtime $entry->{finished} );
 }
 
 sub _suppression ($mutant) {
@@ -521,18 +530,23 @@ sub _suppression ($mutant) {
 }
 
 sub _show ( $invocation, $world ) {
-    my $analysis = Test::Mutation::Runner::analyze( $invocation->{config} );
-    my $mutant   = Test::Mutation::Select::by_id( $analysis->{mutants}, $invocation->{operands}[0] );
-    my $previous = _previous_entries( $invocation->{config}, $analysis->{sources}, [$mutant] )->{ $mutant->id };
+    my $selected = Test::Mutation::Select::resolve(
+        config      => $invocation->{config},
+        identifiers => $invocation->{operands},
+        read_only   => 1
+    );
+    my $mutant   = $selected->mutants->[0];
+    my $previous = _previous_entries( $invocation->{config}, $selected->sources, [$mutant] )->{ $mutant->id };
     say { $world->{out} } Test::Mutation::Report::Results::heading($mutant);
     say { $world->{out} } 'Last result: ', $previous ? $previous->{status} : 'unmeasured';
     if ($previous) {
+        say { $world->{out} } 'Measured at: ', _measured_at($previous);
         say { $world->{out} } 'Reached by: ',
           $previous->{covered_by}->@* ? join( ', ', $previous->{covered_by}->@* ) : 'no test';
         say { $world->{out} } "Killed by: $previous->{by}" if defined $previous->{by};
     }
     print { $world->{out} } Test::Mutation::Report::Patch::render(
-        text   => $analysis->{sources}{ $mutant->path }->text,
+        text   => $selected->sources->{ $mutant->path }->text,
         mutant => $mutant
     );
     return 0;
