@@ -5,6 +5,8 @@ use File::Temp ();
 use lib 't/e2e/lib';
 use Fixture qw(run_fixture write_file);
 use Test::Mutation::Merge;
+use Test::Mutation::Runner;
+use Test::Mutation::Settings;
 
 my $area    = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
 my $library = "$area/external";
@@ -25,6 +27,7 @@ PERL
 for my $checkout (qw(first second)) {
     my $root = "$area/$checkout";
     write_file( "$root/lib/Boundary.pm", $module );
+    write_file( "$root/lib/Other.pm",    "package Other; sub value { 9 } 1;\n" );
     write_file( "$root/t/boundary.t",    $test );
     write_file( "$root/limit.dat",       "4\n" );
     my $program = write_file( "$root/tools/perl", "#!$^X\nexec {q{$^X}} q{$^X}, \@ARGV or die \$!;\n" );
@@ -45,6 +48,16 @@ sub compare (%settings) {
 }
 
 ok lives { compare( cache => 1, jobs => 1 ) }, 'cached and uncached observations use compatible inputs';
+{
+    my @parts;
+    for my $number ( 1 .. 2 ) {
+        my $root   = "$area/" . ( $number == 1 ? 'first' : 'second' );
+        my $config = Test::Mutation::Settings::of_call( { root => $root, shard => "$number/2", cache => $number - 1 } );
+        my $result = Test::Mutation::Runner::run( $config, sub { }, { paths => { 'lib/Boundary.pm' => [] } } );
+        push @parts, { name => "$number", result => $result };
+    }
+    ok lives { Test::Mutation::Merge::merge( \@parts ) }, 'both cache modes identify the same file selection';
+}
 {
     local $ENV{TEST_PROJECT_LIMIT} = 7;
     like dies { compare() }, qr/measurement inputs differ/, 'the test environment binds each measurement';

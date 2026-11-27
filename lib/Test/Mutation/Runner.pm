@@ -437,13 +437,15 @@ sub _measure ( $run, $started ) {
 sub _measurement_digest ( $run, $selection ) {
     my $config  = $run->{config};
     my $project = $run->{project};
+    my @sources = sort( keys $selection->sources->%*, map { $_->{path} } $selection->unanalyzed->@* );
     my @skip    = (
-        '.git',                keys $selection->digests->%*,
-        $selection->tests->@*, map { _inside( $project, $_ ) } grep { defined } $config->cache_dir,
-        $config->report_dir,   $config->config
+        '.git', @sources, $selection->tests->@*, map { _inside( $project, $_ ) } grep { defined } $config->cache_dir,
+        $config->report_dir, $config->config
     );
     return Test::Mutation::Store::Key::digest(
-        $selection->catalog_digest,
+        $VERSION,
+        Test::Mutation::Store::Key::digest( map { $_->name } $selection->mutators->@* ),
+        Test::Mutation::Store::Key::digest( map { ( $_, $selection->digests->{$_} ) } @sources ),
         Test::Mutation::Store::Key::interpreter_build( $selection->perl ),
         Test::Mutation::Store::Key::tree( $project, \@skip, 1 ),
         Test::Mutation::Store::Key::environment( \%ENV ),
