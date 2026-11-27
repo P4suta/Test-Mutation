@@ -40,6 +40,14 @@ sub asset_row ( $file, $id ) {
     return join "\t", @row;
 }
 
+sub complete ( $file, $marker ) {
+    return if !-f "$root/$file.$marker";
+    write_file( $file,         read_file("$file.$marker") );
+    write_file( "$file.label", $source );
+    unlink "$root/$file.$marker", "$root/$file.state";
+    return;
+}
+
 my $command = shift @ARGV;
 if ( $command eq 'api' ) {
     write_file( 'api-used', 1 );
@@ -62,11 +70,7 @@ if ( $command eq 'api' ) {
         for my $file ( $name, "$name.sha256" ) {
             if ( -f "$root/$file" ) {
                 say asset_row( $file, $id );
-                if ( -f "$root/$file.complete" ) {
-                    write_file( $file,         read_file("$file.complete") );
-                    write_file( "$file.label", $source );
-                    unlink "$root/$file.complete", "$root/$file.state";
-                }
+                complete( $file, 'complete' );
             }
             ++$id;
         }
@@ -77,6 +81,7 @@ if ( $command eq 'api' ) {
         my $id   = $1;
         my $file = $id == 10 ? $name : "$name.sha256";
         exit 1 if !-f "$root/$file";
+        complete( $file, 'complete-at-asset' );
         if ( grep { $_ eq 'DELETE' } @ARGV ) {
             write_file( "$file.deleted", $id );
             unlink "$root/$file" or die "delete asset: $!";

@@ -7,6 +7,7 @@ use std::process::{Command, ExitCode, Stdio};
 type Result<T> = std::result::Result<T, String>;
 const REPO: &str = "P4suta/Test-Mutation";
 const BOT: &str = "github-actions[bot]";
+const ASSET_FIELDS: &str = "[.id,.name,.digest,.label,.uploader.login,.state,.size]|@tsv";
 
 fn required(name: &str) -> Result<String> {
     env::var(name).map_err(|_| format!("missing {name}"))
@@ -84,6 +85,7 @@ struct Asset {
 struct Starter {
     id: u64,
     receipt: bool,
+    fields: String,
 }
 
 struct Release {
@@ -176,7 +178,7 @@ impl Candidate {
                 &format!("{base}/assets"),
                 "--paginate",
                 "--jq",
-                ".[]|[.id,.name,.digest,.label,.uploader.login,.state,.size]|@tsv",
+                &format!(".[]|{ASSET_FIELDS}"),
             ],
         )?;
         let receipt = self.receipt();
@@ -215,6 +217,7 @@ impl Candidate {
                 release.starter = Some(Starter {
                     id,
                     receipt: *name == receipt,
+                    fields: row.to_owned(),
                 });
                 continue;
             }
@@ -270,6 +273,10 @@ impl Candidate {
                 Some(_) => return Err("the incomplete release asset changed".into()),
             }
             let path = format!("repos/{REPO}/releases/assets/{}", starter.id);
+            let current_asset = output("gh", &["api", &path, "--jq", ASSET_FIELDS])?;
+            if current_asset.trim_end() != starter.fields {
+                return self.read_release();
+            }
             output("gh", &["api", "--method", "DELETE", &path])?;
             return self.read_release();
         }

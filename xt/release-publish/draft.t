@@ -150,6 +150,17 @@ subtest 'a published draft cannot lose an incomplete asset' => sub {
     ok !-e "$remote/$name.deleted", 'the workflow sent no delete request';
 };
 
+subtest 'the asset endpoint can confirm a receipt before the collection catches up' => sub {
+    local %ENV = setup();
+    my $remote = $ENV{FAKE_REMOTE};
+    invoke('stage');
+    write_file( "$remote/$name.sha256.interrupt", 1 );
+    is invoke('claim'), undef, 'the receipt request was interrupted';
+    write_file( "$remote/$name.sha256.complete-at-asset", "$digest  $name\n" );
+    like invoke('stage'), qr/^action=reconcile$/m, 'the accepted receipt bars a second submission';
+    ok !-e "$remote/$name.sha256.deleted", 'the completed receipt remains attached';
+};
+
 subtest 'recovery keeps the original verified bytes' => sub {
     local %ENV = setup();
     invoke('stage');
