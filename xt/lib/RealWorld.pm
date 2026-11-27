@@ -12,7 +12,7 @@ my @WARNING_KINDS = qw(around-the-hook no-stable-output standalone other);
 my @TEXTS         = qw(name version pathname sha256 shape);
 my %FIELD         = map { $_ => 1 } @TEXTS, qw(build tests options config expect hash_seed);
 my %EXPECTED      = map { $_ => 1 } qw(mutants score warnings seconds compile baseline_failures verdicts);
-my %STATUS        = map { $_ => 1 } qw(Killed Survived NoCoverage Ignored CompileError Timeout NoVerdict Pending);
+my %STATUS        = map { $_ => 1 } qw(Killed Survived NoCoverage Ignored CompileError Timeout);
 my $NUMBER        = qr/\A[0-9]+(?:[.][0-9]+)?\z/;
 
 sub _words ($value) {
@@ -40,7 +40,7 @@ sub _observed_expectations ( $run, $expect ) {
     }
     if ( exists $expect->{verdicts} ) {
         my $verdicts = $expect->{verdicts};
-        die "$run: verdicts must map mutant IDs to statuses\n"
+        die "$run: verdicts must map mutant IDs to completed statuses\n"
           if ref $verdicts ne 'HASH'
           || grep { $_ !~ /\A[0-9a-f]{12}\z/ || !$STATUS{ $verdicts->{$_} } } keys %$verdicts;
         $observed{verdicts} = $verdicts;

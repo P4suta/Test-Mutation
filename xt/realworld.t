@@ -88,6 +88,10 @@ subtest 'the table rejects a run that lacks a field or misstates one' => sub {
         like dies { RealWorld::runs( $TABLE . "verdicts = $invalid\n" ) }, qr/Example: verdicts must map mutant IDs/,
           "invalid verdict expectation $invalid";
     }
+    for my $incomplete (qw(NoVerdict Pending)) {
+        like dies { RealWorld::runs( $TABLE . qq{verdicts = { "abcdef012345" = "$incomplete" }\n} ) },
+          qr/Example: verdicts must map mutant IDs/, "a release cannot expect $incomplete";
+    }
 
     my @refused = (
         [ { hash_seed => '"not-hex"' }, qr/\AExample: hash_seed needs whole hexadecimal bytes\n/ ],
