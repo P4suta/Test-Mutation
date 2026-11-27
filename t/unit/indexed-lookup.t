@@ -41,5 +41,14 @@ my @decoded;
     like $listed->{stdout}, qr/^\Q$id\E .* \[Survived\] \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/m,
       'list dates each historical status';
     is [ $parsed, $reports ], [ 0, 0 ], 'list reads the index and skips both parsers';
+    my $loads = 0;
+    my $load  = Test::Mutation::Store->can('load');
+    local *Test::Mutation::Store::load = sub (@arguments) { $loads++; return $load->(@arguments) };
+    $restored = 0;
+    my $run = World::observe( [ 'run', '--mutant', $id, '--jobs', '1', '--format', 'terminal' ], cwd => $root );
+    is $run->{exit}, 0, 'the named mutant is remeasured through the CLI';
+    is [ $parsed, $reports, $loads ], [ 0, 0, 0 ],
+      'rerunning one mutant skips analysis, full reports, and bulk verdict reads';
+    is $restored, 1, 'the rerun restores exactly the requested mutant';
 }
 done_testing;
