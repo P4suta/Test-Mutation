@@ -147,9 +147,33 @@ run = "cpan-audit --no-corelist deps ."
 description = "Scan the tree for secrets"
 run = "gitleaks dir --no-banner ."
 
+[tasks.test-release-tools]
+description = "Test release proposals, PAUSE uploads, and GitHub draft recovery"
+tools = { node = "26.13.1", rust = "1.100.0" }
+run = [
+  '''
+  set -eu
+  dependencies=$(mktemp -d)
+  trap 'rm -rf "$dependencies"' EXIT
+  cp xt/release-please/package.json xt/release-please/package-lock.json "$dependencies/"
+  npm ci --ignore-scripts --no-audit --no-fund --prefix "$dependencies"
+  NODE_PATH="$dependencies/node_modules" npm test --prefix xt/release-please
+  ''',
+  "python3 -I xt/release-publish/test_pause.py",
+  "prove -l xt/release-publish/draft.t",
+]
+
 [tasks.check-components]
 description = "Run component tests, discovery, structural checks, and audits"
-depends = ["test", "test-shim", "gate", "discover-fast", "audit", "secrets"]
+depends = [
+  "test",
+  "test-shim",
+  "gate",
+  "discover-fast",
+  "audit",
+  "secrets",
+  "test-release-tools",
+]
 
 [tasks.check]
 description = "Run every fast gate"
