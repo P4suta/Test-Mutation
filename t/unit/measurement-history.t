@@ -137,13 +137,13 @@ subtest 'history follows finish times when concurrent writers commit out of orde
     is $gaps->(), [], 'recording another scope with the same finish breaks the tie';
 };
 
-subtest 'reading one empty scope takes bounded work as history grows' => sub {
+subtest 'reading a scope and its evidence takes bounded work as unrelated history grows' => sub {
     my $directory = File::Temp::tempdir( CLEANUP => 1 );
     my $other     = Test::Mutation::Settings::of_call( { root => $directory } );
     Test::Mutation::Store::History::record( $other, $empty, 1 );
     my $db    = Test::Mutation::Store::database( Test::Mutation::Store::path($other) );
     my $read  = \&Test::Mutation::Store::read_database;
-    my $steps = sub {
+    my $steps = sub ($expected) {
         my $hundreds = 0;
         no warnings 'redefine';
         local *Test::Mutation::Store::read_database = sub ($path) {
@@ -151,15 +151,27 @@ subtest 'reading one empty scope takes bounded work as history grows' => sub {
             $connection->sqlite_progress_handler( 100, sub { $hundreds++; return 0 } );
             return $connection;
         };
-        is Test::Mutation::Store::History::undetected($other), [], 'the most recent scope has no gaps';
+        is Test::Mutation::Store::History::undetected($other), $expected, 'the selected scope keeps its own verdicts';
         return $hundreds;
     };
-    my $initial = $steps->();
+    my $empty_cost = $steps->( [] );
+    my $one        = Test::Mutation::Result->new( $whole->%*, entries => [ $whole->entries->[0] ], finished => 130 );
+    Test::Mutation::Store::History::record( $other, $one, 1 );
+    my $one_gap = [ $gap->( $whole->entries->[0] ) ];
+    my $initial = $steps->($one_gap);
     $db->do( <<'SQL', undef, Cwd::abs_path($directory) );
 WITH RECURSIVE older(finished) AS (SELECT 1 UNION ALL SELECT finished + 1 FROM older WHERE finished < 1000)
 INSERT INTO measurement(project,finished,anchor,complete) SELECT ?, -finished, 1, 1 FROM older
 SQL
-    cmp_ok $steps->(), '<=', $initial + 1,
+    $db->do( <<'SQL', undef, $first->id, $one_gap->[0]{source} );
+INSERT INTO observation(run,ordinal,id,source,status,data)
+SELECT run, 0, ?, 'other source', 'Killed', '{}' FROM measurement WHERE finished < 0
+UNION ALL SELECT run, 1, 'other mutant', ?, 'Killed', '{}' FROM measurement WHERE finished < 0
+SQL
+    cmp_ok $steps->($one_gap), '<=', $initial + 1,
+      'one thousand observations for each unrelated mutant or source cost at most one extra block of 100 SQLite operations';
+    Test::Mutation::Store::History::record( $other, Test::Mutation::Result->new( $empty->%*, finished => 131 ), 1 );
+    cmp_ok $steps->( [] ), '<=', $empty_cost + 1,
       'one thousand older scopes cost at most one extra block of 100 SQLite operations';
 };
 

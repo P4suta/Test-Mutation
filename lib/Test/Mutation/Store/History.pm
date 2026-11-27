@@ -142,7 +142,7 @@ WITH scope AS (
     WHERE measurement.complete = 1 AND observation.status NOT IN ('NoVerdict', 'Pending', 'Timeout')
 ), gaps AS (
     SELECT member.id, member.path, member.source, member.ordinal, json_extract(member.data, '$.lines') AS lines
-    FROM scope JOIN observation member USING(run)
+    FROM scope CROSS JOIN observation member USING(run)
     WHERE (
         SELECT status FROM eligible
         WHERE eligible.project = scope.project AND eligible.id = member.id AND eligible.source = member.source
