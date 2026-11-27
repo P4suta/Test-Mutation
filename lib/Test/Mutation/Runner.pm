@@ -467,15 +467,15 @@ sub _measurement_digest ( $run, $selection ) {
     my $project = $run->{project};
     my @sources = sort( keys $selection->sources->%*, map { $_->{path} } $selection->unanalyzed->@* );
     my @skip    = (
-        '.git', @sources, $selection->tests->@*, map { _inside( $project, $_ ) } grep { defined } $config->cache_dir,
-        $config->report_dir, $config->config
+        _input_exclusions($run), @sources, $selection->tests->@*,
+        defined $config->config ? _inside( $project, $config->config ) : ()
     );
     return Test::Mutation::Store::Key::digest(
         $VERSION,
         Test::Mutation::Store::Key::digest( map { $_->name } $selection->mutators->@* ),
         Test::Mutation::Store::Key::digest( map { ( $_, $selection->digests->{$_} ) } @sources ),
         Test::Mutation::Store::Key::interpreter_build( $selection->perl ),
-        Test::Mutation::Store::Key::tree( $project, \@skip, 1 ),
+        Test::Mutation::Store::Key::tree( $project, \@skip, !$config->in_place ),
         Test::Mutation::Store::Key::environment( \%ENV, $project ),
         _module_text($SHIM_FILE),
         _module_text('Test/Mutation/Witness.pm'),
@@ -489,6 +489,12 @@ sub _measurement_digest ( $run, $selection ) {
         ( map { Test::Mutation::Store::Key::digest(@$_) } $config->lib, $config->switch, $config->link ),
         map { ( $_, Test::Mutation::Store::Key::file("$run->{project}/$_") ) } $selection->tests->@*
     );
+}
+
+sub _input_exclusions ($run) {
+    my $config = $run->{config};
+    return '.git', _inside( $run->{project}, $config->cache_dir ),
+      ( $config->in_place ? () : _inside( $run->{project}, $config->report_dir ) );
 }
 
 sub _measure_tests ( $run, $selection, $plan ) {
@@ -1666,7 +1672,7 @@ sub _fingerprint ( $run, $baseline ) {
     my $config    = $run->{config};
     my @targets   = sort keys $run->{sources}->%*;
     my @tests     = sort keys $baseline->{tests}->%*;
-    my @skip      = ( '.git', map { _inside( $run->{project}, $_ ) } $config->cache_dir, $config->report_dir );
+    my @skip      = _input_exclusions($run);
     my %include   = map { $_ => 1 } map { @{ $baseline->{tests}{$_}{includes} || [] } } @tests;
     my @libraries = map { ( $_, Test::Mutation::Store::Key::tree( $_, [] ) ) } sort keys %include;
     my @launch    = (

@@ -280,6 +280,14 @@ subtest 'a verdict depends on a complete original test and its external include 
     my $changed = $fingerprint->( [] );
     isnt $changed, $before_edit, 'an edit to an external library changes the key for a previously passing test';
     isnt $fingerprint->( [ $^X, 'Build' ] ), $changed, 'running an incremental build changes the key';
+    {
+        local $run->{config} =
+          Test::Mutation::Settings::of_call( { root => $project, in_place => 1, report_dir => 'spec' } );
+        write_file( "$project/spec/operand", 'first' );
+        my $stored = $fingerprint->( [] );
+        write_file( "$project/spec/operand", 'other' );
+        isnt $fingerprint->( [] ), $stored, 'in-place cached observations depend on data inside the report directory';
+    }
     ok $workspace->release(0), 'the original test observation releases its workspace';
 };
 
