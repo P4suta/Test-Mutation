@@ -90,7 +90,7 @@ subtest 'the packaged command runs after disttest on both release systems' => su
     }
 };
 
-subtest 'the release runs its measured command with a stable environment' => sub {
+subtest 'the release test rejects shard numbers in the measured environment' => sub {
     write_file( "$runtime/perl-path", "$interpreter\n" ) unless -f "$runtime/perl-path";
     my $script = step( $jobs->{'self-measurement'}, qr/--shard\b/ );
     for my $part ( 1, 2 ) {
@@ -99,7 +99,9 @@ subtest 'the release runs its measured command with a stable environment' => sub
             "PATH=$tools/$installed/perl/bin:$project/local/bin:/usr/bin:/bin",
             "PERL5LIB=$project/local/lib/perl5", 'TZ=UTC'
         ];
-        is invocation( $script, $part ), $expected, "shard $part passes its index only as a command argument";
+        my $leaking = $script =~ s/LC_ALL=C/SHARD=$part LC_ALL=C/r;
+        isnt invocation( $leaking, $part ), $expected, 'inheriting the scheduler index changes the measured inputs';
+        is invocation( $script, $part ),    $expected, "shard $part passes its index only as a command argument";
     }
 };
 
