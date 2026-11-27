@@ -1,5 +1,7 @@
 import hashlib
 import json
+from email import policy
+from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import subprocess
@@ -20,8 +22,20 @@ PERMISSION = "/permission/Test::Mutation"
 
 class Request(BaseHTTPRequestHandler):
     def do_GET(self):
-        self.server.requests.append((self.command, self.path, self.headers, b""))
-        status, body = self.server.replies[self.path]
+        self.reply(b"")
+
+    def do_POST(self):
+        self.reply(self.rfile.read(int(self.headers["Content-Length"])))
+
+    def reply(self, request_body):
+        self.server.requests.append((self.command, self.path, self.headers, request_body))
+        response = self.server.replies[self.path]
+        if callable(response):
+            response = response()
+        if response is None:
+            self.close_connection = True
+            return
+        status, body = response
         self.send_response(status)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -108,6 +122,76 @@ class Pause(unittest.TestCase):
             with self.subTest(status=status):
                 self.server.replies[PERMISSION] = (status, body)
                 self.assertEqual(self.run_adapter("preflight", token=TOKEN).returncode, 1)
+
+    def test_submits_the_approved_bytes_once_using_the_scoped_token(self):
+        self.author()
+        def absent():
+            self.archive.write_bytes(b"replaced after local verification")
+            return 404, b""
+        self.server.replies[PUBLISHED] = absent
+        self.server.replies["/api/upload"] = (200, b'{"result":"Upload succeeded"}')
+        result = self.run_adapter("publish", self.archive, DIGEST, token=TOKEN)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(b"accepted", result.stdout)
+        self.assertNotIn(TOKEN.encode(), result.stdout + result.stderr)
+        posts = [entry for entry in self.server.requests if entry[0] == "POST"]
+        self.assertEqual(len(posts), 1)
+        _, path, headers, body = posts[0]
+        self.assertEqual(path, "/api/upload")
+        self.assertEqual(headers["Authorization"], "Bearer " + TOKEN)
+        self.assertNotIn(TOKEN.encode(), body)
+        message = BytesParser(policy=policy.default).parsebytes(
+            b"Content-Type: " + headers["Content-Type"].encode() + b"\r\n\r\n" + body
+        )
+        parts = list(message.iter_parts())
+        self.assertEqual(len(parts), 1)
+        self.assertEqual(parts[0].get_param("name", header="Content-Disposition"), "file")
+        self.assertEqual(parts[0].get_filename(), FILENAME)
+        self.assertEqual(parts[0].get_payload(decode=True), CONTENT)
+        for method, _, headers, _ in self.server.requests:
+            if method != "POST":
+                self.assertIsNone(headers.get("Authorization"))
+
+    def test_published_bytes_make_publication_idempotent_before_loading_credentials(self):
+        for content, code in [(CONTENT, 0), (b"different original", 1)]:
+            with self.subTest(code=code):
+                self.server.requests.clear()
+                self.server.replies[PUBLISHED] = (200, content)
+                result = self.run_adapter("publish", self.archive, DIGEST)
+                self.assertEqual(result.returncode, code, result.stderr)
+                self.assertEqual([entry[:2] for entry in self.server.requests], [("GET", PUBLISHED)])
+
+    def test_an_unconfirmed_submission_never_repeats_the_post(self):
+        self.author()
+        self.server.replies[PUBLISHED] = (404, b"")
+        for response in [None, (500, b"server error"), (409, b'{"error":"Duplicated"}'),
+                         (200, b"HTML login"), (200, b'{"result":"other"}')]:
+            with self.subTest(response=response):
+                self.server.requests.clear()
+                self.server.replies["/api/upload"] = response
+                result = self.run_adapter("publish", self.archive, DIGEST, token=TOKEN)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(b"reconcile", result.stderr)
+                self.assertNotIn(TOKEN.encode(), result.stdout + result.stderr)
+                self.assertEqual([r[0] for r in self.server.requests].count("POST"), 1)
+
+    def test_provider_rejection_is_distinct_from_an_unconfirmed_upload(self):
+        self.author()
+        self.server.replies[PUBLISHED] = (404, b"")
+        for status, error in [(400, ["Invalid token"]), (406, "Not accepted")]:
+            with self.subTest(status=status):
+                self.server.replies["/api/upload"] = (status, json.dumps({"error": error}).encode())
+                result = self.run_adapter("publish", self.archive, DIGEST, token=TOKEN)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(b"rejected", result.stderr)
+
+    def test_publication_checks_permissions_before_submitting(self):
+        self.author()
+        self.server.replies[PUBLISHED] = (404, b"")
+        self.server.replies[PERMISSION] = (200, b'{"module_name":"Test::Mutation","owner":"OTHER","co_maintainers":[]}')
+        result = self.run_adapter("publish", self.archive, DIGEST, token=TOKEN)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual([entry[1] for entry in self.server.requests], [PUBLISHED, AUTHOR, PERMISSION])
 
     def test_matches_the_exact_author_archive(self):
         self.server.replies[PUBLISHED] = (200, CONTENT)

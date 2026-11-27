@@ -101,7 +101,7 @@ impl Response {
     }
 }
 
-fn request(protocol: &str, url: &str) -> Result<Response> {
+fn curl(protocol: &str, url: &str) -> Command {
     let mut curl = tool("/usr/bin/curl");
     curl.args([
         "--disable",
@@ -118,7 +118,11 @@ fn request(protocol: &str, url: &str) -> Result<Response> {
         "--url",
         url,
     ]);
-    let mut body = execute(&mut curl, &[])?.stdout;
+    curl
+}
+
+fn exchange(curl: &mut Command, input: &[u8]) -> Result<Response> {
+    let mut body = execute(curl, input)?.stdout;
     let end = body
         .iter()
         .rposition(|byte| *byte == b'\n')
@@ -129,6 +133,10 @@ fn request(protocol: &str, url: &str) -> Result<Response> {
         .ok_or("Invalid HTTP status")?;
     body.truncate(end);
     Ok(Response { status, body })
+}
+
+fn request(protocol: &str, url: &str) -> Result<Response> {
+    exchange(&mut curl(protocol, url), &[])
 }
 
 enum Outcome {
@@ -190,16 +198,50 @@ fn permissions(metacpan: &str, protocol: &str) -> Result<String> {
     }
 }
 
-pub(crate) fn run(_pause: &str, cpan: &str, metacpan: &str, protocol: &str) -> ExitCode {
+fn submit(pause: &str, metacpan: &str, protocol: &str, archive: &Archive) -> Result<Outcome> {
+    let token = token()?;
+    permissions(metacpan, protocol)?;
+    let mut upload = curl(protocol, pause);
+    upload.env("PAUSE_TOKEN", token).args([
+        "--variable",
+        "%PAUSE_TOKEN",
+        "--expand-header",
+        "Authorization: Bearer {{PAUSE_TOKEN}}",
+        "--form",
+        &format!(
+            "file=@-;filename={};type=application/gzip",
+            archive.filename
+        ),
+    ]);
+    let reply = exchange(&mut upload, &archive.bytes);
+    match reply {
+        Ok(response) if response.status == 200 && response.has_json(r#". == {"result":"Upload succeeded"}"#) => {
+            Ok(Outcome::Complete(format!("PAUSE accepted {}. Verify the public archive with reconcile.", archive.filename)))
+        }
+        Ok(response) if (response.status == 400 && response.has_json(r#".error == ["Invalid token"] or .error == ["Invalid scope"] or .error == ["Out of allowed IP ranges"] or .error == "Empty file""#))
+            || (response.status == 406 && response.has_json(r#".error == "Not accepted""#)) => {
+            Err(format!("PAUSE rejected {} (HTTP {})", archive.filename, response.status))
+        }
+        Ok(response) => Err(format!("PAUSE submission is unconfirmed (HTTP {}). Run reconcile for the same archive.", response.status)),
+        Err(error) => Err(format!("PAUSE submission is unconfirmed ({error}). Run reconcile for the same archive.")),
+    }
+}
+
+pub(crate) fn run(pause: &str, cpan: &str, metacpan: &str, protocol: &str) -> ExitCode {
     let args: Vec<_> = env::args().skip(1).collect();
     let outcome = match args.as_slice() {
         [command] if command == "preflight" => token().and_then(|_| permissions(metacpan, protocol)).map(|permission| {
             Outcome::Complete(format!("{permission}. Token format verified locally; PAUSE authentication remains unverified."))
         }),
-        [command, path, digest] if command == "reconcile" => {
-            Archive::read(path, digest).and_then(|archive| reconcile(cpan, protocol, &archive))
+        [command, path, digest] if command == "reconcile" || command == "publish" => {
+            Archive::read(path, digest).and_then(|archive| {
+                match (command.as_str(), reconcile(cpan, protocol, &archive)?) {
+                    ("publish", Outcome::Missing) => submit(pause, metacpan, protocol, &archive),
+                    (_, outcome) => Ok(outcome),
+                }
+            })
         }
-        _ => Err("Usage: pause preflight | pause reconcile ARCHIVE SHA256".into()),
+        _ => Err("Usage: pause preflight | pause reconcile ARCHIVE SHA256 | pause publish ARCHIVE SHA256".into()),
     };
     match outcome {
         Ok(Outcome::Complete(message)) => {
