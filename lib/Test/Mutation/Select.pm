@@ -20,6 +20,8 @@ use Test::Mutation::Syntax::PPI;
 use Test::Mutation::Error;
 use Test::Mutation::Types qw(PathSelection);
 use Test::Mutation::Store::Key;
+use Test::Mutation::Store;
+use Test::Mutation::Store::Analysis;
 
 our $VERSION = '0.001';
 
@@ -74,7 +76,10 @@ signature_for resolve => (
         { default => sub { [] } },
         baseline_only => Bool,
         { default => 0 },
-        reports => Bool,
+        read_only => Bool,
+        { default => 0 },
+        identifiers => Optional [ ArrayRef [Str] ],
+        reports     => Bool,
         { default => 0 },
         summary => Optional [ Maybe [Str] ],
     ],
@@ -101,11 +106,16 @@ sub resolve ($arg) {
     my $tests    = _files( $config, $root, 'test',   \%matches );
     my $changed  = defined $config->since ? Test::Mutation::Git::changed( $root, $config->since ) : undef;
     my $paths    = $arg->operands->@*     ? paths( $root, $arg->operands, $files )                : $arg->paths;
+    my $prefixes = $arg->identifiers || $config->mutant;
+    my @pending;
     my $analysis = _analysis(
         $config, $files,
         $mutators,
         {
             root          => $root,
+            pending       => \@pending,
+            read_only     => $arg->read_only,
+            prefixes      => $prefixes,
             version       => $version,
             paths         => $paths,
             changed       => $changed,
@@ -115,10 +125,11 @@ sub resolve ($arg) {
     );
     my @mutants = $analysis->{mutants}->@*;
 
-    if ( $config->mutant->@* ) {
+    if (@$prefixes) {
         my %wanted;
-        for my $prefix ( $config->mutant->@* ) {
-            Test::Mutation::Error::raise( 'mutant-unknown', identifier => $prefix ) if length($prefix) < 4;
+        for my $prefix (@$prefixes) {
+            Test::Mutation::Error::raise( 'mutant-unknown', identifier => $prefix )
+              if !$arg->identifiers && length($prefix) < 4;
             my $id = by_id( \@mutants, $prefix )->id;
             $wanted{$id} = 1;
             $matches{mutant}{$prefix} = [$id];
@@ -141,7 +152,8 @@ sub resolve ($arg) {
         Test::Mutation::Store::Key::digest( map { $_->name } @$mutators ),
         map { ( $_, $digests->{$_} ) } sort keys %$digests
     );
-    outputs( $config, $arg->summary ) if $arg->reports;
+    outputs( $config, $arg->summary )                                                           if $arg->reports;
+    Test::Mutation::Store::Analysis::publish( Test::Mutation::Store::path($config), \@pending ) if @pending;
     return Test::Mutation::Selection->new(
         $analysis->%*,
         project        => $root,
@@ -267,10 +279,32 @@ sub _writable_file ($path) {
     return;
 }
 
+sub _file_reader ( $config, $mutators, $options ) {
+    my %chosen     = map { $_->name => 1 } $mutators->@*;
+    my $others     = [ grep { !$chosen{ $_->name } } Test::Mutation::Mutator::Catalog::mutators()->@* ];
+    my $store      = Test::Mutation::Store::path($config);
+    my $db         = $config->cache && -f $store ? Test::Mutation::Store::database($store) : undef;
+    my $conditions = Test::Mutation::Store::Key::digest(
+        $VERSION, "$options->{version}", $PPI::VERSION, $PPIx::Regexp::VERSION,
+        $config->suppress_require_names,
+        $config->suppress_require_reason,
+        map { $_->name } @$mutators
+    );
+    return sub ( $source, $digest ) {
+        my $identity = Test::Mutation::Store::Key::digest( $conditions, $source->path, $digest );
+        if ($db) {
+            my $file = Test::Mutation::Store::Analysis::read_file( $db, $identity, $options->{prefixes} );
+            return $file if $file;
+        }
+        my $file = _analyze_file( $config, $source, $mutators, $others, $options->{version} );
+        push $options->{pending}->@*, [ $identity, $file ] if $config->cache && !$options->{read_only};
+        return $file;
+    };
+}
+
 sub _analysis ( $config, $files, $mutators, $options ) {
     my ( $root, $paths, $changed ) = $options->@{qw(root paths changed)};
-    my %chosen = map { $_->name => 1 } $mutators->@*;
-    my $others = [ grep { !$chosen{ $_->name } } Test::Mutation::Mutator::Catalog::mutators()->@* ];
+    my $read = _file_reader( $config, $mutators, $options );
     my ( %sources, %digests, %left_out, @mutants, @problems, @rejected, @refusals );
     for my $path ( $files->@* ) {
         my $selected = ( !$changed || $changed->{$path} ) && ( !$paths || exists $paths->{$path} );
@@ -283,39 +317,17 @@ sub _analysis ( $config, $files, $mutators, $options ) {
             $sources{$path} = $source;
             next;
         }
-        my $analysis = Test::Mutation::Syntax::PPI::analyze($source);
-
-        # The analysis of a file is the longest step outside the tests, so a signal ends the work after the file it met.
-        Test::Mutation::Signals::check();
-        if ( defined $analysis->{problem} ) {
-            push @problems, { path => $path, problem => $analysis->{problem} };
+        my $file = $read->( $source, $digests{$path} );
+        push @refusals, $file->{refusals}->@*;
+        if ( defined $file->{problem} ) {
+            push @problems, { path => $path, problem => $file->{problem} };
             next;
         }
         $sources{$path}  = $source;
-        $left_out{$path} = scalar $analysis->{dropped}->@* if $analysis->{dropped}->@*;
-        my $generated = Test::Mutation::Mutant::Generator::generate(
-            source   => $source,
-            analysis => $analysis,
-            mutators => $mutators,
-            perl     => $options->{version}
-        );
-        my $judged = Test::Mutation::Mutant::Generator::generate(
-            source   => $source,
-            analysis => $analysis,
-            mutators => $others,
-            perl     => $options->{version}
-        );
-        push @refusals,
-          Test::Mutation::Suppression::refusals(
-            path           => $path,
-            suppression    => $analysis->{suppressions},
-            mutants        => [ map { $_->{mutants}->@* } $generated, $judged ],
-            require_names  => $config->suppress_require_names,
-            require_reason => $config->suppress_require_reason,
-          )->@*;
+        $left_out{$path} = $file->{left_out} if $file->{left_out};
         push @mutants, grep { !$paths || !$paths->{$path}->@* || _in_changed_lines( $paths->{$path}, $_ ) }
-          grep { !$changed || _in_changed_lines( $changed->{$path}, $_ ) } $generated->{mutants}->@*;
-        push @rejected, map { { path => $path, $_->%* } } $generated->{rejected}->@*;
+          grep { !$changed || _in_changed_lines( $changed->{$path}, $_ ) } $file->{mutants}->@*;
+        push @rejected, map { { path => $path, $_->%* } } $file->{rejected}->@*;
     }
 
     # A run with a broken comment would measure other mutants than the comments ask for, so it measures none.
@@ -329,6 +341,37 @@ sub _analysis ( $config, $files, $mutators, $options ) {
         left_out   => \%left_out,
         digests    => \%digests
     };
+}
+
+sub _analyze_file ( $config, $source, $mutators, $others, $version ) {
+    my $analysis = Test::Mutation::Syntax::PPI::analyze($source);
+    Test::Mutation::Signals::check();
+    my $file = {
+        problem  => $analysis->{problem},
+        left_out => scalar $analysis->{dropped}->@*,
+        rejected => [],
+        refusals => [],
+        mutants  => []
+    };
+    return $file if defined $analysis->{problem};
+    my ( $generated, $judged ) = map {
+        Test::Mutation::Mutant::Generator::generate(
+            source   => $source,
+            analysis => $analysis,
+            mutators => $_,
+            perl     => $version
+        );
+    } $mutators, $others;
+    $file->{mutants}  = $generated->{mutants};
+    $file->{rejected} = $generated->{rejected};
+    $file->{refusals} = Test::Mutation::Suppression::refusals(
+        path           => $source->path,
+        suppression    => $analysis->{suppressions},
+        mutants        => [ map { $_->{mutants}->@* } $generated, $judged ],
+        require_names  => $config->suppress_require_names,
+        require_reason => $config->suppress_require_reason,
+    );
+    return $file;
 }
 
 sub _in_changed_lines ( $ranges, $mutant ) {

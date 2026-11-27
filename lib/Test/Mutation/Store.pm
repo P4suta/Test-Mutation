@@ -141,6 +141,11 @@ sub database ($path) {
                 'CREATE TABLE observation (run INTEGER, ordinal INTEGER, id TEXT, path TEXT, source TEXT, status TEXT, data TEXT, PRIMARY KEY(run, id))'
             );
             $db->do('CREATE INDEX observed_mutant ON observation(id, source, run)');
+            $db->do('CREATE TABLE analysis (identity TEXT PRIMARY KEY, facts TEXT NOT NULL)');
+            $db->do(
+                'CREATE TABLE candidate (analysis TEXT, ordinal INTEGER, id TEXT, data TEXT NOT NULL, PRIMARY KEY(analysis,id))'
+            );
+            $db->do('CREATE INDEX catalog_order ON candidate(analysis,ordinal)');
             my $old      = _read("$directory/cache.json");
             my $verdicts = _validated( $old->{mutants}, $RECORD );
             my $matching = { map { $_ => $verdicts->{$_} } grep { defined $verdicts->{$_}{source} } keys %$verdicts };

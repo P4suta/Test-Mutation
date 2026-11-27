@@ -72,7 +72,7 @@ signature_for analyze =>
   ( positional => [ InstanceOf ['Test::Mutation::Config'], Optional [ Maybe [PathSelection] ] ], returns => $ANALYSIS );
 
 sub analyze ( $config, $paths = undef ) {
-    my $selected = Test::Mutation::Select::resolve( config => $config, paths => $paths );
+    my $selected = Test::Mutation::Select::resolve( config => $config, paths => $paths, read_only => 1 );
     return {
         sources   => $selected->sources,
         mutants   => $selected->mutants,

@@ -230,10 +230,11 @@ sub _planned ( $argv, $world ) {
         my $first = $plan{operands}[0];
         _unknown_command($first) if $parsed->{implicit} && $first !~ m{[./:]} && !-e _under( $inside, $first );
         $plan{selection} = Test::Mutation::Select::resolve(
-            config   => $plan{config},
-            operands => $plan{operands},
-            reports  => $command eq 'run' ? 1 : 0,
-            summary  => $world->{env}{GITHUB_STEP_SUMMARY}
+            config    => $plan{config},
+            operands  => $plan{operands},
+            read_only => $command eq 'run' ? 0 : 1,
+            reports   => $command eq 'run' ? 1 : 0,
+            summary   => $world->{env}{GITHUB_STEP_SUMMARY}
         );
     }
     return \%plan;
