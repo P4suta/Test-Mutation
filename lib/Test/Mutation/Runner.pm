@@ -12,6 +12,7 @@ use Types::Standard qw(ArrayRef Bool CodeRef Dict HashRef InstanceOf Int Maybe O
 use Type::Params    qw(signature_for);
 use Test::Mutation::Attribution;
 use Test::Mutation::Build;
+use Test::Mutation::Config;
 use Test::Mutation::Store;
 use Test::Mutation::Store::History;
 use Test::Mutation::Coverage;
@@ -162,14 +163,8 @@ sub _recheck ( $config, $options ) {
     my $historical = { map { $_->{id} => $_->{path} } @$gaps };
     my @ids        = map { $_->{id} } @$gaps;
     if ( $config->mutant->@* ) {
-        my $explicit = Test::Mutation::Select::resolve(
-            config           => $config,
-            paths            => $paths,
-            changed          => $changed,
-            historical_paths => $historical,
-            read_only        => 1
-        );
-        my %wanted = map { $_ => 1 } map { @$_ } values $explicit->matches->{mutant}->%*;
+        my $all    = $paths || $changed ? Test::Mutation::Store::History::undetected($config) : $gaps;
+        my %wanted = _explicit_gaps( $config, $historical, $all );
         @ids = grep { $wanted{$_} } @ids;
     }
     my $named     = Test::Mutation::Settings::for_mutants( $config, \@ids );
@@ -178,8 +173,9 @@ sub _recheck ( $config, $options ) {
         reports          => $options->{reports} || 0,
         summary          => $options->{summary},
         changed          => $changed,
+        identifiers      => \@ids,
         historical_paths => $historical,
-        paths            => @ids ? $paths : {}
+        paths            => $paths
     );
     return (
         $named,
@@ -189,6 +185,23 @@ sub _recheck ( $config, $options ) {
             )
         }
     );
+}
+
+sub _explicit_gaps ( $config, $historical, $all ) {
+    my @request;
+    for my $prefix ( $config->mutant->@* ) {
+        my @known = grep { index( $_->{id}, $prefix ) == 0 } @$all;
+        next if length($prefix) >= 4 && @known == 1 && !exists $historical->{ $known[0]{id} };
+        push @request, $prefix;
+    }
+    return unless @request;
+    my $catalog  = Test::Mutation::Config->new( $config->%*, mutant => \@request, since => undef );
+    my $explicit = Test::Mutation::Select::resolve(
+        config           => $catalog,
+        historical_paths => $historical,
+        read_only        => 1
+    );
+    return map { $_ => 1 } map { @$_ } values $explicit->matches->{mutant}->%*;
 }
 
 # The tests run in a copy of the project, so a file that a test writes or removes leaves the project as it was.

@@ -130,7 +130,7 @@ sub resolve ($arg) {
             read_only     => $arg->read_only,
             prefixes      => $prefixes,
             version       => $version,
-            paths         => $paths,
+            paths         => $arg->identifiers && !@$prefixes ? {} : $paths,
             changed       => $changed,
             report_inputs => $arg->reports,
             baseline_only => $arg->baseline_only

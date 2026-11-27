@@ -40,6 +40,9 @@ subtest 'explicit identifiers intersect the historical scope before sharding' =>
       'the named prefixes select only the two requested gaps';
     is ids( run_scope( '--undetected', 'lib/Alpha.pm', @named, '--shard', '2/2' ) ), [ $chosen[1]->id ],
       'shard ordinals are assigned after intersecting the file and named gaps';
+    my $disjoint = run_scope( '--undetected', 'lib/Beta.pm', @named );
+    is ids($disjoint), [], 'valid named gaps outside the selected file yield an empty recheck';
+    is $disjoint->selection->{paths}, { 'lib/Beta.pm' => [] }, 'an empty result identifies the requested scope';
     my $unknown = ran( 2, $root, 'run', '--undetected', '--mutant', '123456789abc' );
     like $unknown->{stderr}, qr/123456789abc/, 'an unknown explicit identifier is diagnosed';
 };
@@ -66,6 +69,8 @@ subtest 'a stale gap is diagnosed only inside its requested scope' => sub {
     my @beta = grep { $_->path eq 'lib/Beta.pm' } @gaps;
     is ids( run_scope( '--undetected', 'lib/Beta.pm' ) ), [ map { $_->id } @beta ],
       'stale gaps in a different file leave the selected file measurable';
+    is ids( run_scope( '--undetected', 'lib/Beta.pm', '--mutant', $stale->id ) ), [],
+      'a named historical gap outside the file can be excluded after its source changes';
     my $refused = ran( 2, $root, 'run', '--undetected', 'lib/Alpha.pm:2', '--mutant', substr( $stale->id, 0, 8 ) );
     like $refused->{stderr}, qr/mutation run lib\/Alpha\.pm/, 'an explicitly named stale prefix identifies its file';
 };
