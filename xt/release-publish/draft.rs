@@ -80,10 +80,17 @@ struct Asset {
     digest: String,
 }
 
+#[derive(PartialEq)]
+struct Starter {
+    id: u64,
+    receipt: bool,
+}
+
 struct Release {
     draft: bool,
     archive: Option<Asset>,
     receipt: Option<Asset>,
+    starter: Option<Starter>,
 }
 
 impl Candidate {
@@ -122,7 +129,7 @@ impl Candidate {
         format!("{}.sha256", self.archive)
     }
 
-    fn read_release(&self) -> Result<Release> {
+    fn inspect_release(&self) -> Result<Release> {
         let base = format!("repos/{REPO}/releases/{}", self.id);
         let response = output(
             "gh",
@@ -160,6 +167,7 @@ impl Candidate {
             draft: *state == "true",
             archive: None,
             receipt: None,
+            starter: None,
         };
         let assets = output(
             "gh",
@@ -168,22 +176,20 @@ impl Candidate {
                 &format!("{base}/assets"),
                 "--paginate",
                 "--jq",
-                ".[]|[.id,.name,.digest,.label,.uploader.login,.state]|@tsv",
+                ".[]|[.id,.name,.digest,.label,.uploader.login,.state,.size]|@tsv",
             ],
         )?;
         let receipt = self.receipt();
         for row in assets.lines() {
             let fields: Vec<_> = row.split('\t').collect();
-            let [id, name, hash, label, login, uploaded] = fields.as_slice() else {
+            let [raw_id, name, hash, label, login, state, size] = fields.as_slice() else {
                 return Err("invalid GitHub asset".into());
             };
-            let hash = hash.strip_prefix("sha256:").filter(|v| digest(v, 64));
-            let Some(hash) = hash else {
-                return Err("asset has no verified SHA-256".into());
-            };
-            if *label != self.sha || *login != BOT || *uploaded != "uploaded" {
-                return Err(format!("unexpected origin of {name}"));
-            }
+            let id = raw_id
+                .parse::<u64>()
+                .ok()
+                .filter(|value| *value > 0 && value.to_string() == *raw_id)
+                .ok_or("invalid asset ID")?;
             let destination = if *name == self.archive {
                 &mut release.archive
             } else if *name == receipt {
@@ -194,10 +200,46 @@ impl Candidate {
             if destination.is_some() {
                 return Err(format!("duplicate release asset {name}"));
             }
+            if *login != BOT {
+                return Err(format!("unexpected uploader of {name}"));
+            }
+            if *state == "starter" {
+                if !release.draft
+                    || release.starter.is_some()
+                    || *size != "0"
+                    || !hash.is_empty()
+                    || (!label.is_empty() && *label != self.sha)
+                {
+                    return Err(format!("unexpected incomplete upload of {name}"));
+                }
+                release.starter = Some(Starter {
+                    id,
+                    receipt: *name == receipt,
+                });
+                continue;
+            }
+            if *label != self.sha || *state != "uploaded" {
+                return Err(format!("unexpected origin of {name}"));
+            }
+            let hash = hash
+                .strip_prefix("sha256:")
+                .filter(|v| digest(v, 64))
+                .ok_or("asset has no verified SHA-256")?;
             *destination = Some(Asset {
-                id: id.parse().map_err(|_| "invalid asset ID")?,
+                id,
                 digest: hash.to_owned(),
             });
+        }
+        if let Some(starter) = &release.starter {
+            if release.receipt.is_some()
+                || release.archive.is_some() != starter.receipt
+                || release
+                    .archive
+                    .as_ref()
+                    .is_some_and(|archive| archive.id == starter.id)
+            {
+                return Err("the incomplete upload conflicts with other release assets".into());
+            }
         }
         if release.receipt.is_none()
             && release
@@ -206,6 +248,24 @@ impl Candidate {
                 .is_some_and(|asset| asset.digest != self.checksum)
         {
             return Err("the unreserved archive differs from the verified candidate".into());
+        }
+        Ok(release)
+    }
+
+    fn read_release(&self) -> Result<Release> {
+        let release = self.inspect_release()?;
+        if release.starter.is_some() {
+            return Err("restage the interrupted GitHub upload before continuing".into());
+        }
+        Ok(release)
+    }
+
+    fn prepare_release(&self) -> Result<Release> {
+        let release = self.inspect_release()?;
+        if let Some(starter) = release.starter {
+            let path = format!("repos/{REPO}/releases/assets/{}", starter.id);
+            output("gh", &["api", "--method", "DELETE", &path])?;
+            return self.read_release();
         }
         Ok(release)
     }
@@ -260,7 +320,7 @@ impl Candidate {
         if sha256(&candidate)? != self.checksum {
             return Err("candidate archive checksum mismatch".into());
         }
-        let mut release = self.read_release()?;
+        let mut release = self.prepare_release()?;
         if release.archive.is_none() {
             if !release.draft || release.receipt.is_some() {
                 return Err("release contains an incomplete upload".into());

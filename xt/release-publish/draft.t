@@ -100,6 +100,30 @@ subtest 'only the first reservation may submit the archive' => sub {
     is read_file( $ENV{FAKE_REMOTE} . "/$name.sha256" ), "$digest  $name\n", 'the receipt names the archive digest';
 };
 
+subtest 'staging recovers an interrupted archive upload' => sub {
+    local %ENV = setup();
+    my $remote = $ENV{FAKE_REMOTE};
+    write_file( "$remote/$name.interrupt", 1 );
+    is invoke('stage'),                  undef,     'the server lost the upload';
+    is read_file("$remote/$name.state"), 'starter', 'GitHub kept the empty asset';
+    like invoke('stage'), qr/^action=prepare$/m, 'a retry stages the verified archive';
+    is read_file("$remote/$name"),         $bytes, 'the retry retained the tested bytes';
+    is read_file("$remote/$name.deleted"), 10,     'only the incomplete archive was removed';
+};
+
+subtest 'staging recovers an interrupted reservation before one submission' => sub {
+    local %ENV = setup();
+    my $remote = $ENV{FAKE_REMOTE};
+    invoke('stage');
+    write_file( "$remote/$name.sha256.interrupt", 1 );
+    is invoke('claim'), undef, 'the checksum upload failed';
+    like invoke('stage'), qr/^action=prepare$/m,   'a retry can reserve the candidate';
+    like invoke('claim'), qr/^action=submit$/m,    'the completed reservation permits one submission';
+    like invoke('claim'), qr/^action=reconcile$/m, 'the next claim only checks the registry';
+    ok !-e "$remote/$name.deleted", 'the original archive was preserved';
+    is read_file("$remote/$name.sha256.deleted"), 11, 'only the incomplete receipt was removed';
+};
+
 subtest 'recovery keeps the original verified bytes' => sub {
     local %ENV = setup();
     invoke('stage');

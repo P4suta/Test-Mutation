@@ -21,6 +21,25 @@ sub write_file ( $file, $value ) {
     return;
 }
 
+sub value ( $filename, $fallback ) {
+    return -f "$root/$filename" ? read_file($filename) : $fallback;
+}
+
+sub asset_row ( $file, $id ) {
+    my $bytes = read_file($file);
+    my $state = value( "$file.state", 'uploaded' );
+    my $hash  = $state eq 'starter' ? q{} : 'sha256:' . sha256_hex($bytes);
+    my @row   = (
+        value( "$file.id", $id ),
+        $file,
+        value( "$file.digest", $hash ),
+        value( "$file.label",  q{} ),
+        value( "$file.author", q{} ), $state
+    );
+    push @row, length($bytes) if grep { /[.]size/ } @ARGV;
+    return join "\t", @row;
+}
+
 my $command = shift @ARGV;
 if ( $command eq 'api' ) {
     write_file( 'api-used', 1 );
@@ -42,15 +61,25 @@ if ( $command eq 'api' ) {
         my $id = 10;
         for my $file ( $name, "$name.sha256" ) {
             if ( -f "$root/$file" ) {
-                say join "\t", $id, $file, 'sha256:' . sha256_hex( read_file($file) ),
-                  read_file("$file.label"), read_file("$file.author"), 'uploaded';
+                say asset_row( $file, $id );
             }
             ++$id;
         }
         exit 0;
     }
-    if ( $path =~ m{/releases/assets/10\z} ) {
-        print read_file($name);
+    if ( $path =~ m{/releases/assets/(10|11)\z} ) {
+        my $id   = $1;
+        my $file = $id == 10 ? $name : "$name.sha256";
+        exit 1 if !-f "$root/$file";
+        if ( grep { $_ eq 'DELETE' } @ARGV ) {
+            write_file( "$file.deleted", $id );
+            unlink "$root/$file" or die "delete asset: $!";
+            unlink "$root/$file.state";
+        }
+        elsif ( grep { $_ eq '--jq' } @ARGV ) {
+            say asset_row( $file, $id );
+        }
+        else { print read_file($file) }
         exit 0;
     }
     exit 2;
@@ -62,6 +91,12 @@ elsif ( $command eq 'release' ) {
         my ( $file, $label ) = split /\#/, $asset, 2;
         my $target = basename($file);
         exit 1 if -e "$root/$target" || read_file('draft') ne 'true';
+        if ( unlink "$root/$target.interrupt" ) {
+            write_file( $target,          q{} );
+            write_file( "$target.author", 'github-actions[bot]' );
+            write_file( "$target.state",  'starter' );
+            exit 1;
+        }
         copy( $file, "$root/$target" ) or die "attach $file: $!";
         write_file( "$target.label",  $label );
         write_file( "$target.author", 'github-actions[bot]' );
