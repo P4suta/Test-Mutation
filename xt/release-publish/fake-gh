@@ -1,0 +1,69 @@
+#!/usr/bin/env perl
+use v5.36;
+use Digest::SHA    qw(sha256_hex);
+use File::Copy     qw(copy);
+use File::Basename qw(basename);
+
+my $root   = $ENV{FAKE_REMOTE};
+my $name   = 'Test-Mutation-0.001.tar.gz';
+my $source = 'ab' x 20;
+
+sub read_file ($file) {
+    open my $in, '<:raw', "$root/$file" or die "read $file: $!";
+    local $/ = undef;
+    return readline $in;
+}
+
+sub write_file ( $file, $value ) {
+    open my $out, '>:raw', "$root/$file" or die "write $file: $!";
+    print {$out} $value or die "write $file: $!";
+    close $out          or die "close $file: $!";
+    return;
+}
+
+my $command = shift @ARGV;
+if ( $command eq 'api' ) {
+    my ($path) = grep { m{\Arepos/} } @ARGV;
+    if ( $path =~ m{/releases/17\z} ) {
+        say join "\t", 'v0.1.0', $source, read_file('draft'), '17';
+        exit 0;
+    }
+    if ( $path =~ m{/commits/v0[.]1[.]0\z} ) {
+        say read_file('tag');
+        exit 0;
+    }
+    if ( $path =~ m{/releases/17/assets\z} ) {
+        my $id = 10;
+        for my $file ( $name, "$name.sha256" ) {
+            if ( -f "$root/$file" ) {
+                say join "\t", $id, $file, 'sha256:' . sha256_hex( read_file($file) ),
+                  read_file("$file.label"), read_file("$file.author"), 'uploaded';
+            }
+            ++$id;
+        }
+        exit 0;
+    }
+    if ( $path =~ m{/releases/assets/10\z} ) {
+        print read_file($name);
+        exit 0;
+    }
+    exit 2;
+}
+elsif ( $command eq 'release' ) {
+    my $verb = shift @ARGV;
+    if ( $verb eq 'upload' ) {
+        my ($asset) = grep { index( $_, '#' ) >= 0 } @ARGV;
+        my ( $file, $label ) = split /\#/, $asset, 2;
+        my $target = basename($file);
+        exit 1 if -e "$root/$target" || read_file('draft') ne 'true';
+        copy( $file, "$root/$target" ) or die "attach $file: $!";
+        write_file( "$target.label",  $label );
+        write_file( "$target.author", 'github-actions[bot]' );
+    }
+    elsif ( $verb eq 'edit' && grep { $_ eq '--draft=false' } @ARGV ) {
+        write_file( 'draft', 'false' );
+        write_file( 'edits', 1 + ( -f "$root/edits" ? read_file('edits') : 0 ) );
+    }
+    else { exit 2 }
+}
+else { exit 2 }

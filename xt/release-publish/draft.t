@@ -1,0 +1,121 @@
+use v5.36;
+use Test2::V0;
+use Digest::SHA qw(sha256_hex);
+use File::Copy  qw(copy);
+use File::Temp  ();
+use FindBin     ();
+use lib 't/e2e/lib';
+use Fixture qw(write_file);
+
+my $root     = File::Temp::tempdir( CLEANUP => 1 );
+my $tool     = "$root/draft";
+my $source   = 'ab' x 20;
+my $name     = 'Test-Mutation-0.001.tar.gz';
+my $bytes    = 'the tested distribution';
+my $digest   = sha256_hex($bytes);
+my $compiled = system( 'rustc', '--edition=2021', '-D', 'warnings', "$FindBin::Bin/draft.rs", '-o', $tool );
+is $compiled, 0, 'the draft controller compiles' or bail_out('the draft controller is unavailable');
+copy( "$FindBin::Bin/fake-gh", "$root/gh" ) or die "copy fake gh: $!";
+chmod oct '755', "$root/gh" or die "mark fake gh executable: $!";
+
+sub read_file ($path) {
+    open my $in, '<:raw', $path or die "read $path: $!";
+    local $/ = undef;
+    return readline $in;
+}
+
+sub setup () {
+    my $area = File::Temp::tempdir( DIR => $root );
+    mkdir "$area/staging" or die "create staging: $!";
+    write_file( "$area/candidate/$name", $bytes );
+    write_file( "$area/remote/draft",    'true' );
+    write_file( "$area/remote/tag",      $source );
+    return (
+        %ENV,
+        PATH                => "$area:$root:$ENV{PATH}",
+        GITHUB_REPOSITORY   => 'P4suta/Test-Mutation',
+        CPAN_SOURCE_SHA     => $source,
+        CPAN_TAG            => 'v0.1.0',
+        CPAN_VERSION        => '0.001',
+        CPAN_RELEASE_ID     => '17',
+        CPAN_ARCHIVE_SHA256 => $digest,
+        CPAN_CANDIDATE_DIR  => "$area/candidate",
+        CPAN_STAGING_DIR    => "$area/staging",
+        FAKE_REMOTE         => "$area/remote",
+        TEST_AREA           => $area,
+    );
+}
+
+sub invoke ($action) {
+    open my $output, q{-|}, $tool, $action or die "run $action: $!";
+    local $/ = undef;
+    my $text = readline $output;
+    my $ok   = close $output;
+    return $ok ? ( $text // q{} ) : undef;
+}
+
+subtest 'invalid source, version and archive identities prevent draft writes' => sub {
+    for my $case (
+        [ CPAN_SOURCE_SHA     => 'cd' x 20 ],
+        [ CPAN_TAG            => 'v0.0.1' ],
+        [ CPAN_ARCHIVE_SHA256 => 'af' x 32 ],
+        [ CPAN_RELEASE_ID     => 'different' ],
+      )
+    {
+        local %ENV = setup();
+        local $ENV{ $case->[0] } = $case->[1];
+        is invoke('stage'), undef, "reject an invalid $case->[0]";
+        ok !-e $ENV{FAKE_REMOTE} . "/$name", 'a rejected candidate leaves the draft empty';
+    }
+};
+
+subtest 'only the first reservation may submit the archive' => sub {
+    local %ENV = setup();
+    like invoke('stage'), qr/^action=prepare$/m, 'the verified archive is ready for a reservation';
+    is read_file( $ENV{FAKE_REMOTE} . "/$name" ), $bytes, 'the draft receives the tested file';
+    like invoke('claim'), qr/^action=submit$/m,    'creating the checksum reserves one upload';
+    like invoke('claim'), qr/^action=reconcile$/m, 'a second claim checks the registry';
+    like invoke('stage'), qr/^action=reconcile$/m, 'a restarted run also checks the registry';
+    is read_file( $ENV{FAKE_REMOTE} . "/$name.sha256" ), "$digest  $name\n", 'the receipt names the archive digest';
+};
+
+subtest 'recovery keeps the original verified bytes' => sub {
+    local %ENV = setup();
+    invoke('stage');
+    invoke('claim');
+    write_file( $ENV{CPAN_CANDIDATE_DIR} . "/$name", 'different bytes from the same source' );
+    local $ENV{CPAN_ARCHIVE_SHA256} = sha256_hex('different bytes from the same source');
+    my $recovered = invoke('stage');
+    like $recovered, qr/^action=reconcile$/m,   'an existing submission only needs reconciliation';
+    like $recovered, qr/^sha256=\Q$digest\E$/m, 'the original digest identifies the release';
+    is read_file( $ENV{CPAN_STAGING_DIR} . "/$name" ), $bytes, 'the public copy must match the original Linux artifact';
+};
+
+subtest 'foreign assets and conflicting receipts stop recovery' => sub {
+    local %ENV = setup();
+    invoke('stage');
+    write_file( $ENV{FAKE_REMOTE} . "/$name.author", 'other-user' );
+    is invoke('stage'), undef, 'a foreign upload cannot establish candidate provenance';
+    write_file( $ENV{FAKE_REMOTE} . "/$name.author", 'github-actions[bot]' );
+    invoke('claim');
+    write_file( $ENV{FAKE_REMOTE} . "/$name.sha256", 'another checksum' );
+    is invoke('claim'), undef, 'a conflicting receipt cannot authorize a submission';
+};
+
+subtest 'final publication needs a matching registry archive' => sub {
+    local %ENV = setup();
+    invoke('stage');
+    is invoke('finish'), undef, 'the draft cannot be published before the upload is reserved';
+    invoke('claim');
+    my $pause = $ENV{TEST_AREA} . "/pause";
+    write_file( $pause, "#!/bin/sh\nexit 3\n" );
+    chmod oct '755', $pause or die "mark pause executable: $!";
+    is invoke('finish'),                          undef,  'a missing registry archive keeps the draft private';
+    is read_file( $ENV{FAKE_REMOTE} . "/draft" ), 'true', 'the draft is still private';
+    write_file( $pause, qq{#!/bin/sh\ntest "\$1" = reconcile && test -f "\$2" && test "\$3" = $digest\n} );
+    ok defined( invoke('finish') ), 'the verified upload can complete publication';
+    ok defined( invoke('finish') ), 'publishing the same release again succeeds';
+    is read_file( $ENV{FAKE_REMOTE} . "/edits" ), 1, 'the draft becomes public once';
+};
+
+done_testing;
