@@ -1522,7 +1522,11 @@ sub _execute_jobs ( $run, $baseline, $next_job, $entries, $cache ) {
                 else         { $finish->( $task->{payload}{job} ) }
                 return;
             },
-            sub ($task) { return $task->{payload}{original} },
+            sub ($task) {
+                my $payload = $task->{payload};
+                return unless defined $payload->{original};
+                return join "\0", $payload->{original}, $payload->{imports};
+            },
         );
         return Test::Mutation::Pool::run(
             jobs             => $run->{jobs},
@@ -1688,7 +1692,13 @@ sub _changed_paths ( $run, $changes ) {
 sub _after_task ( $run, $baseline, $task, $result ) {
     my $job  = $task->{payload}{job};
     my $kind = $task->{payload}{kind};
-    _remember_compiler_inputs( $run, $job, $task, $result ) if $task->{payload}{compile};
+    if ( $task->{payload}{compile} ) {
+        my $retry = _remember_compiler_inputs( $run, $job, $task, $result );
+        if ($retry) {
+            _discard( $task->{payload}{tmp} );
+            return $retry;
+        }
+    }
     if ( defined( my $path = $task->{payload}{original} ) ) {
         my $ok = _compiled($result);
         $run->{original_compile}{$path} = {
@@ -2122,12 +2132,25 @@ sub _compiler_input_digest ( $run, $path ) {
     );
 }
 
-sub _compiler_inputs ( $run, $tmp ) {
+sub _loaded_read_operands ( $run, $file ) {
+    return $run->{module_reads}{$file} if exists $run->{module_reads}{$file};
+    my $bytes = _available_digest( sub { Test::Mutation::Source::read_bytes($file) } );
+    return q{?} unless defined $bytes;
+    my $source = Test::Mutation::Source->from_bytes( path => $file, bytes => $bytes );
+    return $run->{module_reads}{$file} = _encode_read_operands( $source, $source->text );
+}
+
+sub _compiler_inputs ( $run, $tmp, $result ) {
     return unless -f "$tmp/inputs";
     my @lines = split /\n/, Test::Mutation::Source::read_bytes("$tmp/inputs");
     return unless @lines && pop(@lines) eq q{.};
     my %inputs;
     for my $line (@lines) {
+        if ( $line =~ /\Am((?:[0-9a-f]{2})+)\z/ ) {
+            my $reads = _loaded_read_operands( $run, pack 'H*', $1 );
+            $result->{module_reads}{$_} = 1 for split /,/, $reads;
+            next;
+        }
         return unless $line =~ /\A(?:[0-9a-f]{2})+\z/;
         my $path  = File::Spec->canonpath( pack 'H*', $line );
         my @roots = ( $run->{project}, $run->{workspace}->directory );
@@ -2144,13 +2167,25 @@ sub _compiler_inputs ( $run, $tmp ) {
 
 sub _remember_compiler_inputs ( $run, $job, $task, $result ) {
     my $payload = $task->{payload};
-    $result->{compiler_inputs} = _compiler_inputs( $run, $payload->{tmp} ) unless exists $result->{compiler_inputs};
+    $result->{compiler_inputs} = _compiler_inputs( $run, $payload->{tmp}, $result )
+      unless exists $result->{compiler_inputs};
+    my %requested = map  { $_ => 1 } split /,/, $task->{env}{TEST_MUTATION_COMPILER_READS};
+    my $missing   = grep { !$requested{$_} } keys %{ $result->{module_reads} || {} };
+    if ($missing) {
+        my $original = $payload->{original};
+        if ( defined $original && !length $payload->{imports} && !$result->{module_reads}{q{?}} ) {
+            $run->{compiler_imports}{$original} = join q{,}, sort keys $result->{module_reads}->%*;
+            return _compile_task( $run, $job, $payload->{kind}, "$run->{root}/$original", '-MO=Deparse' );
+        }
+        $result->{compiler_inputs} = undef;
+        $result->{opaque_reads}    = 1;
+    }
     my $inputs = $result->{compiler_inputs};
     if ( defined $inputs ) {
         $run->{compiler_inputs}{$_} = $job->{compiler_inputs}{$_} = $inputs->{$_} for keys %$inputs;
     }
     else {
-        if ( length $task->{env}{TEST_MUTATION_COMPILER_READS} ) {
+        if ( $result->{opaque_reads} || length $task->{env}{TEST_MUTATION_COMPILER_READS} ) {
             $result->{opaque_reads} = 1;
             if ( defined $payload->{original} ) {
                 $result->{observed_code} =
@@ -2171,6 +2206,10 @@ sub _compiler_read_operands ( $run, $job, $original ) {
     my $text   = $source->text;
     return q{} unless $text =~ /\b(?:BEGIN|UNITCHECK|CHECK)\b/;
     $text = $source->replace_span( $mutant->start, $mutant->end, $mutant->replacement ) unless $original;
+    return _encode_read_operands( $source, $text );
+}
+
+sub _encode_read_operands ( $source, $text ) {
     my $reads = Test::Mutation::Syntax::PPI::compile_reads($text);
     return q{?} unless defined $reads;
     return join q{,}, map { substr( $_->[0], 0, 1 ) . unpack( 'H*', $source->to_bytes( $_->[1] ) ) } @$reads;
@@ -2196,6 +2235,7 @@ sub _compile_task ( $run, $job, $kind, $file, $switch ) {
     my $option         = $original ? '-MO=Deparse' : $switch;
     my $source         = $run->{sources}{$path}->text;
     my $standard_hints = $option eq '-MO=Deparse' && $source =~ /\buse\s+charnames\b/ && $source !~ /[\$%]\^H/;
+    my $imports        = $run->{compiler_imports}{$path} || q{};
     my $launch         = _launch(
         $run, $root, $tmp, $path,
         program   => $file,
@@ -2208,7 +2248,8 @@ sub _compile_task ( $run, $job, $kind, $file, $switch ) {
             PERL_HASH_SEED                => '0',
             PERL_PERTURB_KEYS             => '0',
             TEST_MUTATION_COMPILER_INPUTS => "$tmp/inputs",
-            TEST_MUTATION_COMPILER_READS  => _compiler_read_operands( $run, $job, $original ),
+            TEST_MUTATION_COMPILER_READS  =>
+              join( q{,}, grep { length } $imports, _compiler_read_operands( $run, $job, $original ) ),
         },
         cwd             => $job->{tests}->@* ? $root : $tmp,
         lease           => $run->{workspace}->directory . '/processes',
@@ -2216,7 +2257,14 @@ sub _compile_task ( $run, $job, $kind, $file, $switch ) {
         output_limit    => $OUTPUT_LIMIT,
         stop_on_failure => 0,
         ( $standard_hints ? ( digest_line => \&_hint_line ) : () ),
-        payload => { kind => $kind, job => $job, tmp => $tmp, compile => 1, $original ? ( original => $path ) : () },
+        payload => {
+            kind    => $kind,
+            job     => $job,
+            tmp     => $tmp,
+            compile => 1,
+            imports => $imports,
+            $original ? ( original => $path ) : ()
+        },
     };
 }
 

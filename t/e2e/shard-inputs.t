@@ -174,6 +174,50 @@ PERL
       'different observed compilations of one opaque source reject the merge';
 };
 
+subtest 'a library loaded by the compiler reads an external data file' => sub {
+    local $ENV{TEST_PROJECT_LIBRARY} = "$area/data-library";
+    local $ENV{TEST_PROJECT_TABLE}   = "$area/imported-limit";
+    my $defaults = <<'PERL';
+package Defaults;
+BEGIN {
+    open my $input, '<', $ENV{TEST_PROJECT_TABLE} or die $!;
+    my $number = 0 + <$input>;
+    close $input or die $!;
+    require constant;
+    constant->import('count', $number);
+}
+1;
+PERL
+    my $idle = <<'PERL';
+package Idle;
+BEGIN { unshift @INC, $ENV{TEST_PROJECT_LIBRARY} }
+use Defaults;
+sub small { return $_[0] < Defaults::count() }
+sub large { return $_[0] > Defaults::count() }
+1;
+PERL
+    write_file( "$area/$_/lib/Idle.pm",           $idle ) for qw(idle-first idle-second);
+    write_file( "$area/imported-limit",           "3\n" );
+    write_file( "$area/data-library/Defaults.pm", "package Defaults; sub count () { 3 } 1;\n" );
+    my $simple = shard( 'idle-second', 2 );
+    write_file( "$area/data-library/Defaults.pm", $defaults );
+    my $prior = shard( 'idle-first',  1, cache => 1 );
+    my $other = shard( 'idle-second', 2, cache => 1 );
+    ok + ( grep { defined $_->{compiled_digest} } $other->{result}->entries->@* ),
+      'a known file in an imported module permits code comparison';
+    is $other->{result}->stats->{compiles}, $simple->{result}->stats->{compiles} + 1,
+      'only the original needs a second compilation to bind the imported read';
+    ok lives { Test::Mutation::Merge::merge( [ $prior, $other ] ) }, 'identical imported constants can merge';
+    ok shard( 'idle-second', 2, cache => 1 )->{result}->reused > 0,  'an unchanged imported data file permits reuse';
+    write_file( "$area/imported-limit", "9\n" );
+    my $warm = shard( 'idle-second', 2, cache => 1 );
+    is $warm->{result}->reused, 0, 'a warm run verifies data read from a compiler dependency';
+    like dies { Test::Mutation::Merge::merge( [ $prior, $warm ] ) }, qr/measurement inputs differ/,
+      'changed data behind an imported constant rejects a cached shard';
+    like dies { Test::Mutation::Merge::merge( [ $prior, shard( 'idle-second', 2 ) ] ) }, qr/measurement inputs differ/,
+      'changed data behind an imported constant rejects a fresh shard';
+};
+
 my $wrapped = shard( 'first', 1, perl => 'tools/perl' );
 ok lives { Test::Mutation::Merge::merge( [ $wrapped, shard( 'second', 2, perl => 'tools/perl' ) ] ) },
   'identical project-relative interpreters work in separate checkouts';

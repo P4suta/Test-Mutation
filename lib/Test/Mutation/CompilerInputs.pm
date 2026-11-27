@@ -2,13 +2,15 @@ package Test::Mutation::CompilerInputs;
 use 5.010;
 use strict;
 use warnings;
-use Cwd ();
+use Config qw(%Config);
+use Cwd    ();
 
 our $VERSION = '0.001';
 
 my ($record) = ( $ENV{TEST_MUTATION_COMPILER_INPUTS} || q{} ) =~ /\A(.*)\z/s;
 my %initial  = map { _absolute($_) => 1 } grep { !ref } @INC;
 my $operands = $ENV{TEST_MUTATION_COMPILER_READS} || q{};
+my @core     = @Config{qw(privlibexp archlibexp)};
 
 sub _absolute {
     my ($path) = @_;
@@ -32,17 +34,22 @@ sub _record {
     my %paths     = map { $_ => 1 } grep { !$initial{$_} } map { _absolute($_) } grep { !ref } @INC;
     my @libraries = ( keys %initial, keys %paths );
     return unless _opened( \%paths, \%ENV );
-    for my $loaded ( values %INC ) {
+    my %modules;
+    for my $name ( keys %INC ) {
+        my $loaded = $INC{$name};
         next unless defined $loaded;
         return if ref $loaded;
         my $file = _absolute($loaded);
+        $modules{$file} = 1
+          if $name ne 'Test/Mutation/CompilerInputs.pm' && !grep { index( $file, "$_/" ) == 0 } @core;
         next if grep { index( $file, "$_/" ) == 0 } @libraries;
         return unless -f $file;
         $paths{$file} = 1;
     }
     open my $out, '>:raw', $record or return;
-    print {$out} map { unpack( 'H*', $_ ) . "\n" } sort keys %paths or return;
-    print {$out} ".\n"                                              or return;
+    print {$out} map { 'm' . unpack( 'H*', $_ ) . "\n" } sort keys %modules or return;
+    print {$out} map { unpack( 'H*', $_ ) . "\n" } sort keys %paths         or return;
+    print {$out} ".\n" or return;
     close $out;
     return;
 }
