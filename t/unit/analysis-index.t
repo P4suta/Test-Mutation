@@ -90,10 +90,21 @@ subtest 'thousands of named mutants fit within SQLite query limits' => sub {
     my $leading_zero = Test::Mutation::Store::Analysis::read_files( $db, $analyses, ['0'] );
     is [
         sort map {
-            map { $_->id } $_->{mutants}->@*
+            map { $_->id }
+              $_->{mutants}->@*
         } values %$leading_zero
       ],
       [ sort grep { /\A0/ } @ids ],
       'the hexadecimal zero remains a valid prefix';
+    my @missing = map { "missing-$_" } 1 .. 1200;
+    my $found   = Test::Mutation::Store::Analysis::read_files( $db, [ @missing, @$analyses ], [ $ids[0] ] );
+    is [ sort keys %$found ], [ sort @$analyses ], 'a large file catalog returns facts only for current analyses';
+    is [
+        map {
+            map { $_->id } $_->{mutants}->@*
+        } values %$found
+      ],
+      [ $ids[0] ],
+      'a large file catalog still resolves the requested mutant';
 };
 done_testing;

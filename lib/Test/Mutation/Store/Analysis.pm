@@ -30,22 +30,32 @@ signature_for read_files => (
 );
 
 sub read_files ( $db, $identities, $prefixes ) {
-    return {} unless @$identities;
+    my @remaining = @$identities;
+    my %files;
+    while (@remaining) {
+        my @group = splice @remaining, 0, 64;
+        _read_group( $db, \@group, $prefixes, \%files );
+    }
+    return \%files;
+}
+
+sub _read_group ( $db, $identities, $prefixes, $files ) {
     my $slots   = join ',', ('?') x @$identities;
     my $catalog = $db->prepare("SELECT identity,facts FROM analysis WHERE identity IN ($slots)");
     $catalog->execute(@$identities);
-    my %files;
+    my @hits;
     while ( my ( $id, $text ) = $catalog->fetchrow_array ) {
-        $files{$id} = { $JSON->decode($text)->%*, mutants => [] };
+        push @hits, $id;
+        $files->{$id} = { $JSON->decode($text)->%*, mutants => [] };
     }
-    my $rows = _candidate_rows( $db, [ sort keys %files ], $prefixes );
+    my $rows = _candidate_rows( $db, \@hits, $prefixes );
     for my $id ( keys %$rows ) {
-        $files{$id}{mutants} = [
+        $files->{$id}{mutants} = [
             map  { Test::Mutation::Mutant->new( $JSON->decode( $rows->{$id}{$_} ) ) }
             sort { $a <=> $b } keys $rows->{$id}->%*
         ];
     }
-    return \%files;
+    return;
 }
 
 sub _candidate_rows ( $db, $analyses, $prefixes ) {
