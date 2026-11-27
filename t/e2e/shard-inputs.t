@@ -76,6 +76,34 @@ write_file( "$library/Defaults.pm",   $external =~ s/\b3\b/2/r );
 like dies { compare() }, qr/measurement inputs differ/, 'an external dependency loaded by an uncached run counts';
 write_file( "$library/Defaults.pm", $external );
 
+subtest 'standalone compilation uses the same external libraries across shards' => sub {
+    my $idle = <<'PERL';
+package Idle;
+use lib $ENV{TEST_PROJECT_LIBRARY};
+use Defaults;
+sub small { return $_[0] < Defaults::count() }
+sub large { return $_[0] > Defaults::count() }
+1;
+PERL
+    for my $checkout (qw(idle-first idle-second)) {
+        write_file( "$area/$checkout/lib/Idle.pm", $idle );
+        write_file( "$area/$checkout/t/pass.t",    "use Test::More tests => 1; pass 'ready';\n" );
+    }
+    my $start = shard( 'idle-first',  1, cache => 1 );
+    my $end   = shard( 'idle-second', 2, cache => 1 );
+    ok + ( grep { defined $_->{compiled_digest} } $start->{result}->entries->@* ),
+      'the first shard compares compiled code';
+    ok + ( grep { defined $_->{compiled_digest} } $end->{result}->entries->@* ),
+      'the second shard compares compiled code';
+    ok lives { Test::Mutation::Merge::merge( [ $start, $end ] ) }, 'equal compiler inputs produce compatible shards';
+    write_file( "$library/Defaults.pm", $external =~ s/\b3\b/7/r );
+    like dies { Test::Mutation::Merge::merge( [ $start, shard( 'idle-second', 2, cache => 1 ) ] ) },
+      qr/measurement inputs differ/, 'a cached shard checks the library loaded only by the compiler';
+    like dies { Test::Mutation::Merge::merge( [ $start, shard( 'idle-second', 2 ) ] ) },
+      qr/measurement inputs differ/, 'a fresh shard binds the library loaded only by the compiler';
+    write_file( "$library/Defaults.pm", $external );
+};
+
 my $wrapped = shard( 'first', 1, perl => 'tools/perl' );
 ok lives { Test::Mutation::Merge::merge( [ $wrapped, shard( 'second', 2, perl => 'tools/perl' ) ] ) },
   'identical project-relative interpreters work in separate checkouts';
