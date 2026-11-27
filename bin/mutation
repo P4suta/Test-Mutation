@@ -869,6 +869,11 @@ A report of a merge comes from a run without --shard.
 C<{name} names no inventory>
 A report of a merge lacks the count and the digest of the mutants of its run.
 
+=item C<merge-interrupted>
+
+C<{name} was interrupted by SIG{signal}, rerun that shard before merging>
+A shard received a signal before measurement finished.
+
 =item C<merge-failed-baseline>
 
 C<{name} has failing tests in its unmodified run, so its part measured nothing>
