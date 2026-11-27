@@ -81,6 +81,13 @@ subtest 'the table rejects a run that lacks a field or misstates one' => sub {
       'a run may leave out the band of the score';
     is RealWorld::runs( table( hash_seed => '"01"' ) )->[0]{hash_seed}, '01',
       'a distribution can pin the hash seed of its reference tests and mutation run';
+    is RealWorld::runs( $TABLE . qq{verdicts = { "abcdef012345" = "Survived", "012345abcdef" = "NoCoverage" }\n} )
+      ->[0]{expect}{verdicts}, { abcdef012345 => 'Survived', '012345abcdef' => 'NoCoverage' },
+      'the table assigns a verdict to each listed mutant ID';
+    for my $invalid ( '["Survived"]', '{ "abc" = "Survived" }', '{ "abcdef012345" = "Unknown" }' ) {
+        like dies { RealWorld::runs( $TABLE . "verdicts = $invalid\n" ) }, qr/Example: verdicts must map mutant IDs/,
+          "invalid verdict expectation $invalid";
+    }
 
     my @refused = (
         [ { hash_seed => '"not-hex"' }, qr/\AExample: hash_seed needs whole hexadecimal bytes\n/ ],
