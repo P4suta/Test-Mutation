@@ -26,21 +26,26 @@ sub _open : prototype(*;$@) {    ## no critic (Subroutines::RequireArgUnpacking)
 
 sub _sysread : prototype(*\$;$) {    ## no critic (Subroutines::RequireArgUnpacking)
                                      # The prototype passes the destination buffer by reference.
-    if ( $faults && caller eq 'Test::Mutation::Git' ) {
-        die "Git did not finish reading its pipes\n" if ++$faults->{reads} > 1000;
-        if ( my $error = shift $faults->{read_errors}->@* ) {
-            $! = $error;             ## no critic (Variables::RequireLocalizedPunctuationVars)
-            return;
-        }
+    my $fd = $faults && caller eq 'Test::Mutation::Git' ? fileno $_[0] : undef;
+    die "Git did not finish reading its pipes\n" if defined $fd && ++$faults->{reads} > 1000;
+    my $error = defined $fd ? shift $faults->{read_errors}->@* : undef;
+    my $count;
+    if ($error) {
+        $! = $error;                 ## no critic (Variables::RequireLocalizedPunctuationVars)
     }
-    my $count =
-      @_ == 4 ? CORE::sysread( $_[0], ${ $_[1] }, $_[2], $_[3] ) : CORE::sysread( $_[0], ${ $_[1] }, $_[2] );
-    $! = Errno::EINTR() if $faults && $faults->{stale_errno} && caller eq 'Test::Mutation::Git';    ## no critic (Variables::RequireLocalizedPunctuationVars)
+    else {
+        $count = @_ == 4 ? CORE::sysread( $_[0], ${ $_[1] }, $_[2], $_[3] ) : CORE::sysread( $_[0], ${ $_[1] }, $_[2] );
+    }
+    if ( defined $fd ) {
+        $faults->{finished}{$fd} = 1              if defined $count ? !$count : $! != Errno::EINTR();
+        $!                       = Errno::EINTR() if defined $count && $faults->{stale_errno};          ## no critic (Variables::RequireLocalizedPunctuationVars)
+    }
     return $count;
 }
 
 sub _waitpid : prototype($$) ( $pid, $flags ) {
     if ( $faults && caller eq 'Test::Mutation::Git' ) {
+        die "Git did not finish both pipes before waiting\n" unless keys $faults->{finished}->%* == 2;
         die "Git waited after reaping its child\n" if ++$faults->{waits} > 10;
         if ( my $error = shift $faults->{wait_errors}->@* ) {
             CORE::waitpid( $pid, $flags ) if $error == Errno::ECHILD();
@@ -49,7 +54,10 @@ sub _waitpid : prototype($$) ( $pid, $flags ) {
         }
     }
     my $waited = CORE::waitpid( $pid, $flags );
-    $faults->{reaped}++ if $faults && caller eq 'Test::Mutation::Git' && $waited == $pid;
+    if ( $faults && caller eq 'Test::Mutation::Git' && $waited == $pid ) {
+        $faults->{reaped}++;
+        $faults->{finished} = {};
+    }
     $! = Errno::EINTR() if $faults && $faults->{stale_errno} && caller eq 'Test::Mutation::Git';    ## no critic (Variables::RequireLocalizedPunctuationVars)
     return $waited;
 }
@@ -241,7 +249,7 @@ PROGRAM
     chmod 0700, $git or die $!;
     local $ENV{PATH} = "$project/tools";
     my $run = sub (%fault) {
-        local $faults = { read_errors => [], wait_errors => [], %fault };
+        local $faults = { read_errors => [], wait_errors => [], finished => {}, %fault };
         local $SIG{ALRM} = sub { die "Git did not finish a ready stream\n" };
         my $ready = \&IO::Select::can_read;
         my $count = \&IO::Select::count;
@@ -252,6 +260,11 @@ PROGRAM
             return $count->(@args);
         };
         local *IO::Select::can_read = sub (@args) {
+            my @pipes    = $args[0]->handles;
+            my $finished = $faults->{finished};
+            die "Git left no open pipe to wait for\n" if !@pipes;
+            die "Git left an unfinished pipe outside its wait set\n"
+              if @pipes + keys(%$finished) != 2 || grep { $finished->{ fileno $_ } } @pipes;
             die "Git left its ready streams undrained\n" if ++$reads > 1000;
             Time::HiRes::alarm(3);
             my @readable = $ready->(@args);
