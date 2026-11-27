@@ -1,6 +1,7 @@
 use v5.36;
 use Test2::V0;
 use File::Temp ();
+use JSON::PP   ();
 use lib 't/e2e/lib', 't/contract/lib';
 use Fixture qw(copy_of write_file);
 use World;
@@ -118,10 +119,18 @@ my @decoded;
       'show dates the observed status';
     is [ $parsed, $reports, $restored ], [ 0, 0, 1 ], 'show restores one mutant without a parse or full report read';
     is \@decoded,                        [ $entry->{mutant}->path ], 'only the displayed file is decoded for its patch';
+    my $row_decodes = 0;
+    my $decode_row  = JSON::PP->can('decode');
+    local *JSON::PP::decode = sub (@arguments) {
+        $row_decodes++ if caller =~ /\ATest::Mutation::Store/;
+        return $decode_row->(@arguments);
+    };
     my $listed = World::observe( ['list'], cwd => $root );
     like $listed->{stdout}, qr/^\Q$id\E .* \[Survived\] \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/m,
       'list dates each historical status';
     is [ $parsed, $reports ], [ 0, 0 ], 'list reads the index and skips both parsers';
+    is $row_decodes, 0,
+      'listing the warm catalog avoids pure Perl JSON decoding for every stored candidate and verdict';
     my $loads = 0;
     my $load  = Test::Mutation::Store->can('load');
     local *Test::Mutation::Store::load = sub (@arguments) { $loads++; return $load->(@arguments) };

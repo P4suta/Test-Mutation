@@ -1,15 +1,15 @@
 package Test::Mutation::Store::Analysis;
 use v5.36;
-use JSON::PP        ();
-use Types::Standard qw(ArrayRef Dict HashRef InstanceOf Int Maybe Str Tuple Undef);
-use Type::Params    qw(signature_for);
+use Cpanel::JSON::XS ();
+use Types::Standard  qw(ArrayRef Dict HashRef InstanceOf Int Maybe Str Tuple Undef);
+use Type::Params     qw(signature_for);
 use Test::Mutation::Mutant;
 use Test::Mutation::Store;
 use Test::Mutation::Types qw(Refusal Rejected);
 
 our $VERSION = '0.001';
 
-my $JSON = JSON::PP->new->canonical;
+my $JSON = Cpanel::JSON::XS->new->canonical;
 my $FILE = Dict [
     problem  => Maybe [Str],
     left_out => Int,

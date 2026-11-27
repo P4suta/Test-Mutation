@@ -1,9 +1,9 @@
 package Test::Mutation::Store::History;
 use v5.36;
-use Cwd             ();
-use JSON::PP        ();
-use Types::Standard qw(ArrayRef Bool Dict HashRef InstanceOf Maybe Num Str Undef);
-use Type::Params    qw(signature_for);
+use Cwd              ();
+use Cpanel::JSON::XS ();
+use Types::Standard  qw(ArrayRef Bool Dict HashRef InstanceOf Maybe Num Str Undef);
+use Type::Params     qw(signature_for);
 use Test::Mutation::Diff;
 use Test::Mutation::Store;
 use Test::Mutation::Store::Key;
@@ -12,7 +12,7 @@ use Test::Mutation::Types qw(PathSelection StatusName);
 our $VERSION = '0.001';
 
 my $CONFIG = InstanceOf ['Test::Mutation::Config'];
-my $JSON   = JSON::PP->new->canonical;
+my $JSON   = Cpanel::JSON::XS->new->canonical;
 
 signature_for record => (
     positional => [ $CONFIG, InstanceOf ['Test::Mutation::Result'], Bool ],
