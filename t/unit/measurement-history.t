@@ -1,5 +1,6 @@
 use v5.36;
 use Test2::V0;
+use Cwd        ();
 use File::Temp ();
 use lib 't/lib';
 use Capability;
@@ -89,6 +90,32 @@ subtest 'history follows finish times when concurrent writers commit out of orde
     is $gaps->(), [ $gap->( $whole->entries->[0] ) ], 'the next write with the same finish can open a gap';
     $record->( 130, [], 1 );
     is $gaps->(), [], 'recording another scope with the same finish breaks the tie';
+};
+
+subtest 'reading one empty scope takes bounded work as history grows' => sub {
+    my $directory = File::Temp::tempdir( CLEANUP => 1 );
+    my $other     = Test::Mutation::Settings::of_call( { root => $directory } );
+    Test::Mutation::Store::History::record( $other, $empty, 1 );
+    my $db    = Test::Mutation::Store::database( Test::Mutation::Store::path($other) );
+    my $read  = \&Test::Mutation::Store::read_database;
+    my $steps = sub {
+        my $hundreds = 0;
+        no warnings 'redefine';
+        local *Test::Mutation::Store::read_database = sub ($path) {
+            my $connection = $read->($path);
+            $connection->sqlite_progress_handler( 100, sub { $hundreds++; return 0 } );
+            return $connection;
+        };
+        is Test::Mutation::Store::History::undetected($other), [], 'the most recent scope has no gaps';
+        return $hundreds;
+    };
+    my $initial = $steps->();
+    $db->do( <<'SQL', undef, Cwd::abs_path($directory) );
+WITH RECURSIVE older(finished) AS (SELECT 1 UNION ALL SELECT finished + 1 FROM older WHERE finished < 1000)
+INSERT INTO measurement(project,finished,anchor,complete) SELECT ?, -finished, 1, 1 FROM older
+SQL
+    cmp_ok $steps->(), '<=', $initial + 1,
+      'one thousand older scopes cost at most one extra block of 100 SQLite operations';
 };
 
 subtest 'read-only history stays available and fresh observations are private' => sub {

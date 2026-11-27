@@ -32,6 +32,9 @@ sub record ( $config, $result, $anchor, $merge = undef ) {
         $db,
         sub {
             $db->do(
+                'CREATE INDEX IF NOT EXISTS completed_scope ON measurement(project,finished DESC,run DESC) WHERE anchor = 1'
+            );
+            $db->do(
                 'INSERT INTO measurement(project,finished,anchor,complete) VALUES (?,?,?,?)',
                 undef, $project,
                 $merge               ? $merge->{completed} : $result->finished,
