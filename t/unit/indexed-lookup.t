@@ -66,4 +66,18 @@ my @decoded;
       'rerunning one mutant skips analysis, full reports, and bulk verdict reads';
     is $restored, 1, 'the rerun restores exactly the requested mutant';
 }
+subtest 'combined selectors read one completed scope' => sub {
+    my $snapshots = 0;
+    my $select    = DBI::db->can('selectall_arrayref');
+    no warnings 'redefine';
+    local *DBI::db::selectall_arrayref = sub ( $connection, $sql, @options ) {
+        $snapshots++ if $sql =~ /WITH scope AS/;
+        return $select->( $connection, $sql, @options );
+    };
+    my $rerun = World::observe(
+        [ 'run', '--undetected', '--mutant', $id, $entry->{mutant}->path, '--jobs', 1, '--format', 'terminal' ],
+        cwd => $root );
+    is $rerun->{exit}, 0, 'the combined selection measures the previous survivor';
+    is $snapshots,     1, 'all selectors use the same database snapshot even if another measurement finishes';
+};
 done_testing;

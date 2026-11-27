@@ -84,12 +84,24 @@ sub entries ( $config, $sources, $mutants ) {
     return \%entries;
 }
 
+my $GAPS = ArrayRef [ Dict [ id => Str, path => Str, source => Str ] ];
+
 signature_for undetected => (
     positional => [ $CONFIG, ArrayRef [PathSelection], { default => sub { [] } } ],
-    returns    => Maybe [ ArrayRef [ Dict [ id => Str, path => Str, source => Str ] ] ]
+    returns    => Maybe [$GAPS]
 );
 
 sub undetected ( $config, $filters ) {
+    my $scope = undetected_scope( $config, $filters );
+    return $scope ? $scope->{selected} : undef;
+}
+
+signature_for undetected_scope => (
+    positional => [ $CONFIG, ArrayRef [PathSelection] ],
+    returns    => Maybe [ Dict [ selected => $GAPS, identifiers => ArrayRef [Str] ] ]
+);
+
+sub undetected_scope ( $config, $filters ) {
     my $path = Test::Mutation::Store::path( $config, 0 );
     return unless $config->cache && -f $path;
     my $db      = Test::Mutation::Store::database($path);
@@ -109,20 +121,21 @@ WITH scope AS (
 )
 SELECT gaps.id, gaps.path, gaps.source, gaps.lines FROM scope LEFT JOIN gaps ON 1 ORDER BY gaps.ordinal
 SQL
-    return    unless @$rows;
-    return [] unless defined $rows->[0]{id};
-    my @selected;
+    return unless @$rows;
+    my $scope = { selected => [], identifiers => [] };
+    return $scope unless defined $rows->[0]{id};
 
     for my $row (@$rows) {
+        push $scope->{identifiers}->@*, $row->{id};
         my $lines = delete $row->{lines};
         my $span  = defined $lines ? $JSON->decode($lines) : undef;
         next if grep {
             my $ranges = $_->{ $row->{path} };
             !$ranges || ( @$ranges && $span && !Test::Mutation::Diff::touches( $ranges, @$span ) )
         } @$filters;
-        push @selected, $row;
+        push $scope->{selected}->@*, $row;
     }
-    return \@selected;
+    return $scope;
 }
 
 1;
@@ -146,6 +159,10 @@ Returns the identifiers, files, and source digests of the gaps still present in 
 Optional file and line filters intersect the recorded locations.
 An empty array marks a measured scope with no gaps.
 An undefined value marks missing history.
+
+=head2 undetected_scope
+
+Returns the selected gaps and the identifiers of every remaining gap from one database snapshot.
 
 =head2 entries
 

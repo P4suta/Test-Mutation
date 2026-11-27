@@ -158,13 +158,12 @@ sub run ( $config, $notify, $options = {} ) {
 sub _recheck ( $config, $options ) {
     my $paths   = $options->{selection}  ? $options->{selection}->selection->{paths} : $options->{paths};
     my $changed = defined $config->since ? Test::Mutation::Git::changed( $config->root, $config->since ) : undef;
-    my $gaps    = Test::Mutation::Store::History::undetected( $config, [ grep { defined } $paths, $changed ] );
-    Test::Mutation::Error::raise('measurement-history-missing') unless defined $gaps;
-    my $historical = { map { $_->{id} => $_->{path} } @$gaps };
-    my @ids        = map { $_->{id} } @$gaps;
+    my $scope   = Test::Mutation::Store::History::undetected_scope( $config, [ grep { defined } $paths, $changed ] );
+    Test::Mutation::Error::raise('measurement-history-missing') unless defined $scope;
+    my $historical = { map { $_->{id} => $_->{path} } $scope->{selected}->@* };
+    my @ids        = map { $_->{id} } $scope->{selected}->@*;
     if ( $config->mutant->@* ) {
-        my $all    = $paths || $changed ? Test::Mutation::Store::History::undetected($config) : $gaps;
-        my %wanted = _explicit_gaps( $config, $historical, $all );
+        my %wanted = _explicit_gaps( $config, $historical, $scope->{identifiers} );
         @ids = grep { $wanted{$_} } @ids;
     }
     my $named     = Test::Mutation::Settings::for_mutants( $config, \@ids );
@@ -190,8 +189,8 @@ sub _recheck ( $config, $options ) {
 sub _explicit_gaps ( $config, $historical, $all ) {
     my @request;
     for my $prefix ( $config->mutant->@* ) {
-        my @known = grep { index( $_->{id}, $prefix ) == 0 } @$all;
-        next if length($prefix) >= 4 && @known == 1 && !exists $historical->{ $known[0]{id} };
+        my @known = grep { index( $_, $prefix ) == 0 } @$all;
+        next if length($prefix) >= 4 && @known == 1 && !exists $historical->{ $known[0] };
         push @request, $prefix;
     }
     return unless @request;
