@@ -43,7 +43,9 @@ It confirms a detection or survival with a second attempt.
 When no gaps remain, the command reports zero mutants without starting tests.
 Use C<mutation show> or C<mutation list> to read a dated result from another measurement.
 Each new report scores its own selection.
+
 Within the project, the report directory stores output digests in C<.test-mutation-outputs> so copied or edited reports count as test inputs.
+With C<--in-place>, write shard reports outside the project using C<--report-dir> so all shards measure the same inputs.
 
 =head1 PROGRESS
 
