@@ -82,6 +82,7 @@ TEST
 
 subtest 'the test can require a plain Perl library search path' => sub {
     my $plain = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    delete local $ENV{PERL5OPT};
     write_file( "$plain/lib/Calc.pm", $files{'lib/Calc.pm'} );
     write_file( "$plain/t/search.t",  <<'TEST' );
 use Test::More tests => 2;
