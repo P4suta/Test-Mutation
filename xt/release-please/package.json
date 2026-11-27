@@ -1,0 +1,11 @@
+{
+  "name": "test-mutation-release",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test *.test.cjs"
+  },
+  "dependencies": {
+    "release-please": "17.11.2"
+  }
+}
