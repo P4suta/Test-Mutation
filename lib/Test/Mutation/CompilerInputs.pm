@@ -7,10 +7,11 @@ use Cwd    ();
 
 our $VERSION = '0.001';
 
-my ($record) = ( $ENV{TEST_MUTATION_COMPILER_INPUTS} || q{} ) =~ /\A(.*)\z/s;
-my %initial  = map { _absolute($_) => 1 } grep { !ref } @INC;
-my $operands = $ENV{TEST_MUTATION_COMPILER_READS} || q{};
-my @core     = @Config{qw(privlibexp archlibexp)};
+my ($record)      = ( $ENV{TEST_MUTATION_COMPILER_INPUTS} || q{} ) =~ /\A(.*)\z/s;
+my %initial       = map { _absolute($_) => 1 } grep { !ref } @INC;
+my $operands      = $ENV{TEST_MUTATION_COMPILER_READS} || q{};
+my @core          = @Config{qw(privlibexp archlibexp)};
+my $initial_reads = _opened( \%ENV );
 
 sub _absolute {
     my ($path) = @_;
@@ -18,22 +19,28 @@ sub _absolute {
 }
 
 sub _opened {
-    my ( $paths, $environment ) = @_;
+    my ($environment) = @_;
+    my %paths;
     for my $operand ( split /,/, $operands ) {
         return unless $operand =~ /\A([ef])((?:[a-f0-9]{2})+)\z/;
         my ( $kind, $name ) = ( $1, pack 'H*', $2 );
         my $path = $kind eq 'e' ? $environment->{$name} : $name;
         return unless defined $path && length $path && -f $path;
-        $paths->{ _absolute($path) } = 1;
+        $paths{$operand} = _absolute($path);
     }
-    return 1;
+    return \%paths;
 }
 
 sub _record {
     return unless length $record;
-    my %paths     = map { $_ => 1 } grep { !$initial{$_} } map { _absolute($_) } grep { !ref } @INC;
-    my @libraries = ( keys %initial, keys %paths );
-    return unless _opened( \%paths, \%ENV );
+    my %paths         = map { $_ => 1 } grep { !$initial{$_} } map { _absolute($_) } grep { !ref } @INC;
+    my @libraries     = ( keys %initial, keys %paths );
+    my $current_reads = _opened( \%ENV );
+    return unless $initial_reads && $current_reads;
+    for my $operand ( keys %$initial_reads ) {
+        return if $initial_reads->{$operand} ne $current_reads->{$operand};
+        $paths{ $current_reads->{$operand} } = 1;
+    }
     my %modules;
     for my $name ( keys %INC ) {
         my $loaded = $INC{$name};

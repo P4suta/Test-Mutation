@@ -174,6 +174,51 @@ PERL
       'different observed compilations of one opaque source reject the merge';
 };
 
+subtest 'loaded modules cannot replace the input that a phase block read' => sub {
+    local $ENV{TEST_PROJECT_LIBRARY} = "$area/rebind-library";
+    local $ENV{TEST_PROJECT_TABLE}   = "$area/before.dat";
+    local $ENV{TEST_PROJECT_LATER}   = "$area/after.dat";
+    write_file( "$area/before.dat", "3\n" );
+    write_file( "$area/after.dat",  "5\n" );
+    my $reader = <<'PERL';
+package Idle;
+use lib $ENV{TEST_PROJECT_LIBRARY};
+BEGIN {
+    open my $input, '<', $ENV{TEST_PROJECT_TABLE} or die $!;
+    my $number = 0 + <$input>;
+    close $input or die $!;
+    require constant;
+    constant->import('LIMIT', $number);
+}
+use Rebind;
+sub small { return $_[0] < LIMIT }
+sub large { return $_[0] > LIMIT }
+1;
+PERL
+    for my $checkout (qw(bound-first bound-second)) {
+        write_file( "$area/$checkout/lib/Idle.pm", $reader );
+        write_file( "$area/$checkout/t/pass.t",    "use Test::More tests => 1; pass 'ready';\n" );
+    }
+    my $rebind = "$area/rebind-library/Rebind.pm";
+    write_file( $rebind, "package Rebind; 1;\n" );
+    my $bound = shard( 'bound-second', 2, cache => 1 );
+    ok + ( grep { defined $_->{compiled_digest} } $bound->{result}->entries->@* ),
+      'a module that leaves the path alone permits comparison';
+    ok shard( 'bound-second', 2, cache => 1 )->{result}->reused > 0, 'the stable input permits reuse';
+
+    write_file( $rebind, 'package Rebind; $ENV{TEST_PROJECT_TABLE} = $ENV{TEST_PROJECT_LATER}; 1;' );
+    my $prior = shard( 'bound-first',  1, cache => 1 );
+    my $peer  = shard( 'bound-second', 2, cache => 1 );
+    ok !( grep { defined $_->{compiled_digest} } $peer->{result}->entries->@* ),
+      'the final path does not prove which file was read';
+    ok lives { Test::Mutation::Merge::merge( [ $prior, $peer ] ) }, 'identical observed compilations still merge';
+    write_file( "$area/before.dat", "13\n" );
+    my $warm = shard( 'bound-second', 2, cache => 1 );
+    is $warm->{result}->reused, 0, 'the path assigned after the read cannot validate a prior verdict';
+    like dies { Test::Mutation::Merge::merge( [ $prior, $warm ] ) }, qr/measurement inputs differ/,
+      'different values read before the path changes reject the merge';
+};
+
 subtest 'a library loaded by the compiler reads an external data file' => sub {
     local $ENV{TEST_PROJECT_LIBRARY} = "$area/data-library";
     local $ENV{TEST_PROJECT_TABLE}   = "$area/imported-limit";
