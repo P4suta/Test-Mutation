@@ -422,6 +422,7 @@ sub _previous_report ( $directory, $select ) {
             ($text) = $text =~ m{\Q<script id="report" type="application/json">\E (.+?) </script>}sx;
             next unless defined $text;
         }
+        require Test::Mutation::Report::Json;
         my $parsed = Test::Mutation::Try::attempt( sub { Test::Mutation::Report::Json::parse($text) } );
         next unless exists $parsed->{value};
         my $selected = $select->( $parsed->{value} );
@@ -575,6 +576,7 @@ sub _exec ( $invocation, $world ) {
 }
 
 sub _read_report ( $path, $root ) {
+    require Test::Mutation::Report::Json;
     open my $handle, '<:encoding(UTF-8)', File::Spec->rel2abs( $path, $root )
       or Test::Mutation::Error::raise( 'input-unreadable', path => $path, reason => "$!" );
     local $/ = undef;
