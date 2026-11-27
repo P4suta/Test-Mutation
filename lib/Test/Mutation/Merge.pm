@@ -41,6 +41,14 @@ sub merge ($reports) {
         ) if $held != $expected;
     }
 
+    my @entries = grep { defined } mesh_longest map { $_->entries } @results;
+    my $digest  = Digest::SHA::sha256_hex( join "\n", map { $_->{mutant}->id } @entries );
+    Test::Mutation::Error::raise(
+        'input-malformed',
+        path   => join( ', ', map { $_->{name} } @parts ),
+        reason => 'the merged mutant identifiers do not match the inventory order'
+    ) unless $digest eq $results[0]->inventory->{digest};
+
     my ( %duration, %active );
     for my $test ( map { $_->tests->@* } @results ) {
         my $name = $test->{name};
@@ -54,7 +62,7 @@ sub merge ($reports) {
         tests   => [
             map { { name => $_, duration => $duration{$_}, $active{$_} ? () : ( neutral => 1 ) } } sort keys %duration
         ],
-        entries           => [ grep { defined } mesh_longest map { $_->entries } @results ],
+        entries           => \@entries,
         problems          => [ map { $problem{$_} } sort keys %problem ],
         warnings          => [ uniq map { $_->warnings->@* } @results ],
         baseline_failures => [],
@@ -115,7 +123,9 @@ sub _parts ($reports) {
         Test::Mutation::Error::raise( 'merge-without-inventory', name => $name ) if !$result->inventory;
         Test::Mutation::Error::raise( 'merge-failed-baseline',   name => $name ) if $result->baseline_failures->@*;
         my ( $part, $of ) = split m{/}, $result->shard;
-        $whole ||= { name => $name, part => $part, of => $of, digest => $result->inventory->{digest} };
+        Test::Mutation::Error::raise( 'input-malformed', path => $name, reason => "invalid shard $part/$of" )
+          if $part > $of;
+        $whole ||= { name => $name, part => $part, of => $of, $result->inventory->%* };
         Test::Mutation::Error::raise(
             'merge-other-split',
             first       => $whole->{name},
@@ -126,7 +136,7 @@ sub _parts ($reports) {
             parts       => $of
         ) if $of != $whole->{of};
         Test::Mutation::Error::raise( 'merge-other-mutants', name => $name, first => $whole->{name} )
-          if $result->inventory->{digest} ne $whole->{digest};
+          if $result->inventory->{digest} ne $whole->{digest} || $result->inventory->{mutants} != $whole->{mutants};
         Test::Mutation::Error::raise(
             'merge-repeated-part',
             first => $parts[ $part - 1 ]{name},

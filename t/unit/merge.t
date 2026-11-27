@@ -9,7 +9,12 @@ use Test::Mutation::Mutant;
 use Test::Mutation::Result;
 use Test::Mutation::Status;
 
-my $digest = 'ab' x 32;
+sub inventory ($count) {
+    my @ids = map { sprintf '%012d', $_ } 1 .. $count;
+    return { mutants => $count, digest => Digest::SHA::sha256_hex( join "\n", @ids ) };
+}
+
+my $digest = inventory(6)->{digest};
 
 sub entry ( $number, $status ) {
     my $mutant = Test::Mutation::Mutant->new(
@@ -126,7 +131,7 @@ subtest 'merging interleaves uneven shards and omits empty positions' => sub {
         my @reports;
         for my $number ( 1 .. 4 ) {
             my @entries = map { entry( $_, 'Killed' ) } $groups->[ $number - 1 ]->@*;
-            push @reports, part( "$number/4", \@entries, inventory => { mutants => $count, digest => $digest } );
+            push @reports, part( "$number/4", \@entries, inventory => inventory($count) );
         }
         my $result = merged( reverse @reports );
         is [ map { 0 + $_->{mutant}->id } $result->entries->@* ], [ 1 .. $count ],
@@ -186,6 +191,15 @@ subtest 'a set that is not one complete run is refused' => sub {
       qr/\Areport 2 holds 2 mutants, and part 2 of 2 has 3/, 'a part that lost a mutant';
     like Raised::message( sub { merged( $one, part( '2/2', [ @rest[ 0, 1 ], $first[0] ] ) ) } ),
       qr/\Amutant 000000000001 appears in more than one part/, 'a mutant in two parts';
+    for my $changed ( [ @rest[ 1, 0, 2 ] ], [ @rest[ 0, 1 ], entry( 7, 'NoCoverage' ) ], ) {
+        like Raised::message( sub { merged( $one, part( '2/2', $changed ) ) } ),
+          qr/inventory order/, 'the actual sequence must match the advertised digest';
+    }
+    like Raised::message(
+        sub { merged( $one, part( '2/2', \@rest, inventory => { mutants => 5, digest => $digest } ) ) } ),
+      qr/covers other mutants/, 'each advertised size must agree';
+    like Raised::message( sub { merged( $one, $two, part( '3/2', [] ) ) } ),
+      qr/invalid shard 3\/2/, 'an empty shard outside the declared split is refused';
 };
 
 subtest 'refresh replaces the selected verdicts and keeps independently measured changes' => sub {
