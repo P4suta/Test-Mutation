@@ -53,7 +53,9 @@ subtest 'a search directory outside the checkout keeps its location' => sub {
     for my $site (qw(first second)) {
         write_file( "$base/$site/repo/bin/tool", 'local' );
         write_file( "$base/$site/tools/tool",    'external' );
-        symlink '../tools', "$base/$site/repo/tool-link" or die "link external search directory: $!";
+        symlink '../tools',          "$base/$site/repo/tool-link" or die "link external search directory: $!";
+        symlink 'bin',               "$base/$site/repo/alias"     or die "link local search directory: $!";
+        symlink "$base/first/tools", "$base/$site/repo/shared"    or die "link shared search directory: $!";
     }
     for my $name (qw(PATH PERL5LIB PERLLIB)) {
         my $key = sub ( $site, $entry ) {
@@ -67,6 +69,9 @@ subtest 'a search directory outside the checkout keeps its location' => sub {
         for my $local (qw(ROOT/bin ROOT/bin/../bin ROOT/absent/lib bin)) {
             is $key->( 'first', $local ), $key->( 'second', $local ), "$name relocates $local";
         }
+        isnt $key->( 'first', 'ROOT/bin' ), $key->( 'first', 'ROOT/alias' ), "a test can read the $name spelling";
+        is $key->( 'first', 'ROOT/shared' ), $key->( 'second', 'ROOT/shared' ),
+          "$name can refer to the same external directory from both checkouts";
     }
 };
 

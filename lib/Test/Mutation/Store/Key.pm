@@ -42,32 +42,38 @@ sub environment ( $env, $project = undef ) {
     my %values = %$env;
     if ( defined $project ) {
         my $separator = $Config{path_sep};
+        my $root      = Cwd::abs_path($project) || $project;
         for my $name ( grep { defined $values{$_} } qw(PATH PERL5LIB PERLLIB) ) {
-            $values{$name} = digest( map { _search_path( $project, $_ ) } split /\Q$separator\E/, $values{$name}, -1 );
+            $values{$name} =
+              digest( map { _search_path( $project, $root, $_ ) } split /\Q$separator\E/, $values{$name}, -1 );
         }
     }
     return digest( map { ( $_, $values{$_} ) } @names );
 }
 
-sub _search_path ( $project, $entry ) {
+sub _location ( $root, $path ) {
+    return ( 'project', q{} ) if $path eq $root;
+    my $prefix = $root eq '/' ? '/' : "$root/";
+    return ( 'project', '/' . substr( $path, length($prefix) ) ) if index( $path, $prefix ) == 0;
+    return ( 'path',    $path );
+}
+
+sub _search_path ( $project, $root, $entry ) {
+    my ( $kind, $spelling ) = _location( $project, $entry );
     my $path = File::Spec->rel2abs( $entry, $project );
     my ( $directory, @missing ) = $path;
     my $resolved;
     while ( !defined( $resolved = Cwd::abs_path($directory) ) ) {
         my $parent = File::Basename::dirname($directory);
-        return ( 'unresolved', $path )
+        return ( 'unresolved', digest( $kind, $spelling, $path ) )
           if $parent eq $directory || -l $directory || $directory =~ m{(?:\A|/)\.\.(?:/|\z)};
         unshift @missing, File::Basename::basename($directory);
         $directory = $parent;
     }
     $resolved = File::Spec->catdir( $resolved, @missing ) if @missing;
-    my $relative = File::Spec->abs2rel( $resolved, $project );
-    my $absolute = File::Spec->file_name_is_absolute($entry);
-    if ( $relative eq '..' || $relative =~ m{\A\.\./} ) {
-        return $absolute ? ( 'path', $resolved ) : ( 'relative', $entry, $resolved );
-    }
-    return ( 'path',    $entry ) unless $absolute;
-    return ( 'project', $relative eq q{.} ? q{} : "/$relative" );
+    my ( $location, $target ) = _location( $root, $resolved );
+    return ( $kind,    $spelling ) if $kind eq $location && $spelling eq $target;
+    return ( 'mapped', digest( $kind, $spelling, $location, $target ) );
 }
 
 signature_for file => ( positional => [Str], returns => Str );
