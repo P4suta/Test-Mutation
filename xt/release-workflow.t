@@ -111,6 +111,14 @@ subtest 'each measurement and build checks out the selected commit' => sub {
     }
 };
 
+subtest 'candidate tools stay out of the shared Actions cache' => sub {
+    my @tools = map {
+        grep { ( $_->{uses} || q{} ) =~ m{\Ajdx/mise-action@} } $_->{steps}->@*
+    } values %$jobs;
+    Gate::checked( 'candidate tool installations', scalar @tools, at_least => 4 );
+    is $_->{with}{cache}, 'false', 'the tool installation reads and writes no shared cache' for @tools;
+};
+
 subtest 'the candidate rejects a different version or checkout' => sub {
     my $script = step( $jobs->{candidate}, qr/git rev-parse HEAD/ );
     ok length($script), 'candidate identity comes from the checkout' or return;
