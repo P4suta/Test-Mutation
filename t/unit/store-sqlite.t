@@ -93,6 +93,17 @@ subtest 'an unsupported SQLite schema remains an actionable error' => sub {
     is $connection->selectrow_array('PRAGMA user_version'), 314, 'the original schema version survives';
 };
 
+subtest 'an unreadable SQLite database reports the access failure' => sub {
+    Capability::need( 'unprivileged', $> != 0, 'the superuser can read protected files' );
+    my $path = "$directory/protected/measurement.sqlite";
+    Test::Mutation::Store::save( $path, { earlier => $record } );
+    chmod oct('000'), $path or die "protect $path: $!";
+    my $error = dies { Test::Mutation::Store::load($path) };
+    chmod oct('600'), $path or die "restore $path: $!";
+    like $error, qr/cannot read \Q$path\E/, 'a permission error remains visible at the database path';
+    is Test::Mutation::Store::load($path), { earlier => $record }, 'restoring access recovers the original verdict';
+};
+
 subtest 'an unreadable cached verdict is measured again without losing its neighbors' => sub {
     my $path = "$directory/damaged/measurement.sqlite";
     Test::Mutation::Store::save( $path, { map { $_ => $record } qw(ambiguous broken missing intact) } );

@@ -174,11 +174,8 @@ sub _connect ( $path, $read_only = 0 ) {
             AutoInactiveDestroy => 1,
             sqlite_unicode      => 1,
             HandleError         => sub ( $message, @ ) {
-                Test::Mutation::Error::raise(
-                    $read_only ? 'file-unreadable' : 'file-unwritable',
-                    path   => $path,
-                    reason => $message
-                );
+                Test::Mutation::Error::raise( 'file-unreadable', path => $path, reason => $message ) if $read_only;
+                Test::Mutation::Error::raise( 'file-unwritable', path => $path, reason => $message );
             }
         }
     );
