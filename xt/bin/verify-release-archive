@@ -1,0 +1,75 @@
+#!perl
+use v5.36;
+use Archive::Tar       ();
+use CPAN::Meta::YAML   ();
+use Digest::SHA        ();
+use ExtUtils::Manifest ();
+use File::Basename     ();
+use FindBin            qw($Bin);
+use JSON::PP           ();
+
+my ( $checkout, $source_sha, $version, $archive, $expected ) = @ARGV;
+die "usage: verify-release-archive CHECKOUT COMMIT VERSION ARCHIVE SHA256\n" unless @ARGV == 5;
+die "invalid candidate commit\n" unless $source_sha =~ /\A[0-9a-f]{40}\z/;
+die "invalid package version\n"  unless $version    =~ /\A(?:0|[1-9][0-9]*)[.][0-9]+\z/;
+my $root = "Test-Mutation-$version";
+my $name = "$root.tar.gz";
+die "unexpected archive name\n"  unless File::Basename::basename($archive) eq $name;
+die "invalid expected SHA-256\n" unless $expected =~ /\A[0-9a-f]{64}\z/;
+open my $bytes, '<:raw', $archive or die "open $name: $!\n";
+my $digest = Digest::SHA->new(256)->addfile($bytes)->hexdigest;
+close $bytes or die "close $name: $!\n";
+die "archive SHA-256 differs from the tested bytes\n" unless $digest eq $expected;
+
+my @git = ( 'git', '-C', $checkout );
+open my $head, q{-|}, @git, 'rev-parse', 'HEAD' or die "read the candidate commit: $!\n";
+chomp( my $revision = readline $head );
+close $head or die "read the candidate commit\n";
+die "candidate commit differs from $source_sha\n" unless $revision eq $source_sha;
+my $skip = ExtUtils::Manifest::maniskip("$Bin/../../MANIFEST.SKIP");
+open my $tree, q{-|}, @git, 'ls-tree', '-rz', $source_sha or die "read the candidate tree: $!\n";
+my %blobs;
+{
+    local $/ = "\0";
+    while ( my $record = readline $tree ) {
+        chomp $record;
+        my ( $mode, $kind, $hash, $path ) = $record =~ /\A(\d+) (\w+) ([0-9a-f]{40})\t(.+)\z/s;
+        die "invalid candidate tree record\n" unless defined $path;
+        next if $skip->($path);
+        die "unsupported candidate source file $path\n" unless $kind eq 'blob' && $mode =~ /\A100(?:644|755)\z/;
+        $blobs{$path} = $hash;
+    }
+}
+close $tree or die "read the candidate tree for $source_sha\n";
+
+my $tar = Archive::Tar->new;
+$tar->read( $archive, 1 ) or die "read the distribution archive $name\n";
+my %generated = map { $_ => 1 } qw(MANIFEST META.json META.yml);
+my %seen;
+for my $entry ( $tar->get_files ) {
+    my $full = $entry->full_path;
+    $full                                             =~ s{/\z}{};
+    die "invalid archive member $full\n" if $full     =~ m{/[.]{1,2}(?:/|\z)};
+    die "invalid archive member $full\n" unless $full =~ m{\A\Q$root\E(?:/([^/]+(?:/[^/]+)*))?\z};
+    my $path = $1;
+    die "duplicate archive member $full\n" if $seen{$full}++;
+    next                                   if $entry->is_dir;
+    die "unexpected archive member $full\n" unless defined $path && $entry->is_file;
+    my $content = $entry->get_content;
+
+    if ( delete $generated{$path} ) {
+        next if $path eq 'MANIFEST';
+        my $meta =
+          $path eq 'META.json' ? JSON::PP->new->utf8->decode($content) : CPAN::Meta::YAML->read_string($content)->[0];
+        die "incorrect distribution name in $path\n" unless defined $meta->{name} && $meta->{name} eq 'Test-Mutation';
+        die "incorrect package version in $path\n"   unless defined $meta->{version} && $meta->{version} eq $version;
+        next;
+    }
+    my $hash = delete $blobs{$path};
+    die "unexpected archive member $path\n" unless defined $hash;
+    die "archive differs from the candidate in $path\n"
+      unless Digest::SHA::sha1_hex( 'blob ' . length($content) . "\0" . $content ) eq $hash;
+}
+my @missing = sort( keys %generated, keys %blobs );
+die "missing archive member $missing[0]\n" if @missing;
+print "archive_name=$name\narchive_sha256=$digest\n" or die "write the verified archive identity: $!\n";
