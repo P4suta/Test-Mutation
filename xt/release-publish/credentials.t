@@ -10,8 +10,10 @@ my $workflow = CPAN::Meta::YAML->read('.github/workflows/release-credentials.yml
 my $jobs     = $workflow->{jobs};
 
 subtest 'only a protected main dispatch can read the independent credentials' => sub {
-    is [ sort keys %{ $workflow->{on} } ], ['workflow_dispatch'],     'only a manual dispatch';
-    is [ sort keys %$jobs ],               [qw(cpan release-please)], 'one job per credential';
+    is $workflow->{concurrency}{group}, 'release-credentials',  'concurrent credential checks share a queue';
+    is $workflow->{concurrency}{'cancel-in-progress'}, 'false', 'a later dispatch allows the running checks to finish';
+    is [ sort keys %{ $workflow->{on} } ],             ['workflow_dispatch'],     'only a manual dispatch';
+    is [ sort keys %$jobs ],                           [qw(cpan release-please)], 'one job per credential';
     for my $name ( sort keys %$jobs ) {
         my $job = $jobs->{$name};
         is $job->{environment}, $name, 'the credential belongs to its environment';
