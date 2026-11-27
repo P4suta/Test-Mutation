@@ -118,6 +118,7 @@ sub _walk ( $root, $relative, $skip, $parents, $files, $omit_reports ) {
 
 sub _published ( $published, $name, $path ) {
     return ( 0, undef ) if !exists $published->{$name} || -l $path || !-f $path;
+    return ( 0, undef ) if ( stat $path )[2] & oct '111';
     my $expected = $published->{$name};
     return ( 1, undef ) unless defined $expected;
     my $digest = file($path);

@@ -50,6 +50,13 @@ subtest 'only published bytes at their recorded paths leave the project input' =
         isnt tree(), $with_sibling, "a same-size edit to $name becomes part of the measurement";
         write_file( "$output/$name", $payload{$name} );
     }
+    my $published = tree();
+    chmod 0755, "$output/mutation.json" or die "make report executable: $!";
+    isnt tree(), $published, 'a report repurposed as an executable affects the measurement';
+    chmod 0644, "$output/mutation.json"          or die "restore report mode: $!";
+    chmod 0755, "$output/.test-mutation-outputs" or die "make metadata executable: $!";
+    isnt tree(), $published, 'an executable metadata file is a project input';
+    chmod 0644, "$output/.test-mutation-outputs" or die "restore metadata mode: $!";
     my $archive = "$root/archive";
     write_file( "$archive/$_", $payload{$_} ) for keys %payload;
     File::Copy::copy( "$output/.test-mutation-outputs", "$archive/.test-mutation-outputs" ) or die "copy receipt: $!";
@@ -66,6 +73,19 @@ subtest 'publishing preserves a user file with the metadata name and leaves exte
     my $before  = tree();
     Test::Mutation::Report::Publication::record( $root, $directory, $payload );
     is tree(), $before, 'an existing unrelated file stays unchanged';
+    for my $name (qw(link directory)) {
+        my $marker = "$root/$name/.test-mutation-outputs";
+        write_file( "$root/$name/target", 'input' );
+        if ( $name eq 'link' ) {
+            symlink 'target', $marker or die "link: $!";
+        }
+        else {
+            mkdir $marker or die "directory: $!";
+        }
+        my $original = tree();
+        Test::Mutation::Report::Publication::record( $root, "$root/$name", $payload );
+        is tree(), $original, "a $name at the metadata path survives publication";
+    }
     my $outside = File::Temp::tempdir( CLEANUP => 1 );
     Test::Mutation::Report::Publication::record( $root, $outside, $payload );
     ok !-e "$outside/.test-mutation-outputs", 'publishing outside the measured tree needs no metadata';

@@ -28,6 +28,7 @@ signature_for outputs => ( positional => [ Str, Str ], returns => HashRef [ Mayb
 sub outputs ( $directory, $relative ) {
     my $path = "$directory/$NAME";
     return {} if -l $path || !-f $path;
+    return {} if ( stat $path )[2] & oct '111';
     open my $input, '<:raw', $path or return {};
     my $size = sysread( $input, my $text, $MAX_BYTES );
     close $input or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
