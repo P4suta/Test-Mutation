@@ -1,0 +1,36 @@
+use v5.36;
+use Test2::V0;
+use File::Temp ();
+use lib 't/contract/lib';
+use Samples;
+use Test::Mutation::Settings;
+use Test::Mutation::Store::History;
+use Test::Mutation::Store::Key;
+
+my $root   = File::Temp::tempdir( CLEANUP => 1 );
+my $config = Test::Mutation::Settings::of_call( { root => $root, cache => 1 } );
+my $whole  = Samples::result( statuses => [qw(Survived NoCoverage Killed)] );
+is Test::Mutation::Store::History::undetected($config), undef, 'a project has no completed measurement yet';
+Test::Mutation::Store::History::record( $config, $whole, 1 );
+my $gap = sub ($entry) {
+    my $mutant = $entry->{mutant};
+    return {
+        id     => $mutant->id,
+        path   => $mutant->path,
+        source => Test::Mutation::Store::Key::digest( $whole->sources->{ $mutant->path } )
+    };
+};
+is Test::Mutation::Store::History::undetected($config), [ map { $gap->($_) } $whole->entries->@[ 0, 1 ] ],
+  'the latest completed scope yields only its undetected mutants in inventory order';
+my $narrow  = Test::Mutation::Result->new( $whole->%*, entries => [ $whole->entries->[0] ], finished => 105 );
+my $changed = { $narrow->entries->[0]->%*, status => 'Killed', by => 't/verify.t' };
+$narrow = Test::Mutation::Result->new( $narrow->%*, entries => [$changed] );
+Test::Mutation::Store::History::record( $config, $narrow, 0 );
+is Test::Mutation::Store::History::undetected($config), [ $gap->( $whole->entries->[1] ) ],
+  'a verified kill clears that gap while leaving the other gap in the preceding scope';
+my $empty = Test::Mutation::Result->new( $whole->%*, entries => [], finished => 106 );
+Test::Mutation::Store::History::record( $config, $empty, 1 );
+is Test::Mutation::Store::History::undetected($config), [], 'a completed empty scope is distinct from missing history';
+my $off = Test::Mutation::Settings::of_call( { root => $root, cache => 0 } );
+is Test::Mutation::Store::History::undetected($off), undef, 'disabling the cache bypasses saved history';
+done_testing;

@@ -132,6 +132,14 @@ sub database ($path) {
             $db->do('CREATE INDEX verdict_path ON verdict(path)');
             $db->do('CREATE TABLE original (id TEXT PRIMARY KEY, data TEXT NOT NULL)');
             $db->do('CREATE TABLE setting (id TEXT PRIMARY KEY, data TEXT NOT NULL)');
+            $db->do(
+                'CREATE TABLE measurement (run INTEGER PRIMARY KEY, project TEXT, finished REAL, anchor INTEGER, complete INTEGER)'
+            );
+            $db->do('CREATE INDEX measured_scope ON measurement(project, anchor, finished DESC, run DESC)');
+            $db->do(
+                'CREATE TABLE observation (run INTEGER, ordinal INTEGER, id TEXT, path TEXT, source TEXT, status TEXT, data TEXT, PRIMARY KEY(run, id))'
+            );
+            $db->do('CREATE INDEX observed_mutant ON observation(id, source, run)');
             my $old      = _read("$directory/cache.json");
             my $verdicts = _validated( $old->{mutants}, $RECORD );
             my $matching = { map { $_ => $verdicts->{$_} } grep { defined $verdicts->{$_}{source} } keys %$verdicts };

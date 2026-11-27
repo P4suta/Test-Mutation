@@ -1,0 +1,95 @@
+package Test::Mutation::Store::History;
+use v5.36;
+use Cwd             ();
+use JSON::PP        ();
+use Types::Standard qw(ArrayRef Bool Dict InstanceOf Maybe Str Undef);
+use Type::Params    qw(signature_for);
+use Test::Mutation::Store;
+use Test::Mutation::Store::Key;
+
+our $VERSION = '0.001';
+
+my $CONFIG = InstanceOf ['Test::Mutation::Config'];
+my $JSON   = JSON::PP->new->canonical;
+
+signature_for record => (
+    positional => [ $CONFIG, InstanceOf ['Test::Mutation::Result'], Bool ],
+    returns    => Undef,
+);
+
+sub record ( $config, $result, $anchor ) {
+    return unless $config->cache;
+    my $db       = Test::Mutation::Store::database( Test::Mutation::Store::path($config) );
+    my $complete = !defined $result->shard && !defined $result->interrupted && !$result->baseline_failures->@*;
+    my $project  = Cwd::abs_path( $config->root );
+    my %sources  = map { $_ => Test::Mutation::Store::Key::digest( $result->sources->{$_} ) } keys $result->sources->%*;
+    Test::Mutation::Store::transaction(
+        $db,
+        sub {
+            $db->do(
+                'INSERT INTO measurement(project,finished,anchor,complete) VALUES (?,?,?,?)',
+                undef, $project, $result->finished,
+                $anchor && $complete ? 1 : 0,
+                $complete            ? 1 : 0
+            );
+            my $run   = $db->sqlite_last_insert_rowid;
+            my $write = $db->prepare('INSERT INTO observation VALUES (?,?,?,?,?,?,?)');
+            my $order = 0;
+            for my $entry ( $result->entries->@* ) {
+                my ( $mutant, %facts ) = ( $entry->{mutant}, $entry->%* );
+                delete $facts{mutant};
+                my $path = $mutant->path;
+                $write->execute( $run, $order++, $mutant->id, $path, $sources{$path}, $entry->{status},
+                    $JSON->encode( \%facts ) );
+            }
+            return 1;
+        }
+    );
+    return;
+}
+
+signature_for undetected =>
+  ( positional => [$CONFIG], returns => Maybe [ ArrayRef [ Dict [ id => Str, path => Str, source => Str ] ] ] );
+
+sub undetected ($config) {
+    my $path = Test::Mutation::Store::path($config);
+    return unless $config->cache && -f $path;
+    my $db      = Test::Mutation::Store::database($path);
+    my $project = Cwd::abs_path( $config->root );
+    my ($scope) = $db->selectrow_array(
+        'SELECT run FROM measurement WHERE project = ? AND anchor = 1 ORDER BY finished DESC, run DESC LIMIT 1',
+        undef, $project );
+    return unless defined $scope;
+    return $db->selectall_arrayref( <<'SQL', { Slice => {} }, $scope, $project );
+SELECT member.id, member.path, member.source FROM observation member
+WHERE member.run = ? AND (
+    SELECT evidence.status FROM observation evidence JOIN measurement USING (run)
+    WHERE evidence.id = member.id AND evidence.source = member.source AND project = ? AND complete = 1
+    ORDER BY finished DESC, run DESC LIMIT 1
+) IN ('Survived', 'NoCoverage')
+ORDER BY member.ordinal
+SQL
+}
+
+1;
+
+__END__
+
+=head1 NAME
+
+Test::Mutation::Store::History - keep dated observations and the last completed measurement scope
+
+=head1 FUNCTIONS
+
+=head2 record
+
+Records the measured entries and finish time atomically.
+A true final argument makes a completed run the scope of the next search for undetected changes.
+
+=head2 undetected
+
+Returns the identifiers, files, and source digests of the gaps still present in the latest completed scope.
+An empty array marks a measured scope with no gaps.
+An undefined value marks missing history.
+
+=cut
