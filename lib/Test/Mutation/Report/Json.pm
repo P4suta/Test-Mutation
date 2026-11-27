@@ -103,7 +103,12 @@ signature_for document => (
 
 sub document ( $result, $arg ) {
     my %files;
-    _each_file( $result, sub ( $path, $file ) { $files{$path} = $file } );
+    _each_file(
+        $result,
+        sub ( $path, $source, $entries ) {
+            $files{$path} = { language => 'perl', source => $source, mutants => [ map { _mutant($_) } @$entries ] };
+        }
+    );
     return { _metadata( $result, $arg )->%*, files => \%files };
 }
 
@@ -111,14 +116,7 @@ sub _each_file ( $result, $visit ) {
     my %entries;
     push $entries{ $_->{mutant}->path }->@*, $_ for $result->entries->@*;
     for my $path ( sort keys $result->sources->%* ) {
-        $visit->(
-            $path,
-            {
-                language => 'perl',
-                source   => $result->sources->{$path},
-                mutants  => [ map { _mutant($_) } @{ $entries{$path} || [] } ]
-            }
-        );
+        $visit->( $path, $result->sources->{$path}, $entries{$path} || [] );
     }
     return;
 }
@@ -226,8 +224,14 @@ sub stream ( $result, $arg ) {
     my $separator = q{};
     _each_file(
         $result,
-        sub ( $path, $file ) {
-            $write->( $separator . $json->encode($path) . q{:} . $json->encode($file) );
+        sub ( $path, $source, $entries ) {
+            $write->( $separator . $json->encode($path) . ':{"language":"perl","mutants":[' );
+            my $comma = q{};
+            for my $entry (@$entries) {
+                $write->( $comma . $json->encode( _mutant($entry) ) );
+                $comma = ',';
+            }
+            $write->( '],"source":' . $json->encode($source) . '}' );
             $separator = ",\n";
         }
     );
@@ -387,6 +391,7 @@ Returns the report as JSON text with sorted keys.
 =head2 stream
 
 Writes each source file in path order through the C<write> callback.
+Mutants are written as they are encoded, including when a single source has many mutants.
 The callback receives character strings.
 
 =head2 parse

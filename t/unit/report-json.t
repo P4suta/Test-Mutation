@@ -95,8 +95,25 @@ subtest 'a writer receives each source file before the next file' => sub {
     is JSON::PP->new->decode( join q{}, @chunks ), $document, 'streamed JSON carries every result field';
     my @files = grep { /"language"\s*:\s*"perl"/ } @chunks;
     is scalar @files, 2, 'each source is written separately';
-    like $files[0],   qr/000000000001/, 'the populated source comes first';
-    unlike $files[1], qr/000000000001/, 'the next source has its own payload';
+    like $files[0], qr{lib/Calc[.]pm},      'the populated source comes first';
+    like $files[1], qr{lib/Unmutated[.]pm}, 'the unmutated source comes second';
+};
+
+subtest 'the writer can consume the first mutant before the rest of a large file is built' => sub {
+    my @entries     = map { entry( 'Survived', id => sprintf( '%012x', $_ ) ) } 1 .. 256;
+    my $large       = Test::Mutation::Result->new( $result->%*, entries => \@entries );
+    my $description = Test::Mutation::Mutant->can('description');
+    my ( $built, $first ) = ( 0, undef );
+    no warnings 'redefine';
+    local *Test::Mutation::Mutant::description = sub ($self) { $built++; return $description->($self) };
+    Test::Mutation::Report::Json::stream(
+        $large,
+        high  => 80,
+        low   => 60,
+        write => sub ($chunk) { $first = $built if !defined $first && $chunk =~ /"id":"000000000001"/ }
+    );
+    is $built, scalar @entries, 'each mutant was described once';
+    ok defined $first && $first < $built, 'the first mutant reached the writer before the last was described';
 };
 
 subtest 'the document has the required top-level fields' => sub {
