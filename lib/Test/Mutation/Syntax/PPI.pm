@@ -3,7 +3,7 @@ use v5.36;
 use PPI;
 use PPIx::Regexp;
 use Scalar::Util    qw(refaddr);
-use Types::Standard qw(Bool InstanceOf Int Maybe Optional Tuple);
+use Types::Standard qw(ArrayRef Bool InstanceOf Int Maybe Optional Str Tuple);
 use Type::Params    qw(signature_for);
 use version         ();
 use Test::Mutation::Mutator::Providers;
@@ -146,6 +146,55 @@ sub inside_begin ( $source, $offset ) {
         return 1 if defined $first && defined $last && $first <= $offset && $offset <= $last;
     }
     return 0;
+}
+
+signature_for compile_reads => ( positional => [Str], returns => Maybe [ ArrayRef [ Tuple [ Str, Str ] ] ] );
+
+sub compile_reads ($source) {
+    return [] unless $source =~ /\b(?:BEGIN|UNITCHECK|CHECK)\b/;
+    my $document = _document($source) or return;
+    my @reads;
+    for my $phase ( @{ $document->find('PPI::Statement::Scheduled') || [] } ) {
+        next unless $phase->first_token->content =~ /\A(?:BEGIN|UNITCHECK|CHECK)\z/;
+        my $body = $phase->schild(1);
+        return unless $body && $body->isa('PPI::Structure::Block');
+        my %handles;
+        for my $statement ( $body->schildren ) {
+            my $text = join q{ }, map { $_->content } grep { $_->significant } $statement->tokens;
+            $text =~ s/(?: \s+ | \A ) ; \z//x;
+            next if _known_phase_statement( $text, \%handles, \@reads );
+            return;
+        }
+    }
+    return \@reads;
+}
+
+sub _known_phase_statement ( $text, $handles, $reads ) {
+    my $variable   = qr{\$[a-zA-Z_]\w*};
+    my $literal    = qr{(?: '[^'\\]*' | "[^"\$\@\\]*" )}x;
+    my $operand    = qr{(?: $literal | \$ENV \s \{ \s [a-zA-Z_]\w* \s \} )}x;
+    my $ends       = qr{(?: \s (?:or|\|\|) \s (?:CORE::)?die \s \$! )?}x;
+    my $filehandle = qr{(?: \( \s )? (?:my \s)? ($variable) \s , \s}x;
+    my $read_mode  = qr{(?: '<(?::raw)?' | "<(?::raw)?" ) \s , \s}x;
+    if ( $text =~ m{\A (?:CORE::)?open \s $filehandle $read_mode ($operand) (?: \s \) )? $ends \z}x ) {
+        my ( $handle, $path ) = ( $1, $2 );
+        $handles->{$handle} = 1;
+        push @$reads, $path =~ /\A\$ENV \{ (\w+) \}\z/ ? [ env => $1 ] : [ file => substr( $path, 1, -1 ) ];
+        return 1;
+    }
+    return 1 if $text eq q{} || $text eq 'require constant';
+    return 1 if $text =~ /\A constant \s -> \s import \s \( \s $literal \s , \s $variable \s \) \z/x;
+    if ( $text =~ /\A(?:CORE::)?close ($variable)$ends\z/ ) {
+        return $handles->{$1};
+    }
+    my $expression = $text;
+    $expression =~ s{\A(?:my )?$variable = }{} or return;
+    my $atom = qr{(?:$variable|\d+(?:[.]\d+)?|$literal)};
+    return 1 if $expression =~ /\A$atom(?: [+\/*%-] $atom)*\z/;
+    if ( $expression =~ /\A (?:$atom \s [+\/*%-] \s)? < \s* ($variable) \s* > \z/x ) {
+        return $handles->{$1};
+    }
+    return;
 }
 
 signature_for witness_offsets =>
@@ -1381,6 +1430,11 @@ C<use v5.40> and a later version import the booleans and the rounding functions 
 =head2 inside_begin
 
 Returns true when the original source offset lies inside a C<BEGIN> block.
+
+=head2 compile_reads
+
+Returns the literal paths and environment-variable names read by a standalone compilation.
+An unrecognized scheduled statement leaves the input set unknown.
 
 =head2 witness_offsets
 
