@@ -29,13 +29,12 @@ my ($id)  = grep { $first{$_} eq 'Survived' } sort keys %first;
 ok defined $id, 'the original suite misses a change';
 write_file( "$project/t/stronger.t", "use Test::More tests => 1;\nuse Totals;\nis Totals::sum(4, 1), 5;\n" );
 ran( 0, $project, @options, '--mutant', $id );
-$first{$id} = 'Killed';
-
 for my $format (qw(json html)) {
     my $saved = report($format);
     is {
         map { $_->{mutant}->id => $_->{status} } $saved->entries->@*
-    }, \%first, "a narrow run updates the selected verdict in the complete $format report";
+    }, { $id => 'Killed' }, "the $format report scores only the named mutant";
+    is $saved->tally->{score}, 100, "the stronger test gives the selected $format measurement a full score";
     is $saved->selection->{mutants}, [$id], 'the most recent selection survives serialization';
 }
 

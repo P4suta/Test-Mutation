@@ -318,7 +318,7 @@ my @INTERACTIONS = (
     {
         rule        => 'updates-report',
         settings    => ['mutant'],
-        description => 'A run of named mutants or paths updates the latest report of the same mutants.'
+        description => 'A run of named mutants or paths reports the results of the selected changes.'
     },
 );
 

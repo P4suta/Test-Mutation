@@ -376,28 +376,15 @@ sub _file_reports ( $result, $config, $formats ) {
     sysopen my $lock, $target, O_RDONLY
       or Test::Mutation::Error::raise( 'directory-unopenable', path => $directory, reason => "$!" );
     flock $lock, LOCK_EX or Test::Mutation::Error::raise( 'file-unwritable', path => $directory, reason => "$!" );
-    my $saved = _refresh_report( $target, $result );
     my @written;
     for my $format (@$formats) {
         my ( $name, $render ) = $FILE_REPORT{$format}->@*;
-        my $text = $render->( $saved, high => $config->threshold_high, low => $config->threshold_low );
+        my $text = $render->( $result, high => $config->threshold_high, low => $config->threshold_low );
         _write( "$target/$name", "$directory/$name", '>', $text );
         push @written, "$directory/$name";
     }
     close $lock or Test::Mutation::Error::raise( 'file-unclosable', path => $directory, reason => "$!" );
     return @written;
-}
-
-sub _refresh_report ( $directory, $result ) {
-    return $result if defined $result->shard                 || !defined $result->catalog_digest;
-    return $result unless exists $result->selection->{paths} || exists $result->selection->{mutants};
-    return _previous_report(
-        $directory,
-        sub ($prior) {
-            my $combined = Test::Mutation::Merge::refresh( $prior, $result );
-            return $combined == $result ? undef : $combined;
-        }
-    ) || $result;
 }
 
 sub _previous_report ( $directory, $select ) {
