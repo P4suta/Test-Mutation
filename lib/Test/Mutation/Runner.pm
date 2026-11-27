@@ -210,7 +210,7 @@ sub _copy_project ($run) {
 
     my $directory = $run->{workspace}->directory;
     $run->{copies} = "$directory/slot";
-    my @skip = ( q{.git}, map { _inside( $project, $_ ) } $config->cache_dir, $config->report_dir );
+    my @skip = _copy_exclusions($run);
     $run->{listener}->( 'copy_started', { project => $project } );
     my $copied = Test::Mutation::Try::attempt(
         sub { $run->{root} = _new_copy( $run, "$directory/tree", $project, \@skip, $config->link ) } );
@@ -470,12 +470,21 @@ sub _measurement_digest ( $run, $selection ) {
         _input_exclusions($run), @sources, $selection->tests->@*,
         defined $config->config ? _inside( $project, $config->config ) : ()
     );
+    my $project_digest;
+    if ( $config->in_place ) {
+        $project_digest = Test::Mutation::Store::Key::tree( $project, \@skip );
+    }
+    else {
+        my $view = Test::Mutation::Store::Key::project( $project, \@skip, $config->link );
+        $run->{report_outputs} = $view->{outputs};
+        $project_digest = $view->{digest};
+    }
     return Test::Mutation::Store::Key::digest(
         $VERSION,
         Test::Mutation::Store::Key::digest( map { $_->name } $selection->mutators->@* ),
         Test::Mutation::Store::Key::digest( map { ( $_, $selection->digests->{$_} ) } @sources ),
         Test::Mutation::Store::Key::interpreter_build( $selection->perl ),
-        Test::Mutation::Store::Key::tree( $project, \@skip, !$config->in_place ),
+        $project_digest,
         Test::Mutation::Store::Key::environment( \%ENV, $project ),
         _module_text($SHIM_FILE),
         _module_text('Test/Mutation/Witness.pm'),
@@ -495,6 +504,19 @@ sub _input_exclusions ($run) {
     my $config = $run->{config};
     return '.git', _inside( $run->{project}, $config->cache_dir ),
       ( $config->in_place ? () : _inside( $run->{project}, $config->report_dir ) );
+}
+
+sub _copy_exclusions ($run) {
+    my $config  = $run->{config};
+    my $project = $run->{project};
+    my @skip    = ( '.git', map { _inside( $project, $_ ) } $config->cache_dir, $config->report_dir );
+    return @skip if $config->in_place;
+    unless ( $run->{report_outputs} ) {
+        my $view =
+          _available_digest( sub { return Test::Mutation::Store::Key::project( $project, \@skip, $config->link ) } );
+        $run->{report_outputs} = $view ? $view->{outputs} : [];
+    }
+    return @skip, $run->{report_outputs}->@*;
 }
 
 sub _measure_tests ( $run, $selection, $plan ) {
@@ -1672,7 +1694,7 @@ sub _fingerprint ( $run, $baseline ) {
     my $config    = $run->{config};
     my @targets   = sort keys $run->{sources}->%*;
     my @tests     = sort keys $baseline->{tests}->%*;
-    my @skip      = _input_exclusions($run);
+    my @skip      = ( _input_exclusions($run), @{ $run->{report_outputs} || [] } );
     my %include   = map { $_ => 1 } map { @{ $baseline->{tests}{$_}{includes} || [] } } @tests;
     my @libraries = map { ( $_, Test::Mutation::Store::Key::tree( $_, [] ) ) } sort keys %include;
     my @launch    = (
@@ -1837,11 +1859,8 @@ sub _after_code ( $run, $task, $result ) {
 }
 
 sub _control_copy ( $run, $from ) {
-    my @skip =
-      $from eq $run->{project}
-      ? ( '.git', map { _inside( $from, $_ ) } $run->{config}->cache_dir, $run->{config}->report_dir )
-      : ();
-    my $link = $from eq $run->{project} ? $run->{config}->link : [];
+    my @skip = $from eq $run->{project} ? _copy_exclusions($run) : ();
+    my $link = $from eq $run->{project} ? $run->{config}->link   : [];
     return _new_copy( $run, "$run->{work}/controls/" . ++$run->{control_sequence}, $from, \@skip, $link );
 }
 

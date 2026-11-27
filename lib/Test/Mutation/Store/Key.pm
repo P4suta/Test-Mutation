@@ -5,7 +5,7 @@ use Cwd             ();
 use Digest::SHA     ();
 use Encode          ();
 use Time::HiRes     ();
-use Types::Standard qw(ArrayRef Bool HashRef Maybe Optional Slurpy Str);
+use Types::Standard qw(ArrayRef Bool Dict HashRef Maybe Optional Slurpy Str);
 use Type::Params    qw(signature_for);
 use Test::Mutation::Error;
 
@@ -69,51 +69,91 @@ sub file ($path) {
 signature_for tree => ( positional => [ Str, ArrayRef [Str], Optional [Bool] ], returns => Str );
 
 sub tree ( $root, $skip, $omit_reports = 0 ) {
-    return digest('absent') unless -d $root;
-    my %skip = map { $_ => 1 } @$skip;
-    require Test::Mutation::Report::Publication if $omit_reports;
-    my @files;
-    _walk( $root, q{}, \%skip, {}, \@files, $omit_reports );
-    return digest(@files);
+    return project( $root, $skip, [] )->{digest} if $omit_reports;
+    return _tree( $root, $skip, undef );
 }
 
-sub _walk ( $root, $relative, $skip, $parents, $files, $omit_reports ) {
+signature_for project => (
+    positional => [ Str, ArrayRef [Str], ArrayRef [Str] ],
+    returns    => Dict [ digest => Str, outputs => ArrayRef [Str] ],
+);
+
+sub project ( $root, $skip, $links ) {
+    require Test::Mutation::Report::Publication;
+    my $reports = { names => [], targets => {}, links => { map { $_ => 1 } @$links } };
+    my $digest  = _tree( $root, $skip, $reports );
+    my @targets = keys $reports->{targets}->%*;
+    my @outputs = grep {
+        my $path = "$_/";
+        !grep { index( "$_/", $path ) == 0 || index( $path, "$_/" ) == 0 } @targets;
+    } $reports->{names}->@*;
+    return { digest => $digest, outputs => \@outputs };
+}
+
+sub _tree ( $root, $skip, $reports ) {
+    return digest('absent') unless -d $root;
+    my $state = { root => $root, files => [], skip => { map { $_ => 1 } @$skip }, parents => {} };
+    _walk( $state, q{}, $reports );
+    return digest( $state->{files}->@* );
+}
+
+sub _walk ( $state, $relative, $reports ) {
+    my $root      = $state->{root};
     my $directory = length $relative ? "$root/$relative" : $root;
     my @inode     = ( stat $directory )[ 0, 1 ];
     my $identity  = join q{/}, @inode;
-    return if $parents->{$identity};
-    local $parents->{$identity} = 1;
+    return if $state->{parents}{$identity};
+    local $state->{parents}{$identity} = 1;
     opendir my $dir, $directory
       or Test::Mutation::Error::raise( 'directory-unopenable', path => $directory, reason => "$!" );
     my @names = sort grep { $_ ne q{.} && $_ ne q{..} } readdir $dir;
     closedir $dir or Test::Mutation::Error::raise( 'file-unclosable', path => $directory, reason => "$!" );
 
-    my $start     = @$files;
-    my $reported  = 0;
-    my $published = $omit_reports ? Test::Mutation::Report::Publication::outputs( $directory, $relative ) : {};
+    my $only_reports = @names > 0;
+    my $published    = $reports ? Test::Mutation::Report::Publication::outputs( $directory, $relative ) : {};
     for my $name (@names) {
-        my $path = length $relative ? "$relative/$name" : $name;
-        next if $skip->{$path};
-        my $absolute = "$root/$path";
-        my ( $output, $digest ) = _published( $published, $name, $absolute );
-        if ($output) {
-            $reported = 1;
-            next;
-        }
-        my $offset = @$files;
-        push @$files, 'link', $path, readlink $absolute if -l $absolute;
+        my $path   = length $relative ? "$relative/$name" : $name;
+        my $output = !$state->{skip}{$path} && _node( $state, $path, $name, $published, $reports );
+        $only_reports = 0 unless $output;
+    }
+    return $only_reports;
+}
+
+sub _node ( $state, $path, $name, $published, $reports ) {
+    my $root     = $state->{root};
+    my $absolute = "$root/$path";
+    my $files    = $state->{files};
+    if ( -l $absolute ) {
+        push @$files, 'link', $path, readlink $absolute;
+        _link_target( $state, $reports, $absolute ) if $reports;
+        $reports = undef;
+    }
+    $reports = undef if $reports && $reports->{links}{$path};
+    my ( $output, $digest ) = $reports ? _published( $published, $name, $absolute ) : ();
+    unless ($output) {
         if ( -d $absolute ) {
+            my $offset = @$files;
             push @$files, 'directory', $path;
-            if ( _walk( $root, $path, $skip, $parents, $files, $omit_reports ) ) {
-                splice @$files, $offset;
-                $reported = 1;
-            }
+            return 0 unless _walk( $state, $path, $reports );
+            splice @$files, $offset;
         }
-        elsif ( -f $absolute ) {
-            push @$files, 'file', $path, ( ( stat $absolute )[2] & oct '111' ), $digest || file($absolute);
+        else {
+            push @$files, 'file', $path, ( ( stat $absolute )[2] & oct '111' ), $digest || file($absolute)
+              if -f $absolute;
+            return 0;
         }
     }
-    return $reported && @$files == $start;
+    push $reports->{names}->@*, $path;
+    return 1;
+}
+
+sub _link_target ( $state, $reports, $absolute ) {
+    my $target = Cwd::abs_path($absolute);
+    my $root   = $state->{root};
+    return if !defined $target || index( $target, "$root/" ) != 0;
+    my $identity = join q{/}, ( stat $absolute )[ 0, 1 ];
+    $reports->{targets}{ substr $target, 1 + length $root } = 1 unless $state->{parents}{$identity};
+    return;
 }
 
 sub _published ( $published, $name, $path ) {
@@ -186,6 +226,11 @@ Hashes the bytes of a regular file.
 Hashes relative names, executable bits, symlinks and contents below a directory.
 The caller can exclude inputs that have separate keys.
 An optional true third argument omits generated mutation reports and directories containing only those reports.
+
+=head2 project
+
+Returns the input digest and the published output paths to omit from an isolated copy.
+Linked project inputs retain their visible contents.
 
 =head2 interpreter
 
