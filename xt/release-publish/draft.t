@@ -69,6 +69,15 @@ subtest 'invalid source, version and archive identities prevent draft writes' =>
     }
 };
 
+subtest 'only the release tag can identify the source' => sub {
+    local %ENV = setup();
+    unlink $ENV{FAKE_REMOTE} . "/tag" or die "remove the tag: $!";
+    is invoke('stage'), undef, 'a branch with the same name cannot authorize publication';
+    write_file( $ENV{FAKE_REMOTE} . "/tag", 'cd' x 20 );
+    is invoke('stage'), undef, 'a tag pointing to another commit cannot authorize publication';
+    ok !-e $ENV{FAKE_REMOTE} . "/$name", 'the rejected reference leaves the draft empty';
+};
+
 subtest 'only the first reservation may submit the archive' => sub {
     local %ENV = setup();
     like invoke('stage'), qr/^action=prepare$/m, 'the verified archive is ready for a reservation';

@@ -148,12 +148,12 @@ impl Candidate {
             "gh",
             &[
                 "api",
-                &format!("repos/{REPO}/commits/{}", self.tag),
+                &format!("repos/{REPO}/git/ref/tags/{}", self.tag),
                 "--jq",
-                ".sha",
+                "[.object.type,.object.sha]|@tsv",
             ],
         )?;
-        if tagged.trim_end() != self.sha {
+        if tagged.trim_end().split_once('\t') != Some(("commit", self.sha.as_str())) {
             return Err("the release tag points to another commit".into());
         }
         let mut release = Release {

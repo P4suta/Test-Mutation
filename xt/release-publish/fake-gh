@@ -29,7 +29,12 @@ if ( $command eq 'api' ) {
         exit 0;
     }
     if ( $path =~ m{/commits/v0[.]1[.]0\z} ) {
-        say read_file('tag');
+        say $source;
+        exit 0;
+    }
+    if ( $path =~ m{/git/ref/tags/v0[.]1[.]0\z} ) {
+        exit 1 if !-f "$root/tag";
+        say join "\t", 'commit', read_file('tag');
         exit 0;
     }
     if ( $path =~ m{/releases/17/assets\z} ) {
