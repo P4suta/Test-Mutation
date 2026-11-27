@@ -99,14 +99,15 @@ PERL
     ok defined $id, 'the other addition has a measured coverage gap';
     my ($detail) = observed( 'show', $id );
     like $detail,   qr/^Reached by: no test$/m, 'the stored observation reports that no test reached the mutant';
-    unlike $detail, qr/^Killed by:/m,           'an unreached mutant has no detecting test';
+    unlike $detail, qr/^(?:Killed by|Deciding test):/m, 'an unreached mutant has no deciding test';
 };
+
+my ($added) = grep { $_->mutator eq 'arithmetic' && $_->original eq '+' } $selected->mutants->@*;
+my $id = $added->id;
 
 subtest 'an HTML report alone supplies the last verdict without a cache' => sub {
     my $copy = copy_of('calc');
     write_file( "$copy/mutation-report/mutation.json/marker", "existing directory\n" );
-    my ($added) = grep { $_->mutator eq 'arithmetic' && $_->original eq '+' } $selected->mutants->@*;
-    my $id      = $added->id;
     my $run = World::observe( [ 'run', '--mutant', $id, '--format', 'html', '--no-cache', '--jobs', 1 ], cwd => $copy );
     is $run->{exit}, 0, 'an unavailable JSON destination leaves the HTML measurement usable';
     ok -f "$copy/mutation-report/mutation.json/marker", 'the existing directory keeps its contents';
@@ -115,6 +116,23 @@ subtest 'an HTML report alone supplies the last verdict without a cache' => sub 
     is $detail->{exit}, 0, 'show can read the standalone report';
     like $detail->{stdout}, qr/^Last result: Killed$/m,   'the HTML report supplies the verdict';
     like $detail->{stdout}, qr/^Killed by: t\/add[.]t$/m, 'the HTML report identifies the detecting test';
+};
+
+subtest 'a saved timeout identifies the test that reached its limit' => sub {
+    my $copy = copy_of('calc');
+    write_file( "$copy/t/add.t", <<'PERL' );
+use Calc;
+sleep 300 if Calc::add(2, 3) != 5;
+print "1..1\nok 1\n";
+PERL
+    my @args = ( 'run', '--mutant', $id, '--test', 't/add.t', '--format', 'json', '--no-cache', '--timeout-floor', 2 );
+    my $run  = World::observe( \@args, cwd => $copy );
+    is $run->{exit}, 4, 'the timed-out measurement is inconclusive';
+    my $detail = World::observe( [ 'show', $id ], cwd => $copy );
+    is $detail->{exit}, 0, 'show reads the saved timeout';
+    like $detail->{stdout},   qr/^Last result: Timeout$/m,      'the report retains the timeout';
+    like $detail->{stdout},   qr/^Deciding test: t\/add[.]t$/m, 'the report names the test that timed out';
+    unlike $detail->{stdout}, qr/^Killed by:/m,                 'the timeout does not claim a detection';
 };
 
 done_testing;
