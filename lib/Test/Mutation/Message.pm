@@ -116,6 +116,12 @@ my @ROWS = (
         'The bytes of the copied source differ from the bytes used to generate its mutants.'
     ],
     [
+        'measurement-inputs-changed',
+        'environment',
+        'measurement inputs changed while preparing the copy ({path}), so rerun the measurement',
+        'The prepared inputs must match the project data and test bytes recorded during analysis.'
+    ],
+    [
         'option-unknown', 'usage',
         '{option} names no option; the nearest is {nearest}',
         'The command line holds an option that the command lacks, and the message names the option nearest to it.'

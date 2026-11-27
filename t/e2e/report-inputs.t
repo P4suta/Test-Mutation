@@ -3,7 +3,7 @@ use Test2::V0;
 use Cwd        ();
 use File::Temp ();
 use lib 't/e2e/lib';
-use Fixture qw(run_fixture write_file);
+use Fixture qw(copy_of run_fixture write_file);
 use Test::Mutation::Merge;
 use Test::Mutation::Report::Json;
 use Test::Mutation::Report::Publication;
@@ -103,6 +103,39 @@ PERL
     my ($ordinary) = run_fixture( $root, %settings );
     isnt $ordinary->measurement_digest, $published->measurement_digest, 'a regular sibling remains a project input';
     is subtraction($ordinary),          'Killed', 'the copy keeps a report directory containing other inputs';
+};
+
+subtest 'a shard verifies the prepared inputs before running a test' => sub {
+    for my $case (
+        [ 'copy_started',  't/add.t' ],
+        [ 'copy_started',  'spec/operand' ],
+        [ 'copy_finished', 't/add.t' ],
+        [ 'copy_finished', 'spec/added' ],
+      )
+    {
+        my ( $event, $path ) = @$case;
+        my $project = copy_of('calc');
+        write_file( "$project/spec/operand", 'zero' );
+        my @events;
+        my $error = dies {
+            Test::Mutation::run(
+                root     => $project,
+                shard    => '1/2',
+                cache    => 0,
+                jobs     => 1,
+                on_event => sub ( $name, $data ) {
+                    push @events, $name;
+                    return unless $name eq $event;
+                    my $directory = $event eq 'copy_started' ? $project : $data->{root};
+                    write_file( "$directory/$path",
+                        $path eq 't/add.t' ? "use Test::More tests => 1;\npass;\n" : 'edit' );
+                    return;
+                }
+            );
+        };
+        like $error, qr/measurement inputs changed/, "$event rejects the changed $path";
+        ok !grep( { $_ eq 'baseline_test' || $_ eq 'mutant_test' } @events ), 'the unverified copy runs no test';
+    }
 };
 
 done_testing;

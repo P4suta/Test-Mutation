@@ -81,20 +81,29 @@ signature_for project => (
 
 sub project ( $root, $skip, $links ) {
     require Test::Mutation::Report::Publication;
-    my $reports = { names => [], targets => {}, links => { map { $_ => 1 } @$links } };
+    my $reports = { names => [], targets => {} };
     $reports->{candidates} = { map { $_ => 1 } Test::Mutation::Report::Publication::names()->@* };
-    my $digest  = _tree( $root, $skip, $reports );
+    my $digest  = _tree( $root, $skip, $reports, $links );
     my @targets = keys $reports->{targets}->%*;
     my @outputs = grep {
         my $path = "$_/";
         !grep { index( "$_/", $path ) == 0 || index( $path, "$_/" ) == 0 } @targets;
     } $reports->{names}->@*;
+    $digest = _tree( $root, [ @$skip, @outputs ], undef, $links ) if @outputs != $reports->{names}->@*;
     return { digest => $digest, outputs => \@outputs };
 }
 
-sub _tree ( $root, $skip, $reports ) {
+signature_for copied => ( positional => [ Str, ArrayRef [Str], ArrayRef [Str], Str ], returns => Str );
+
+sub copied ( $root, $skip, $links, $original ) {
+    return _tree( $root, $skip, undef, $links, $original );
+}
+
+sub _tree ( $root, $skip, $reports, $links = [], $original = undef ) {
     return digest('absent') unless -d $root;
     my $state = { root => $root, files => [], skip => { map { $_ => 1 } @$skip }, parents => {} };
+    $state->{links}    = { map { $_ => 1 } @$links };
+    $state->{original} = $original;
     _walk( $state, q{}, $reports );
     return digest( $state->{files}->@* );
 }
@@ -153,7 +162,13 @@ sub _node ( $state, $path, $observed, $reports ) {
     my $root     = $state->{root};
     my $absolute = "$root/$path";
     my $files    = $state->{files};
-    my $linked   = $reports && $reports->{links}{$path};
+    my $linked   = $state->{links}{$path};
+    if ( $linked && defined $state->{original} ) {
+        my $expected = "$state->{original}/$path";
+        Test::Mutation::Error::raise( 'measurement-inputs-changed', path => $path )
+          unless -l $absolute && readlink($absolute) eq $expected;
+        $absolute = $expected;
+    }
     if ($observed) {
         if ( $observed->[0] && !$linked ) {
             push $reports->{names}->@*, $path;
@@ -256,6 +271,10 @@ An optional true third argument omits generated mutation reports and directories
 
 Returns the input digest and the published output paths to omit from an isolated copy.
 Linked project inputs retain their visible contents.
+
+=head2 copied
+
+Hashes the prepared inputs and verifies that each configured link leads back to its project path.
 
 =head2 interpreter
 

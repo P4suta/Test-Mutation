@@ -230,6 +230,7 @@ sub _prepare_project ( $run, $selection ) {
     unless ( $run->{config}->in_place ) {
         _copy_project($run);
         $selection->verify_copy( $run->{root} );
+        _verify_copy_inputs($run);
         _prepare_build( $run, [ sort keys $selection->sources->%* ] );
         return;
     }
@@ -469,10 +470,10 @@ sub _measurement_digest ( $run, $selection ) {
     my $config  = $run->{config};
     my $project = $run->{project};
     my @sources = sort( keys $selection->sources->%*, map { $_->{path} } $selection->unanalyzed->@* );
-    my @skip    = (
-        _input_exclusions($run), @sources, $selection->tests->@*,
-        defined $config->config ? _inside( $project, $config->config ) : ()
-    );
+    my @separate =
+      ( @sources, $selection->tests->@*, defined $config->config ? _inside( $project, $config->config ) : () );
+    my @skip  = ( _input_exclusions($run), @separate );
+    my %tests = map { $_ => Test::Mutation::Store::Key::file("$project/$_") } $selection->tests->@*;
     my $project_digest;
     if ( $config->in_place ) {
         $project_digest = Test::Mutation::Store::Key::tree( $project, \@skip );
@@ -480,7 +481,8 @@ sub _measurement_digest ( $run, $selection ) {
     else {
         my $view = Test::Mutation::Store::Key::project( $project, \@skip, $config->link );
         $run->{report_outputs} = $view->{outputs};
-        $project_digest = $view->{digest};
+        $project_digest        = $view->{digest};
+        $run->{copy_inputs}    = { project => $project_digest, tests => \%tests, separate => \@separate };
     }
     return Test::Mutation::Store::Key::digest(
         $VERSION,
@@ -500,8 +502,23 @@ sub _measurement_digest ( $run, $selection ) {
         $config->timeout_factor,
         $config->timeout_floor,
         ( map { Test::Mutation::Store::Key::digest(@$_) } $config->lib, $config->switch, $config->link ),
-        map { ( $_, Test::Mutation::Store::Key::file("$run->{project}/$_") ) } $selection->tests->@*
+        map { ( $_, $tests{$_} ) } $selection->tests->@*
     );
+}
+
+sub _verify_copy_inputs ($run) {
+    my $expected = $run->{copy_inputs} or return;
+    my $root     = $run->{root};
+    for my $test ( sort keys $expected->{tests}->%* ) {
+        my $path = "$root/$test";
+        Test::Mutation::Error::raise( 'measurement-inputs-changed', path => $test )
+          if !-f $path || Test::Mutation::Store::Key::file($path) ne $expected->{tests}{$test};
+    }
+    my $digest =
+      Test::Mutation::Store::Key::copied( $root, $expected->{separate}, $run->{config}->link, $run->{project} );
+    Test::Mutation::Error::raise( 'measurement-inputs-changed', path => $run->{project} )
+      if $digest ne $expected->{project};
+    return;
 }
 
 sub _input_exclusions ($run) {

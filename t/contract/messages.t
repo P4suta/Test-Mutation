@@ -257,6 +257,21 @@ printed( [ 'run', '--perl',   "$tree/absent-perl" ] );
 raised( sub { Test::Mutation::Git::changed( Space::git_tree(), 'absent-revision' ) } );
 my $selection = Test::Mutation::Select::resolve( config => Test::Mutation::Settings::of_call( { root => $tree } ) );
 raised( sub { $selection->verify_copy( directory() ) } );
+my $selected_test = $selection->tests->[0];
+like raised(
+    sub {
+        Test::Mutation::run(
+            root     => $tree,
+            cache    => 0,
+            jobs     => 1,
+            on_event => sub ( $event, $data ) {
+                unlink "$data->{root}/$selected_test" or die "remove copied test: $!" if $event eq 'copy_finished';
+                return;
+            }
+        );
+    }
+  ),
+  qr/measurement inputs changed.*\Q$selected_test\E.*rerun/, 'a missing test identifies which prepared input changed';
 my $many = directory(
     'lib/Many.pm' => join( "\n", 'package Many;', ( map { "sub item$_ { return \$_[0] + $_ }" } 1 .. 20 ), '1;' ) );
 my $mutants = Test::Mutation::mutants( root => $many );
