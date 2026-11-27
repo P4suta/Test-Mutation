@@ -348,7 +348,7 @@ subtest 'finishing a mutant removes its source and both specifications before re
     my @owned = ( $file, $spec, "$spec.disk" );
     write_file( $_,                           "private\n" ) for @owned;
     write_file( "$directory/other.spec.disk", "another job\n" );
-    my $config = Test::Mutation::Settings::of_call( { root => 't/fixtures/calc' } );
+    my $config = Test::Mutation::Settings::of_call( { root => 't/fixtures/calc', equivalence => 0 } );
     my $job    = {
         file     => $file,
         spec     => $spec,
@@ -359,11 +359,15 @@ subtest 'finishing a mutant removes its source and both specifications before re
     };
     my @events;
     my $run = {
+        jobs     => 1,
+        stats    => {},
+        config   => $config,
         listener => sub ( $event, $entry ) {
             push @events, [ $event, $entry->{status}, grep { -e } @owned ];
         }
     };
-    Test::Mutation::Runner::_finish( $run, $job );
+    my @jobs = ($job);
+    Test::Mutation::Runner::_execute_jobs( $run, {}, sub { return shift @jobs }, {}, undef );
     is \@events, [ [ 'mutant', 'NoCoverage' ] ], 'the verdict arrives after all three private files have gone';
     is Test::Mutation::Source::read_bytes("$directory/other.spec.disk"), "another job\n",
       'a concurrent job keeps its own disk specification';
