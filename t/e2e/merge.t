@@ -1,7 +1,9 @@
 use v5.36;
 use Test2::V0;
+use JSON::PP ();
 use lib 't/e2e/lib';
-use Fixture qw(copy_of ran run_fixture statuses);
+use Fixture qw(copy_of ran run_fixture statuses write_file);
+use Test::Mutation::Merge;
 use Test::Mutation::Report::Json;
 
 my $root    = copy_of('calc');
@@ -75,6 +77,36 @@ subtest 'a set that is not one complete run is a usage error' => sub {
         is [ $merge->{exit}, $merge->{stderr} ], [ 2, "mutation: $message\n" ], $message;
     }
     ok !-e "$root/refused", 'a refused merge writes no report';
+};
+
+subtest 'a shard can move between checkouts that share the measured inputs' => sub {
+    my $original = copy_of('equivalent');
+    my $other    = copy_of('equivalent');
+    my $measure  = sub ( $root, $part, %options ) {
+        my ($result) = run_fixture( $root, cache => 0, shard => "$part/2", %options );
+        my $json = Test::Mutation::Report::Json::render( $result, high => 80, low => 60 );
+        return { name => "part$part", result => Test::Mutation::Report::Json::parse($json) };
+    };
+    my $one = $measure->( $original, 1, jobs => 1 );
+    my $two = $measure->( $other,    2, jobs => 2 );
+    ok lives { Test::Mutation::Merge::merge( [ $one, $two ] ) }, 'parallelism and checkout paths may differ';
+    my $older = Test::Mutation::Report::Json::document( $two->{result}, high => 80, low => 60 );
+    delete $older->{testMutation}{measurementDigest};
+    my $readable = Test::Mutation::Report::Json::parse( JSON::PP->new->encode($older) );
+    is statuses($readable), statuses( $two->{result} ), 'a report without input evidence remains readable';
+    like dies { Test::Mutation::Merge::merge( [ $one, { name => 'older', result => $readable } ] ) },
+      qr/rerun every shard/, 'merging a report without input evidence explains how to measure it again';
+    my $refused = sub ($part) {
+        like dies { Test::Mutation::Merge::merge( [ $one, $part ] ) }, qr/measurement inputs differ/,
+          'the same inventory measured under other conditions is refused';
+    };
+    $refused->( $measure->( $other, 2, equivalence => 0 ) );
+    my $test = slurp("$other/t/fold.t");
+    write_file( "$other/t/fold.t", $test . "\n# changed test\n" );
+    $refused->( $measure->( $other, 2 ) );
+    write_file( "$other/t/fold.t",  $test );
+    write_file( "$other/t/extra.t", "use Test::More tests => 1;\npass 'another test';\n" );
+    $refused->( $measure->( $other, 2 ) );
 };
 
 done_testing;

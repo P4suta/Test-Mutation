@@ -63,21 +63,22 @@ sub merge ($reports) {
         tests   => [
             map { { name => $_, duration => $duration{$_}, $active{$_} ? () : ( neutral => 1 ) } } sort keys %duration
         ],
-        entries           => Test::Mutation::Verdict::conclude_inventory( \@entries ),
-        problems          => [ map { $problem{$_} } sort keys %problem ],
-        warnings          => [ uniq map { $_->warnings->@* } @results ],
-        baseline_failures => [],
-        jobs              => max( map { $_->jobs } @results ),
-        parallel_safe     => ( all { $_->parallel_safe } @results ) ? 1 : 0,
-        interrupted       => ( first { defined } map { $_->interrupted } @results ),
-        cache_mismatch    => ( any { $_->cache_mismatch } @results ) ? 1 : 0,
-        reused            => sum0( map { $_->reused } @results ),
-        inventory         => $results[0]->inventory,
-        selection         => $results[0]->selection,
-        catalog_digest    => $results[0]->catalog_digest,
-        started           => min( map { $_->started } @results ),
-        finished          => max( map { $_->finished } @results ),
-        stats             => _work(@results),
+        entries            => Test::Mutation::Verdict::conclude_inventory( \@entries ),
+        problems           => [ map { $problem{$_} } sort keys %problem ],
+        warnings           => [ uniq map { $_->warnings->@* } @results ],
+        baseline_failures  => [],
+        jobs               => max( map { $_->jobs } @results ),
+        parallel_safe      => ( all { $_->parallel_safe } @results ) ? 1 : 0,
+        interrupted        => ( first { defined } map { $_->interrupted } @results ),
+        cache_mismatch     => ( any { $_->cache_mismatch } @results ) ? 1 : 0,
+        reused             => sum0( map { $_->reused } @results ),
+        inventory          => $results[0]->inventory,
+        selection          => $results[0]->selection,
+        catalog_digest     => $results[0]->catalog_digest,
+        measurement_digest => $results[0]->measurement_digest,
+        started            => min( map { $_->started } @results ),
+        finished           => max( map { $_->finished } @results ),
+        stats              => _work(@results),
     );
 }
 
@@ -126,7 +127,13 @@ sub _parts ($reports) {
         my ( $part, $of ) = split m{/}, $result->shard;
         Test::Mutation::Error::raise( 'input-malformed', path => $name, reason => "invalid shard $part/$of" )
           if $part > $of;
-        $whole ||= { name => $name, part => $part, of => $of, $result->inventory->%* };
+        Test::Mutation::Error::raise(
+            'input-malformed',
+            path   => $name,
+            reason => 'measurement inputs are missing, rerun every shard before merging'
+        ) unless defined $result->measurement_digest;
+        $whole ||=
+          { name => $name, part => $part, of => $of, inputs => $result->measurement_digest, $result->inventory->%* };
         Test::Mutation::Error::raise(
             'merge-other-split',
             first       => $whole->{name},
@@ -138,6 +145,11 @@ sub _parts ($reports) {
         ) if $of != $whole->{of};
         Test::Mutation::Error::raise( 'merge-other-mutants', name => $name, first => $whole->{name} )
           if $result->inventory->{digest} ne $whole->{digest} || $result->inventory->{mutants} != $whole->{mutants};
+        Test::Mutation::Error::raise(
+            'input-malformed',
+            path   => $name,
+            reason => "measurement inputs differ from $whole->{name}, rerun every shard with the same inputs"
+        ) if $result->measurement_digest ne $whole->{inputs};
         Test::Mutation::Error::raise(
             'merge-repeated-part',
             first => $parts[ $part - 1 ]{name},

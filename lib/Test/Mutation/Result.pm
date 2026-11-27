@@ -42,6 +42,7 @@ has in_copies      => ( is => 'ro', isa => Bool, default => 0 );
 has shard          => ( is => 'ro', isa => Maybe [ StrMatch [qr{\A[1-9][0-9]*/[1-9][0-9]*\z}] ], default => undef );
 has selection      => ( is => 'ro', isa => ReportSelection, default => sub { {} } );
 has catalog_digest => ( is => 'ro', isa => Maybe [Str], default => undef );
+has measurement_digest => ( is => 'ro', isa => Maybe [ StrMatch [qr/\A[0-9a-f]{64}\z/] ], default => undef );
 has inventory =>
   ( is => 'ro', isa => Maybe [ Dict [ mutants => Int, digest => StrMatch [qr/\A[0-9a-f]{64}\z/] ] ], default => undef );
 has started  => ( is => 'ro', isa => Num, required => 1 );
@@ -155,8 +156,12 @@ The catalog digest identifies the inputs that determine the available mutants.
 
 =head2 inventory
 
-The count of the mutants before the split into parts, and the SHA-256 digest of their identifiers.
-Two results with the same inventory measured the same mutants of the same sources.
+The count of the mutants before the split into parts, and the SHA-256 digest of their identifiers in order.
+
+=head2 measurement_digest
+
+Identifies the source catalog, selected test contents, interpreter, and execution settings for a measurement.
+Earlier reports have no measurement digest.
 
 =head2 started, finished
 

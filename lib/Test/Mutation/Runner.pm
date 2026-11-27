@@ -388,18 +388,19 @@ sub _measure ( $run, $started ) {
     );
 
     my %result = (
-        root              => $run->{project},
-        sources           => { map { $_ => $selection->sources->{$_}->text } keys $selection->sources->%* },
-        tests             => [],
-        entries           => [],
-        problems          => $selection->unanalyzed,
-        baseline_failures => [],
-        parallel_safe     => 1,
-        shard             => $config->shard,
-        inventory         => $selection->inventory,
-        selection         => $selection->selection,
-        catalog_digest    => $selection->catalog_digest,
-        started           => $started,
+        root               => $run->{project},
+        sources            => { map { $_ => $selection->sources->{$_}->text } keys $selection->sources->%* },
+        tests              => [],
+        entries            => [],
+        problems           => $selection->unanalyzed,
+        baseline_failures  => [],
+        parallel_safe      => 1,
+        shard              => $config->shard,
+        inventory          => $selection->inventory,
+        selection          => $selection->selection,
+        catalog_digest     => $selection->catalog_digest,
+        measurement_digest => _measurement_digest( $run, $selection ),
+        started            => $started,
     );
 
     my $needs_tests = @active || $run->{options}{baseline_only};
@@ -429,6 +430,22 @@ sub _measure ( $run, $started ) {
         in_copies      => $config->in_place ? 0 : 1,
         stats          => $run->{stats},
     };
+}
+
+sub _measurement_digest ( $run, $selection ) {
+    my $config = $run->{config};
+    return Test::Mutation::Store::Key::digest(
+        $selection->catalog_digest,
+        Test::Mutation::Store::Key::interpreter( $selection->perl ),
+        $config->coverage,
+        $config->equivalence,
+        $config->in_place,
+        $config->baseline_timeout,
+        $config->timeout_factor,
+        $config->timeout_floor,
+        ( map { Test::Mutation::Store::Key::digest(@$_) } $config->lib, $config->switch, $config->link ),
+        map { ( $_, Test::Mutation::Store::Key::file("$run->{project}/$_") ) } $selection->tests->@*
+    );
 }
 
 sub _measure_tests ( $run, $selection, $plan ) {

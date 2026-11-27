@@ -121,9 +121,10 @@ sub part ( $shard, %arg ) {
     return {
         name   => "part-$shard",
         result => Samples::result(
-            statuses  => ['Killed'],
-            shard     => $shard,
-            inventory => { mutants => 2, digest => 'a' x 64 },
+            statuses           => ['Killed'],
+            shard              => $shard,
+            measurement_digest => 'c' x 64,
+            inventory          => { mutants => 2, digest => 'a' x 64 },
             %arg
         )
     };

@@ -44,19 +44,20 @@ sub entry ( $number, $status ) {
 
 sub part ( $shard, $entries, %fields ) {
     return Test::Mutation::Result->new(
-        root              => '/project',
-        sources           => { map { $_->{mutant}->path => "1 + 2 + 3 + 4 + 5;\n" } $entries->@* },
-        tests             => [ { name => 't/a.t', duration => 0.5 } ],
-        entries           => $entries,
-        problems          => [],
-        warnings          => [],
-        baseline_failures => [],
-        jobs              => 2,
-        parallel_safe     => 1,
-        shard             => $shard,
-        inventory         => { mutants => 6, digest => $digest },
-        started           => 100,
-        finished          => 110,
+        root               => '/project',
+        sources            => { map { $_->{mutant}->path => "1 + 2 + 3 + 4 + 5;\n" } $entries->@* },
+        tests              => [ { name => 't/a.t', duration => 0.5 } ],
+        entries            => $entries,
+        problems           => [],
+        warnings           => [],
+        baseline_failures  => [],
+        jobs               => 2,
+        parallel_safe      => 1,
+        shard              => $shard,
+        measurement_digest => 'cd' x 32,
+        inventory          => { mutants => 6, digest => $digest },
+        started            => 100,
+        finished           => 110,
         %fields,
     );
 }
