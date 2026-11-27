@@ -107,12 +107,23 @@ my $workflow = CPAN::Meta::YAML->read_string( slurp('.github/workflows/check.yml
 is [ sort keys $workflow->{on}->%* ], [qw(merge_group pull_request)],
   'the fast checks run for pull requests and merge queues';
 my $gate_job = $workflow->{jobs}{gate};
-my @groups   = map { [ commands( $tasks, $_->{task} ) ] } @{ $gate_job->{strategy}{matrix}{include} || [] };
+my @runners  = @{ $gate_job->{strategy}{matrix}{include} || [] };
+my @groups   = map { [ commands( $tasks, $_->{task} ) ] } @runners;
 my @hosted   = map { $_->@* } @groups;
 my @local    = commands( $tasks, 'check' );
 is [ sort @hosted ], [ sort @local ], 'the hosted jobs run every local fast check exactly once';
 is scalar( grep { $_->@* == 1 && $_->[0] eq $tasks->{e2e}{run} } @groups ), 1,
   'the end-to-end tests have a runner to themselves';
+my $timeout = $gate_job->{'timeout-minutes'} || q{};
+my ($field) = $timeout =~ /\A \$\{\{ \s* matrix[.] (\w+) \s* \}\} \z/x;
+my %minutes;
+
+for my $runner (@runners) {
+    my $value = defined $field ? $runner->{$field} : $timeout;
+    $minutes{ $runner->{task} } = defined $value && $value =~ /\A[0-9]+\z/ ? 0 + $value : 0;
+}
+cmp_ok $minutes{e2e}, '>=', 30, 'the end-to-end job on pinned Perl has at least thirty minutes';
+is $minutes{'check-components'}, 20, 'the fast gate has twenty minutes';
 my ($run_group) =
   grep { defined $_->{env}{CHECK_TASK} && $_->{env}{CHECK_TASK} eq '${{ matrix.task }}' } $gate_job->{steps}->@*;
 is $run_group && $run_group->{run}, 'mise run "$CHECK_TASK"', 'each hosted job passes its assigned task as an argument';
