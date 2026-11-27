@@ -70,14 +70,17 @@ sub sample ( $ids, $seed ) {
     return [ @ordered[ 0 .. $take - 1 ] ];
 }
 
-signature_for load => ( positional => [Str], returns => HashRef [$RECORD] );
+signature_for load => ( positional => [ Str, Optional [ Maybe [ ArrayRef [Str] ] ] ], returns => HashRef [$RECORD] );
 
-sub load ($path) {
+sub load ( $path, $ids = undef ) {
+    my $records;
     if ( $path =~ /[.]sqlite\z/ ) {
-        return _stored( database($path), 'verdict' ) if -f $path;
-        return _identified( _read( File::Spec->catfile( File::Basename::dirname($path), 'cache.json' ) ) );
+        return _stored( database($path), 'verdict', $ids ) if -f $path;
+        $records = _identified( _read( File::Spec->catfile( File::Basename::dirname($path), 'cache.json' ) ) );
     }
-    return _validated( _read($path)->{mutants}, $RECORD );
+    else { $records = _validated( _read($path)->{mutants}, $RECORD ) }
+    return $records unless defined $ids;
+    return { map { $_ => $records->{$_} } grep { exists $records->{$_} } @$ids };
 }
 
 signature_for originals => ( positional => [Str], returns => $ORIGINALS );
@@ -93,9 +96,16 @@ sub originals ($path) {
     return _originals( _read($path) );
 }
 
-sub _stored ( $db, $table ) {
-    my $rows = $db->selectall_arrayref("SELECT id, data FROM $table");
-    return { map { $_->[0] => $JSON->decode( $_->[1] ) } @$rows };
+sub _stored ( $db, $table, $ids = undef ) {
+    my $query = "SELECT id, data FROM $table";
+    $query .= ' WHERE id IN (SELECT value FROM json_each(?))' if defined $ids;
+    my $read = $db->prepare($query);
+    $read->execute( defined $ids ? $JSON->encode($ids) : () );
+    my %records;
+    while ( my $row = $read->fetchrow_arrayref ) {
+        $records{ $row->[0] } = $JSON->decode( $row->[1] );
+    }
+    return \%records;
 }
 
 signature_for path =>
@@ -390,6 +400,7 @@ The seed changes the selection between runs.
 =head2 load
 
 Returns the records of a cache file by mutant identifier.
+An optional list of identifiers restricts the lookup to the requested mutants.
 A missing file, a file of another format, and a malformed record count as absent.
 A record holds a status of L<Test::Mutation::Status>, the reason that its status calls for, and a sentence about the case in C<detail>.
 

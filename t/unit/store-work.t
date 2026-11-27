@@ -7,17 +7,26 @@ use Test::Mutation;
 use Test::Mutation::Store;
 
 sub traced ($operation) {
-    my %counts  = ( writes => 0, writers => 0, totals => 0, history => 0, pruning => 0 );
+    my %counts =
+      ( writes => 0, writers => 0, totals => 0, history => 0, pruning => 0, connections => 0, verdict_files => {} );
     my $connect = Test::Mutation::Store->can('_connect');
+    my $decode  = JSON::PP->can('decode');
     my $save    = Test::Mutation::Store->can('save');
     my $phase   = {};
     no warnings 'redefine';
+    local *JSON::PP::decode = sub ( $json, $text ) {
+        my $data = $decode->( $json, $text );
+        $counts{verdict_files}{ $data->{path} }++
+          if ref $data eq 'HASH' && exists $data->{inputs} && exists $data->{status};
+        return $data;
+    };
     local *Test::Mutation::Store::save = sub (@args) {
         local $phase->{inventory} = ref $args[2] eq 'ARRAY' && $args[2]->@*;
         return $save->(@args);
     };
     local *Test::Mutation::Store::_connect = sub ($path) {    ## no critic (Variables::ProtectPrivateVars)
-        my $db     = $connect->($path);
+        my $db = $connect->($path);
+        $counts{connections}++;
         my $writes = 0;
         $db->sqlite_trace(
             sub ($sql) {
@@ -50,6 +59,20 @@ is $repeat->{pruning}, 2, 'a complete inventory prunes obsolete identifiers and 
 my ( $listed, $queries ) = traced( sub { World::observe( ['list'], cwd => $root ) } );
 is $listed->{exit},     0, 'the measured catalog can be listed';
 is $queries->{history}, 1, 'listing the catalog reads its dated observations in one query';
+my ( $narrow, $subset ) = traced(
+    sub {
+        World::observe( [ 'run', 'lib/Other.pm', '--jobs', 1, '--format', 'terminal' ], cwd => $root );
+    }
+);
+is $narrow->{exit},                            0,                'a single-file measurement consults the warm cache';
+is [ sort keys $subset->{verdict_files}->%* ], ['lib/Other.pm'], 'only verdicts in the selected file are decoded';
+my ( $uncached, $private ) = traced(
+    sub {
+        World::observe( [ 'run', 'lib/Other.pm', '--no-cache', '--jobs', 1, '--format', 'terminal' ], cwd => $root );
+    }
+);
+is $uncached->{exit},       0, 'a file can also be measured without the cache';
+is $private->{connections}, 0, 'an uncached command opens no existing SQLite store for reading or writing';
 subtest 'an unfinished mutant keeps the timestamp of its last verdict' => sub {
     my @killed  = grep { $_->{status} eq 'Killed' } $warm->entries->@*;
     my $sent    = 0;

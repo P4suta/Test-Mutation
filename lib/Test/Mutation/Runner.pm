@@ -1390,7 +1390,7 @@ sub _check_reused ( $run, $cache, $baseline, $entries ) {
 }
 
 sub _mutants ( $run, $mutants, $baseline, $sample_only = 0 ) {
-    my $cache = !$sample_only && $run->{config}->cache ? _open_cache( $run, $baseline ) : undef;
+    my $cache = !$sample_only && $run->{config}->cache ? _open_cache( $run, $baseline, $mutants ) : undef;
     my %entry_of;
     my $next_job = _measurement_jobs( $run, $mutants, $baseline, $cache, \%entry_of );
     if ( $cache && $run->{reused} ) {
@@ -1399,7 +1399,7 @@ sub _mutants ( $run, $mutants, $baseline, $sample_only = 0 ) {
             $baseline = _complete_baseline( $run, { tests => {}, missing => $run->{test_paths} } );
             $run->{rechecked_baseline} = $baseline;
             return [] if $baseline->{failures}->@*;
-            $cache = _open_cache( $run, $baseline );
+            $cache = _open_cache( $run, $baseline, $mutants );
         }
         if ( $run->{cache_mismatch} || $interrupted ) {
             %entry_of = ();
@@ -1732,7 +1732,7 @@ sub _save_originals ( $run, $baseline ) {
     return;
 }
 
-sub _open_cache ( $run, $baseline ) {
+sub _open_cache ( $run, $baseline, $mutants = undef ) {
     my $shared = _run_inputs( $run, $baseline );
     return unless defined $shared;
     my $path   = _cache_path($run);
@@ -1743,12 +1743,13 @@ sub _open_cache ( $run, $baseline ) {
         next unless $record->{reusable};
         $facts{$test} = _original_key( $run, $shared, $test, $record );
     }
+    my $ids = $run->{narrowed} && $mutants ? [ map { $_->id } @$mutants ] : undef;
     return {
         path    => $path,
         shared  => $shared,
         targets => \%target,
         facts   => \%facts,
-        records => $run->{config}->mutant->@* ? {} : Test::Mutation::Store::load($path)
+        records => $run->{config}->mutant->@* ? {} : Test::Mutation::Store::load( $path, $ids )
     };
 }
 
