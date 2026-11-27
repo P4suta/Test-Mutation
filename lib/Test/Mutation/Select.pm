@@ -309,8 +309,11 @@ sub _parser_versions () {
         require Module::Metadata;
         my @versions;
         for my $module (qw(PPI PPIx::Regexp)) {
-            my $metadata = Module::Metadata->new_from_module($module);
-            my $version  = $metadata && $metadata->version;
+            my $version = $module->VERSION;
+            unless ( defined $version ) {
+                my $metadata = Module::Metadata->new_from_module($module);
+                $version = $metadata && $metadata->version;
+            }
             push @versions, "$version" if defined $version;
         }
         return @versions if @versions == 2;

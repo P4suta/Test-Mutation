@@ -60,6 +60,17 @@ write_file( "$root/mutation-report/mutation.json",
     Test::Mutation::Report::Json::render( $result, low => 60, high => 80 ) );
 my ($entry) = grep { $_->{status} eq 'Survived' } $result->entries->@*;
 my $id = $entry->{mutant}->id;
+subtest 'a parser already loaded by the application takes precedence over disk metadata' => sub {
+    my $parsed  = 0;
+    my $analyze = Test::Mutation::Syntax::PPI->can('analyze');
+    local @INC          = grep { !ref } @INC;
+    local $PPI::VERSION = '9.001';
+    local $PPIx::Regexp::VERSION;
+    no warnings 'redefine';
+    local *Test::Mutation::Syntax::PPI::analyze = sub (@arguments) { ++$parsed; return $analyze->(@arguments) };
+    is World::observe( [ 'show', $id ], cwd => $root )->{exit}, 0, 'the current parser can analyze the sources';
+    ok $parsed, 'the earlier parser version cannot supply cached results';
+};
 subtest 'lookup reads the current file identities in one group' => sub {
     my @queries;
     my $database = Test::Mutation::Store->can('database');
