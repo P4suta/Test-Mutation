@@ -1635,7 +1635,7 @@ sub _fingerprint ( $run, $baseline ) {
 }
 
 sub _cache_path ($run) {
-    return File::Spec->catfile( File::Spec->rel2abs( $run->{config}->cache_dir, $run->{project} ), 'cache.json' );
+    return Test::Mutation::Store::path( $run->{config} );
 }
 
 sub _original_key ( $run, $shared, $test, $record ) {
@@ -1686,7 +1686,7 @@ sub _open_cache ( $run, $baseline ) {
         shared  => $shared,
         targets => \%target,
         facts   => \%facts,
-        records => Test::Mutation::Store::load($path)
+        records => $run->{config}->mutant->@* ? {} : Test::Mutation::Store::load($path)
     };
 }
 

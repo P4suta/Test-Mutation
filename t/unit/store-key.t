@@ -180,7 +180,7 @@ PERL
     my %settings = ( root => $project, jobs => 1, equivalence => 0 );
     my $enabled  = Test::Mutation::Settings::of_call( { %settings, cache => 1 } );
     Test::Mutation::Runner::run( $enabled, sub { return } );
-    my $file   = "$project/.mutation/cache.json";
+    my $file   = "$project/.mutation/measurement.sqlite";
     my $before = Test::Mutation::Store::load($file);
     my @other  = sort grep { $before->{$_}{path} eq $support } keys %$before;
     ok @other, 'the complete run saved verdicts outside the selection';

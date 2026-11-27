@@ -42,7 +42,7 @@ my $restored =
 ok !$restored->conclusive, 'the report preserves the failed cache check';
 
 run_fixture( $root, equivalence => 0 );
-my $cache_file = "$root/.mutation/cache.json";
+my $cache_file = "$root/.mutation/measurement.sqlite";
 my $saved      = Test::Mutation::Store::load($cache_file);
 ok keys %$saved, 'the project holds measured verdicts before its source changes';
 write_file( "$root/lib/Value.pm", "package Value;\n1;\n" );
@@ -61,7 +61,7 @@ for my $case (
 }
 my ($empty) = run_fixture( $root, equivalence => 0 );
 is $empty->entries, [], 'removing the last mutation produces an empty inventory';
-is Test::Mutation::Store::load("$root/.mutation/cache.json"), {}, 'records of the last removed source are pruned';
+is Test::Mutation::Store::load("$root/.mutation/measurement.sqlite"), {}, 'records of the last removed source are pruned';
 
 subtest 'an interrupted cache sample keeps only the verdicts it measured' => sub {
     my $project = "$parent/interrupted";

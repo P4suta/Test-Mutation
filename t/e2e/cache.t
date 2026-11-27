@@ -20,7 +20,7 @@ sub append ( $path, $text ) {
 
 subtest 'a second run reuses every measured result' => sub {
     is $first->reused, 0, 'the first run measures every mutant';
-    ok -f "$root/.mutation/cache.json", 'and writes the cache file';
+    ok -f "$root/.mutation/measurement.sqlite", 'and writes the cache file';
     is statuses($first)->{$boundary}, 'Survived', 'the boundary mutant survives';
 
     my ( $rerun, $events ) = run_fixture( $root, cache => 1 );

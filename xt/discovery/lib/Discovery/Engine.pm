@@ -1,6 +1,7 @@
 package Discovery::Engine;
 use v5.36;
 use Cwd         ();
+use DBI         ();
 use File::Spec  ();
 use JSON::PP    ();
 use POSIX       ();
@@ -249,15 +250,15 @@ sub _left ( $temporary, $root ) {
 }
 
 sub _cache_file ($project) {
-    return $project->root . '/.mutation/cache.json';
+    return $project->root . '/.mutation/measurement.sqlite';
 }
 
 # The identifiers of the mutants that the cache of the project holds a record of.
 sub cache_ids ( $self, $project ) {
-    my $text    = _slurp( _cache_file($project) );
-    my $content = defined $text ? eval { JSON::PP->new->utf8->decode($text) } : undef;
-    my @ids     = ref $content eq 'HASH' && ref $content->{mutants} eq 'HASH' ? sort keys $content->{mutants}->%* : ();
-    return \@ids;
+    my $file = _cache_file($project);
+    return [] unless -f $file;
+    my $db = DBI->connect( "dbi:SQLite:dbname=$file", undef, undef, { RaiseError => 1, PrintError => 0 } );
+    return $db->selectcol_arrayref('SELECT id FROM verdict ORDER BY id');
 }
 
 # A repeated run answers from the memo when the settings, the files, and the cache are what they were.
@@ -275,7 +276,7 @@ sub _executed ( $self, $project, $temporary, $before, %settings ) {
         $memo->{$key} = { raw => $self->execute( $project, $temporary, %settings ), cache => scalar _slurp($file) };
     }
     elsif ( defined $memo->{$key}{cache} ) {
-        $project->write( '.mutation/cache.json', $memo->{$key}{cache} );
+        $project->write( '.mutation/measurement.sqlite', $memo->{$key}{cache} );
     }
     return $memo->{$key}{raw};
 }

@@ -186,7 +186,7 @@ N runs with K from 1 to N cover every mutant once.
 
 =head2 cache
 
-Whether the run reuses results from C<cache.json> in the cache directory and writes its own.
+Whether the run reuses verified observations from F<measurement.sqlite> in the cache directory and records its own.
 The store fingerprints the selected interpreter, libraries, configuration, environment, observers, and project files.
 Each test contributes its source and the targets it compiled.
 A run repeats a sample of the reused verdicts and discards the store when the fresh measurement disagrees.
