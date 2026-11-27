@@ -147,4 +147,20 @@ subtest 'measurements in a read-only checkout' => sub {
     ok index( $private, "$read_only/" ) != 0, 'a read-only project uses a private database outside the checkout';
     is Test::Mutation::Store::path($config), $private, 'the configuration keeps its private database for the whole run';
 };
+
+subtest 'a read-only checkout can recover an unfinished legacy migration' => sub {
+    Capability::need( 'unprivileged', $> != 0, 'the superuser can write to read-only directories' );
+    my $root   = File::Temp::tempdir( CLEANUP => 1 );
+    my $config = Test::Mutation::Settings::of_call( { root => $root } );
+    Test::Mutation::Store::save( "$root/.mutation/cache.json", { previous => $record } );
+    my $sqlite = Test::Mutation::Store::path( $config, 0 );
+    open my $empty, '>:raw', $sqlite or die "create $sqlite: $!";
+    close $empty or die "close $sqlite: $!";
+    chmod oct('555'), $root or die "protect $root: $!";
+    my $copy = Test::Mutation::Store::path($config);
+    is Test::Mutation::Store::load($copy), { previous => $record },
+      'the private measurement retains the legacy verdict';
+    is -s $sqlite, 0, 'the unfinished database in the checkout still contains no schema';
+    chmod oct('755'), $root or die "restore $root: $!";
+};
 done_testing;

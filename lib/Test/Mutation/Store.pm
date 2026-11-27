@@ -131,8 +131,8 @@ sub path ( $config, $write ) {
     return $stored if !$write || !$config->cache || exists $config->specified->{'cache-dir'} || -w $config->root;
     my $directory = File::Temp->newdir;
     my $copy      = File::Spec->catfile( $directory, 'measurement.sqlite' );
-    if ( -f $stored ) {
-        _connect($copy)->sqlite_backup_from_file($stored);
+    if ( my $db = read_database($stored) ) {
+        $db->sqlite_backup_to_file($copy);
     }
     else {
         my $legacy = File::Spec->catfile( File::Basename::dirname($stored), 'cache.json' );
