@@ -38,22 +38,22 @@ function nativeChanges(path, previous, next, date, notes) {
 				const heading =
 					/^(0|[1-9]\d*)\.(\d+)(?:[ \t]+(\d{4}-\d{2}-\d{2}))?[ \t]*$/m;
 				const current = heading.exec(content ?? "");
-				if (!current) throw new Error(path + " has no Perl release heading");
-				const version = current[1] + "." + current[2];
+				if (!current) throw new Error(`${path} has no Perl release heading`);
+				const version = `${current[1]}.${current[2]}`;
 				if (!previous && version === next && !current[3]) {
-					return content.replace(heading, next + "  " + date);
+					return content.replace(heading, `${next}  ${date}`);
 				}
 				if (!current[3] || version !== previous)
 					throw new Error(
-						path + " does not begin with the previous release " + previous,
+						`${path} does not begin with the previous release ${previous}`,
 					);
 				const lines = [];
 				for (const part of notes.split("\n")) {
 					const line = part.trim();
 					if (!line || /^#{1,2}\s/.test(line)) continue;
-					if (/^###\s/.test(line)) lines.push("    [" + line.slice(4) + "]");
-					else if (/^[*-]\s/.test(line)) lines.push("    - " + line.slice(2));
-					else lines.push("      " + line);
+					if (/^###\s/.test(line)) lines.push(`    [${line.slice(4)}]`);
+					else if (/^[*-]\s/.test(line)) lines.push(`    - ${line.slice(2)}`);
+					else lines.push(`      ${line}`);
 				}
 				if (!lines.some((line) => line.startsWith("    - ")))
 					throw new Error("The release has no changes to record");

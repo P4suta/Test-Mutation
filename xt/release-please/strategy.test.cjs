@@ -70,7 +70,7 @@ test("a fix after v0.1.0 advances every package and prepends a dated native entr
 		if (u.path === "Changes") {
 			const newText = u.updater.updateContent(changes);
 			assert.match(newText, /^0\.001001 +\d{4}-\d{2}-\d{2}\n/m);
-			assert.match(newText, /^    - .*compare an uncovered mutant/m);
+			assert.match(newText, /^ {4}- .*compare an uncovered mutant/m);
 			assert.ok(newText.endsWith(changes.slice(changes.indexOf("0.001  "))));
 			assert.doesNotMatch(newText, /^#/m);
 		} else {

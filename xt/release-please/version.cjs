@@ -6,7 +6,7 @@ function perlVersion(version) {
 	);
 	if (!parts)
 		throw new Error(
-			"Cannot represent " + version + " as a stable Perl decimal version",
+			`Cannot represent ${version} as a stable Perl decimal version`,
 		);
 	const [, major, minor, patch] = parts;
 	return (
