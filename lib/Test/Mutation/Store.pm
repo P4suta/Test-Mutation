@@ -93,15 +93,18 @@ sub _stored ( $db, $table ) {
     return { map { $_->[0] => $JSON->decode( $_->[1] ) } @$rows };
 }
 
-signature_for path => ( positional => [ InstanceOf ['Test::Mutation::Config'] ], returns => Str );
+signature_for path =>
+  ( positional => [ InstanceOf ['Test::Mutation::Config'], Bool, { default => 1 } ], returns => Str );
 
-sub path ($config) {
+sub path ( $config, $write ) {
     return File::Spec->catfile( $private{$config}, 'measurement.sqlite' ) if exists $private{$config};
-    if ( $config->cache && !exists $config->specified->{'cache-dir'} && !-w $config->root ) {
-        $private{$config} = File::Temp->newdir;
-        return File::Spec->catfile( $private{$config}, 'measurement.sqlite' );
-    }
-    return File::Spec->catfile( File::Spec->rel2abs( $config->cache_dir, $config->root ), 'measurement.sqlite' );
+    my $stored = File::Spec->catfile( File::Spec->rel2abs( $config->cache_dir, $config->root ), 'measurement.sqlite' );
+    return $stored if !$write || !$config->cache || exists $config->specified->{'cache-dir'} || -w $config->root;
+    my $directory = File::Temp->newdir;
+    my $copy      = File::Spec->catfile( $directory, 'measurement.sqlite' );
+    _connect($copy)->sqlite_backup_from_file($stored) if -f $stored;
+    $private{$config} = $directory;
+    return $copy;
 }
 
 signature_for transaction => ( positional => [ InstanceOf ['DBI::db'], CodeRef ], returns => Defined );
@@ -121,11 +124,7 @@ sub transaction ( $db, $operation ) {
     die $committed->{error};    ## no critic (ErrorHandling::RequireCarping)
 }
 
-signature_for database => ( positional => [Str], returns => InstanceOf ['DBI::db'] );
-
-sub database ($path) {
-    my $directory = File::Basename::dirname($path);
-    Test::Mutation::Tree::make($directory) unless -d $directory;
+sub _connect ($path) {
     my $db = DBI->connect(
         "dbi:SQLite:dbname=$path",
         undef, undef,
@@ -140,6 +139,15 @@ sub database ($path) {
         }
     );
     $db->sqlite_busy_timeout(30_000);
+    return $db;
+}
+
+signature_for database => ( positional => [Str], returns => InstanceOf ['DBI::db'] );
+
+sub database ($path) {
+    my $directory = File::Basename::dirname($path);
+    Test::Mutation::Tree::make($directory) unless -d $directory;
+    my $db = _connect($path);
     my ($schema) = $db->selectrow_array('PRAGMA user_version');
     return $db if $schema == 1;
     Test::Mutation::Error::raise( 'file-unreadable', path => $path, reason => "unsupported database schema $schema" )
@@ -320,6 +328,8 @@ Opens the indexed store and imports reusable records from the previous cache on 
 =head2 path
 
 Returns the database path for a configured project.
+Pass a false second argument for a read on a read-only checkout.
+A write uses a temporary snapshot that lasts for the life of the configuration.
 
 =head2 transaction
 

@@ -59,7 +59,7 @@ signature_for entries => (
 );
 
 sub entries ( $config, $sources, $mutants ) {
-    my $path = Test::Mutation::Store::path($config);
+    my $path = Test::Mutation::Store::path( $config, 0 );
     return unless $config->cache && -f $path;
     my $db         = Test::Mutation::Store::database($path);
     my $project    = Cwd::abs_path( $config->root );
@@ -87,7 +87,7 @@ signature_for undetected =>
   ( positional => [$CONFIG], returns => Maybe [ ArrayRef [ Dict [ id => Str, path => Str, source => Str ] ] ] );
 
 sub undetected ($config) {
-    my $path = Test::Mutation::Store::path($config);
+    my $path = Test::Mutation::Store::path( $config, 0 );
     return unless $config->cache && -f $path;
     my $db      = Test::Mutation::Store::database($path);
     my $project = Cwd::abs_path( $config->root );

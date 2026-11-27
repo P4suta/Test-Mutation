@@ -292,7 +292,7 @@ sub _writable_file ($path) {
 sub _file_reader ( $config, $mutators, $options ) {
     my %chosen     = map { $_->name => 1 } $mutators->@*;
     my $others     = [ grep { !$chosen{ $_->name } } Test::Mutation::Mutator::Catalog::mutators()->@* ];
-    my $store      = Test::Mutation::Store::path($config);
+    my $store      = Test::Mutation::Store::path( $config, 0 );
     my $db         = $config->cache && -f $store ? Test::Mutation::Store::database($store) : undef;
     my $conditions = Test::Mutation::Store::Key::digest(
         $VERSION, "$options->{version}", $PPI::VERSION, $PPIx::Regexp::VERSION,

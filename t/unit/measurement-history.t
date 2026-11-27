@@ -1,6 +1,8 @@
 use v5.36;
 use Test2::V0;
 use File::Temp ();
+use lib 't/lib';
+use Capability;
 use lib 't/contract/lib';
 use Samples;
 use Test::Mutation::Settings;
@@ -38,4 +40,20 @@ is Test::Mutation::Store::History::undetected($config), [ $gap->( $whole->entrie
   'merging older observed parts establishes the latest completed scope';
 my $off = Test::Mutation::Settings::of_call( { root => $root, cache => 0 } );
 is Test::Mutation::Store::History::undetected($off), undef, 'disabling the cache bypasses saved history';
+subtest 'read-only history stays available and fresh observations are private' => sub {
+    Capability::need( 'unprivileged', $> != 0, 'the superuser can write to read-only directories' );
+    chmod oct('555'), $root or die "chmod: $!";
+    my $reader = Test::Mutation::Settings::of_call( { root => $root } );
+    is Test::Mutation::Store::History::undetected($reader), [ $gap->( $whole->entries->[0] ) ],
+      'a query reads the existing history in the checkout';
+    my $private = Test::Mutation::Store::path($reader);
+    ok -f $private, 'the private writer starts from a snapshot of the indexed checkout';
+    is Test::Mutation::Store::History::undetected($reader), [ $gap->( $whole->entries->[0] ) ],
+      'the private snapshot includes the completed scope';
+    Test::Mutation::Store::History::record( $reader, $empty, 1 );
+    is Test::Mutation::Store::History::undetected($reader), [], 'a private measurement supersedes the imported scope';
+    chmod oct('755'), $root or die "chmod: $!";
+    is Test::Mutation::Store::History::undetected($config), [ $gap->( $whole->entries->[0] ) ],
+      'the checkout still holds the earlier scope';
+};
 done_testing;
