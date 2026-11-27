@@ -31,4 +31,21 @@ my @parsed;
     Test::Mutation::Select::resolve( config => $config->( cache => 0 ) );
     is \@parsed, [qw(lib/Calc.pm lib/Other.pm)], 'disabling the cache forces fresh analysis';
 }
+subtest 'a missing historical identifier names its previous file' => sub {
+    my @refused;
+    no warnings 'redefine';
+    local *Test::Mutation::Error::raise = sub ( $id, %fields ) {
+        @refused = ( $id, \%fields );
+        die "selection refused\n";
+    };
+    my $prefix = '123456789abc';
+    ok dies {
+        Test::Mutation::Select::resolve(
+            config           => $config->( mutant => [$prefix] ),
+            historical_paths => { $prefix => 'lib/Previous.pm' }
+        );
+    }, 'a stale selection stops before testing';
+    is \@refused, [ 'mutant-history-stale', { identifier => $prefix, path => 'lib/Previous.pm' } ],
+      'the diagnostic carries the identifier and the file to remeasure';
+};
 done_testing;

@@ -2,7 +2,7 @@ package Test::Mutation::Select;
 use v5.36;
 use Cwd             ();
 use File::Spec      ();
-use Types::Standard qw(ArrayRef Bool InstanceOf Maybe Optional Str Undef);
+use Types::Standard qw(ArrayRef Bool HashRef InstanceOf Maybe Optional Str Undef);
 use Type::Params    qw(signature_for);
 use Digest::SHA     ();
 use File::Basename  ();
@@ -78,8 +78,10 @@ signature_for resolve => (
         { default => 0 },
         read_only => Bool,
         { default => 0 },
-        identifiers => Optional [ ArrayRef [Str] ],
-        reports     => Bool,
+        identifiers      => Optional [ ArrayRef [Str] ],
+        historical_paths => HashRef [Str],
+        { default => sub { {} } },
+        reports => Bool,
         { default => 0 },
         summary => Optional [ Maybe [Str] ],
     ],
@@ -125,17 +127,7 @@ sub resolve ($arg) {
     );
     my @mutants = $analysis->{mutants}->@*;
 
-    if (@$prefixes) {
-        my %wanted;
-        for my $prefix (@$prefixes) {
-            Test::Mutation::Error::raise( 'mutant-unknown', identifier => $prefix )
-              if !$arg->identifiers && length($prefix) < 4;
-            my $id = by_id( \@mutants, $prefix )->id;
-            $wanted{$id} = 1;
-            $matches{mutant}{$prefix} = [$id];
-        }
-        @mutants = grep { $wanted{ $_->id } } @mutants;
-    }
+    @mutants = _named( $arg, $prefixes, \@mutants, \%matches ) if @$prefixes;
     my $inventory =
       { mutants => scalar @mutants, digest => Digest::SHA::sha256_hex( join "\n", map { $_->id } @mutants ) };
     if ( defined $config->shard ) {
@@ -171,6 +163,24 @@ sub resolve ($arg) {
               qw(source source-exclude test test-exclude since mutant enable disable profile shard)
         ) ? 1 : 0,
     );
+}
+
+sub _named ( $arg, $prefixes, $mutants, $matches ) {
+    my %wanted;
+    my %exact = map { $_->id => $_ } @$mutants;
+    for my $prefix (@$prefixes) {
+        Test::Mutation::Error::raise( 'mutant-unknown', identifier => $prefix )
+          if !$arg->identifiers && length($prefix) < 4;
+        Test::Mutation::Error::raise(
+            'mutant-history-stale',
+            identifier => $prefix,
+            path       => $arg->historical_paths->{$prefix}
+        ) if exists $arg->historical_paths->{$prefix} && !$exact{$prefix};
+        my $id = ( $exact{$prefix} || by_id( $mutants, $prefix ) )->id;
+        $wanted{$id} = 1;
+        $matches->{mutant}{$prefix} = [$id];
+    }
+    return grep { $wanted{ $_->id } } @$mutants;
 }
 
 sub _files ( $config, $root, $name, $matches ) {
