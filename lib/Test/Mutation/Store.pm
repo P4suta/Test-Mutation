@@ -8,6 +8,7 @@ use File::Basename        ();
 use File::Spec            ();
 use File::Temp            ();
 use Hash::Util::FieldHash qw(fieldhash);
+use Cpanel::JSON::XS      ();
 use JSON::PP              ();
 use Types::Standard       qw(ArrayRef Bool CodeRef Defined Dict HashRef InstanceOf Int Maybe Num Optional Str);
 use Type::Params          qw(signature_for);
@@ -20,7 +21,7 @@ use Test::Mutation::Types qw(Observations Reason StatusName);
 
 our $VERSION = '0.001';
 
-my $JSON = JSON::PP->new->canonical;
+my $JSON = Cpanel::JSON::XS->new->canonical;
 fieldhash my %private;
 
 my $FORMAT   = 5;
@@ -102,8 +103,12 @@ sub _stored ( $db, $table, $ids = undef ) {
     my $read = $db->prepare($query);
     $read->execute( defined $ids ? $JSON->encode($ids) : () );
     my %records;
+    my $type = $table eq 'verdict' ? $RECORD : $ORIGINAL;
     while ( my $row = $read->fetchrow_arrayref ) {
-        $records{ $row->[0] } = $JSON->decode( $row->[1] );
+        my $parsed = Test::Mutation::Try::attempt( sub { [ $JSON->decode( $row->[1] ) ] } );
+        next unless $parsed->{value};
+        my $record = $parsed->{value}[0];
+        $records{ $row->[0] } = $record if $type->check($record);
     }
     return \%records;
 }
