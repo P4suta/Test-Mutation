@@ -2,11 +2,10 @@ use strict;
 use warnings;
 use Test::More;
 use Config;
-use ExtUtils::MakeMaker ();
-use File::Copy          ();
-use File::Find          ();
-use File::Path          ();
-use Time::HiRes         ();
+use File::Copy  ();
+use File::Find  ();
+use File::Path  ();
+use Time::HiRes ();
 use lib 't/shim/lib';
 use ShimHarness qw(project write_file run_command need);
 
@@ -175,10 +174,12 @@ $copy{'fractional seconds'} = sub {
   }
   if $fine;
 
-# The answers follow the version of MakeMaker, and the interpreters at hand showed these versions:
-# 6.6302, 6.66, 6.98, 7.0402, 7.1002, 7.24, 7.34, 7.44, 7.62, 7.64, 7.70, 7.76, and 7.78.
+# The generated Makefile names the MakeMaker that configured the child, even when the test has another one in PERL5LIB.
+# The builds used 6.5705, 6.6302, 6.66, 6.98, 7.0402, 7.1002, 7.24, 7.34, 7.44, 7.62, 7.64, 7.70, 7.76, and 7.78.
 # A version outside the observed ranges may give either answer.
-( my $maker = ExtUtils::MakeMaker->VERSION ) =~ tr/_//d;
+my ($maker) = slurp("$root/pure/original/Makefile") =~ /^MM_VERSION[ \t]*=[ \t]*([\d._]+)[ \t]*$/m;
+defined $maker or die "the generated Makefile does not name its MakeMaker version\n";
+$maker =~ tr/_//d;
 
 sub is_by_version {
     my ( $got, $expected, $either, $name ) = @_;
@@ -292,8 +293,8 @@ my @copied = split /^/m, slurp("$root/pure/original/blib/script/moved");
 isnt $copied[0], $script[0], 'E15: the build rewrites the first line of a script for its copy under blib';
 is_deeply [ @copied[ -2, -1 ] ], [ @script[ -2, -1 ] ], 'E15: and it keeps the lines of the program';
 
-# MakeMaker 6.6302 to 6.98 adds three lines that start the interpreter from a shell, and 7.0402 and later add none.
-my $added = $maker >= 6.6302 && $maker <= 6.98 ? 3 : $maker >= 7.0402 ? 0 : undef;
+# MakeMaker 6.57_05 and 6.6302 to 6.98 add three lines that start the interpreter from a shell.
+my $added = $maker == 6.5705 || ( $maker >= 6.6302 && $maker <= 6.98 ) ? 3 : $maker >= 7.0402 ? 0 : undef;
 is_by_version(
     scalar(@copied) - scalar(@script),
     $added,
