@@ -774,6 +774,11 @@ The revision passed to --since must identify a commit in the project repository.
 C<{path} changed after analysis>
 The bytes of the copied source differ from the bytes used to generate its mutants.
 
+=item C<measurement-inputs-changed>
+
+C<measurement inputs changed while preparing the copy ({path}), so rerun the measurement>
+The prepared inputs must match the project data and test bytes recorded during analysis.
+
 =item C<option-unknown>
 
 C<{option} names no option; the nearest is {nearest}>
