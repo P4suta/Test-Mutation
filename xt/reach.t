@@ -128,7 +128,8 @@ my ($run_group) =
   grep { defined $_->{env}{CHECK_TASK} && $_->{env}{CHECK_TASK} eq '${{ matrix.task }}' } $gate_job->{steps}->@*;
 is $run_group && $run_group->{run}, 'mise run "$CHECK_TASK"', 'each hosted job passes its assigned task as an argument';
 my $distribution = CPAN::Meta::YAML->read_string( slurp('.github/workflows/release-gate.yml') )->[0];
-is [ sort keys $distribution->{on}->%* ], ['workflow_dispatch'], 'the release checks run on manual dispatch';
+is [ sort keys $distribution->{on}->%* ], [qw(workflow_call workflow_dispatch)],
+  'controllers and manual rehearsals run the release checks';
 my @mac     = grep { $_->{'runs-on'} =~ /\Amacos-/ } values $distribution->{jobs}->%*;
 my @install = grep {
     my %steps = map { $_->{run} => 1 } grep { defined $_->{run} } $_->{steps}->@*;

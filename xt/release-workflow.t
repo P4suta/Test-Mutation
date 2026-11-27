@@ -2,6 +2,7 @@ use v5.36;
 use Test2::V0;
 use CPAN::Meta::YAML ();
 use Cwd              ();
+use ExtUtils::MM     ();
 use File::Copy       ();
 use File::Path       ();
 use File::Temp       ();
@@ -9,7 +10,8 @@ use lib 't/lib', 't/e2e/lib';
 use Fixture qw(write_file);
 use Gate;
 
-my $jobs        = CPAN::Meta::YAML->read('.github/workflows/release-gate.yml')->[0]{jobs};
+my $workflow    = CPAN::Meta::YAML->read('.github/workflows/release-gate.yml')->[0];
+my $jobs        = $workflow->{jobs};
 my $scratch     = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
 my $tools       = "$scratch/tools";
 my $project     = "$scratch/project";
@@ -67,6 +69,24 @@ sub invocation ( $script, $shard ) {
     return $closed ? \@words : [];
 }
 
+subtest 'the release rejects mutable sources and controllers outside main' => sub {
+    for my $input (qw(source_sha version)) {
+        is $workflow->{on}{workflow_call}{inputs}{$input}{required}, 'true',   "callers must supply $input";
+        is $workflow->{on}{workflow_dispatch}{inputs}{$input}{type}, 'string', "a rehearsal can choose $input";
+    }
+    my $script = step( $jobs->{candidate}, qr/GITHUB_REF/ );
+    ok length($script), 'the workflow validates the source before checking it out' or return;
+    local $ENV{GITHUB_REF} = 'refs/heads/main';
+    local $ENV{SOURCE_SHA} = 'a' x 40;
+    is system( 'bash', '-eu', '-c', $script ), 0, 'main can choose an immutable commit';
+    {
+        local $ENV{SOURCE_SHA} = 'main';
+        isnt system( 'bash', '-eu', '-c', $script ), 0, 'a mutable candidate ref is refused';
+    }
+    local $ENV{GITHUB_REF} = 'refs/heads/other';
+    isnt system( 'bash', '-eu', '-c', $script ), 0, 'a workflow dispatched outside main is refused';
+};
+
 subtest 'all release shards restore the same measured tools and dependency bytes' => sub {
     my $build   = $jobs->{'self-runtime'} || {};
     my $measure = $jobs->{'self-measurement'};
@@ -80,6 +100,35 @@ subtest 'all release shards restore the same measured tools and dependency bytes
     invocation( $restore, 2 );
     ok -x "$tools/$interpreter",                    'the restored target Perl is executable';
     ok -f "$project/local/lib/perl5/Dependency.pm", 'the checkout receives the prepared dependency';
+};
+
+subtest 'each measurement and build checks out the selected commit' => sub {
+    for my $job (qw(candidate self-runtime self-measurement compatibility release macos)) {
+        my ($checkout) = grep { ( $_->{uses} || q{} ) =~ m{\Aactions/checkout@} } ( $jobs->{$job}{steps} || [] )->@*;
+        is $checkout->{with}{ref},                   q{${{ env.SOURCE_SHA }}}, "$job reads the selected commit";
+        is $checkout->{with}{'persist-credentials'}, 'false', "$job leaves no credentials in the checkout";
+    }
+};
+
+subtest 'the candidate rejects a different version or checkout' => sub {
+    my $script = step( $jobs->{candidate}, qr/git rev-parse HEAD/ );
+    ok length($script), 'candidate identity comes from the checkout' or return;
+    chomp( my $revision = qx{git rev-parse HEAD} );
+    my $version = ExtUtils::MM->parse_version('lib/Test/Mutation.pm');
+    local $ENV{GITHUB_OUTPUT} = "$scratch/identity";
+    local $ENV{SOURCE_SHA}    = $revision;
+    local $ENV{VERSION}       = $version;
+    is system( 'bash', '-eu', '-c', $script ), 0, 'the declared version matches the selected commit';
+    open my $identity, '<', $ENV{GITHUB_OUTPUT} or die "read the candidate identity: $!";
+    chomp( my @values = readline $identity );
+    close $identity or die "close the candidate identity: $!";
+    is \@values, [ "source_sha=$revision", "version=$version" ], 'only the verified source and version are exported';
+    {
+        local $ENV{SOURCE_SHA} = '0' x 40;
+        isnt system( 'bash', '-eu', '-c', $script ), 0, 'a different checkout is refused';
+    }
+    local $ENV{VERSION} = "$version.99";
+    isnt system( 'bash', '-eu', '-c', $script ), 0, 'a different release version is refused';
 };
 
 subtest 'the packaged command runs after disttest on both release systems' => sub {
