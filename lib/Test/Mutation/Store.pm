@@ -1,14 +1,16 @@
 package Test::Mutation::Store;
 use v5.36;
-use DBI             ();
-use Fcntl           qw(:flock);
-use List::Util      ();
-use POSIX           ();
-use File::Basename  ();
-use File::Spec      ();
-use JSON::PP        ();
-use Types::Standard qw(ArrayRef Bool CodeRef Defined Dict HashRef InstanceOf Int Maybe Num Optional Str);
-use Type::Params    qw(signature_for);
+use DBI                   ();
+use Fcntl                 qw(:flock);
+use List::Util            ();
+use POSIX                 ();
+use File::Basename        ();
+use File::Spec            ();
+use File::Temp            ();
+use Hash::Util::FieldHash qw(fieldhash);
+use JSON::PP              ();
+use Types::Standard       qw(ArrayRef Bool CodeRef Defined Dict HashRef InstanceOf Int Maybe Num Optional Str);
+use Type::Params          qw(signature_for);
 use Test::Mutation::Error;
 use Test::Mutation::Store::Key;
 use Test::Mutation::Status;
@@ -19,6 +21,7 @@ use Test::Mutation::Types qw(Observations Reason StatusName);
 our $VERSION = '0.001';
 
 my $JSON = JSON::PP->new->canonical;
+fieldhash my %private;
 
 my $FORMAT   = 5;
 my $LINES    = HashRef [Bool];
@@ -93,6 +96,11 @@ sub _stored ( $db, $table ) {
 signature_for path => ( positional => [ InstanceOf ['Test::Mutation::Config'] ], returns => Str );
 
 sub path ($config) {
+    return File::Spec->catfile( $private{$config}, 'measurement.sqlite' ) if exists $private{$config};
+    if ( $config->cache && !exists $config->specified->{'cache-dir'} && !-w $config->root ) {
+        $private{$config} = File::Temp->newdir;
+        return File::Spec->catfile( $private{$config}, 'measurement.sqlite' );
+    }
     return File::Spec->catfile( File::Spec->rel2abs( $config->cache_dir, $config->root ), 'measurement.sqlite' );
 }
 
@@ -118,8 +126,19 @@ signature_for database => ( positional => [Str], returns => InstanceOf ['DBI::db
 sub database ($path) {
     my $directory = File::Basename::dirname($path);
     Test::Mutation::Tree::make($directory) unless -d $directory;
-    my $db = DBI->connect( "dbi:SQLite:dbname=$path", undef, undef,
-        { RaiseError => 1, PrintError => 0, AutoInactiveDestroy => 1, sqlite_unicode => 1 } );
+    my $db = DBI->connect(
+        "dbi:SQLite:dbname=$path",
+        undef, undef,
+        {
+            RaiseError          => 1,
+            PrintError          => 0,
+            AutoInactiveDestroy => 1,
+            sqlite_unicode      => 1,
+            HandleError         => sub ( $message, @ ) {
+                Test::Mutation::Error::raise( 'file-unwritable', path => $path, reason => $message );
+            }
+        }
+    );
     $db->sqlite_busy_timeout(30_000);
     my ($schema) = $db->selectrow_array('PRAGMA user_version');
     return $db if $schema == 1;
