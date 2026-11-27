@@ -102,7 +102,13 @@ sub path ( $config, $write ) {
     return $stored if !$write || !$config->cache || exists $config->specified->{'cache-dir'} || -w $config->root;
     my $directory = File::Temp->newdir;
     my $copy      = File::Spec->catfile( $directory, 'measurement.sqlite' );
-    _connect($copy)->sqlite_backup_from_file($stored) if -f $stored;
+    if ( -f $stored ) {
+        _connect($copy)->sqlite_backup_from_file($stored);
+    }
+    else {
+        my $legacy = File::Spec->catfile( File::Basename::dirname($stored), 'cache.json' );
+        database( $copy, $legacy ) if -f $legacy;
+    }
     $private{$config} = $directory;
     return $copy;
 }
@@ -142,9 +148,9 @@ sub _connect ($path) {
     return $db;
 }
 
-signature_for database => ( positional => [Str], returns => InstanceOf ['DBI::db'] );
+signature_for database => ( positional => [ Str, Optional [ Maybe [Str] ] ], returns => InstanceOf ['DBI::db'] );
 
-sub database ($path) {
+sub database ( $path, $legacy = undef ) {
     my $directory = File::Basename::dirname($path);
     Test::Mutation::Tree::make($directory) unless -d $directory;
     my $db = _connect($path);
@@ -173,7 +179,7 @@ sub database ($path) {
                 'CREATE TABLE candidate (analysis TEXT, ordinal INTEGER, id TEXT, data TEXT NOT NULL, PRIMARY KEY(analysis,id))'
             );
             $db->do('CREATE INDEX catalog_order ON candidate(analysis,ordinal)');
-            my $old      = _read("$directory/cache.json");
+            my $old      = _read( $legacy // "$directory/cache.json" );
             my $verdicts = _validated( $old->{mutants}, $RECORD );
             my $matching = { map { $_ => $verdicts->{$_} } grep { defined $verdicts->{$_}{source} } keys %$verdicts };
             _update( $db, $matching, undef, {}, _originals($old) );
@@ -324,6 +330,7 @@ A later run reuses the record when the key of the same mutant is unchanged.
 =head2 database
 
 Opens the indexed store and imports reusable records from the previous cache on creation.
+An optional second argument names the cache to import from another directory.
 
 =head2 path
 

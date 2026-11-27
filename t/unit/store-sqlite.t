@@ -70,8 +70,13 @@ subtest 'measurements in a read-only checkout' => sub {
     Capability::need( 'unprivileged', $> != 0, 'the superuser can write to read-only directories' );
     my $read_only = File::Temp::tempdir( CLEANUP => 1 );
     my $config    = Test::Mutation::Settings::of_call( { root => $read_only } );
+    my $legacy    = "$read_only/.mutation/cache.json";
+    Test::Mutation::Store::save( $legacy, { first => $record } );
     chmod oct('555'), $read_only or die "chmod: $!";
     my $private = Test::Mutation::Store::path($config);
+    is Test::Mutation::Store::load($private), { first => $record },
+      'input-identified verdicts migrate from a read-only checkout into the private database';
+    ok !-e "$read_only/.mutation/measurement.sqlite", 'migration leaves the checkout intact';
     chmod oct('755'), $read_only or die "chmod: $!";
     ok index( $private, "$read_only/" ) != 0, 'a read-only project uses a private database outside the checkout';
     is Test::Mutation::Store::path($config), $private, 'the configuration keeps its private database for the whole run';
