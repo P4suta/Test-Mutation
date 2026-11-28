@@ -110,7 +110,7 @@ sub refresh ( $prior, $current ) {
     my $scope = $current->measured_scope;
 
     if ( @ids > $current->entries->@* ) {
-        $scope = $prior->measured_scope // $prior->selection;
+        $scope = $prior->score_scope;
         $scope = { mutants => \@ids } if %replacement && keys %$scope;
     }
     return Test::Mutation::Result->new(
