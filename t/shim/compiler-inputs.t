@@ -30,11 +30,27 @@ BEGIN {
     die "wrong inputs" unless <$literal> eq "literal\n" && <$config> eq "environment\n";
 }
 PERL
-my $operands = join q{,}, 'f' . unpack( 'H*', 'literal input' ), 'e' . unpack( 'H*', 'COMPILER_CONFIG' );
+my $named    = 'e' . unpack( 'H*', 'COMPILER_CONFIG' );
+my $operands = join q{,}, 'f' . unpack( 'H*', 'literal input' ), $named;
 my @lines    = @{ compile_record( $root, 'stable', $operands, COMPILER_CONFIG => $config ) || [] };
 is pop(@lines), q{.}, 'the compiler terminates the complete input record';
 my %lines = map { $_ => 1 } @lines;
 ok $lines{ unpack 'H*', $literal }, 'the compiler records the absolute path of a literal read';
 ok $lines{ unpack 'H*', $config },  'the compiler records the file named by the environment';
+
+my $other = write_file( "$root/other config", "replacement\n" );
+write_file( "$root/probe.pl", <<'PERL' );
+BEGIN {
+    $ENV{COMPILER_CONFIG} = $ENV{REPLACEMENT_CONFIG};
+    open my $input, '<', $ENV{COMPILER_CONFIG} or die "open replacement: $!";
+    die "wrong replacement" unless <$input> eq "replacement\n";
+}
+PERL
+ok !defined compile_record( $root, 'rebound', $named, COMPILER_CONFIG => $config, REPLACEMENT_CONFIG => $other ),
+  'rebinding an environment operand to another readable file leaves no record';
+ok !
+  defined compile_record( $root, 'unavailable', $named, COMPILER_CONFIG => "$root/missing",
+    REPLACEMENT_CONFIG => $other ),
+  'an initially unavailable operand cannot acquire evidence later in compilation';
 
 done_testing;
