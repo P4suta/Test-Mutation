@@ -862,6 +862,19 @@ subtest 'an anonymous subroutine inside a use statement yields its sites' => sub
       'the default argument and the body of a constant subroutine';
 };
 
+subtest 'an overload callback returned by a block retains its executable sites' => sub {
+    my $code = <<'PERL';
+package Weighted;
+use overload q{+} => do {
+    sub sub { return $_[0] + 1 }
+    my $weight = Weighted::sub(1);
+    sub { $_[1] * $weight }
+};
+PERL
+    is [ map { [ $_->text, $_->scope ] } sites_of( $code, 'operator' )->@* ], [ [ q{*}, [ 5, 5 ] ] ],
+      'the runtime callback supplies the operator and the named import helper stays outside its scope';
+};
+
 subtest 'the name and version of a constant declaration stay outside the value' => sub {
     my $code = <<'PERL';
 use constant 1.30 'LIMIT', 2 * 3;
