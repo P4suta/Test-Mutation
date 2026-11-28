@@ -283,8 +283,9 @@ subtest 'each saved verdict requires the observations that justify its status' =
     $saved->{mutant} = Test::Mutation::Mutant->new( $uncovered->%*, comparable => 0 );
     Test::Mutation::Runner::_save_observation( $run, $cache, $saved );
     $cache->{records} = Test::Mutation::Store::load( $cache->{path} );
-    my @values = map { Test::Mutation::Mutant->new( $uncovered->%*, comparable => $_ ) } ( q{}, undef );
-    is [ map { my $entry = $reuse->( $cache, $_, [] ); $entry && $entry->{status} } @values ],
+    my @values       = map { Test::Mutation::Mutant->new( $uncovered->%*, comparable => $_ ) } ( q{}, undef );
+    my @observations = map { $reuse->( $cache, $_, [] ) } @values;
+    is [ map { $_ && $_->{status} } @observations ],
       [qw(NoCoverage NoCoverage)], 'empty and undefined false values reuse a verdict recorded with numeric zero';
     my @warnings;
     local $SIG{__WARN__} = sub { push @warnings, @_; return };
