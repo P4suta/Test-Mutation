@@ -76,7 +76,7 @@ my @DECLINED = (
         'a function that acts on a handle, a file, the network, or a process has no counterpart, and statement-removal removes the statements that call it'
           => 'QuoteLike::Backtick',
         'QuoteLike::Command',
-        map { "word $_" } qw(chown exec fork gethostbyname getpgrp ioctl print printf say sysread system)
+        map { "word $_" } qw(chown exec fork getc gethostbyname getpgrp ioctl print printf say seek sysread system)
     ],
     [
         'a function of a value has no counterpart that takes the same operands, and the mutants of its operands measure it'
