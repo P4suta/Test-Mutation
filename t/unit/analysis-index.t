@@ -105,6 +105,25 @@ subtest 'retrying a partially stored batch keeps both file analyses' => sub {
     is $files->{existing}, $saved, 'the existing file retains its first analysis and candidate';
     is $files->{later},    $next,  'the later file and its candidate are committed in the same retry';
 };
+subtest 'a failed candidate write rolls back the entire catalog batch' => sub {
+    my $directory = File::Temp::tempdir( CLEANUP => 1 );
+    my $path      = "$directory/catalog.sqlite";
+    my $db        = Test::Mutation::Store::database($path);
+    $db->do(<<'SQL');
+CREATE TRIGGER refuse_candidate BEFORE INSERT ON candidate WHEN NEW.analysis = 'later'
+BEGIN SELECT RAISE(ABORT, 'refused candidate'); END
+SQL
+    my $facts = { problem => undef, left_out => 0, refusals => [], rejected => [], mutants => [ $all->mutants->[0] ] };
+    my $batch = [ map { [ $_, $facts ] } qw(first later) ];
+    like dies { Test::Mutation::Store::Analysis::publish( $path, $batch ) }, qr/refused candidate/,
+      'a write error reaches the caller';
+    is Test::Mutation::Store::Analysis::read_files( $db, [qw(first later)], [] ), {},
+      'a separate connection sees no part of the failed batch';
+    $db->do('DROP TRIGGER refuse_candidate');
+    is Test::Mutation::Store::Analysis::publish( $path, $batch ), undef, 'a successful retry returns no value';
+    is Test::Mutation::Store::Analysis::read_files( $db, [qw(first later)], [] ), { first => $facts, later => $facts },
+      'both file analyses and their candidates are visible after the commit';
+};
 subtest 'thousands of named mutants fit within SQLite query limits' => sub {
     my $project = File::Temp::tempdir( CLEANUP => 1 );
     my $methods = join "\n", map { sprintf 'sub sum%03d { return $_[0] + $_[1] }', $_ } 1 .. 96;
