@@ -191,11 +191,19 @@ sub _embedded_phase ($document) {
         for my $part ( $quoted ? $parsed->children : $parsed->tokens ) {
             next unless $part->can('ppi') && $part->content =~ $COMPILE_DIRECTIVE;
             my $inner = $part->ppi or return 1;
-            return 1 if $inner->find_first( sub ( $top, $element ) { _is_word( $element, \%COMPILE_KEYWORD ) } );
+            return 1 if $inner->find_first( \&_embedded_keyword );
             return 1 if _embedded_phase($inner);
         }
     }
     return 0;
+}
+
+sub _embedded_keyword ( $document, $element ) {
+    return 0 unless _is_word( $element, \%COMPILE_KEYWORD );
+    my $subscript = $element->parent->parent;
+    return 1 unless ref $subscript eq 'PPI::Structure::Subscript';
+    my $key = join q{}, map { $_->content } grep { $_->significant } $subscript->tokens;
+    return $key ne '{' . $element->content . '}';
 }
 
 sub _fixed_module_load ($document) {

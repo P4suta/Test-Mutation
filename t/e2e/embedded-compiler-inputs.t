@@ -60,6 +60,19 @@ PERL
         Test::Mutation::Merge::merge(
             [ { name => 'before', result => $original }, { name => 'after', result => $peer } ] )
     }, qr/measurement inputs are missing/, 'the old and new unverified limits cannot certify a combined score';
+
+    write_file( "$area/modules/EmbeddedConfig.pm", <<'PERL' );
+package EmbeddedConfig;
+sub limit { my %labels = (BEGIN => 7); return "$labels{BEGIN}" }
+1;
+PERL
+    my $stable = $measure->( 1, 1 );
+    is $measure->( 1, 1 )->reused, 1, 'interpolating a literal key permits reuse of a verified verdict';
+    my $other  = $measure->( 2, 0 );
+    my $merged = Test::Mutation::Merge::merge(
+        [ { name => 'first', result => $stable }, { name => 'second', result => $other } ] );
+    is [ map { $_->{status} } $merged->entries->@* ], [qw(Killed Killed)],
+      'both shards certify their observed boundaries';
 };
 
 done_testing;
