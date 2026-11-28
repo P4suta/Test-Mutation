@@ -5,6 +5,7 @@ use lib 't/e2e/lib';
 use Fixture qw(write_file);
 use Test::Mutation::Runner;
 use Test::Mutation::Settings;
+use Test::Mutation::Source;
 
 my $use_number = "use Test::More tests => 1;\nuse Number;\nmy \$number = Number::next_number(2);\n";
 my $weak       = $use_number . "pass 'the call completed';\n";
@@ -91,6 +92,30 @@ subtest 'a suggested detector may precede parallel tests and must wait for seria
         my $result = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => 't/z.t' } } );
         is entry( $result, $id )->{by}, $first, "$mode selects an eligible detector";
     }
+};
+
+subtest 'a suggested test that times out preserves the ordinary two-timeout budget' => sub {
+    my $log = File::Temp->new;
+    local $ENV{DETECTOR_ATTEMPTS} = $log->filename;
+    my $stall = $use_number . <<'PERL';
+if (defined($number) && $number == 1) {
+    open my $tried, '>>', $ENV{DETECTOR_ATTEMPTS} or die $!;
+    print {$tried} "$0\n";
+    close $tried or die $!;
+    sleep 30;
+}
+pass 'the original finishes';
+PERL
+    my $root   = project( 't/a.t' => $stall, 't/b.t' => $strong, 't/z.t' => $stall );
+    my $config = config( $root, timeout_floor => 0.6, timeout_factor => 4 );
+    my $id     = arithmetic_id($config);
+    my $result = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => 't/z.t' } } );
+    my $found  = entry( $result, $id );
+    like Test::Mutation::Source::read_bytes( $log->filename ), qr{t/z[.]t\n[^\n]*t/a[.]t\n},
+      'the suggested timeout was followed by the first ordinary test';
+    is [ $found->@{qw(status by tests_run)} ], [ 'Killed', 't/b.t', 2 ], 'the ordinary assertion retains its turn';
+    is [ map { [ $_->@{qw(test result)} ] } $found->{observations}[0]->@* ],
+      [ [ 't/a.t', 'timeout' ], [ 't/b.t', 'fail' ] ], 'only ordinary observations determine the fallback verdict';
 };
 
 done_testing;
