@@ -4,7 +4,7 @@ use Cwd         ();
 use Digest::SHA ();
 use File::Temp  ();
 use lib 't/e2e/lib', 't/lib';
-use Fixture qw(copy_of write_file);
+use Fixture qw(copy_of with_driver_shims write_file);
 use Raised;
 use Test::Mutation::Merge;
 use Test::Mutation::Select;
@@ -181,12 +181,19 @@ subtest 'a prepared shard and a resolved shard can measure the same source lines
     my $paths = { 'lib/Calc.pm' => [ [ 7, 7 ] ] };
     my ( $first_config, $peer_config ) =
       map { Test::Mutation::Settings::of_call( { root => $project, shard => "$_/2", cache => $_ - 1 } ); } 1, 2;
-    my $peer    = Test::Mutation::Runner::run( $peer_config, sub { }, { paths => $paths } );
+    my $run = sub ( $config, $scope ) {
+        return with_driver_shims(
+            sub {
+                Test::Mutation::Runner::run( $config, sub { }, $scope );
+            }
+        );
+    };
+    my $peer    = $run->( $peer_config, { paths => $paths } );
     my $measure = sub ( $selection, $config ) {
         my %inputs = $selection->%*;
         delete $inputs{analysis_rules_digest};
         my $prepared = Test::Mutation::Selection->new(%inputs);
-        return Test::Mutation::Runner::run( $config, sub { }, { selection => $prepared } );
+        return $run->( $config, { selection => $prepared } );
     };
     my $selected = Test::Mutation::Select::resolve( config => $first_config, paths => $paths );
     my $merge    = sub ( $part, $other ) {
