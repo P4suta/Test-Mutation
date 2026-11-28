@@ -109,15 +109,10 @@ subtest 'an import can redirect a relative input before the compiler opens it' =
     my $area = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
     my $root = "$area/project";
     local $ENV{TEST_LIMIT_DIRECTORY} = "$area/data";
-    write_file( "$root/limit",        "3\n" );
-    write_file( "$root/lib/Bound.pm", <<'PERL' );
-package Bound;
-use Cwd ();
-use warnings do {
-    $ENV{TEST_PREVIOUS_DIRECTORY} = Cwd::getcwd();
-    chdir $ENV{TEST_LIMIT_DIRECTORY} or die $!;
-    'numeric'
-};
+    write_file( "$root/limit", "3\n" );
+    my $enter = q{$ENV{TEST_PREVIOUS_DIRECTORY} = Cwd::getcwd(); chdir $ENV{TEST_LIMIT_DIRECTORY} or die $!};
+    my $leave = q{chdir $ENV{TEST_PREVIOUS_DIRECTORY} or die $!};
+    my $read  = <<'PERL';
 BEGIN {
     open my $input, '<', 'limit' or die $!;
     my $limit = 0 + <$input>;
@@ -125,10 +120,12 @@ BEGIN {
     require constant;
     constant->import('LIMIT', $limit);
 }
-use warnings do { chdir $ENV{TEST_PREVIOUS_DIRECTORY} or die $!; 'numeric' };
-sub below { return $_[0] < LIMIT }
-1;
 PERL
+    my $source = sub ( $before, $after ) {
+        write_file( "$root/lib/Bound.pm", join "\n", 'package Bound;',
+            'use Cwd ();', $before, $read, $after, 'sub below { return $_[0] < LIMIT }', "1;\n" );
+    };
+    $source->( "use warnings do { $enter; 'numeric' };", "use warnings do { $leave; 'numeric' };" );
     write_file( "$root/t/check.t", "use Test::More tests => 1; use Bound; ok !Bound::below(7);\n" );
     my $boundary = sub ($cache) {
         my ($result) = run_fixture(
@@ -140,13 +137,21 @@ PERL
             disable => [qw(@removal arithmetic comparison-negation logical)]
         );
         my ($entry) = grep { $_->{mutant}->mutator eq 'comparison-boundary' } $result->entries->@*;
-        return [ $entry->{status}, $result->cache_mismatch ];
+        return [ $entry->{status}, $result->cache_mismatch, $entry->{compiled_digest} ];
     };
     write_file( "$area/data/limit", "7\n" );
-    is $boundary->(1), [ 'Killed', 0 ], 'the test distinguishes strict comparison at seven';
+    is $boundary->(1), [ 'Killed', 0, undef ], 'the test distinguishes strict comparison at seven';
     write_file( "$area/data/limit", "5\n" );
-    is $boundary->(1), [ 'Survived', 0 ], 'the changed limit invalidates the old verdict before cache sampling';
-    is $boundary->(0), [ 'Survived', 0 ], 'fresh tests agree with the cached run';
+    is $boundary->(1), [ 'Survived', 0, undef ], 'the changed limit invalidates the old verdict before cache sampling';
+    is $boundary->(0), [ 'Survived', 0, undef ], 'fresh tests agree with the cached run';
+
+    local $ENV{PERL5LIB} = join q{:}, "$area/imports", grep { defined } $ENV{PERL5LIB};
+    write_file( "$area/imports/Enter.pm", "package Enter; use Cwd (); $enter; 1;\n" );
+    write_file( "$area/imports/Leave.pm", "package Leave; $leave; 1;\n" );
+    $source->( 'use Enter ();', 'use Leave ();' );
+    is $boundary->(1), [ 'Survived', 0, undef ], 'an imported module can redirect the same literal input';
+    write_file( "$area/data/limit", "7\n" );
+    is $boundary->(1), [ 'Killed', 0, undef ], 'the previous survival cannot be reused after the data changes';
 };
 
 done_testing;
