@@ -480,6 +480,21 @@ my @all = grep { /begin/ ... /end/; 1 } @input;
 CODE
     is [ map { $_->from->[0] } grep { $_->mutator eq 'range-boundary' } mutants( $blocks, profile => 'extended' )->@* ],
       [ 1, 2 ], 'a filter predicate and a sort comparator consume the final block value in scalar context';
+    my $logical = <<'CODE';
+sub through_list {
+    my @items;
+    @items = 1 ... 3 and return @items;
+    push @items, 1 ... 3 or die;
+    print 1 ... 3 or die;
+}
+sub through_condition {
+    /begin/ ... /end/ and return 1;
+    (/left/ ... /right/) or die;
+}
+CODE
+    is [ map { $_->from->[0] }
+        grep { $_->mutator eq 'range-boundary' } mutants( $logical, profile => 'extended' )->@* ],
+      [ 8, 9 ], 'a logical operator tests its entire left operand after a list assignment or call finishes';
 };
 
 subtest 'guarded exits can be selected for a target with version-dependent startup code' => sub {
