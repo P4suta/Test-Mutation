@@ -1867,8 +1867,12 @@ sub _open_cache ( $run, $baseline, $mutants = undef ) {
 }
 
 sub _verdict_key ( $cache, $mutant, $tests, $status, $killer ) {
-    my $mutation =
-      Test::Mutation::Store::Key::digest( $mutant->id, $mutant->replacement, $cache->{targets}{ $mutant->path } );
+    my $mutation = Test::Mutation::Store::Key::digest(
+        $mutant->id, $mutant->replacement, $cache->{targets}{ $mutant->path },
+        $mutant->scope->@*,
+        $mutant->comparable ? 1 : 0,
+        @{ $mutant->introduced_call || [] }
+    );
     return Test::Mutation::Store::Key::digest( $cache->{shared}, $mutation, 'none' ) if $status eq 'NoCoverage';
     my @needed = @$tests;
     if ( $status eq 'Killed' ) {
