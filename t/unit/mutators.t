@@ -440,6 +440,24 @@ subtest 'changes to control flow and operands respect Perl precedence' => sub {
       'grep and first negate their predicates while keeping their input lists';
 };
 
+subtest 'a flip-flop can end on the same line as it starts' => sub {
+    my $source = <<'CODE';
+sub select_lines {
+    for (@_) {
+        next unless /^=head1 AUTHORS/ ... /^=/;
+        return if ( $_ eq 'stop' ... $_ eq 'end' );
+    }
+}
+sub ranges {
+    my @copy = 1 ... $_[0];
+    return [1 ... $_[0]] if check(1 ... $_[0]);
+}
+sub unfinished { ... }
+CODE
+    is changes( $source, 'range-boundary', profile => 'extended' ), [ [ '...', '..' ], [ '...', '..' ] ],
+      'only scalar conditions test the endpoint during the first evaluation';
+};
+
 subtest 'extended mutators' => sub {
     my %extended = ( profile => 'extended' );
     my @numbers  = (
