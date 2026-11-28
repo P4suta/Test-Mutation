@@ -205,6 +205,24 @@ subtest 'only a regular publication record in its own directory identifies gener
     symlink 'previous', $marker or die "link the record: $!";
     is Test::Mutation::Report::Publication::outputs( $directory, $name ), {},
       'a symbolic link to an earlier record leaves the files in the measurement';
+    my $replacement = { 'mutation.json' => 'b' x 64 };
+    is warnings { Test::Mutation::Report::Publication::record( $root, $directory, $replacement ) }, [],
+      'skipping a linked record reports no filehandle warnings';
+    unlink $marker or die "remove the link: $!";
+    rename "$directory/previous", $marker or die "restore the record: $!";
+    is Test::Mutation::Report::Publication::outputs( $directory, $name )->{'mutation.json'}, $digest,
+      'the earlier publication still records its original bytes';
+};
+
+subtest 'malformed publication records leave the directory in the measurement' => sub {
+    my $name      = 'invalid-record';
+    my $directory = "$root/$name";
+    my $seal      = Digest::SHA::sha256_hex( join "\0", $name, 'invalid', '-' );
+    for my $text ( 'x' x 512, join( "\n", $seal, 'invalid', '-', q{} ) ) {
+        write_file( "$directory/.test-mutation-outputs", $text );
+        is Test::Mutation::Report::Publication::outputs( $directory, $name ), {},
+          'an oversized record or invalid checksum identifies no generated file';
+    }
 };
 
 subtest 'a file moved onto the metadata path during publication survives' => sub {
