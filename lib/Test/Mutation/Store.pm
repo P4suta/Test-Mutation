@@ -75,9 +75,10 @@ sub sample ( $ids, $seed ) {
     return [ @ordered[ 0 .. $take - 1 ] ];
 }
 
-signature_for load => ( positional => [ Str, Optional [ Maybe [ ArrayRef [Str] ] ] ], returns => HashRef [$RECORD] );
+signature_for load =>
+  ( positional => [ Str, Maybe [ ArrayRef [Str] ], { default => undef } ], returns => HashRef [$RECORD] );
 
-sub load ( $path, $ids = undef ) {
+sub load ( $path, $ids ) {
     my $records;
     if ( $path =~ /[.]sqlite\z/ ) {
         my $db = read_database($path);
