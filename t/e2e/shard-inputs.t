@@ -245,8 +245,9 @@ PERL
 
     local $ENV{TEST_PROJECT_ORIGINAL} = $ENV{TEST_PROJECT_TABLE};
     write_file( "$area/rebind-library/SwitchInput.pm",
-        'package SwitchInput; $ENV{TEST_PROJECT_TABLE} = $ENV{TEST_PROJECT_LATER}; 1;' );
-    write_file( $rebind, 'package Rebind; $ENV{TEST_PROJECT_TABLE} = $ENV{TEST_PROJECT_ORIGINAL}; 1;' );
+        'package SwitchInput; sub choose { $ENV{TEST_PROJECT_TABLE} = $ENV{TEST_PROJECT_LATER} } choose; 1;' );
+    write_file( $rebind,
+        'package Rebind; sub restore { $ENV{TEST_PROJECT_TABLE} = $ENV{TEST_PROJECT_ORIGINAL} } restore; 1;' );
     my $switched = $reader =~ s/^BEGIN/use SwitchInput;\nBEGIN/mr;
     write_file( "$area/$_/lib/Idle.pm", $switched ) for qw(bound-first bound-second);
     my $before_restore = shard( 'bound-first',  1, cache => 1 );
