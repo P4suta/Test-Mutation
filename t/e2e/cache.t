@@ -19,6 +19,22 @@ sub append ( $path, $text ) {
     return;
 }
 
+subtest 'a new compiler input protocol rechecks the original tests and their verdicts' => sub {
+    my $project = copy_of('calc');
+    {
+        no warnings qw(once redefine);
+        local *Test::Mutation::Result::supported_compiler_input_protocol = sub { return 1 };
+        my ($earlier) = run_fixture($project);
+        is $earlier->compiler_input_protocol, 1, 'the earlier measurement uses its own compiler rules';
+    }
+    my ($current) = run_fixture($project);
+    is $current->stats->{baseline_tests}, scalar $first->tests->@*, 'the current rules measure every original test';
+    is $current->reused, 0, 'the previous protocol supplies no reusable verdicts';
+    is statuses($current), statuses($first), 'remeasurement preserves the independently verified verdicts';
+    my ($again) = run_fixture($project);
+    is $again->reused, $measured, 'a second run with the current rules reuses the fresh observations';
+};
+
 subtest 'a legacy cache reuses only independently verifiable observations' => sub {
     my $directory = "$root/.mutation";
     my $database  = "$directory/measurement.sqlite";
