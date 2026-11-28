@@ -492,9 +492,9 @@ sub through_condition {
     (/left/ ... /right/) or die;
 }
 CODE
-    is [ map { $_->from->[0] }
-        grep { $_->mutator eq 'range-boundary' } mutants( $logical, profile => 'extended' )->@* ],
-      [ 8, 9 ], 'a logical operator tests its entire left operand after a list assignment or call finishes';
+    my @logical_ranges = grep { $_->mutator eq 'range-boundary' } mutants( $logical, profile => 'extended' )->@*;
+    is [ map { $_->from->[0] } @logical_ranges ], [ 8, 9 ],
+      'a logical operator tests its entire left operand after a list assignment or call finishes';
 };
 
 subtest 'guarded exits can be selected for a target with version-dependent startup code' => sub {
