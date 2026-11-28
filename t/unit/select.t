@@ -147,6 +147,7 @@ subtest 'a report identifies the requested lines and the inputs that support the
     write_file( "$project/$first",   "package A;\nsub one { return 1 + 1 }\n1;\n" );
     write_file( "$project/$chosen",  "package Z;\nsub two { return 2 + 2 }\n1;\n" );
     write_file( "$project/t/pass.t", "use Test::More tests => 1;\nok 1;\n" );
+    my %rules;
     for my $cache ( 0, 1 ) {
         for my $reports ( 0, 1 ) {
             my $config   = Test::Mutation::Settings::of_call( { root => $project, cache => $cache } );
@@ -159,13 +160,18 @@ subtest 'a report identifies the requested lines and the inputs that support the
             is [ sort keys $selected->sources->%* ], [$chosen], 'an earlier file cannot hide the selected source';
             is [ sort keys $selected->digests->%* ], $cache || $reports ? [ $first, $chosen ] : [$chosen],
               "cache $cache and reports $reports retain the required input digests";
+            $rules{ $selected->analysis_rules_digest }++;
         }
     }
+    is [ values %rules ], [4], 'all four selections use the same analysis rules';
     my $whole = Test::Mutation::Select::resolve( config => Test::Mutation::Settings::of_call( { root => $project } ) );
     my %attributes = $whole->%*;
     delete $attributes{selection};
     is Test::Mutation::Selection->new(%attributes)->selection, {},
       'an unfiltered selection constructed without an explicit filter records the whole project';
+    delete $attributes{analysis_rules_digest};
+    is Test::Mutation::Selection->new(%attributes)->analysis_rules_digest, $whole->catalog_digest,
+      'a selection supplied without separate analysis rules retains its catalog identity';
 };
 
 done_testing;
