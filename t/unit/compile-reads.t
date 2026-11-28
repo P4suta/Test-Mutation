@@ -66,6 +66,13 @@ sub inside { return Local::floor() < Defaults::limit() }
 1;
 PERL
     write_file( "$project/t/pass.t", "use Test::More tests => 1; pass 'ready';\n" );
+    my %compiled;
+    my $compile = \&Test::Mutation::Runner::_compile_task;    ## no critic (Subroutines::ProtectPrivateSubs)
+    no warnings 'redefine';
+    local *Test::Mutation::Runner::_compile_task = sub ( $run, $job, $kind, $file, $switch ) {    ## no critic (Variables::ProtectPrivateVars)
+        die "repeated $kind for $file\n" if $compiled{$kind}{$file}++;
+        return $compile->( $run, $job, $kind, $file, $switch );
+    };
     my ($result) = run_fixture( $project, cache => 0, jobs => 1 );
     ok !exists $result->compiler_inputs->{ Test::Mutation::Store::Key::digest("$project/a-local") },
       'the ordinary library is already part of the project';
