@@ -66,6 +66,7 @@ PERL
 
 subtest 'binary source reads keep byte identity and a failed close supplies no text' => sub {
     my $root = project();
+    write_file( "$root/empty",   q{} );
     write_file( "$root/raw",     "\xC3\xA9\xFF\n" );
     write_file( "$root/read.pl", <<'PERL' );
 use strict;
@@ -80,14 +81,45 @@ BEGIN {
 use Test::Mutation::Shim ();
 my $read = \&Test::Mutation::Shim::_slurp;
 print 'raw=', unpack('H*', $read->('raw')), "\n";
+print 'empty=', defined($read->('empty')) ? 'read' : 'failed', "\n";
+print 'directory=', defined($read->('.')) ? 'read' : 'failed', "\n";
 $failed = 1;
-print 'failed=', length($read->('raw')), "\n";
-print 'missing=', length($read->('absent')), "\n";
+print 'failed=', defined($read->('raw')) ? 'read' : 'failed', "\n";
+print 'missing=', defined($read->('absent')) ? 'read' : 'failed', "\n";
 PERL
     my $run = run_perl( root => $root, args => [ '-I' . lib_dir(), '-Cio', 'read.pl' ] );
     is $run->{status}, 0, 'binary comparison handles the missing and unclosed file' or diag $run->{stderr};
-    is $run->{stdout}, "raw=c3a9ff0a\nfailed=0\nmissing=0\n", 'raw bytes and failed observations are distinct';
-    is $run->{stderr}, q{},                                   'failed reads do not leak warnings to the measured test';
+    is $run->{stdout}, "raw=c3a9ff0a\nempty=read\ndirectory=failed\nfailed=failed\nmissing=failed\n",
+      'only readable files supply bytes';
+    is $run->{stderr}, q{}, 'failed reads do not leak warnings to the measured test';
+};
+
+subtest 'an empty installed copy needs a readable original before the hook can replace it' => sub {
+    for my $removed ( 0, 1 ) {
+        my $root        = project();
+        my $original    = write_file( "$root/original/Blank.pm", q{} );
+        my $replacement = write_file( "$root/mutant.pm",         "package Blank; sub value { 53 } 1;\n" );
+        write_file( "$root/lib/Blank.pm", q{} );
+        write_file( "$root/spec",         "trace\t0\ntarget\t$original\t$replacement\n" );
+        write_file( "$root/use.pl",       <<'PERL' );
+unlink 'original/Blank.pm' or die "remove original: $!" if shift;
+require Blank;
+print Blank::value();
+PERL
+        my $run = run_perl(
+            root => $root,
+            args => [ '-I' . lib_dir(), '-Ilib', '-MTest::Mutation::Shim', 'use.pl', $removed ],
+            env  => { TEST_MUTATION_SPEC => "$root/spec", TEST_MUTATION_RECORD => "$root/records" }
+        );
+        if ($removed) {
+            isnt $run->{status}, 0, 'the empty installed module keeps its ordinary require failure';
+            like $run->{stderr}, qr/Blank[.]pm did not return a true value/, 'Perl reports the original failure';
+            is_deeply [ grep { $_->[0] eq 'seen' } @{ all_records($root) } ], [], 'the hook supplied no source';
+        }
+        else {
+            is_deeply [ $run->{status}, $run->{stdout} ], [ 0, '53' ], 'a copy of a readable empty file is replaced';
+        }
+    }
 };
 
 subtest 'an unquotable load path keeps its on-disk behavior in a placed run' => sub {
