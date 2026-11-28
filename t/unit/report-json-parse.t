@@ -122,6 +122,15 @@ subtest 'conflicting JSON fields are refused before deciding a verdict' => sub {
     }
 };
 
+subtest 'a truncated mutant identifier is rejected as a malformed report' => sub {
+    my $changed = $text =~ s/"id" : "000000000001"/"id" : "1234abcd"/r;
+    my $error   = dies { Test::Mutation::Report::Json::parse($changed) };
+    isa_ok $error, ['Test::Mutation::Error'], 'the parser raises a report error' or return;
+    is [ $error->kind, $error->id ], [qw(usage report-malformed)], 'the error identifies an invalid saved report';
+    like $error->message,   qr/"1234abcd"/,          'the reason identifies the rejected value';
+    unlike $error->message, qr/\n| at \S+ line \d+/, 'the public message omits the internal source location';
+};
+
 subtest 'a value of the wrong type is refused with its place in the report' => sub {
     my $mutant = q{->{"files"}->{"lib/Calc.pm"}->{"mutants"}->[0]};
     my %cases  = (
