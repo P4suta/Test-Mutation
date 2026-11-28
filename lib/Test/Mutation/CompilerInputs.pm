@@ -1,5 +1,6 @@
-package Test::Mutation::CompilerInputs;
 use 5.010;
+
+package Test::Mutation::CompilerInputs;
 use strict;
 use warnings;
 use Config qw(%Config);
@@ -41,6 +42,7 @@ sub _record {
         return if $initial_reads->{$operand} ne $current_reads->{$operand};
         $paths{ $current_reads->{$operand} } = 1;
     }
+    my $observer = join( '/', split /::/, __PACKAGE__ ) . '.pm';
     my %modules;
     for my $name ( keys %INC ) {
         my $loaded = $INC{$name};
@@ -48,7 +50,7 @@ sub _record {
         return if ref $loaded;
         my $file = _absolute($loaded);
         $modules{$file} = 1
-          if $name ne 'Test/Mutation/CompilerInputs.pm' && !grep { index( $file, "$_/" ) == 0 } @core;
+          if $name ne $observer && !grep { index( $file, "$_/" ) == 0 } @core;
         next if grep { index( $file, "$_/" ) == 0 } @libraries;
         return unless -f $file;
         $paths{$file} = 1;

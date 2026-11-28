@@ -766,10 +766,14 @@ sub _prepare_work ($run) {
     my $work       = $run->{work} = $run->{workspace}->directory . '/work';
     my $outer      = $ENV{TEST_MUTATION_GENERATION};
     my $generation = defined $outer ? $outer + 1 : 1;
-    Test::Mutation::Tree::make( map { "$work/$_" } 'shim/Test/Mutation/Shim',
-        'compiler/Test/Mutation', 'mutants', 'records', 'tmp' );
+    Test::Mutation::Tree::make(
+        map { "$work/$_" } 'shim/Test/Mutation/Shim',
+        'compiler/Test/Mutation/CompilerInputs',
+        'mutants', 'records', 'tmp'
+    );
     _spew( "$work/shim/Test/Mutation/Shim/G$generation.pm", shim_text($generation) );
-    _spew( "$work/compiler/$COMPILER_FILE",                 _module_text($COMPILER_FILE) );
+    _spew( "$work/compiler/Test/Mutation/CompilerInputs/G$generation.pm",
+        _generation_text( $COMPILER_FILE, $generation ) );
     $run->{generation} = $generation;
     return;
 }
@@ -777,11 +781,17 @@ sub _prepare_work ($run) {
 signature_for shim_text => ( positional => [Str], returns => Str );
 
 sub shim_text ($generation) {
-    my $text    = _module_text($SHIM_FILE);
-    my $renamed = $text =~ s/^package Test::Mutation::Shim;$/package Test::Mutation::Shim::G$generation;/m;
-    my $marked  = $text =~ s/^my \$GENERATION = 0;$/my \$GENERATION = $generation;/m;
-    die Test::Mutation::Message::text_of( 'shim-unprepared', generation => $generation ) . "\n"
-      if !$renamed || !$marked;
+    my $text = _generation_text( $SHIM_FILE, $generation );
+    $text =~ s/^my \$GENERATION = 0;$/my \$GENERATION = $generation;/m
+      or die Test::Mutation::Message::text_of( 'shim-unprepared', generation => $generation ) . "\n";
+    return $text;
+}
+
+sub _generation_text ( $file, $generation ) {
+    my $text    = _module_text($file);
+    my $package = join '::', split m{/}, substr $file, 0, -length '.pm';
+    $text =~ s/^package \Q$package\E;$/package ${package}::G$generation;/m
+      or die Test::Mutation::Message::text_of( 'shim-unprepared', generation => $generation ) . "\n";
     return $text;
 }
 
@@ -2247,7 +2257,7 @@ sub _compile_task ( $run, $job, $kind, $file, $switch ) {
     my $launch         = _launch(
         $run, $root, $tmp, $path,
         program   => $file,
-        arguments => [ "-I$run->{work}/compiler", '-MTest::Mutation::CompilerInputs', $option ]
+        arguments => [ "-I$run->{work}/compiler", "-MTest::Mutation::CompilerInputs::G$run->{generation}", $option ]
     );
     return {
         command => $launch->{command},
