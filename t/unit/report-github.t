@@ -152,6 +152,10 @@ subtest 'large selections reserve room for the gate and report location' => sub 
     cmp_ok length( Encode::encode( 'UTF-8', $text ) ), '<=', 512, 'existing step text uses the same byte budget';
     like $text, qr/Gate: failed/,            'a large selection still shows the gate';
     like $text, qr{reports/mutation[.]json}, 'the destination remains available when paths must be abbreviated';
+    my $compact = Test::Mutation::Report::GitHub::summary( $case, 70, ['reports/mutation.json'], 1024 * 1024 - 160 );
+    cmp_ok length( Encode::encode( 'UTF-8', $compact ) ), '<=', 160, 'the compact report fits the remaining bytes';
+    like $compact, qr/Gate: failed/,            'the threshold decision remains in the compact report';
+    like $compact, qr{reports/mutation[.]json}, 'the report path takes precedence over the follow-up command';
 };
 
 subtest 'a full step summary needs no measurement traversal' => sub {
