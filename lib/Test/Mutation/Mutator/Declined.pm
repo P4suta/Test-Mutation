@@ -69,6 +69,10 @@ my @DECLINED = (
     [ 'a goto names its target, and no other target fits its place'                             => 'word goto' ],
     [ 'a map gives what its block gives for each item, and the mutants of the block measure it' => 'word map' ],
     [
+        'looking up an account by name has no counterpart that takes a name and returns its user ID or account record'
+          => 'word getpwnam'
+    ],
+    [
         'a function that acts on a handle, a file, the network, or a process has no counterpart, and statement-removal removes the statements that call it'
           => 'QuoteLike::Backtick',
         'QuoteLike::Command',
