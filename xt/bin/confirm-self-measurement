@@ -1,0 +1,18 @@
+#!perl
+use v5.36;
+use FindBin qw($RealBin);
+use lib "$RealBin/../../lib", "$RealBin/../lib";
+use SelfMeasurement;
+use Test::Mutation::CLI ();
+
+my %detectors;
+for my $path (@ARGV) {
+    my $previous = SelfMeasurement::read_report($path);
+    for my $entry ( $previous->entries->@* ) {
+        $detectors{ $entry->{mutant}->id } = $entry->{by}
+          if $entry->{status} eq 'Killed' && defined $entry->{by};
+    }
+}
+
+exit Test::Mutation::CLI::main_with_detector_hints( \%detectors,
+    '--no-cache', '--format', 'terminal', '--format', 'json', '--min-score', '100' );

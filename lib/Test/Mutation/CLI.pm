@@ -61,20 +61,25 @@ my %COMMAND = (
 );
 
 signature_for main => ( positional => [ Slurpy [ ArrayRef [Str] ] ], returns => Int );
+signature_for main_with_detector_hints => (
+    positional => [ HashRef [Str], Slurpy [ ArrayRef [Str] ] ],
+    returns    => Int,
+);
 
 # A standard stream of the process may be closed, and the command still ends with a status.
 my $STREAM = FileHandle | GlobRef;
 
 # The facts that the command reads from its process, so that a caller may give other ones.
 my $WORLD = Dict [
-    cwd        => Maybe [Str],
-    env        => HashRef [ Maybe [Str] ],
-    out        => $STREAM,
-    err        => $STREAM,
-    out_tty    => Bool,
-    err_tty    => Bool,
-    clock      => CodeRef,
-    processors => CodeRef,
+    cwd            => Maybe [Str],
+    env            => HashRef [ Maybe [Str] ],
+    out            => $STREAM,
+    err            => $STREAM,
+    out_tty        => Bool,
+    err_tty        => Bool,
+    clock          => CodeRef,
+    processors     => CodeRef,
+    detector_hints => Optional [ HashRef [Str] ],
 ];
 my $REFUSED    = Dict [ refused => Dict [ status => Int, text => Str ] ];
 my $INVOCATION = $REFUSED | Dict [
@@ -115,6 +120,10 @@ sub _help ($command) {
 }
 
 sub main ($list) {
+    return main_with_detector_hints( {}, @$list );
+}
+
+sub main_with_detector_hints ( $hints, $list ) {
     for my $stream ( \*STDOUT, \*STDERR ) {
         next unless defined fileno $stream;
         binmode $stream, ':raw:encoding(UTF-8)'
@@ -131,6 +140,7 @@ sub main ($list) {
         clock      => sub { Time::HiRes::clock_gettime( Time::HiRes::CLOCK_MONOTONIC() ) },
         processors => \&Test::Mutation::Host::processors,
     };
+    $world->{detector_hints} = $hints if keys %$hints;
     return Test::Mutation::Signals::watch( sub { execute( plan( argv => $list, world => $world ), $world ) } );
 }
 
@@ -313,8 +323,9 @@ sub _run ( $invocation, $world ) {
     my $config   = $invocation->{config};
     my $listener = _progress( $invocation, $world );
     my $options  = { reports => 1, summary => $world->{env}{GITHUB_STEP_SUMMARY} };
-    $options->{paths} = $invocation->{paths}                      if exists $invocation->{paths};
-    $options          = { selection => $invocation->{selection} } if $invocation->{selection};
+    $options->{paths}          = $invocation->{paths}                      if exists $invocation->{paths};
+    $options                   = { selection => $invocation->{selection} } if $invocation->{selection};
+    $options->{detector_hints} = $world->{detector_hints}                  if exists $world->{detector_hints};
     my $result = Test::Mutation::Runner::run( $config, $listener, $options );
     _report( $result, $config, $world, $listener );
     return _concluded( $result, $config->min_score, $world );
@@ -646,6 +657,12 @@ Test::Mutation::CLI - the mutation command
 
 Runs the command named by the first argument, C<run> when there is none, and returns the exit status.
 The call plans with the facts of the process and then carries the plan out.
+
+=head2 main_with_detector_hints
+
+Runs a complete uncached measurement with suggested covering tests keyed by mutant ID.
+The remaining arguments use the same command syntax as C<main>.
+Only a fresh observation can detect a mutant.
 
 =head2 plan
 
