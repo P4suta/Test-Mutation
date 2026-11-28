@@ -11,6 +11,18 @@ sub reads ($source) {
     return scalar Test::Mutation::Syntax::PPI::compile_reads($source);
 }
 
+subtest 'reading a source file constructs one syntax tree for a simple phase block' => sub {
+    my $constructor = PPI::Document->can('new');
+    my $parses      = 0;
+    no warnings 'redefine';
+    local *PPI::Document::new = sub {
+        ++$parses if caller eq 'Test::Mutation::Syntax::PPI';
+        return $constructor->(@_);
+    };
+    is reads(q{BEGIN { open my $in, '<', 'limits' }}), [ [ file => 'limits' ] ], 'the operand is a literal file';
+    is $parses, 1, 'the default source mode parses the block once';
+};
+
 subtest 'scheduled blocks identify the file operands of read-only open' => sub {
     is reads(q{BEGIN { open my $in, '<', $ENV{TABLE} or die $!; close $in }}), [ [ env => 'TABLE' ] ],
       'the target environment supplies one named input';
