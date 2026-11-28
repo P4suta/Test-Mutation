@@ -34,20 +34,20 @@ for my $kind (qw(driver shim)) {
         die "expected the built image ID for Perl $version\n"
           unless defined $image && $image =~ /\Asha256:[0-9a-f]{64}\z/;
         system(
-            'docker',         'run',
-            '--rm',           '--platform',
-            'linux/amd64',    '--network',
-            'none',           '--read-only',
-            '--cap-drop',     'ALL',
-            '--security-opt', 'no-new-privileges',
-            '--cpus',         '3',
-            '--memory',       '4g',
-            '--pids-limit',   '1024',
-            '--tmpfs',        '/work:exec,size=3g,uid=1000,gid=1000,mode=0755',
-            '--tmpfs',        '/tmp:exec,size=512m,mode=1777',
-            '--mount',        "type=bind,source=$bundle,target=/candidate.bundle,readonly",
-            '--env',          "TEST_MUTATION_REQUIRE=$case->{require}",
-            $image,           @command
+            qw(docker run --init --rm --read-only),
+            qw(--platform linux/amd64 --network none),
+            qw(--cap-drop ALL --security-opt no-new-privileges),
+            qw(--cpus 3 --memory 4g --pids-limit 1024),
+            '--tmpfs',
+            '/work:exec,size=3g,uid=1000,gid=1000,mode=0755',
+            '--tmpfs',
+            '/tmp:exec,size=512m,mode=1777',
+            '--mount',
+            "type=bind,source=$bundle,target=/candidate.bundle,readonly",
+            '--env',
+            "TEST_MUTATION_REQUIRE=$case->{require}",
+            $image,
+            @command
           ) == 0
           or die "the $kind tests failed on Perl $version\n";
     }
