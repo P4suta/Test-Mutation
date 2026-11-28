@@ -61,19 +61,22 @@ sub activate {
     my ( $spec, $record_dir ) = @_;
     return if $STATE{active};
 
-    my %by_base;
+    my ( %by_base, %disk_files );
     my $index = 0;
     for my $target ( @{ $spec->{targets} } ) {
         $target->{index} = $index++;
         my @stat = stat $target->{original};
         $target->{device} = $stat[0];
         $target->{inode}  = $stat[1];
+        my $base = _basename( $target->{original} );
+        push @{ $disk_files{$base} }, [ $target->{original}, @stat[ 0, 1 ] ] if @stat;
         if ( defined $target->{outside} ) {
             my @outside = stat $target->{outside};
             $target->{outside_device} = $outside[0];
             $target->{outside_inode}  = $outside[1];
+            push @{ $disk_files{$base} }, [ $target->{outside}, @outside[ 0, 1 ] ] if @outside;
         }
-        push @{ $by_base{ _basename( $target->{original} ) } }, $target;
+        push @{ $by_base{$base} }, $target;
     }
 
     %STATE = (
@@ -84,6 +87,7 @@ sub activate {
         trace_eval  => $spec->{trace_eval},
         targets     => $spec->{targets},
         by_base     => \%by_base,
+        disk_files  => \%disk_files,
         placed      => $spec->{placed},
         by_path     => {},
         record_dir  => scalar _untainted($record_dir),
@@ -409,6 +413,18 @@ sub _breakable_lines {
     return grep { defined $lines->[$_] && int( $lines->[$_] ) != int "$lines->[$_]" } 1 .. $#{$lines};
 }
 
+sub _relative_disk_match {
+    my ( $path, $name, $device, $inode ) = @_;
+    return 0 unless defined $STATE{directory};
+    my @initial = stat "$STATE{directory}/$path";
+    return 0 if !@initial || $initial[0] != $device || $initial[1] != $inode;
+    my $suffix = q{/} . join q{/}, grep { length && $_ ne q{.} } split m{/}, $path;
+    my $peers  = $STATE{disk_files}{$name} || [];
+    return !grep {
+        ( q{/} . $_->[0] ) =~ /\Q$suffix\E\z/ && ( $_->[1] != $device || $_->[2] != $inode )
+    } @{$peers};
+}
+
 sub _loaded_from_disk {
     my ( $target, $device, $inode ) = @_;
     return 0 if !defined $inode;
@@ -417,18 +433,7 @@ sub _loaded_from_disk {
     return 1 if $program && $program->[0] eq $name && $program->[1] == $device && $program->[2] == $inode;
     for my $path ( grep { defined && !ref } values %INC ) {
         next if _basename($path) ne $name;
-        if ( $path !~ m{\A/} ) {
-            next unless defined $STATE{directory};
-            my @initial = stat "$STATE{directory}/$path";
-            next if !@initial || $initial[0] != $device || $initial[1] != $inode;
-            my $suffix = q{/} . join q{/}, grep { length && $_ ne q{.} } split m{/}, $path;
-            my $peers  = $STATE{by_base}{$name} || [];
-            next if grep {
-                     defined $_->{inode}
-                  && ( q{/} . $_->{original} ) =~ /\Q$suffix\E\z/
-                  && ( $_->{device} != $device || $_->{inode} != $inode )
-            } @{$peers};
-        }
+        next if $path !~ m{\A/} && !_relative_disk_match( $path, $name, $device, $inode );
         my @stat = stat $path or next;
         return 1 if $stat[1] == $inode && $stat[0] == $device;
     }
