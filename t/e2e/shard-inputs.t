@@ -3,7 +3,7 @@ use Test2::V0;
 use Cwd        ();
 use File::Temp ();
 use lib 't/e2e/lib';
-use Fixture qw(run_fixture write_file);
+use Fixture qw(run_fixture with_driver_shims write_file);
 use Test::Mutation::Merge;
 use Test::Mutation::Report::Json;
 use Test::Mutation::Runner;
@@ -61,7 +61,11 @@ ok lives { Test::Mutation::Merge::merge( [ checkout_library( 'first', 1 ), check
     for my $number ( 1 .. 2 ) {
         my $root   = "$area/" . ( $number == 1 ? 'first' : 'second' );
         my $config = Test::Mutation::Settings::of_call( { root => $root, shard => "$number/2", cache => $number - 1 } );
-        my $result = Test::Mutation::Runner::run( $config, sub { }, { paths => { 'lib/Boundary.pm' => [] } } );
+        my $result = with_driver_shims(
+            sub {
+                Test::Mutation::Runner::run( $config, sub { }, { paths => { 'lib/Boundary.pm' => [] } } );
+            }
+        );
         push @parts, { name => "$number", result => $result };
     }
     ok lives { Test::Mutation::Merge::merge( \@parts ) }, 'both cache modes identify the same file selection';
