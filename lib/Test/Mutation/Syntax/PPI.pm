@@ -157,9 +157,8 @@ sub compile_reads ( $source, $loaded = 0 ) {
     return if $loaded && !_fixed_module_load($document);
     my @reads;
     for my $phase ( @{ $document->find('PPI::Statement::Scheduled') || [] } ) {
-        next unless $phase->first_token->content =~ /\A(?:BEGIN|UNITCHECK|CHECK)\z/;
-        my $body = $phase->schild(1);
-        return unless $body && $body->isa('PPI::Structure::Block');
+        next unless $phase->type =~ /\A(?:BEGIN|UNITCHECK|CHECK)\z/;
+        my $body = $phase->block or return;
         my %handles;
         for my $statement ( $body->schildren ) {
             my $text = join q{ }, map { $_->content } grep { $_->significant } $statement->tokens;
