@@ -3,7 +3,7 @@ use Test2::V0;
 use Cwd        ();
 use File::Temp ();
 use lib 't/e2e/lib';
-use Fixture qw(run_fixture write_file);
+use Fixture qw(ran run_fixture write_file);
 use Test::Mutation::Merge;
 use Test::Mutation::Report::Json;
 use Test::Mutation::Runner;
@@ -35,6 +35,44 @@ for my $checkout (qw(first second)) {
     chmod 0755, $program or die $!;
 }
 write_file( "$library/Defaults.pm", $external );
+
+subtest 'an opaque phase can change a package variable without changing the compiled program' => sub {
+    my $root = "$area/global";
+    local $ENV{PERL5OPT}           = '-Mstrict';
+    local $ENV{TEST_PROJECT_TABLE} = "$area/global-limit";
+    write_file( "$root/lib/Bound.pm", <<'PERL' );
+package Bound;
+our $LIMIT;
+BEGIN {
+    my $path = $ENV{TEST_PROJECT_TABLE};
+    open my $input, '<', $path or die $!;
+    $LIMIT = 0 + <$input>;
+    close $input or die $!;
+}
+sub first { return $_[0] < $LIMIT }
+sub second { return $_[0] < $LIMIT }
+1;
+PERL
+    write_file( "$root/t/limit.t",
+        "use Test::More tests => 2; use Bound; ok !Bound::first(7); ok !Bound::second(7);\n" );
+    my @reports;
+    for my $part ( 1, 2 ) {
+        write_file( $ENV{TEST_PROJECT_TABLE}, $part == 1 ? "7\n" : "5\n" );
+        my $dir = "$area/global-part$part";
+        ran(
+            0, $root, 'run', '--shard', "$part/2", '--no-cache', '--jobs', 1, '--enable', 'comparison-boundary',
+            ( map { ( '--disable', $_ ) } qw(@removal comparison-negation arithmetic logical) ),
+            '--format', 'json', '--report-dir', $dir
+        );
+        my $file        = "$dir/mutation.json";
+        my $part_result = Test::Mutation::Report::Json::parse( Test::Mutation::Source::read_bytes($file) );
+        is [ map { $_->{status} } $part_result->entries->@* ], [ $part == 1 ? 'Killed' : 'Survived' ],
+          'the test observes the value assigned during compilation';
+        push @reports, $file;
+    }
+    my $merge = ran( 2, $root, 'merge', @reports, '--format', 'json', '--report-dir', "$area/global-joined" );
+    like $merge->{stderr}, qr/measurement inputs are missing/, 'the compiled program cannot identify the phase input';
+};
 
 sub checkout_library ( $checkout, $part ) {
     local $ENV{PERL5LIB} = join q{:}, "$area/$checkout/lib", grep { defined } $ENV{PERL5LIB};
