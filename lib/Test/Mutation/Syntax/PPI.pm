@@ -140,7 +140,7 @@ sub inside_begin ( $source, $offset ) {
     my $document = _document($text) or return 0;
     my $context  = { source => $source, text => $source->text, mark => $mark };
     for my $block ( @{ $document->find('PPI::Statement::Scheduled') || [] } ) {
-        next unless $block->first_token->content eq 'BEGIN';
+        next unless $block->type eq 'BEGIN';
         my $first = _offset( $context, $block->first_token );
         my $last  = _offset( $context, $block->last_token );
         return 1 if defined $first && defined $last && $first <= $offset && $offset <= $last;
