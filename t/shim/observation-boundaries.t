@@ -237,6 +237,33 @@ subtest 'a disappearing target or installed module supplies no file identity' =>
     is_deeply \@warnings, [], 'a missing identity does not leak comparison warnings to the measured program';
 };
 
+subtest 'the exit record identifies a module loaded before the observer started' => sub {
+    for my $placed ( 0, 1 ) {
+        my $root   = project();
+        my $loaded = write_file( "$root/installed/Resident.pm", "package Resident;\nsub value { 37 }\n1;\n" );
+        my $other  = write_file( "$root/copy/Resident.pm",      "die 'the other file was loaded';\n" );
+        my $pid    = fork;
+        die "fork: $!" unless defined $pid;
+        if ( !$pid ) {
+            require $loaded;
+            Test::Mutation::Shim::activate(
+                {
+                    observe => 1,
+                    placed  => $placed,
+                    targets => [ map { { original => $_, serve => $_ } } $other, $loaded ]
+                },
+                "$root/records"
+            );
+            exit( Resident::value() == 37 ? 0 : 1 );
+        }
+        waitpid $pid, 0;
+        is $?, 0, 'the interpreter used the implementation in the installed module';
+        my $load = $placed ? [ 'blind', $loaded, 'loaded-at-exit' ] : [ 'around', $loaded ];
+        is_deeply all_records($root), [ [ 'begin', 0 ], $load, [ 'end', $pid ] ],
+          'only the loaded inode supplies an exit observation';
+    }
+};
+
 subtest 'the command selector stops before looking up aliases for a missing main program' => sub {
     my $root = project();
     write_file( "$root/bin/tool",  "print 1;\n" );
