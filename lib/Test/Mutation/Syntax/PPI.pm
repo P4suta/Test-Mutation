@@ -149,9 +149,9 @@ sub inside_begin ( $source, $offset ) {
 }
 
 signature_for compile_reads =>
-  ( positional => [ Str, Optional [Bool] ], returns => Maybe [ ArrayRef [ Tuple [ Str, Str ] ] ] );
+  ( positional => [ Str, Bool, { default => 0 } ], returns => Maybe [ ArrayRef [ Tuple [ Str, Str ] ] ] );
 
-sub compile_reads ( $source, $loaded = 0 ) {
+sub compile_reads ( $source, $loaded ) {
     return [] unless $loaded || $source =~ /\b(?:BEGIN|UNITCHECK|CHECK)\b/;
     my $document = _document($source) or return;
     return if $loaded && !_fixed_module_load($document);
