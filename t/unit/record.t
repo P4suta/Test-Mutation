@@ -84,6 +84,11 @@ subtest 'a module listed at exit uses the compilation observed by the same proce
       'a different process can have loaded the same module without tracing';
     is Test::Mutation::Record::parse( [ $traced . $restart . $listed ] )->{served}{$target}{traced}, 0,
       'an unfinished interpreter cannot borrow a trace from before exec';
+    my $after_exec = lines( [ 'begin', 1 ], [ 'seen', $other ], [ 'hit', $other, 9 ] );
+    my $shutdown   = lines( [ 'blind', $other, 'loaded-at-exit' ], [ 'end', 23 ], [ 'end', 23 ] );
+    is Test::Mutation::Record::parse( [ $traced . $after_exec . $restart . $listed . $shutdown ] )->{served},
+      { $target => { traced => 0, hits => { 4 => 1 } }, $other => { traced => 1, hits => { 9 => 1 } } },
+      'only the two observers that reach shutdown can share their compilation after exec';
     is Test::Mutation::Record::parse( [ $listed . $traced ] )->{served}{$target}{traced}, 0,
       'a later compilation cannot explain an earlier observation';
     my $opened = lines( [ 'begin', 1 ], [ 'seen', $target, 'opened' ] );
