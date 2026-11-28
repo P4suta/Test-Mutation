@@ -194,6 +194,7 @@ sub _fixed_import ($include) {
     my @arguments = $include->arguments;
     return 1 unless @arguments;
     return 1 if @arguments == 1 && $arguments[0]->isa('PPI::Structure::List') && !$arguments[0]->schild(0);
+    return 1 if $module eq 'constant' && ( join q{ }, map { $_->content } @arguments ) =~ /\A[a-zA-Z_]\w* => [0-9]+\z/;
     my $text = join q{}, map { $_->content } @arguments;
     return 1 if $module eq 'lib' && $text =~ /\A\$ENV\{\s*[a-zA-Z_]\w*\s*\}\z/;
     return !grep {
