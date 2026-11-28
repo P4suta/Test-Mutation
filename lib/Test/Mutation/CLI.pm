@@ -5,10 +5,11 @@ use Errno          ();
 use File::Spec     ();
 use File::Basename ();
 use File::Temp     ();
-use Fcntl          qw(O_RDONLY LOCK_EX S_ISREG);
+use Fcntl          qw(O_RDONLY LOCK_EX SEEK_END S_ISREG);
 use List::Util     ();
 use Scalar::Util   ();
 use Time::HiRes    ();
+use IO::File       ();
 use IO::Handle     ();
 use Types::Standard
   qw(ArrayRef Bool CodeRef Dict Enum FileHandle GlobRef HashRef InstanceOf Int Maybe Optional Slurpy Str);
@@ -448,15 +449,27 @@ sub _previous_report ( $directory, $select ) {
     return;
 }
 
+sub _summary_separator ( $path, $used ) {
+    return q{} unless $used;
+    my $previous = IO::File->new( $path, '<:raw' ) or return "\n";
+    my $last     = seek( $previous, -1, SEEK_END ) ? getc $previous : undef;
+    return defined $last && $last =~ /[\r\n]/ ? q{} : "\n";
+}
+
 sub _report_to_github ( $result, $world, $config ) {
     my $path = $world->{env}{GITHUB_STEP_SUMMARY};
     if ( defined $path && length $path ) {
         my @reports = map { File::Spec->catfile( $config->report_dir, $FILE_REPORT{$_} ) }
           grep { exists $FILE_REPORT{$_} } $config->format->@*;
-        open my $file, '>>:encoding(UTF-8)', File::Spec->rel2abs( $path, $config->root )
+        my $target = File::Spec->rel2abs( $path, $config->root );
+        open my $file, '>>:raw:encoding(UTF-8)', $target
           or Test::Mutation::Error::raise( 'file-unwritable', path => $path, reason => "$!" );
         flock $file, LOCK_EX or Test::Mutation::Error::raise( 'file-unwritable', path => $path, reason => "$!" );
-        print {$file} Test::Mutation::Report::GitHub::summary( $result, $result->min_score, \@reports, -s $file )
+        my $used      = -s $file;
+        my $separator = _summary_separator( $target, $used );
+        my $markdown =
+          Test::Mutation::Report::GitHub::summary( $result, $result->min_score, \@reports, $used + length $separator );
+        print {$file} ( length $markdown ? $separator . $markdown : q{} )
           or Test::Mutation::Error::raise( 'file-unwritable', path => $path, reason => "$!" );
         close $file or Test::Mutation::Error::raise( 'file-unclosable', path => $path, reason => "$!" );
     }
