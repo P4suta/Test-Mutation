@@ -87,6 +87,8 @@ subtest 'native object initialization is deferred while a class body can run cod
       'a call following the class runs as part of the file';
     is $reads->(q{class Model { method get { 1 } BEGIN { read_setting() } } 1;}), undef,
       'a phase block after a method can read a file while compiling the class';
+    is $reads->(q{class Model { method get { method inner { 1 } BEGIN { read_setting() } } } 1;}), undef,
+      'a phase block inside a nested declaration runs before any method is called';
     is $reads->(q{class Model :isa(External) { method get { 1 } } 1;}), undef,
       'the base class can require an external module';
     is $reads->(q{class Model { method import { read_setting() } } 1;}), undef, 'an import method can run on use';
