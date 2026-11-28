@@ -6,6 +6,7 @@ use Cwd         ();
 use Digest::SHA ();
 use Time::HiRes ();
 use lib 't/lib';
+use Bounded;
 use Raised;
 use lib 't/e2e/lib';
 use Fixture qw(run_fixture write_file);
@@ -54,6 +55,19 @@ isnt Test::Mutation::Store::Key::environment( { ANSWER => '2', SHLVL => '2' } ),
 isnt Test::Mutation::Store::Key::environment( { ANSWER => q{} } ), Test::Mutation::Store::Key::environment( {} ),
   'an empty variable differs from an absent variable';
 
+subtest 'a search directory retains its identity when missing parents appear' => sub {
+    my $project = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    my $library = "$project/dependencies/vendor/lib";
+    my $env     = { PERL5LIB => $library };
+    my ( $ended, $missing ) =
+      Bounded::ended( 3, sub { return Test::Mutation::Store::Key::environment( $env, $project ) } );
+    ok $ended, 'looking up a missing directory reaches an existing ancestor';
+    bail_out('the missing library search path did not resolve') unless $ended;
+    write_file( "$library/Module.pm", "1;\n" );
+    is Test::Mutation::Store::Key::environment( $env, $project ), $missing,
+      'creating the library directory preserves its path in the environment fingerprint';
+};
+
 subtest 'search paths inside a checkout compare by their relative names' => sub {
     my $input = sub ( $root, @dirs ) {
         return Test::Mutation::Store::Key::environment( { PERL5LIB => join( $Config{path_sep}, @dirs ) }, $root );
@@ -64,16 +78,6 @@ subtest 'search paths inside a checkout compare by their relative names' => sub 
       'a project mounted at the filesystem root retains its library search path after relocation';
     isnt $input->( '/b', '/shared', '/b/lib', '/b' ),         $first, 'the order remains significant';
     isnt $input->( '/b', '/shared', '/b',     '/b-old/lib' ), $first, 'an adjacent directory stays external';
-};
-
-subtest 'a search directory retains its identity when missing parents appear' => sub {
-    my $project = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
-    my $library = "$project/dependencies/vendor/lib";
-    my $env     = { PERL5LIB => $library };
-    my $missing = Test::Mutation::Store::Key::environment( $env, $project );
-    write_file( "$library/Module.pm", "1;\n" );
-    is Test::Mutation::Store::Key::environment( $env, $project ), $missing,
-      'creating the library directory preserves its path in the environment fingerprint';
 };
 
 subtest 'an unresolved search directory keeps its checkout location' => sub {
