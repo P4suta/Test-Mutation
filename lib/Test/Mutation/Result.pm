@@ -14,6 +14,9 @@ our $VERSION = '0.001';
 
 with 'Test::Mutation::Value';
 
+my $COMPILER_INPUT_PROTOCOL = 1;
+has compiler_input_protocol => ( is => 'ro', isa => Maybe [PositiveInt], default => $COMPILER_INPUT_PROTOCOL );
+
 has root => ( is => 'ro', isa => Str, required => 1 );
 has sources => ( is => 'ro', isa => HashRef [Str], required => 1 );
 has tests =>
@@ -69,6 +72,12 @@ signature_for tally => (
 
 sub tally ($self) {
     return Test::Mutation::Score::tally( [ map { $_->{status} } $self->entries->@* ] );
+}
+
+signature_for verified_measurement_digest => ( method => 1, positional => [], returns => Maybe [Str] );
+
+sub verified_measurement_digest ($self) {
+    return ( $self->compiler_input_protocol || 0 ) == $COMPILER_INPUT_PROTOCOL ? $self->measurement_digest : undef;
 }
 
 signature_for assessment => ( method => 1, positional => [], returns => Assessment );
@@ -179,6 +188,12 @@ The measurement digest identifies the project inputs, selected tests, interprete
 The dependency digest identifies the external libraries observed by the original tests.
 The compiler inputs map external path digests to content digests for libraries used only in standalone compilation.
 Earlier reports lack the evidence needed to merge their shards.
+
+=head2 compiler_input_protocol, verified_measurement_digest
+
+The protocol identifies how the measurement checked compiler inputs.
+The verified digest is available when the report uses the supported protocol and identifies its measurement inputs.
+The original digest remains available to inspect earlier reports.
 
 =head2 started, finished
 

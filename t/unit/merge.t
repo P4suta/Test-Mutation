@@ -1,6 +1,7 @@
 use v5.36;
 use Test2::V0;
 use Digest::SHA  ();
+use JSON::PP     ();
 use Scalar::Util qw(refaddr);
 use lib 't/lib';
 use Raised;
