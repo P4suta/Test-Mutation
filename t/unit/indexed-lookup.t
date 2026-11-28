@@ -10,6 +10,7 @@ use Test::Mutation::Report::Json;
 use Test::Mutation::Runner;
 use Test::Mutation::Settings;
 use Test::Mutation::Store::History;
+use Test::Mutation::Store::Key;
 
 subtest 'an updated analysis rule appears in the catalog while previous verdicts remain visible' => sub {
     my $project = File::Temp::tempdir( CLEANUP => 1 );
@@ -46,6 +47,39 @@ subtest 'an updated analysis rule appears in the catalog while previous verdicts
     isnt $current->catalog_digest, $prior->catalog_digest, 'a prior report cannot refresh a different catalog';
     isnt $current->measurement_digest, $prior->measurement_digest,
       'shards made under different analysis rules have different inputs';
+};
+
+subtest 'a catalog that omitted an overload callback cannot hide its mutant' => sub {
+    my $project = File::Temp::tempdir( CLEANUP => 1 );
+    my $path    = 'lib/Weighted.pm';
+    write_file( "$project/$path", <<'PERL' );
+package Weighted;
+use overload q{+} => do {
+    my $weight = 1 + 1;
+    sub { $_[1] * $weight }
+};
+1;
+PERL
+    write_file( "$project/t/plus.t", <<'PERL' );
+use Test::More tests => 1;
+use Weighted;
+is((bless {}, 'Weighted') + 3, 6);
+PERL
+    my $config   = Test::Mutation::Settings::of_call( { root => $project, jobs => 1 } );
+    my $previous = do {
+        local $Test::Mutation::Select::ANALYSIS_REVISION = 1;
+        Test::Mutation::Select::resolve( config => $config, read_only => 1 );
+    };
+    my $identity =
+      Test::Mutation::Store::Key::digest( $previous->analysis_rules_digest, $path, $previous->digests->{$path} );
+    my $empty = { problem => undef, left_out => 0, rejected => [], refusals => [], mutants => [] };
+    Test::Mutation::Store::Analysis::publish( Test::Mutation::Store::path($config), [ [ $identity, $empty ] ] );
+    my $measured = Test::Mutation::Runner::run( $config, sub { } );
+    is [
+        map  { [ $_->{mutant}->original, $_->{mutant}->replacement, $_->{status}, $_->{by} ] }
+        grep { $_->{mutant}->mutator eq 'arithmetic' } $measured->entries->@*
+      ],
+      [ [ q{*}, q{/}, 'Killed', 't/plus.t' ] ], 'the project test detects the changed calculation with a warm index';
 };
 
 subtest 'two removed changes with the same historical prefix stay ambiguous' => sub {
