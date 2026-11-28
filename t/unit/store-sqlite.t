@@ -1,6 +1,7 @@
 use v5.36;
 use Test2::V0;
 use DBI;
+use Cwd        ();
 use File::Temp ();
 use POSIX      ();
 use lib 't/lib';
@@ -86,6 +87,19 @@ subtest 'a cache file in another format keeps its bytes and falls back to legacy
     like dies { Test::Mutation::Store::save( $path, { later => $record } ) }, qr/\Q$path\E.*--no-cache.*--cache-dir/,
       'a writer names ways to finish the measurement while preserving the file';
     is Test::Mutation::Source::read_bytes($path), $data, 'both operations preserve the original bytes';
+};
+
+subtest 'an explicit legacy cache can be named zero' => sub {
+    my $folder = "$directory/numeric-legacy";
+    Test::Mutation::Store::save( "$folder/0",          { requested => $record } );
+    Test::Mutation::Store::save( "$folder/cache.json", { neighbor  => $record } );
+    my $before = Cwd::getcwd();
+    chdir $folder or die "chdir $folder: $!";
+    my $error = dies { Test::Mutation::Store::database( "$folder/measurement.sqlite", '0' ) };
+    chdir $before or die "restore $before: $!";
+    is $error, undef, 'the path is valid even though its spelling is false in Perl';
+    is Test::Mutation::Store::load("$folder/measurement.sqlite"), { requested => $record },
+      'only the explicitly requested file supplies migrated observations';
 };
 
 subtest 'an unsupported SQLite schema remains an actionable error' => sub {
@@ -262,8 +276,9 @@ subtest 'a nonblocking checkpoint retries only a competing writer' => sub {
     is $write->( 'example', $record, 0 ), 1, 'the pending observation commits when the lock clears';
     is Test::Mutation::Store::load($path), { example => $record }, 'another connection sees the commit';
     my $error;
-    is warnings { $error = dies { $write->( 'malformed', $malformed, 0 ) } }, [],
-      'an encoding failure before any SQLite operation emits no database warning';
+    is warnings {
+        $error = dies { $write->( 'malformed', $malformed, 0 ) }
+    }, [], 'an encoding failure before any SQLite operation emits no database warning';
     like $error, qr/cannot convert to JSON/, 'a malformed Unicode input returns its original encoder error';
     $peer->do(q{CREATE TRIGGER reject BEFORE INSERT ON verdict BEGIN SELECT RAISE(ABORT,'rejected record'); END});
     like dies { $write->( 'refused', $record, 0 ) }, qr/rejected record/,
