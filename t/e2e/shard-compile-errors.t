@@ -13,8 +13,9 @@ write_file( "$root/lib/Bound.pm", <<'MODULE' );
 package Bound;
 BEGIN {
     open my $input, '<', $ENV{TEST_PROJECT_TABLE} or die $!;
-    die "changed guard\n" if 3 - 1 != <$input>;
+    close $input;
 }
+BEGIN { die "changed guard\n" if 3 - 1 != 2 }
 sub value { return $_[0] + 1 }
 1;
 MODULE
@@ -42,7 +43,8 @@ ok lives { $merged = Test::Mutation::Merge::merge( [ $other, $first ] ) },
   'a rejected mutant with known compiler inputs can merge';
 is [ map { [ $_->{mutant}->id, $_->{status}, $_->{reason} ] } $merged->entries->@* ],
   [ map { [ $_->{mutant}->id, $_->{status}, $_->{reason} ] } $whole->entries->@* ],
-  'both measurements attribute the same outcomes' if $merged;
+  'both measurements attribute the same outcomes'
+  if $merged;
 write_file( $ENV{TEST_PROJECT_TABLE}, "02\n" );
 $other->{result} = measure(2);
 like dies { Test::Mutation::Merge::merge( [ $first, $other ] ) }, qr/measurement inputs differ/,
