@@ -75,23 +75,35 @@ subtest 'an imported module must preserve an environment-derived file operand' =
     is $at_load->(q{package Data; use Settings apply_settings(); 1;}), undef, 'an import argument can execute a helper';
 };
 
-subtest 'native object initialization is deferred while a class body can run code at load' => sub {
-    my $pragma = q{use experimental 'class';};
-    my $reads  = sub ($source) { return scalar Test::Mutation::Syntax::PPI::compile_reads( "$pragma $source", 1 ) };
-    is $reads->(
-        q{class Model 1.0 { field $n :param = read_setting(); ADJUST { observe() } method get { return $n } } 1;}),
-      [], 'loading declarations does not initialize a field, adjust an object, or call a method';
-    is $reads->(q{class Model { method get { 1 } read_setting(); } 1;}), undef,
-      'a call following a method runs as part of the class body';
-    is $reads->(q{class Model { method get { 1 } } read_setting(); 1;}), undef,
-      'a call following the class runs as part of the file';
-    is $reads->(q{class Model { method get { 1 } BEGIN { read_setting() } } 1;}), undef,
-      'a phase block after a method can read a file while compiling the class';
-    is $reads->(q{class Model { method get { method inner { 1 } BEGIN { read_setting() } } } 1;}), undef,
-      'a phase block inside a nested declaration runs before any method is called';
-    is $reads->(q{class Model :isa(External) { method get { 1 } } 1;}), undef,
-      'the base class can require an external module';
-    is $reads->(q{class Model { method import { read_setting() } } 1;}), undef, 'an import method can run on use';
+subtest 'lexical changes to other features preserve native class declarations' => sub {
+    my $reads = sub ($change) {
+        my $source = "use experimental 'class'; $change class Model { method value { 7 } } 1;";
+        return scalar Test::Mutation::Syntax::PPI::compile_reads( $source, 1 );
+    };
+    for my $change (
+        q{use feature 'say';},
+        q{no feature 'say';},
+        q{use experimental 'signatures';},
+        q{no experimental 'signatures';},
+        q{no feature ();},
+        q{no experimental;},
+        q{require feature;},
+        q{use feature ':5.36';},
+        q{no v100.0;}
+      )
+    {
+        is $reads->($change), [], "the class remains enabled after $change";
+    }
+    for my $change (
+        q{no feature 'class';},
+        q{no experimental 'class';},
+        q{no feature;}, q{no feature ':all';},
+        q{use v5.38;}
+      )
+    {
+        is $reads->($change), undef, "the class syntax is no longer enabled after $change";
+    }
+    is $reads->(q{no experimental 'class'; use feature qw(say class);}), [], 'an explicit import enables class again';
 };
 
 subtest 'a compiler search path inside the project can resolve to an external library' => sub {

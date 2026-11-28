@@ -347,7 +347,7 @@ subtest 'a refreshed threshold uses every row in the measured scope' => sub {
     );
     is $whole->assessment->{gate},  'unavailable',         'the whole project has no score to compare to the threshold';
     is $single->assessment->{gate}, 'no mutants selected', 'the narrowed measurement accepts an empty score';
-    is $single->score_scope, $single->selection, 'a fresh score describes the requested selection';
+    is $single->score_scope,        $single->selection,    'a fresh score describes the requested selection';
     my $saved = Test::Mutation::Merge::refresh( $whole, $single );
     is $saved->assessment, $whole->assessment, 'refreshing one ignored mutant preserves the whole-project gate';
     is $saved->score_scope, {}, 'the refreshed score includes the whole project after a single-mutant request';

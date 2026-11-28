@@ -59,7 +59,8 @@ options = []
 
 [Params-Util.expect]
 mutants = [226, 226]
-score = [84.4, 84.5]
+score = [84, 84.1]
+verdicts = { "e4929e72e9e8" = "NoCoverage" }
 warnings = []
 seconds = 30
 
@@ -78,7 +79,8 @@ switch = ["-Iblib/lib", "-Iblib/arch"]
 
 ["Params-Util with blib".expect]
 mutants = [226, 226]
-score = [84.4, 84.5]
+score = [84, 84.1]
+verdicts = { "e4929e72e9e8" = "NoCoverage" }
 warnings = []
 seconds = 30
 

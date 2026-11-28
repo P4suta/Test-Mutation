@@ -1,6 +1,7 @@
 package Test::Mutation::Syntax::PPI;
 use v5.36;
 use PPI;
+use PPIx::QuoteLike;
 use PPIx::Regexp;
 use Scalar::Util    qw(refaddr);
 use Types::Standard qw(ArrayRef Bool InstanceOf Int Maybe Optional Str Tuple);
@@ -10,12 +11,14 @@ use Test::Mutation::Mutator::Providers;
 use Test::Mutation::Site;
 use Test::Mutation::Suppression;
 use Test::Mutation::Syntax::Precedence;
+use Test::Mutation::Try;
 use Test::Mutation::Types qw(Analysis);
 
 our $VERSION = '0.001';
 
-my $TOKEN = InstanceOf ['PPI::Token'];
-my $BLOCK = InstanceOf ['PPI::Structure::Block'];
+my $TOKEN  = InstanceOf ['PPI::Token'];
+my $BLOCK  = InstanceOf ['PPI::Structure::Block'];
+my $NUMBER = InstanceOf ['PPI::Token::Number'];
 
 my %CONDITIONAL  = map { $_ => 1 } qw(if unless while until);
 my %MODIFIER     = map { $_ => 1 } qw(if unless while until for foreach);
@@ -149,13 +152,16 @@ sub inside_begin ( $source, $offset ) {
     return 0;
 }
 
+my $COMPILE_DIRECTIVE = qr/\b(?:BEGIN|UNITCHECK|CHECK|use|no)\b/;
+
 signature_for compile_reads =>
   ( positional => [ Str, Bool, { default => 0 } ], returns => Maybe [ ArrayRef [ Tuple [ Str, Str ] ] ] );
 
 sub compile_reads ( $source, $loaded ) {
-    return [] unless $loaded || $source =~ /\b(?:BEGIN|UNITCHECK|CHECK)\b/;
+    return [] unless $loaded || $source =~ $COMPILE_DIRECTIVE;
     my $document = _document($source) or return;
     return if $loaded && !_fixed_module_load($document);
+    return if _embedded_phase($document);
     my @reads;
     for my $phase ( @{ $document->find('PPI::Statement::Scheduled') || [] } ) {
         next unless $phase->type =~ /\A(?:BEGIN|UNITCHECK|CHECK)\z/;
@@ -175,6 +181,23 @@ sub compile_reads ( $source, $loaded ) {
     return \@reads;
 }
 
+sub _embedded_phase ($document) {
+    for my $token ( $document->tokens ) {
+        my $text = $token->isa('PPI::Token::HereDoc') ? join( q{}, $token->heredoc ) : $token->content;
+        next unless $text =~ $COMPILE_DIRECTIVE;
+        my $quoted = PPIx::QuoteLike->handles($token);
+        next unless $quoted || grep { $token->isa($_) } @REGEX_TOKEN;
+        my $parsed = _parsed_quote( $quoted ? 'PPIx::QuoteLike' : 'PPIx::Regexp', $token ) or return 1;
+        for my $part ( $quoted ? $parsed->children : $parsed->tokens ) {
+            next unless $part->can('ppi') && $part->content =~ $COMPILE_DIRECTIVE;
+            my $inner = $part->ppi or return 1;
+            return 1 if $inner->find_first( sub ( $top, $element ) { _is_word( $element, \%COMPILE_KEYWORD ) } );
+            return 1 if _embedded_phase($inner);
+        }
+    }
+    return 0;
+}
+
 sub _fixed_module_load ($document) {
     my $native_class = 0;
     for my $statement ( $document->schildren ) {
@@ -183,13 +206,7 @@ sub _fixed_module_load ($document) {
             return 0 if $name =~ /(?:\A|::) (?:import|unimport|AUTOLOAD|DESTROY) \z/x;
         }
         if ( $statement->isa('PPI::Statement::Include') && _fixed_import($statement) ) {
-            my $module = $statement->module || q{};
-            if ( !$module || $module eq 'feature' || $module eq 'experimental' ) {
-                my @features = map { $_->literal }
-                  grep { $_->isa('PPI::Token::Quote::Single') || $_->isa('PPI::Token::QuoteLike::Words') }
-                  $statement->arguments;
-                $native_class = $statement->type eq 'use' && grep { $_ eq 'class' } @features;
-            }
+            $native_class = _class_feature( $statement, $native_class );
             next;
         }
         next unless _runs_at_load($statement);
@@ -200,16 +217,37 @@ sub _fixed_module_load ($document) {
     return 1;
 }
 
+sub _class_feature ( $statement, $enabled ) {
+    my $module = $statement->module || q{};
+    my $type   = $statement->type;
+    return 0 if !$module && $type eq 'use';
+    return $enabled unless $module eq 'feature' || $module eq 'experimental';
+    my @arguments = $statement->arguments;
+    my @features  = map { $_->literal }
+      grep { $_->isa('PPI::Token::Quote::Single') || $_->isa('PPI::Token::QuoteLike::Words') } @arguments;
+    return $type eq 'use' if grep { $_ eq 'class' } @features;
+    return 0 if $module eq 'feature' && $type eq 'no' && ( !@arguments || grep { $_ eq ':all' } @features );
+    return $enabled;
+}
+
 sub _fixed_class_load ($statement) {
-    my ( $keyword, $name, @rest ) = grep { !_is_semicolon($_) } $statement->schildren;
-    return 0 unless _is_word( $keyword, { class => 1 } ) && $name && $name->isa('PPI::Token::Word');
-    shift @rest if @rest && $rest[0]->isa('PPI::Token::Number');
-    my $block = shift @rest;
-    return 0 unless $block && $block->isa('PPI::Structure::Block');
+    for my $segment ( _segments( {}, $statement )->@* ) {
+        my @parts = grep { !_is_semicolon($_) } $segment->{children}->@*;
+        return 0 unless _fixed_class_segment(@parts);
+    }
+    return 1;
+}
+
+sub _fixed_class_segment ( $keyword = undef, $name = undef, @rest ) {
+    return 1 unless defined $keyword;
+    return 1 if $NUMBER->check($keyword) && !defined $name;
+    return 0 unless _is_word( $keyword, { class => 1 } ) && _is_name($name);
+    shift @rest if $NUMBER->check( $rest[0] );
+    my ($block) = @rest;
+    return 0 unless @rest == 1 && $BLOCK->check($block);
 
     # PPI can group a compile-time directive with the method declared immediately before it.
     return 0 if $block->find_first( sub ( $document, $element ) { _is_word( $element, \%COMPILE_KEYWORD ) } );
-    return 0 if @rest && ( @rest != 1 || !$rest[0]->isa('PPI::Token::Number') );
     for my $member ( $block->schildren ) {
         return 0 unless ref $member eq 'PPI::Statement';
         for my $segment ( _segments( {}, $member )->@* ) {
@@ -224,9 +262,10 @@ sub _deferred_class_member ( $keyword, $next = undef, @rest ) {
     return 0 unless $next;
     return 1 if _is_word( $keyword, { field => 1 } ) && $next->isa('PPI::Token::Symbol');
     return 1 if _is_word( $keyword, { ADJUST => 1 } ) && $next->isa('PPI::Structure::Block') && !@rest;
-    return 0 unless _is_word( $keyword, { method => 1 } ) && $next->isa('PPI::Token::Word');
+    return 0 unless _is_word( $keyword, { method => 1 } ) && _is_name($next);
     return 0 if $next->content =~ /\A(?:import|unimport|AUTOLOAD|DESTROY)\z/;
-    shift @rest if @rest && $rest[0]->isa('PPI::Structure::List');
+    return 1 unless @rest;
+    shift @rest if $rest[0]->isa('PPI::Structure::List');
     return @rest == 1 && $rest[0]->isa('PPI::Structure::Block');
 }
 
@@ -726,12 +765,19 @@ sub _add ( $context, %site ) {
     return;
 }
 
+sub _parsed_quote ( $parser, $content ) {
+    my $parsed =
+      Test::Mutation::Try::attempt( sub { return $parser->new( $content, index_locations => 0 ) || 0 } )->{value};
+    return if !$parsed || $parsed->failures;
+    return $parsed;
+}
+
 sub _regex_sites ( $context, $token ) {
     my ( $start, $end ) = _span( $context, $token, $token ) or return;
     my $scope   = _scope( $context, $token ) or return;
     my $content = $token->content;
-    my $regex   = PPIx::Regexp->new($content);
-    my @parts   = $regex && !$regex->failures ? $regex->tokens : ();
+    my $regex   = _parsed_quote( 'PPIx::Regexp', $content );
+    my @parts   = $regex ? $regex->tokens : ();
     return _drop( $context, $token, 'regex', 'the pattern does not parse' )
       if join( q{}, map { $_->content } @parts ) ne $content;
 
