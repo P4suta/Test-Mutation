@@ -56,11 +56,15 @@ subtest 'an unfiltered catalog decodes candidates as it reads them' => sub {
     my ($analysis) =
       $db->selectrow_array( 'SELECT analysis FROM candidate WHERE id = ? ORDER BY analysis LIMIT 1', undef, $id );
     my @events;
+    my $sorts;
     my $fetch     = DBI::st->can('fetchrow_array');
     my $construct = Test::Mutation::Mutant->can('new');
     no warnings 'redefine';
     local *DBI::st::fetchrow_array = sub ( $query, @arguments ) {
-        push @events, 'read' if $query->{Statement} =~ /\bFROM candidate\b/i;
+        if ( $query->{Statement} =~ /\bFROM candidate\b/i ) {
+            push @events, 'read';
+            $sorts = $query->sqlite_st_status->{sort};
+        }
         return $fetch->( $query, @arguments );
     };
     local *Test::Mutation::Mutant::new = sub (@arguments) {
@@ -71,6 +75,7 @@ subtest 'an unfiltered catalog decodes candidates as it reads them' => sub {
     cmp_ok scalar $file->{mutants}->@*, '>', 1, 'the file contains multiple candidates';
     is [ @events[ 0 .. 3 ] ], [qw(read decode read decode)],
       'the cursor releases each encoded row before fetching another';
+    is $sorts, 0, 'SQLite streams the catalog in its stored order without a temporary sort';
 };
 subtest 'thousands of named mutants fit within SQLite query limits' => sub {
     my $project = File::Temp::tempdir( CLEANUP => 1 );
