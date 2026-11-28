@@ -11,7 +11,9 @@ use JSON::PP         ();
 use lib 't/lib', 't/e2e/lib';
 use Fixture qw(copy_of write_file);
 use Gate;
-use Test::Mutation::Source ();
+use Test::Mutation::Mutator::Catalog ();
+use Test::Mutation::Settings         ();
+use Test::Mutation::Source           ();
 
 my $workflow    = CPAN::Meta::YAML->read('.github/workflows/release-gate.yml')->[0];
 my $jobs        = $workflow->{jobs};
@@ -89,6 +91,16 @@ subtest 'the release rejects mutable sources and controllers outside main' => su
     }
     local $ENV{GITHUB_REF} = 'refs/heads/other';
     isnt system( 'bash', '-eu', '-c', $script ), 0, 'a workflow dispatched outside main is refused';
+};
+
+subtest 'the project measures guarded exits in its release shards' => sub {
+    my $config   = Test::Mutation::Settings::of_call( { root => q{.} } );
+    my $mutators = Test::Mutation::Mutator::Catalog::choose(
+        profile => $config->profile,
+        enable  => $config->enable,
+        disable => $config->disable
+    );
+    ok scalar( grep { $_->name eq 'early-exit' } @$mutators ), 'the project enables guarded exit removal';
 };
 
 subtest 'all release shards restore the same measured tools and dependency bytes' => sub {
