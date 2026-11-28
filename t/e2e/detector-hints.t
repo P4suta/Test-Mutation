@@ -137,6 +137,15 @@ PERL
     is [ $found->@{qw(status by tests_run)} ], [ 'Killed', 't/b.t', 2 ], 'the ordinary assertion retains its turn';
     is [ map { [ $_->@{qw(test result)} ] } $found->{observations}[0]->@* ],
       [ [ 't/a.t', 'timeout' ], [ 't/b.t', 'fail' ] ], 'only ordinary observations determine the fallback verdict';
+    is $result->stats->{verifications}, 1, 'the discarded trial is included in verification work';
+
+    write_file( "$root/t/b.t", $stall );
+    write_file( "$root/t/z.t", $strong );
+    my $ordinary = Test::Mutation::Runner::run( $config, sub { } );
+    is entry( $ordinary, $id )->{status}, 'Timeout', 'the first two ordinary tests exhaust their time limits';
+    my $confirmed = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => 't/z.t' } } );
+    is [ entry( $confirmed, $id )->@{qw(status by tests_run)} ], [ 'Killed', 't/z.t', 1 ],
+      'the current failing assertion can decide before both slow tests';
 };
 
 subtest 'a suggested test without a target witness leaves the verdict to the ordinary tests' => sub {
