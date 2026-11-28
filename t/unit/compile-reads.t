@@ -85,6 +85,8 @@ subtest 'native object initialization is deferred while a class body can run cod
       'a call following a method runs as part of the class body';
     is $reads->(q{class Model { method get { 1 } } read_setting(); 1;}), undef,
       'a call following the class runs as part of the file';
+    is $reads->(q{class Model { method get { 1 } }; open my $data, '<', $ENV{CLASS_FILE} or die $!; 1;}), undef,
+      'loading the module opens the file named in a separate statement after the class';
     is $reads->(q{class Model { method get { 1 } BEGIN { read_setting() } } 1;}), undef,
       'a phase block after a method can read a file while compiling the class';
     is $reads->(q{class Model { method get { method inner { 1 } BEGIN { read_setting() } } } 1;}), undef,
