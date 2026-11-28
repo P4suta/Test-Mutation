@@ -413,6 +413,11 @@ subtest 'refresh replaces the selected verdicts and keeps independently measured
       'current compiler observations can verify every earlier input and add a new one';
     is $verified->compiler_inputs, $superset->compiler_inputs,
       'the refreshed result carries the evidence for every input';
+    my $old_document = Test::Mutation::Report::Json::document( $compiled, high => 80, low => 60 );
+    delete $old_document->{testMutation}{compilerInputProtocol};
+    my $old_measurement = Test::Mutation::Report::Json::parse( JSON::PP->new->encode($old_document) );
+    is Test::Mutation::Merge::refresh( $old_measurement, $superset ), $superset,
+      'a partial update cannot vouch for rows from before compiler input verification';
 
     for my $case (
         [ 'a prior shard',                      { shard => '1/2' },              {} ],
