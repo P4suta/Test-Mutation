@@ -43,6 +43,7 @@ my %CONTINUATION     = map { $_ => 1 } qw(elsif else continue catch finally);
 my %BODY_HEAD        = map { $_ => 1 } qw(method sub ADJUST);
 my %EXCLUDED_HEAD    = map { $_ => 1 } qw(use no package);
 my %HIDDEN_HEAD      = map { $_ => 1 } qw(field ADJUST);
+my %COMPILE_KEYWORD  = map { $_ => 1 } qw(use no BEGIN UNITCHECK CHECK INIT END);
 my %ROUTINE_HEAD     = map { $_ => 1 } qw(sub method);
 my %NEVER_A_CALL =
   map { $_ => 1 }
@@ -175,17 +176,58 @@ sub compile_reads ( $source, $loaded ) {
 }
 
 sub _fixed_module_load ($document) {
+    my $native_class = 0;
     for my $statement ( $document->schildren ) {
         if ( $statement->isa('PPI::Statement::Sub') ) {
             my $name = $statement->name || q{};
             return 0 if $name =~ /(?:\A|::) (?:import|unimport|AUTOLOAD|DESTROY) \z/x;
         }
-        next if $statement->isa('PPI::Statement::Include') && _fixed_import($statement);
+        if ( $statement->isa('PPI::Statement::Include') && _fixed_import($statement) ) {
+            my $module = $statement->module || q{};
+            if ( !$module || $module eq 'feature' || $module eq 'experimental' ) {
+                my @features = map { $_->literal }
+                  grep { $_->isa('PPI::Token::Quote::Single') || $_->isa('PPI::Token::QuoteLike::Words') }
+                  $statement->arguments;
+                $native_class = $statement->type eq 'use' && grep { $_ eq 'class' } @features;
+            }
+            next;
+        }
         next unless _runs_at_load($statement);
+        next if $native_class && _fixed_class_load($statement);
         my @value = grep { !_is_semicolon($_) } $statement->schildren;
         return 0 unless @value == 1 && $value[0]->isa('PPI::Token::Number');
     }
     return 1;
+}
+
+sub _fixed_class_load ($statement) {
+    my ( $keyword, $name, @rest ) = grep { !_is_semicolon($_) } $statement->schildren;
+    return 0 unless _is_word( $keyword, { class => 1 } ) && $name && $name->isa('PPI::Token::Word');
+    shift @rest if @rest && $rest[0]->isa('PPI::Token::Number');
+    my $block = shift @rest;
+    return 0 unless $block && $block->isa('PPI::Structure::Block');
+
+    # PPI can group a compile-time directive with the method declared immediately before it.
+    return 0 if $block->find_first( sub ( $document, $element ) { _is_word( $element, \%COMPILE_KEYWORD ) } );
+    return 0 if @rest && ( @rest != 1 || !$rest[0]->isa('PPI::Token::Number') );
+    for my $member ( $block->schildren ) {
+        return 0 unless ref $member eq 'PPI::Statement';
+        for my $segment ( _segments( {}, $member )->@* ) {
+            my @parts = grep { !_is_semicolon($_) } $segment->{children}->@*;
+            return 0 if @parts && !_deferred_class_member(@parts);
+        }
+    }
+    return 1;
+}
+
+sub _deferred_class_member ( $keyword, $next = undef, @rest ) {
+    return 0 unless $next;
+    return 1 if _is_word( $keyword, { field => 1 } ) && $next->isa('PPI::Token::Symbol');
+    return 1 if _is_word( $keyword, { ADJUST => 1 } ) && $next->isa('PPI::Structure::Block') && !@rest;
+    return 0 unless _is_word( $keyword, { method => 1 } ) && $next->isa('PPI::Token::Word');
+    return 0 if $next->content =~ /\A(?:import|unimport|AUTOLOAD|DESTROY)\z/;
+    shift @rest if @rest && $rest[0]->isa('PPI::Structure::List');
+    return @rest == 1 && $rest[0]->isa('PPI::Structure::Block');
 }
 
 sub _fixed_import ($include) {
