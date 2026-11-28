@@ -366,6 +366,22 @@ PERL
     is $run->{stderr}, q{},                           'unavailable identities cause no warnings';
 };
 
+subtest 'observe mode leaves the test in control of loading Cwd' => sub {
+    my $root = project();
+    write_file( "$root/lib/Cwd.pm", "package Cwd; sub value { 41 } 1;\n" );
+    write_file( "$root/spec",       "trace\t0\nobserve\t1\n" );
+    my $run = ShimHarness::run_bare(
+        root => $root,
+        args => [
+            '-I' . lib_dir(), '-Ilib', '-MTest::Mutation::Shim', '-e',
+            'print exists $INC{"Cwd.pm"} ? "preloaded " : "unloaded "; require Cwd; print Cwd::value()'
+        ],
+        env => { TEST_MUTATION_SPEC => "$root/spec", TEST_MUTATION_RECORD => "$root/records" }
+    );
+    is_deeply [ $run->{status}, $run->{stdout} ], [ 0, 'unloaded 41' ],
+      'the test loads its own Cwd after observation starts' or diag $run->{stderr};
+};
+
 subtest 'the main program retains its identity after changing working directory' => sub {
     my $root   = project();
     my $script = write_file( "$root/bin/app.pl",       "chdir 'other' or die \$!;\nprint 17;\n" );
