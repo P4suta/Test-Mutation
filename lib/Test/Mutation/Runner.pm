@@ -474,6 +474,10 @@ sub _measure ( $run, $started ) {
     };
 }
 
+sub _compiler_parser_versions () {
+    return ( PPI->VERSION, PPIx::QuoteLike->VERSION, PPIx::Regexp->VERSION );
+}
+
 sub _measurement_digest ( $run, $selection ) {
     my $config  = $run->{config};
     my $project = $run->{project};
@@ -495,6 +499,7 @@ sub _measurement_digest ( $run, $selection ) {
     }
     return Test::Mutation::Store::Key::digest(
         Test::Mutation::Select::measurement_rules( $config, $selection ),
+        _compiler_parser_versions(),
         Test::Mutation::Store::Key::digest( map { ( $_, $selection->digests->{$_} ) } @sources ),
         Test::Mutation::Store::Key::interpreter_build( $selection->perl ),
         $project_digest,
@@ -1837,6 +1842,7 @@ sub _fingerprint ( $run, $baseline ) {
         @targets
     );
     return Test::Mutation::Store::Key::digest(
+        _compiler_parser_versions(),
         $VERSION,                                                    Test::Mutation::Store::format_version(),
         Test::Mutation::Result::supported_compiler_input_protocol(), _module_text($SHIM_FILE),
         _module_text($COMPILER_FILE),                                _module_text('Test/Mutation/Witness.pm'),

@@ -93,6 +93,16 @@ subtest 'reports from before embedded compiler phases can still show their measu
       qr/measurement inputs are missing/, 'a current shard cannot certify the earlier measurement';
 };
 
+subtest 'reports written without the driver quote parser identity remain readable' => sub {
+    my @saved = map {
+        Test::Mutation::Report::Json::parse( Test::Mutation::Report::Json::render( $_, high => 80, low => 60 ) )
+    } part( '1/2', \@first, compiler_input_protocol => 2 ), part( '2/2', \@rest, compiler_input_protocol => 2 );
+    is [ $saved[0]->compiler_input_protocol, $saved[0]->measurement_digest, $saved[0]->entries->[0]{status} ],
+      [ 2, 'cd' x 32, 'Killed' ], 'the earlier JSON preserves its recorded measurement';
+    like dies { merged(@saved) }, qr/measurement inputs are missing/,
+      'two matching earlier digests cannot verify the driver quote parsers';
+};
+
 subtest 'merging applies a common deferred threshold' => sub {
     my $result = merged( part( '1/2', \@first, min_score => 90 ), part( '2/2', \@rest, min_score => 90 ) );
     is [ $result->assessment->@{qw(minimum gate exitCode)} ], [ 90, 'failed', 1 ],
