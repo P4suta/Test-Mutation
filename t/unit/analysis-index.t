@@ -37,6 +37,28 @@ my @parsed;
     Test::Mutation::Select::resolve( config => $config->( cache => 0 ) );
     is \@parsed, [qw(lib/Calc.pm lib/Other.pm)], 'disabling the cache forces fresh analysis';
 }
+subtest 'the index refreshes ranges whose left operand starts with a method' => sub {
+    my $project = File::Temp::tempdir( CLEANUP => 1 );
+    my $path    = 'lib/Range.pm';
+    write_file( "$project/$path", 'sub values { my ($rule, $a, $b) = @_; my @range = $rule->if + $a ... $b; @range }' );
+    my $settings = Test::Mutation::Settings::of_call( { root => $project, profile => 'extended' } );
+    {
+        local $Test::Mutation::Select::ANALYSIS_REVISION = 2;
+        Test::Mutation::Select::resolve( config => $settings );
+    }
+    my @reads;
+    no warnings 'redefine';
+    local *Test::Mutation::Syntax::PPI::analyze = sub ($source) {
+        push @reads, $source->path;
+        return $analyze->($source);
+    };
+    my $current = Test::Mutation::Select::resolve( config => $settings );
+    is \@reads, [$path], 'the earlier precedence rules require one fresh analysis';
+    is [ grep { $_->mutator eq 'range-boundary' } $current->mutants->@* ], [], 'a list range has no scalar flip-flop';
+    Test::Mutation::Select::resolve( config => $settings );
+    is \@reads, [$path], 'the corrected index serves the next lookup without reparsing';
+};
+
 subtest 'a missing historical identifier names its previous file' => sub {
     my @refused;
     no warnings 'redefine';
