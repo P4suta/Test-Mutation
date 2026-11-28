@@ -16,6 +16,9 @@ my $config = Test::Mutation::Settings::of_call( { root => $root, cache => 1 } );
 my $whole  = Samples::result( statuses => [qw(Survived NoCoverage Killed)] );
 is Test::Mutation::Store::History::undetected($config), undef, 'a project has no completed measurement yet';
 Test::Mutation::Store::History::record( $config, $whole, 1 );
+my $recorded = Test::Mutation::Store::read_database( Test::Mutation::Store::path( $config, 0 ) );
+is [ map { $recorded->selectrow_array("SELECT count(*) FROM $_") } qw(measurement observation) ],
+  [ 1, 3 ], 'one ordinary run records one measurement and one observation per mutant';
 my $gap = sub ($entry) {
     my $mutant = $entry->{mutant};
     return {
