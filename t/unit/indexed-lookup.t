@@ -48,6 +48,21 @@ subtest 'an updated analysis rule appears in the catalog while previous verdicts
       'shards made under different analysis rules have different inputs';
 };
 
+subtest 'two removed changes with the same historical prefix stay ambiguous' => sub {
+    my $project = File::Temp::tempdir( CLEANUP => 1 );
+    my $source  = "package Example;\nsub sum { return \$_[0] + \$_[1] }\n1;\n";
+    my @files   = map { write_file( "$project/lib/Unit$_.pm", $source ) } 71, 314;
+    write_file( "$project/t/smoke.t", "use Test::More tests => 1; pass('smoke');\n" );
+    my $config   = Test::Mutation::Settings::of_call( { root => $project, jobs => 1 } );
+    my $initial  = Test::Mutation::Runner::run( $config, sub { } );
+    my @matching = grep { $_->{mutant}->id =~ /\A1917/ && $_->{status} eq 'NoCoverage' } $initial->entries->@*;
+    is scalar @matching, 2, 'the completed measurement records both uncovered changes';
+    write_file( $_, "1;\n" ) for @files;
+    my $recheck = World::observe( [qw(run --undetected --mutant 1917 --jobs 1)], cwd => $project );
+    is [ $recheck->@{qw(exit stderr)} ], [ 2, "mutation: more than one mutant has the identifier 1917\n" ],
+      'the command requires a longer prefix before naming a file to remeasure';
+};
+
 subtest 'a cached identifier is resolved against the current source and settings' => sub {
     my $project       = File::Temp::tempdir( CLEANUP => 1 );
     my $source        = "package Example;\nsub sum { return \$_[0] + \$_[1] }\n1;\n";
