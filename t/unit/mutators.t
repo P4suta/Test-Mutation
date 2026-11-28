@@ -472,6 +472,14 @@ CODE
     is [ map { [ $_->from->[0], $_->original, $_->replacement ] } @ranges ],
       [ map { [ $_, '...', '..' ] } 3, 4, 12, 13, 14 ],
       'scalar assignments, explicit scalar context, and conditions evaluate the range endpoint earlier';
+    my $blocks = <<'CODE';
+my @selected = grep { /begin/ ... /end/ } @input;
+my @sorted = sort { $a ... $b } @input;
+my @mapped = map { /begin/ ... /end/ } @input;
+my @all = grep { /begin/ ... /end/; 1 } @input;
+CODE
+    is [ map { $_->from->[0] } grep { $_->mutator eq 'range-boundary' } mutants( $blocks, profile => 'extended' )->@* ],
+      [ 1, 2 ], 'a filter predicate and a sort comparator consume the final block value in scalar context';
 };
 
 subtest 'guarded exits can be selected for a target with version-dependent startup code' => sub {
