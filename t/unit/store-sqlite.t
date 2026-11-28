@@ -230,6 +230,24 @@ subtest 'a write-only transaction returns the database acknowledgement' => sub {
       'a defined false callback result passes through the transaction';
 };
 
+subtest 'a rejected commit rolls back before the caller receives a result' => sub {
+    my $connection = DBI->connect( 'dbi:SQLite::memory:', undef, undef, { RaiseError => 0, PrintError => 0 } );
+    $connection->do('PRAGMA foreign_keys = ON');
+    $connection->do('CREATE TABLE parent (id INTEGER PRIMARY KEY)');
+    $connection->do('CREATE TABLE child (parent INTEGER REFERENCES parent(id) DEFERRABLE INITIALLY DEFERRED)');
+    like dies {
+        Test::Mutation::Store::transaction(
+            $connection,
+            sub {
+                $connection->do('INSERT INTO child VALUES (42)');
+                return 'ready';
+            }
+        );
+    }, qr/FOREIGN KEY constraint failed/, 'the database refuses the commit after the callback returns';
+    is $connection->selectrow_array('SELECT count(*) FROM child'), 0, 'the writer has rolled back the invalid row';
+    ok !$connection->{RaiseError}, 'the caller keeps its DBI error policy';
+};
+
 subtest 'a nonblocking checkpoint retries only a competing writer' => sub {
     my $path  = "$directory/checkpoints/measurement.sqlite";
     my $write = Test::Mutation::Store::checkpoints($path);
