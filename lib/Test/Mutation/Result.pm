@@ -74,6 +74,13 @@ sub tally ($self) {
     return Test::Mutation::Score::tally( [ map { $_->{status} } $self->entries->@* ] );
 }
 
+signature_for score_scope => ( method => 1, positional => [], returns => ReportSelection );
+
+sub score_scope ($self) {
+    my $measured = $self->measured_scope;
+    return defined $measured ? $measured : $self->selection;
+}
+
 signature_for verified_measurement_digest => ( method => 1, positional => [], returns => Maybe [Str] );
 
 sub verified_measurement_digest ($self) {
@@ -173,6 +180,10 @@ The part of the mutants that the run covered, such as C<2/4>, or undefined for a
 The selection records the paths, changed lines or mutant identifiers requested by the caller.
 The optional measured scope describes the verdicts included in a refreshed score when it keeps earlier entries.
 The catalog digest identifies the inputs that determine the available mutants.
+
+=head2 score_scope
+
+Returns the selection whose verdicts contribute to the score, including earlier entries retained by a refresh.
 
 =head2 min_score
 
