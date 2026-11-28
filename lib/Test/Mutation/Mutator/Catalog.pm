@@ -477,7 +477,7 @@ sub _literal_collection ($site) {
 
 my @CODED = (
     [ 'three-way',          'default',  'Swaps the operands of a three-way comparison',  \&_three_way ],
-    [ 'early-exit',         'default',  'Removes a guarded transfer of control',         \&_early_exit ],
+    [ 'early-exit',         'extended', 'Removes a guarded transfer of control',         \&_early_exit ],
     [ 'filter-negation',    'default',  'Negates the predicate of grep or first',        \&_filter_negation ],
     [ 'regex-class',        'extended', 'Complements a character class in a pattern',    \&_regex_class ],
     [ 'literal-collection', 'extended', 'Empties an array, hash, or word-list literal',  \&_literal_collection ],

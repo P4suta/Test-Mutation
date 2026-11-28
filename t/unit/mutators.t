@@ -418,7 +418,10 @@ subtest 'changes to control flow and operands respect Perl precedence' => sub {
     is changes( 'sub cmp_args { foo($x + $y <=> g($z), "$x" cmp $hash{key}); }', 'three-way' ),
       [ [ '$x + $y <=> g($z)', 'g($z) <=> $x + $y' ], [ '"$x" cmp $hash{key}', '$hash{key} cmp "$x"' ] ],
       'each three-way comparison swaps both complete operands';
-    is changes( 'sub f { g() or return 3; g() && die "error"; g() // last LOOP; g() || log_it(); }', 'early-exit' ),
+    is changes(
+        'sub f { g() or return 3; g() && die "error"; g() // last LOOP; g() || log_it(); }',
+        'early-exit', enable => ['early-exit']
+      ),
       [ [ 'or return 3', q{} ], [ '&& die "error"', q{} ], [ '// last LOOP', q{} ] ],
       'only a guarded transfer of control loses its tail';
     is changes( 'sub f { return abs($x) + int -2; } sub g { return abs; }', 'call-removal' ),
@@ -456,6 +459,20 @@ sub unfinished { ... }
 CODE
     is changes( $source, 'range-boundary', profile => 'extended' ), [ [ '...', '..' ], [ '...', '..' ] ],
       'only scalar conditions test the endpoint during the first evaluation';
+};
+
+subtest 'guarded exits can be selected for a target with version-dependent startup code' => sub {
+    my $code = <<'PERL';
+use constant NEEDS_COMPAT => "$]" < 5.013_006;
+BEGIN { NEEDS_COMPAT and (eval { die "missing configuration" if $ENV{NO_CONFIG}; 1 } or die $@) }
+sub read_value { $_[0] or return 'missing'; return 'ready' }
+PERL
+    my $guards = [ [ 'or die $@', q{} ], [ "or return 'missing'", q{} ] ];
+    is changes( $code, 'early-exit' ), [], 'the default profile leaves the guarded exits unchanged';
+    is changes( $code, 'early-exit', profile => 'extended' ), $guards, 'the extended profile removes both exits';
+    is changes( $code, 'early-exit', enable  => ['early-exit'], perl => 5.010001 ), $guards,
+      'selecting the mutator keeps the startup guard on an older target';
+    is changes( $code, 'early-exit', enable => ['@removal'] ), $guards, 'the removal group includes guarded exits';
 };
 
 subtest 'extended mutators' => sub {
