@@ -48,8 +48,7 @@ PERL
     like $merge->{stderr}, qr/measurement inputs are missing/, 'the compiled program cannot identify the phase input';
 };
 
-subtest 'loading a module can read external data at file scope' => sub {
-    my $root = "$area/file-scope";
+subtest 'loading Perl source can read external data at file scope' => sub {
     local $ENV{PERL5LIB}           = join q{:}, "$area/threshold", grep { defined } $ENV{PERL5LIB};
     local $ENV{TEST_PROJECT_TABLE} = "$area/table";
     my $initializer = <<'PERL';
@@ -60,9 +59,7 @@ close $input or die $!;
 sub limit { return $limit }
 PERL
     write_file( "$area/threshold/Threshold.pm", "package Threshold;\n${initializer}1;\n" );
-    write_file( "$root/t/check.t",
-        "use Test::More tests => 2; use Bound; ok !Bound::first(7); ok !Bound::second(7);\n" );
-    my $part = sub ($number) {
+    my $part = sub ( $root, $number ) {
         my ($result) = run_fixture(
             $root,
             jobs        => 1,
@@ -74,18 +71,25 @@ PERL
         );
         return { name => "$number", result => $result };
     };
-    for my $reader ( [ 'imported dependency', 'use Threshold ();', 'Threshold::limit()' ],
-        [ 'selected module', $initializer, 'limit()' ] )
+    for my $reader (
+        [ 'imported dependency', 'use Threshold ();', 'Threshold::limit()', 'lib/Bound.pm', 'use Bound;' ],
+        [ 'selected module',     $initializer,        'limit()',            'lib/Bound.pm', 'use Bound;' ],
+        [ 'required script',     $initializer, 'limit()', 'script/bounds', q{BEGIN { require './script/bounds' }} ]
+      )
     {
-        my ( $name, $load, $limit ) = @$reader;
-        write_file( "$root/lib/Bound.pm",
-                "package Bound;\n$load\n"
+        my ( $name, $load, $limit, $path, $require ) = @$reader;
+        my $root = "$area/$name";
+        write_file( "$root/t/check.t",
+            "use Test::More tests => 2; $require ok !Bound::first(7); ok !Bound::second(7);\n" );
+        write_file( "$root/$path",
+                "#!$^X\npackage Bound;\n$load\n"
               . "sub first { return \$_[0] < $limit }\nsub second { return \$_[0] < $limit }\n1;\n" );
         write_file( $ENV{TEST_PROJECT_TABLE}, "7\n" );
-        my $first = $part->(1);
-        is $part->(2)->{result}->entries->[0]{status}, 'Killed', "the initial $name value distinguishes the boundary";
+        my $first = $part->( $root, 1 );
+        is $part->( $root, 2 )->{result}->entries->[0]{status}, 'Killed',
+          "the initial $name value distinguishes the boundary";
         write_file( $ENV{TEST_PROJECT_TABLE}, "5\n" );
-        my $different = $part->(2);
+        my $different = $part->( $root, 2 );
         is [ $different->{result}->entries->[0]{status}, $different->{result}->cache_mismatch ], [ 'Survived', 0 ],
           "the $name input is checked before sampling a cached observation";
         like dies { Test::Mutation::Merge::merge( [ $first, $different ] ) },
