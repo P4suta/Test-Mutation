@@ -32,6 +32,22 @@ write_file( "$root/data.txt", "first\n" );
 chmod 0755, "$root/data.txt" or die $!;
 isnt Test::Mutation::Store::Key::tree( $root, ['A.pm'] ), $original, 'an executable bit changes the project input';
 
+subtest 'a project or workspace fingerprint visits each included file once' => sub {
+    my $file = Test::Mutation::Store::Key->can('file');
+    my @visited;
+    no warnings 'redefine';
+    local *Test::Mutation::Store::Key::file = sub ($path) {
+        push @visited, $path;
+        return $file->($path);
+    };
+    my $project = Test::Mutation::Store::Key::tree( $root, ['A.pm'] );
+    is \@visited, ["$root/data.txt"], 'the project scans its data file once with the default output policy';
+    @visited = ();
+    my $copy = Test::Mutation::Store::Key::workspace( $root, ['A.pm'], [] );
+    is \@visited, ["$root/data.txt"], 'the workspace scans its data file once without a separate original';
+    is $copy, $project, 'the same data has the same fingerprint in either workspace';
+};
+
 my $env = Test::Mutation::Store::Key::environment( { ANSWER => '1', SHLVL => '2' } );
 is Test::Mutation::Store::Key::environment( { ANSWER => '1', SHLVL => '3' } ), $env, 'shell nesting is volatile';
 isnt Test::Mutation::Store::Key::environment( { ANSWER => '2', SHLVL => '2' } ), $env, 'a test can read any variable';
