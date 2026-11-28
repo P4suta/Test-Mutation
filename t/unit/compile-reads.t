@@ -16,6 +16,9 @@ subtest 'scheduled blocks identify the file operands of read-only open' => sub {
       'the target environment supplies one named input';
     is reads(q{UNITCHECK { CORE::open(my $in, '<:raw', '/data/file') }}), [ [ file => '/data/file' ] ],
       'a literal path and a PerlIO layer identify one input';
+    is reads(q{BEGIN;}), undef, 'a phase declaration without a body supplies no read evidence';
+    is reads(q{sub CHECK { open my $in, '<', 'limits' }}), [ [ file => 'limits' ] ],
+      'an explicitly declared phase subroutine runs during compilation';
     is reads(q{BEGIN { unshift @INC, $ENV{LIBRARY}; push @INC, '/opt/lib' }}), [],
       'the compiler already records literal and environment-derived include directories';
     is reads(q{sub load { open my $in, '<', make_path() } # BEGIN }), [],
@@ -72,6 +75,30 @@ PERL
     is $result->compiler_inputs->{ Test::Mutation::Store::Key::digest($external) },
       Test::Mutation::Store::Key::tree( $external, [] ),
       'the compiler binds the external directory reached by the link';
+};
+
+subtest 'standalone compilation records the external file used by an explicit BEGIN subroutine' => sub {
+    my $area = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    my $root = "$area/project";
+    local $ENV{TEST_COMPILER_LIMIT} = write_file( "$area/limit", "4\n" );
+    write_file( "$root/lib/Bound.pm", <<'PERL' );
+package Bound;
+use warnings 'numeric', 'uninitialized';
+sub BEGIN {
+    open my $input, '<', $ENV{TEST_COMPILER_LIMIT} or die $!;
+    my $limit = 0 + <$input>;
+    close $input or die $!;
+    require constant;
+    constant->import('LIMIT', $limit);
+}
+sub below { return $_[0] < LIMIT }
+1;
+PERL
+    write_file( "$root/t/check.t", "use Test::More tests => 1; use Bound; ok Bound::below(3);\n" );
+    my ($result) = run_fixture( $root, cache => 0, jobs => 1 );
+    is $result->baseline_failures, [], 'the target Perl compiles and uses the constant';
+    is $result->compiler_inputs->{ Test::Mutation::Store::Key::digest("$area/limit") },
+      Test::Mutation::Store::Key::file("$area/limit"), 'the report binds the external bytes used for the constant';
 };
 
 done_testing;
