@@ -54,6 +54,20 @@ sub compare (%settings) {
 }
 
 ok lives { compare( cache => 1, jobs => 1 ) }, 'cached and uncached observations use compatible inputs';
+subtest 'shards can use independently formatted configuration files' => sub {
+    my @parts;
+    for my $part ( 1 .. 2 ) {
+        my $checkout = "configured-$part";
+        my $root     = "$area/$checkout";
+        write_file( "$root/lib/Boundary.pm", $module );
+        write_file( "$root/t/boundary.t",    "use Test::More tests => 1; use Boundary; ok Boundary::positive(1);\n" );
+        write_file( "$root/settings.toml",   "# Settings for worker $part\njobs = $part\n" );
+        push @parts, shard( $checkout, $part, config => 'settings.toml' );
+    }
+    ok lives { Test::Mutation::Merge::merge( \@parts ) },
+      'the selected measurement settings determine whether the shards can be combined';
+};
+
 ok lives { Test::Mutation::Merge::merge( [ checkout_library( 'first', 1 ), checkout_library( 'second', 2 ) ] ) },
   'checkout-relative Perl search paths identify identical project libraries';
 {
@@ -305,6 +319,18 @@ PERL
       'changed data behind an imported constant rejects a cached shard';
     like dies { Test::Mutation::Merge::merge( [ $prior, shard( 'idle-second', 2 ) ] ) }, qr/measurement inputs differ/,
       'changed data behind an imported constant rejects a fresh shard';
+
+    my $indirect = $defaults =~ s/\$ENV\{TEST_PROJECT_TABLE\}/table()/r;
+    $indirect =~ s/^BEGIN/sub table { return \$ENV{TEST_PROJECT_TABLE} }\nBEGIN/m;
+    write_file( "$area/data-library/Defaults.pm", $indirect );
+    my $before = shard( 'idle-first', 1 );
+    ok !( grep { defined $_->{compiled_digest} } $before->{result}->entries->@* ),
+      'the unresolved imported read keeps the mutant fingerprints out of comparisons';
+    ok lives { Test::Mutation::Merge::merge( [ $before, shard( 'idle-second', 2 ) ] ) },
+      'identical observed constants from an indirect imported read can merge';
+    write_file( "$area/imported-limit", "13\n" );
+    like dies { Test::Mutation::Merge::merge( [ $before, shard( 'idle-second', 2 ) ] ) }, qr/measurement inputs differ/,
+      'a changed compiled constant rejects the merge when its imported source cannot identify the input';
 };
 
 my $wrapped = shard( 'first', 1, perl => 'tools/perl' );
