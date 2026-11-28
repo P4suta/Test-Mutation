@@ -5,10 +5,48 @@ use JSON::PP   ();
 use lib 't/e2e/lib', 't/contract/lib';
 use Fixture qw(copy_of write_file);
 use World;
+use Test::Mutation::Mutant::Generator;
 use Test::Mutation::Report::Json;
 use Test::Mutation::Runner;
 use Test::Mutation::Settings;
 use Test::Mutation::Store::History;
+
+subtest 'an updated analysis rule appears in the catalog while previous verdicts remain visible' => sub {
+    my $project = File::Temp::tempdir( CLEANUP => 1 );
+    write_file( "$project/lib/Span.pm", "package Span;\nsub values { return 1 .. 3 }\n1;\n" );
+    write_file( "$project/t/values.t",
+        "use Test::More tests => 1;\nuse Span;\nis_deeply [Span::values()], [1, 2, 3];\n" );
+    my $config   = Test::Mutation::Settings::of_call( { root => $project, profile => 'extended', jobs => 1 } );
+    my $generate = Test::Mutation::Mutant::Generator->can('generate');
+    my $prior;
+    {
+        no warnings 'redefine';
+        local *Test::Mutation::Select::_analysis_revision  = sub { return 'without range boundaries' };    ## no critic (Variables::ProtectPrivateVars)
+        local *Test::Mutation::Mutant::Generator::generate = sub (@arguments) {
+            my $made = $generate->(@arguments);
+            $made->{mutants} = [ grep { $_->mutator ne 'range-boundary' } $made->{mutants}->@* ];
+            return $made;
+        };
+        $prior = Test::Mutation::Runner::run( $config, sub { } );
+        Test::Mutation::Store::History::record( $config, $prior, 1 );
+    }
+    ok !( grep { $_->{mutant}->mutator eq 'range-boundary' } $prior->entries->@* ),
+      'the stored catalog predates the range rule';
+    my ($observed) = grep { $_->{status} eq 'Killed' } $prior->entries->@*;
+    my @profile    = ( '--profile', 'extended', '--enable', 'range-boundary' );
+    my $fresh      = World::observe( [ 'list', @profile, '--no-cache' ], cwd => $project );
+    like $fresh->{stdout}, qr/\brange-boundary\b/, 'the current rule generates a range from the source';
+    my $indexed = World::observe( [ 'list', @profile ], cwd => $project );
+    is [ $indexed->{stdout} =~ /^([0-9a-f]{12})  /mg ], [ $fresh->{stdout} =~ /^([0-9a-f]{12})  /mg ],
+      'a saved analysis yields the current list of identifiers on upgrade';
+    my $show = World::observe( [ 'show', $observed->{mutant}->id, @profile ], cwd => $project );
+    like $show->{stdout}, qr/^Last result: Killed\nMeasured at: \S+/m,
+      'the dated verdict of an unchanged mutant survives';
+    my $current = Test::Mutation::Runner::run( $config, sub { } );
+    isnt $current->catalog_digest, $prior->catalog_digest, 'a prior report cannot refresh a different catalog';
+    isnt $current->measurement_digest, $prior->measurement_digest,
+      'shards made under different analysis rules have different inputs';
+};
 
 subtest 'a cached identifier is resolved against the current source and settings' => sub {
     my $project       = File::Temp::tempdir( CLEANUP => 1 );
