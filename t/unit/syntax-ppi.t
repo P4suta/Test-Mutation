@@ -131,6 +131,18 @@ subtest 'operators carry a role' => sub {
       'a comparison without a neighbor on one side is read without a literal';
 };
 
+subtest 'condition keywords used as method names take list arguments' => sub {
+    my $code = <<'PERL';
+sub route {
+    my ($rule, $first, $last) = @_;
+    $rule->if($first ... $last);
+    return 1 if (($first ... $last));
+}
+PERL
+    is [ map { $_->facts->{flip_flop} } grep { $_->text eq '...' } sites_of( $code, 'operator' )->@* ],
+      [ undef, 1 ], 'parentheses around a method argument and a condition give the range different contexts';
+};
+
 subtest 'a readline that the parser takes for two comparisons yields no site' => sub {
     my $operators = sub ($code) {
         return [ map { $_->text } sites_of( $code, 'operator' )->@* ];

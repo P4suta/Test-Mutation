@@ -999,7 +999,8 @@ sub _scalar_range ( $context, $place ) {
         return 1 if _is_word( $previous, \%CONDITIONAL );
         last     if $previous;
         my $parent = $first->parent->parent;
-        return 1                                               if $parent->isa('PPI::Structure::Condition');
+        return !_is_operator( scalar $parent->sprevious_sibling->sprevious_sibling, '->' )
+          if $parent->isa('PPI::Structure::Condition');
         return _scalar_block_result( $first->parent, $parent ) if $parent->isa('PPI::Structure::Block');
         last unless $parent->isa('PPI::Structure::List');
         my $prefix = $parent->sprevious_sibling;
