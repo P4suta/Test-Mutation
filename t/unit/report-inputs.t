@@ -285,6 +285,10 @@ subtest 'a project copy keeps a relative link target and reports dangling links 
     my %omitted = map { $_ => 1 } $view->{outputs}->@*;
     ok !$omitted{history} && !$omitted{'history/mutation.json'}, 'the link has its original directory and file';
     ok $omitted{'history/mutation.html'}, 'a sibling publication that the link cannot reach stays hidden';
+    is Test::Mutation::Store::Key::published_outputs( $project, [], [] ), $view->{outputs},
+      'an isolated copy keeps every published path reached through an ordinary link';
+    is Test::Mutation::Store::Key::published_outputs( $project, [], ['history'] ), [],
+      'an explicitly linked directory exposes its original publications';
     is Test::Mutation::Store::Key::project( $project, [], ['history'] )->{outputs}, [],
       'a directory explicitly linked to the real project exposes all its contents';
 };
