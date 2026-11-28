@@ -122,6 +122,40 @@ TEST
     is $report->entries->[0]{status}, 'Killed', 'the disk mutation remains detectable with the caller hook';
 };
 
+subtest 'a directory round trip cannot give coverage to an unused source' => sub {
+    my $project = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    write_file( "$project/lib/Resident.pm",       "package Resident;\nsub value { return \$_[0] + 17 }\n1;\n" );
+    write_file( "$project/other/lib/Resident.pm", "package Resident;\nsub value { return \$_[0] + 29 }\n1;\n" );
+    write_file( "$project/t/resident.t",          <<'TEST' );
+use Test::More tests => 2;
+BEGIN { @INC = grep { !ref } @INC }
+unshift @INC, 'lib';
+my $other = $ENV{LOAD_OTHER_RESIDENT};
+chdir 'other' or die "enter other directory: $!" if $other;
+require Resident;
+is Resident::value(1), $other ? 30 : 18, 'the selected implementation ran';
+is $INC{'Resident.pm'}, 'lib/Resident.pm', 'Perl registered a relative file';
+chdir '..' or die "return to the starting directory: $!" if $other;
+TEST
+    my @selection = ( root => $project, source => ['lib/Resident.pm'] );
+    my ($mutant) = grep { $_->description eq 'replaced + with -' } Test::Mutation::mutants(@selection)->@*;
+    ok $mutant, 'the tracked implementation has an arithmetic mutant';
+    for my $other ( 0, 1 ) {
+        local $ENV{LOAD_OTHER_RESIDENT} = $other;
+        my ($report) = run_fixture(
+            $project,
+            jobs        => 1,
+            cache       => 0,
+            equivalence => 0,
+            source      => ['lib/Resident.pm'],
+            mutant      => [ $mutant->id ]
+        );
+        is $report->baseline_failures, [], 'the ordinary run loads the selected module successfully';
+        is $report->entries->[0]{status}, $other ? 'NoCoverage' : 'Killed',
+          'only the test that loaded the tracked arithmetic can detect its mutant';
+    }
+};
+
 subtest 'a fixture CLI receives the outer mutation and its child keeps the caller preload' => sub {
     my $area       = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
     my $generation = 1 + ( $ENV{TEST_MUTATION_GENERATION} || 0 );
