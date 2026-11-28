@@ -29,7 +29,14 @@ has left_out       => ( is => 'ro', isa => HashRef [Int], required => 1 );
 has rejected =>
   ( is => 'ro', isa => ArrayRef [ Dict [ path => Str, mutator => Str, line => Int, rule => Str ] ], required => 1 );
 
-has analysis_rules_digest => ( is => 'ro', isa => Str, lazy => 1, builder => 'catalog_digest' );
+has analysis_rules_digest =>
+  ( is => 'ro', isa => Str, reader => '_analysis_rules_digest', predicate => 'has_analysis_rules_digest' );
+
+signature_for analysis_rules_digest => ( method => 1, positional => [], returns => Str );
+
+sub analysis_rules_digest ($self) {
+    return $self->_analysis_rules_digest // $self->catalog_digest;
+}
 
 signature_for verify_copy => ( method => InstanceOf [__PACKAGE__], positional => [Str], returns => Undef );
 

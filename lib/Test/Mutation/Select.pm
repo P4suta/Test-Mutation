@@ -99,6 +99,26 @@ sub operand_paths ( $config, $operands ) {
     return paths( $config->root, $operands, _files( $config, $config->root, 'source', {} ) );
 }
 
+sub _rules_digest ( $config, $version, $mutators ) {
+    return Test::Mutation::Store::Key::digest(
+        $VERSION, $ANALYSIS_REVISION, "$version", _parser_versions(),
+        $config->suppress_require_names,
+        $config->suppress_require_reason,
+        map { $_->name } @$mutators
+    );
+}
+
+signature_for measurement_rules => (
+    positional => [ InstanceOf ['Test::Mutation::Config'], InstanceOf ['Test::Mutation::Selection'] ],
+    returns    => Str
+);
+
+sub measurement_rules ( $config, $selection ) {
+    return $selection->analysis_rules_digest if $selection->has_analysis_rules_digest;
+    my ( undef, $version ) = _interpreter( $selection->project, $selection->perl );
+    return _rules_digest( $config, $version, $selection->mutators );
+}
+
 sub resolve ($arg) {
     my $config = $arg->config;
     my $root   = $config->root;
@@ -114,12 +134,7 @@ sub resolve ($arg) {
         disable => $config->disable
     );
     my ( $program, $version ) = _interpreter( $root, $config->perl );
-    my $rules = Test::Mutation::Store::Key::digest(
-        $VERSION, $ANALYSIS_REVISION, "$version", _parser_versions(),
-        $config->suppress_require_names,
-        $config->suppress_require_reason,
-        map { $_->name } @$mutators
-    );
+    my $rules = _rules_digest( $config, $version, $mutators );
     my %matches;
     my $files   = _files( $config, $root, 'source', \%matches );
     my $tests   = _files( $config, $root, 'test',   \%matches );
@@ -496,6 +511,10 @@ Returns a L<Test::Mutation::Selection> before the runner acquires a workspace.
 =head2 operand_paths
 
 Resolves path and line operands against the configured source files.
+
+=head2 measurement_rules
+
+Returns the analysis rules for a resolved or caller-supplied selection.
 
 =head2 by_id
 
