@@ -86,8 +86,13 @@ subtest 'a module listed at exit uses the compilation observed by the same proce
     my $opened = lines( [ 'begin', 1 ], [ 'seen', $target, 'opened' ] );
     is Test::Mutation::Record::parse( [ $opened . $listed ] )->{served}{$target}{traced}, 0,
       'opening a source alone never proves its compilation was traced';
-    is Test::Mutation::Record::parse( [ $traced . lines( [ 'blind', $target ] ) ] )->{served}{$target}{traced}, 0,
-      'an explicit blind load from an earlier shim keeps file coverage';
+    my $blind = lines( [ 'blind', $target ] );
+
+    for my $history ( $traced . $blind, $traced . $blind . $listed, $traced . $listed . $blind ) {
+        is Test::Mutation::Record::parse( [$history] )->{served}{$target},
+          { traced => 0, hits => { 4 => 1 } },
+          'an explicit blind load keeps file coverage alongside actual hits and a load listed at exit';
+    }
 };
 
 subtest 'unknown and malformed records leave a diagnostic' => sub {
@@ -95,6 +100,9 @@ subtest 'unknown and malformed records leave a diagnostic' => sub {
     is $record->{errors},
       [ 'unknown record kind mystery', 'missing field for record kind seen', '/p/A.pm: invalid hit line' ],
       'unknown kinds, missing paths, and missing line numbers each retain their diagnostic';
+    my $zero = Test::Mutation::Record::parse( ["begin\t1\nseen\t/p/A.pm\t0\n"] );
+    is [ $zero->{errors}, $zero->{compiled} ], [ ['/p/A.pm: unknown load stage 0'], {} ],
+      'a zero field is an unknown stage and cannot confirm a compilation';
     is $record->{served},                             {}, 'malformed records do not establish coverage';
     is Test::Mutation::Record::parse( [] )->{served}, {}, 'no record files';
 
