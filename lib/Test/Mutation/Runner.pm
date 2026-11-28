@@ -1416,8 +1416,9 @@ sub _fresh_job ( $mutant, $tests, $duration = 0 ) {
 }
 
 sub _eligible_detector ( $rules, $tests, $hint ) {
-    return if !defined $hint || !@$tests || $tests->[0] eq $hint;
-    return ( grep { $_ eq $hint } @$tests )[0] unless $rules;
+    return       unless defined $hint;
+    return       unless List::Util::first { $tests->[$_] eq $hint } 1 .. $#$tests;
+    return $hint unless $rules;
     my $queue = Test::Mutation::Schedule::queue( $rules, $tests );
     while ( my $job = $queue->get_job ) {
         return       if $job->is_spinner;
