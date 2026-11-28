@@ -222,6 +222,21 @@ subtest 'an empty shard cannot hide conflicting inputs from two measured sibling
     }
 };
 
+subtest 'shards agree on the contents of each shared compiler input' => sub {
+    my ( $shared, $extra, $seven, $five ) = map { Digest::SHA::sha256_hex($_) } qw(shared.cfg extra.cfg seven five);
+    my $first = part( '1/2', \@first, compiler_inputs => { $shared => $seven } );
+    my $both  = { $extra => $five, $shared => $seven };
+    my $rest  = part( '2/2', \@rest, compiler_inputs => $both );
+    for my $parts ( [ $first, $rest ], [ $rest, $first ] ) {
+        is merged(@$parts)->compiler_inputs, $both, 'a file used by one shard joins the matching shared input';
+    }
+    my $changed = part( '2/2', \@rest, compiler_inputs => { $extra => $five, $shared => $five } );
+    for my $parts ( [ $first, $changed ], [ $changed, $first ] ) {
+        like dies { merged(@$parts) }, qr/measurement inputs differ.*rerun every shard/,
+          'a changed shared file requires a new measurement in either report order';
+    }
+};
+
 subtest 'merging interleaves uneven shards and omits empty positions' => sub {
     for my $case ( [ 0, [ [], [], [], [] ] ], [ 2, [ [1], [2], [], [] ] ], [ 5, [ [ 1, 5 ], [2], [3], [4] ] ] ) {
         my ( $count, $groups ) = @$case;
