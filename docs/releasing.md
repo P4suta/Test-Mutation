@@ -6,11 +6,16 @@ For example, Git tag `v0.1.0` corresponds to Perl version `0.001` and the archiv
 After the merge, the workflow checks the release commit and submits the verified archive to the Perl Authors Upload Server (PAUSE).
 It compares the bytes on the Comprehensive Perl Archive Network (CPAN) with the verified archive before publishing the GitHub draft.
 
+## Check a branch before pushing
+
+From a clean checkout, run `mise run check-ci`.
+The command runs the fast checks on the pinned Perl and repeats the pull request's driver and shim tests in Linux containers.
+
 ## Check the candidate before merging
 
 Use a separate checkout for the release proposal so you can continue working during the local checks.
 The local release gate checks the whole mutation inventory, test coverage, supported interpreters, and real Perl distributions.
-It builds the archive, runs `make disttest`, and tests a fresh installation.
+The gate builds the archive, runs `make disttest`, and tests a fresh installation.
 
 ```sh
 git fetch origin release-please--branches--main
