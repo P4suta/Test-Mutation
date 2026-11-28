@@ -71,6 +71,7 @@ subtest 'compilation retains the selected interpreter, file and working tree' =>
     my $private = copy_of('calc');
     my $job     = { mutant => $mutants[0], copy => { root => $private }, tests => ['t/add.t'] };
     my $path    = $mutants[0]->path;
+
     for my $case (
         [ 'syntax-original', '-c',          1, q{use charnames ':full';},              1 ],
         [ 'code-original',   '-MO=Deparse', 1, q{use strict;},                         0 ],

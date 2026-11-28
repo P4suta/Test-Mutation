@@ -94,9 +94,9 @@ PERL
         chmod 0, $private or die "protect $private: $!";
         my ($uncertified) = run_fixture( $root, %settings, link => ['private-input'] );
         unlink $private or die "remove $private: $!";
-        is $uncertified->baseline_failures, [], 'the original test can run without reading the linked input';
-        is $uncertified->measurement_digest, undef, 'the unreadable input prevents shard certification';
-        is subtraction($uncertified), 'Survived', 'writing a report cannot change the operand in the test copy';
+        is $uncertified->baseline_failures,  [],         'the original test can run without reading the linked input';
+        is $uncertified->measurement_digest, undef,      'the unreadable input prevents shard certification';
+        is subtraction($uncertified),        'Survived', 'writing a report cannot change the operand in the test copy';
     };
     symlink 'history/part/mutation.json', "$root/operand.json" or die "link input: $!";
     write_file( "$root/t/linked.t", <<'PERL' );
