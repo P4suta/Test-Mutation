@@ -2,6 +2,7 @@ use v5.36;
 use Test2::V0;
 use File::Temp ();
 use lib 't/lib';
+use Bounded;
 use Raised;
 use Test::Mutation::Mutant::Generator;
 use Test::Mutation::Mutator::Catalog;
@@ -444,6 +445,11 @@ subtest 'changes to control flow and operands respect Perl precedence' => sub {
 };
 
 subtest 'a flip-flop can end on the same line as it starts' => sub {
+    my $ranges_in = sub ($text) {
+        my ( $ended, $changes ) = Bounded::ended( 2, sub { return mutants( $text, profile => 'extended' ) } );
+        ok $ended, 'range analysis terminates while following the enclosing syntax';
+        return grep { $_->mutator eq 'range-boundary' } @{ $changes // [] };
+    };
     my $source = <<'CODE';
 sub select_lines {
     for (@_) {
@@ -468,7 +474,7 @@ sub arguments {
 }
 sub unfinished { ... }
 CODE
-    my @ranges = grep { $_->mutator eq 'range-boundary' } mutants( $source, profile => 'extended' )->@*;
+    my @ranges = $ranges_in->($source);
     is [ map { [ $_->from->[0], $_->original, $_->replacement ] } @ranges ],
       [ map { [ $_, '...', '..' ] } 3, 4, 12, 13, 14 ],
       'scalar assignments, explicit scalar context, and conditions evaluate the range endpoint earlier';
@@ -478,8 +484,8 @@ my @sorted = sort { $a ... $b } @input;
 my @mapped = map { /begin/ ... /end/ } @input;
 my @all = grep { /begin/ ... /end/; 1 } @input;
 CODE
-    is [ map { $_->from->[0] } grep { $_->mutator eq 'range-boundary' } mutants( $blocks, profile => 'extended' )->@* ],
-      [ 1, 2 ], 'a filter predicate and a sort comparator consume the final block value in scalar context';
+    is [ map { $_->from->[0] } $ranges_in->($blocks) ], [ 1, 2 ],
+      'a filter predicate and a sort comparator consume the final block value in scalar context';
     my $logical = <<'CODE';
 sub through_list {
     my @items;
@@ -496,7 +502,7 @@ sub through_callback {
     &$send(1 ... 3) or die 'nothing sent';
 }
 CODE
-    my @logical_ranges = grep { $_->mutator eq 'range-boundary' } mutants( $logical, profile => 'extended' )->@*;
+    my @logical_ranges = $ranges_in->($logical);
     is [ map { $_->from->[0] } @logical_ranges ], [ 8, 9 ],
       'a logical operator tests its entire left operand after a list assignment or call finishes';
 };
