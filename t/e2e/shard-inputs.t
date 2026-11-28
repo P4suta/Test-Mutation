@@ -54,6 +54,20 @@ sub compare (%settings) {
 }
 
 ok lives { compare( cache => 1, jobs => 1 ) }, 'cached and uncached observations use compatible inputs';
+subtest 'shards can use independently formatted configuration files' => sub {
+    my @parts;
+    for my $part ( 1 .. 2 ) {
+        my $checkout = "configured-$part";
+        my $root     = "$area/$checkout";
+        write_file( "$root/lib/Boundary.pm", $module );
+        write_file( "$root/t/boundary.t",    "use Test::More tests => 1; use Boundary; ok Boundary::positive(1);\n" );
+        write_file( "$root/settings.toml",   "# Settings for worker $part\njobs = $part\n" );
+        push @parts, shard( $checkout, $part, config => 'settings.toml' );
+    }
+    ok lives { Test::Mutation::Merge::merge( \@parts ) },
+      'the selected measurement settings determine whether the shards can be combined';
+};
+
 ok lives { Test::Mutation::Merge::merge( [ checkout_library( 'first', 1 ), checkout_library( 'second', 2 ) ] ) },
   'checkout-relative Perl search paths identify identical project libraries';
 {
