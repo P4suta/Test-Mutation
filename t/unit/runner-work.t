@@ -36,14 +36,16 @@ subtest 'the outer shim can replace the compiler observer of an installed driver
     write_file( "$area/shim/Test/Mutation/Shim/G$generation.pm", Test::Mutation::Runner::shim_text($generation) );
     write_spec( "$area/spec", targets => [ [ "$installed/$observer", "$area/changed.pm" ] ] );
     write_file( "$area/read.pl", <<'PERL' );
+use lib 'project/lib', 'blib/lib';
+use Cwd ();
 use Test::Mutation::Runner;
-print "$INC{'Test/Mutation/Runner.pm'}\n";
+print Cwd::abs_path($INC{'Test/Mutation/Runner.pm'}), "\n";
 print Test::Mutation::Runner::_module_text('Test/Mutation/CompilerInputs.pm');
 PERL
     my $run = run_perl(
         root => $area,
         env  => {
-            PERL5LIB                          => join( q{:}, "$area/shim", $project, $installed, $library ),
+            PERL5LIB                          => join( q{:}, "$area/shim", $library ),
             "TEST_MUTATION_SPEC_G$generation" => "$area/spec",
         },
         args => [ "-MTest::Mutation::Shim::G$generation", 'read.pl' ],
