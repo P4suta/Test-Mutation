@@ -39,6 +39,11 @@ my %lines = map { $_ => 1 } @lines;
 ok $lines{ unpack 'H*', $literal }, 'the compiler records the absolute path of a literal read';
 ok $lines{ unpack 'H*', $config },  'the compiler records the file named by the environment';
 
+my $second = write_file( "$root/second config", "environment\n" );
+my %second_run = map { $_ => 1 } @{ compile_record( $root, 'stable', $operands, COMPILER_CONFIG => $second ) || [] };
+ok $second_run{ unpack 'H*', $second } && !$second_run{ unpack 'H*', $config },
+  'a later successful compilation replaces the inputs at the same record path';
+
 my $other = write_file( "$root/other config", "replacement\n" );
 write_file( "$root/probe.pl", <<'PERL' );
 BEGIN {
