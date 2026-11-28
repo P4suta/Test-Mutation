@@ -210,6 +210,26 @@ subtest 'concurrent writers publish only committed observations' => sub {
     is Test::Mutation::Store::load($path), $both, 'a rolled-back write preserves every committed observation';
 };
 
+subtest 'a write-only transaction returns the database acknowledgement' => sub {
+    my $path       = "$directory/write-only/measurement.sqlite";
+    my $connection = Test::Mutation::Store::database($path);
+    my $acknowledged;
+    is dies {
+        $acknowledged = Test::Mutation::Store::transaction(
+            $connection,
+            sub {
+                $connection->do(q{INSERT INTO setting VALUES ('saved','yes')});
+                return;
+            }
+        );
+    }, undef, 'a committed write needs no result from the callback';
+    ok $acknowledged, 'the caller receives the successful commit result';
+    is Test::Mutation::Store::read_database($path)->selectrow_array(q{SELECT data FROM setting WHERE id = 'saved'}),
+      'yes', 'another connection can read the committed change';
+    is Test::Mutation::Store::transaction( $connection, sub { return 0 } ), 0,
+      'a defined false callback result passes through the transaction';
+};
+
 subtest 'a nonblocking checkpoint retries only a competing writer' => sub {
     my $path  = "$directory/checkpoints/measurement.sqlite";
     my $write = Test::Mutation::Store::checkpoints($path);
