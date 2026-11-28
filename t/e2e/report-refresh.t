@@ -1,5 +1,6 @@
 use v5.36;
 use Test2::V0;
+use File::Copy ();
 use File::Temp ();
 use POSIX      ();
 use Test::Mutation::Report::Json;
@@ -27,6 +28,18 @@ my $whole = report('json');
 my %first = map { $_->{mutant}->id => $_->{status} } $whole->entries->@*;
 my ($id)  = grep { $first{$_} eq 'Survived' } sort keys %first;
 ok defined $id, 'the original suite misses a change';
+subtest 'inspection uses the older valid report when the newer file is incomplete' => sub {
+    my $history = File::Temp::tempdir( CLEANUP => 1 );
+    for my $case ( [ json => 'html', q{} ], [ json => 'html', '{"files":' ], [ html => 'json', '<html></html>' ], ) {
+        my ( $newer, $older, $broken ) = @$case;
+        my $valid = "$history/mutation.$older";
+        File::Copy::copy( "$files/mutation.$older", $valid ) or die "copy the older report: $!";
+        utime 1, 1, $valid or die "date the older report: $!";
+        write_file( "$history/mutation.$newer", $broken );
+        my $shown = ran( 0, $project, 'show', $id, '--no-cache', '--report-dir', $history );
+        like $shown->{stdout}, qr/^Last result: Survived$/m, "the older $older report supplies the result";
+    }
+};
 write_file( "$project/t/stronger.t", "use Test::More tests => 1;\nuse Totals;\nis Totals::sum(4, 1), 5;\n" );
 ran( 0, $project, @options, '--mutant', $id );
 for my $format (qw(json html)) {
