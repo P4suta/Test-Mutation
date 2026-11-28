@@ -199,8 +199,8 @@ subtest 'a standalone line trace preserves modules loaded before and after its w
     my $module     = "Test/Mutation/Shim/G$generation.pm";
     my $perl       = $ENV{TEST_MUTATION_SECOND_PERL} || $^X;
     for my $order (qw(before after)) {
-        my $root = ShimHarness::project();
-        write_file( "$root/lib/$module", "package $package;\n" . <<'PERL' );
+        my $root     = ShimHarness::project();
+        my $handlers = <<'PERL';
 use strict;
 use warnings;
 sub trace_source { die "project tracer called\n" }
@@ -208,11 +208,15 @@ sub seen { die "project witness called\n" }
 sub value { return 42 }
 1;
 PERL
+        write_file( "$root/lib/$module", "package $package;\n$handlers" );
+        my $other = "Test::Mutation::Shim::TraceG$generation";
+        write_file( "$root/lib/Test/Mutation/Shim/TraceG$generation.pm", "package $other;\n$handlers" );
         my $load = "BEGIN { require $package }\n";
         my $body = "sub measured {\n    return 2;\n}\n";
         my $path = "$root/target.pl";
         my $instrumented =
           Test::Mutation::Witness::insert( $body, length($body), $generation, 0, "$run->{work}/records", 9 );
+
         for ( 1 .. 2 ) {
             $instrumented = Test::Mutation::Witness::trace(
                 text       => $instrumented,
@@ -226,6 +230,7 @@ PERL
             );
         }
         $instrumented = $order eq 'before' ? $load . $instrumented : $instrumented . $load;
+        $instrumented = "BEGIN { require $other }\n" . $instrumented;
         write_file( $path, $instrumented . 'print measured() + ' . $package . "::value(), qq{\\n};\n" . <<'PERL' );
 die "tracer in module list\n" if grep { defined && index($_, $ARGV[0]) == 0 } values %INC;
 die "missing project module\n" unless $INC{$ARGV[1]} eq $ARGV[2];
@@ -243,6 +248,25 @@ PERL
           'executing the function records its original line';
     }
     ok $run->{workspace}->release(0), 'the tracing workspace is released';
+};
+
+subtest 'a standalone compilation witness records a blind load alongside a project shim' => sub {
+    my $root = ShimHarness::project();
+    write_file( "$root/lib/Test/Mutation/Shim/G3.pm", <<'PERL' );
+package Test::Mutation::Shim::G3;
+sub seen { die "project witness called\n" }
+1;
+PERL
+    my $path   = "$root/run.pl";
+    my $source = "use Test::Mutation::Shim::G3 ();\n1;\n";
+    write_file( $path, Test::Mutation::Witness::insert( $source, length($source), 3, 4, "$root/records", 9 ) );
+    my $result = ShimHarness::run_command(
+        root    => $root,
+        command => [ $ENV{TEST_MUTATION_SECOND_PERL} || $^X, "-I$root/lib", $path ],
+        env     => { TEST_MUTATION_RECORD_G3 => "$root/records" },
+    );
+    is $result, { status => 0, signal => 0, stdout => q{}, stderr => q{} }, 'the project witness is not invoked';
+    is ShimHarness::all_records($root), [ [ 'blind', 4 ] ], 'the file-level record identifies the compiled target';
 };
 
 subtest 'placing a replacement preserves the witness position around a changed span' => sub {
