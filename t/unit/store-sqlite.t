@@ -340,16 +340,25 @@ subtest 'a commit veto keeps the original error after SQLite rolls back' => sub 
     is $connection->selectcol_arrayref('SELECT id FROM items'), [], 'the engine has already rolled back the insertion';
 };
 
+sub checkpoints_on ( $path, $connection ) {
+    no warnings 'redefine';
+    local *Test::Mutation::Store::database = sub ($) { return $connection };
+    return Test::Mutation::Store::checkpoints($path);
+}
+
 subtest 'a nonblocking checkpoint retries only a competing writer' => sub {
-    my $path  = "$directory/checkpoints/measurement.sqlite";
-    my $write = Test::Mutation::Store::checkpoints($path);
-    my $peer  = Test::Mutation::Store::database($path);
+    my $path   = "$directory/checkpoints/measurement.sqlite";
+    my $writer = Test::Mutation::Store::database($path);
+    my $peer   = Test::Mutation::Store::database($path);
+    $writer->sqlite_busy_timeout(100);
+    my $write = checkpoints_on( $path, $writer );
     $peer->do('BEGIN IMMEDIATE');
     is $write->( 'example', $record, 0 ), 0, 'a competing write lock leaves the observation pending';
     is $peer->selectrow_array('SELECT count(*) FROM verdict'), 0, 'no partial observation is visible';
     my $malformed = { %$record, inputs => chr(0xd800) };
     like dies { $write->( 'malformed', $malformed, 0 ) }, qr/cannot convert to JSON/,
       'a previous lock conflict cannot hide a new encoder failure';
+    is $writer->sqlite_busy_timeout, 0, 'SQLite returns control immediately while another writer holds the lock';
     $peer->do('COMMIT');
     is $write->( 'example', $record, 0 ), 1, 'the pending observation commits when the lock clears';
     is Test::Mutation::Store::load($path), { example => $record }, 'another connection sees the commit';
@@ -371,9 +380,8 @@ subtest 'a blocking checkpoint uses the remainder of the original lock timeout' 
     $writer->sqlite_busy_timeout(2_000);
     my $write = do {
         no warnings 'redefine';
-        local *Test::Mutation::Store::database = sub ($) { return $writer };
-        local *Test::Mutation::Clock::new      = sub ($) { return $clock };
-        Test::Mutation::Store::checkpoints($path);
+        local *Test::Mutation::Clock::new = sub ($) { return $clock };
+        checkpoints_on( $path, $writer );
     };
     $peer->do('BEGIN IMMEDIATE');
     is $write->( 'delayed', $record, 0 ), 0, 'the first lock conflict starts the deadline';
