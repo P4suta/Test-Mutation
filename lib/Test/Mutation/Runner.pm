@@ -778,7 +778,12 @@ sub _prepare_work ($run) {
         'compiler/Test/Mutation/CompilerInputs',
         'mutants', 'records', 'tmp'
     );
-    _spew( "$work/shim/Test/Mutation/Shim/G$generation.pm", shim_text($generation) );
+    my $shim = shim_text($generation);
+    _spew( "$work/shim/Test/Mutation/Shim/G$generation.pm", $shim );
+
+    # A standalone target can load its own module under the name used for the preloaded shim.
+    $shim =~ s/^package Test::Mutation::Shim::G\Q$generation\E;$/package Test::Mutation::Shim::TraceG$generation;/m;
+    _spew( "$work/trace.pl", $shim );
     _spew( "$work/compiler/Test/Mutation/CompilerInputs/G$generation.pm",
         _generation_text( $COMPILER_FILE, $generation ) );
     $run->{generation} = $generation;

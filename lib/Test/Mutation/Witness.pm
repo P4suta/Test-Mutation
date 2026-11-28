@@ -15,13 +15,11 @@ signature_for insert =>
 
 sub insert ( $text, $offset, $generation, $index, $records, $descriptor ) {
     my $package   = "Test::Mutation::Shim::G$generation";
+    my $trace     = "Test::Mutation::Shim::TraceG$generation";
     my $directory = _directory( $generation, $records, $descriptor );
     my $statement =
-        'UNITCHECK{package DB;unless(defined&'
-      . $package
-      . '::seen&&'
-      . $package
-      . "::seen($index)){"
+        "UNITCHECK{package DB;unless(defined&${trace}::seen?${trace}::seen($index):"
+      . "defined&${package}::seen&&${package}::seen($index)){"
       . $directory
       . 'if(CORE::open(my$h,q{>>:raw},"$d/blind-$$.rec")){CORE::syswrite($h,"blind\t'
       . $index
@@ -86,18 +84,24 @@ signature_for trace => (
 sub trace ($arg) {
     my $generation = $arg->generation;
     my $package    = "Test::Mutation::Shim::G$generation";
-    my $shim       = _literal( $arg->work . '/shim' );
+    my $trace      = "Test::Mutation::Shim::TraceG$generation";
+    my $module     = "Test/Mutation/Shim/G$generation.pm";
     my $statement =
-        'BEGIN{package DB;unless(defined&'
+        'BEGIN{package DB;my$w='
+      . _literal( $arg->work )
+      . ';my$m=q{'
+      . $module
+      . '};my$t;'
+      . 'if(($INC{$m}||q{})eq"$w/shim/$m"){$t=\&'
       . $package
-      . '::trace_source){local@INC=('
-      . $shim
-      . ',@INC);CORE::require(q{Test/Mutation/Shim/G'
-      . $generation
-      . '.pm})}'
-      . _directory( $generation, $arg->work . '/records', $arg->descriptor )
-      . $package
-      . '::trace_source('
+      . '::trace_source}'
+      . 'else{unless(defined&'
+      . $trace
+      . '::trace_source){my$f="$w/trace.pl";'
+      . 'local$INC{$f};delete$INC{$f};CORE::require($f)}$t=\&'
+      . $trace
+      . '::trace_source}'
+      . _directory( $generation, $arg->work . '/records', $arg->descriptor ) . '$t->('
       . join( ',', $arg->index, _literal( $arg->target ), '__FILE__', '$d', $arg->line . '-__LINE__' ) . ')}';
     my $text = $arg->text;
     substr $text, $arg->offset, 0, $statement;
