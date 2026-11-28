@@ -983,7 +983,10 @@ sub rates ( $tally, $count, $base ) {
 sub rated ( $tally, $count, $base, $bound, $text ) {
     my %default =
       map { $_->name => 1 } grep { $_->profile eq 'default' } Test::Mutation::Mutator::Catalog::mutators()->@*;
-    return [ map { "$_->[0] $text" } grep { $default{ $_->[0] } && $_->[3] > $bound } rates( $tally, $count, $base ) ];
+    return [
+        map  { "$_->[0] $text ($_->[1] of $_->[2])" }
+        grep { $default{ $_->[0] } && $_->[3] > $bound } rates( $tally, $count, $base )
+    ];
 }
 
 # One line for each rule of the generator: how often it refused a change, and for which mutators.
