@@ -125,6 +125,10 @@ run = [
 description = "Test the candidate commit on the driver and shim versions from the CI matrix"
 run = "perl xt/bin/check-ci-interpreters"
 
+[tasks.check-ci]
+description = "Run the local pull request checks before pushing a commit"
+run = ["mise run check", "mise run check-ci-interpreters"]
+
 [tasks.coverage]
 description = "Measure statement and branch coverage against the release floors"
 run = "perl xt/bin/measure-coverage"
