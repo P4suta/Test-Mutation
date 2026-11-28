@@ -8,6 +8,7 @@ use Test::Mutation::Merge;
 use Test::Mutation::Report::Json;
 use Test::Mutation::Runner;
 use Test::Mutation::Settings;
+use Test::Mutation::Source;
 
 my $area    = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
 my $library = "$area/external";
@@ -225,21 +226,21 @@ PERL
     is $opaque->{result}->stats->{compiles}, 1, 'an unbound original needs no mutant compilations';
     unlike join( "\n", $opaque->{result}->warnings->@* ), qr/no stable text/,
       'a repeatable compilation with an unknown input has no unstable-output warning';
-    is $opaque->{result}->compiler_inputs, $peer->{result}->compiler_inputs,
-      'an unchanged opaque source has the same compilation in both checkouts';
+    is $opaque->{result}->measurement_digest, undef, 'an unidentified input leaves the measurement uncertified';
     ok !( grep { defined $_->{compiled_digest} } $peer->{result}->entries->@* ),
       'an indirect compiler input leaves the observed test verdict in place';
     ok + ( grep { $_->{status} eq 'NoCoverage' } $peer->{result}->entries->@* ),
       'the untouched target keeps its actual lack of test coverage';
-    ok lives { Test::Mutation::Merge::merge( [ $opaque, $peer ] ) }, 'equal observations from opaque sources can merge';
+    like dies { Test::Mutation::Merge::merge( [ $opaque, $peer ] ) }, qr/measurement inputs are missing/,
+      'identical deparses cannot identify an opaque input';
     my @unchecked = map { shard( "data-$_->[0]", $_->[1], equivalence => 0 ) } [ first => 1 ], [ second => 2 ];
     like dies { Test::Mutation::Merge::merge( \@unchecked ) }, qr/measurement inputs are missing/,
       'unidentified compiler inputs prevent a merge without observed deparsed code';
     write_file( "$area/limit", "11\n" );
     my $changed = shard( 'data-second', 2, cache => 1 );
     is $changed->{result}->reused, 0, 'a source with opaque compiler reads is measured again';
-    like dies { Test::Mutation::Merge::merge( [ $opaque, $changed ] ) }, qr/measurement inputs differ/,
-      'different observed compilations of one opaque source reject the merge';
+    like dies { Test::Mutation::Merge::merge( [ $opaque, $changed ] ) }, qr/measurement inputs are missing/,
+      'the changed opaque source still lacks input evidence';
 };
 
 subtest 'loaded modules cannot replace the input that a phase block read' => sub {
@@ -280,12 +281,13 @@ PERL
     my $peer  = shard( 'bound-second', 2, cache => 1 );
     ok !( grep { defined $_->{compiled_digest} } $peer->{result}->entries->@* ),
       'the final path does not prove which file was read';
-    ok lives { Test::Mutation::Merge::merge( [ $prior, $peer ] ) }, 'identical observed compilations still merge';
+    like dies { Test::Mutation::Merge::merge( [ $prior, $peer ] ) }, qr/measurement inputs are missing/,
+      'the unverified final binding cannot certify the shards';
     write_file( "$area/before.dat", "13\n" );
     my $warm = shard( 'bound-second', 2, cache => 1 );
     is $warm->{result}->reused, 0, 'the path assigned after the read cannot validate a prior verdict';
-    like dies { Test::Mutation::Merge::merge( [ $prior, $warm ] ) }, qr/measurement inputs differ/,
-      'different values read before the path changes reject the merge';
+    like dies { Test::Mutation::Merge::merge( [ $prior, $warm ] ) }, qr/measurement inputs are missing/,
+      'shards with a reassigned binding cannot supply the missing input';
 
     local $ENV{TEST_PROJECT_ORIGINAL} = $ENV{TEST_PROJECT_TABLE};
     write_file( "$area/rebind-library/SwitchInput.pm",
@@ -298,13 +300,13 @@ PERL
     my $restored       = shard( 'bound-second', 2, cache => 1 );
     ok !( grep { defined $_->{compiled_digest} } $restored->{result}->entries->@* ),
       'restoring the original path cannot prove which file an intervening read used';
-    ok lives { Test::Mutation::Merge::merge( [ $before_restore, $restored ] ) },
-      'equal observed compilations survive a temporary change';
+    like dies { Test::Mutation::Merge::merge( [ $before_restore, $restored ] ) }, qr/measurement inputs are missing/,
+      'an unobserved intermediate binding prevents merging';
     write_file( "$area/after.dat", "17\n" );
     my $changed = shard( 'bound-second', 2, cache => 1 );
     is $changed->{result}->reused, 0, 'the restored path cannot validate results for the intermediate file';
-    like dies { Test::Mutation::Merge::merge( [ $before_restore, $changed ] ) }, qr/measurement inputs differ/,
-      'changing the intermediate file rejects the merge';
+    like dies { Test::Mutation::Merge::merge( [ $before_restore, $changed ] ) }, qr/measurement inputs are missing/,
+      'changing the intermediate file cannot validate the missing input';
 };
 
 subtest 'a library loaded by the compiler reads an external data file' => sub {
