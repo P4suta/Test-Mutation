@@ -14,6 +14,7 @@ is reads(q{sort compare { main::observe() };}), undef, 'a bareword and block aft
 is reads(q{method future ($value);}), undef, 'a signature without a method body does not establish deferred code';
 is reads(q{method future ($value) { main::observe($value) }}), [], 'a named method and its signature defer their code';
 is reads(q{method x ($value = main::observe()) { return $value }}), [], 'a method named x defers its default argument';
-is reads(q{method future; method future { main::observe() }}), [], 'a forward declaration can precede the deferred body';
+is reads(q{method future; method future { main::observe() }}), [],
+  'a forward declaration can precede the deferred body';
 
 done_testing;

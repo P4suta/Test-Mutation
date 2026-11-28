@@ -224,9 +224,10 @@ sub _deferred_class_member ( $keyword, $next = undef, @rest ) {
     return 0 unless $next;
     return 1 if _is_word( $keyword, { field => 1 } ) && $next->isa('PPI::Token::Symbol');
     return 1 if _is_word( $keyword, { ADJUST => 1 } ) && $next->isa('PPI::Structure::Block') && !@rest;
-    return 0 unless _is_word( $keyword, { method => 1 } ) && $next->isa('PPI::Token::Word');
+    return 0 unless _is_word( $keyword, { method => 1 } ) && _is_name($next);
     return 0 if $next->content =~ /\A(?:import|unimport|AUTOLOAD|DESTROY)\z/;
-    shift @rest if @rest && $rest[0]->isa('PPI::Structure::List');
+    return 1 unless @rest;
+    shift @rest if $rest[0]->isa('PPI::Structure::List');
     return @rest == 1 && $rest[0]->isa('PPI::Structure::Block');
 }
 
