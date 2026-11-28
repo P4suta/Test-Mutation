@@ -289,7 +289,7 @@ subtest 'a blocking checkpoint uses the remainder of the original lock timeout' 
     my $path   = "$directory/retry/measurement.sqlite";
     my $writer = Test::Mutation::Store::database($path);
     my $peer   = Test::Mutation::Store::database($path);
-    my $clock  = ManualClock->new( at => 10 );
+    my $clock  = ManualClock->new( at => -2 );
     $writer->sqlite_busy_timeout(2_000);
     my $write = do {
         no warnings 'redefine';
@@ -299,7 +299,9 @@ subtest 'a blocking checkpoint uses the remainder of the original lock timeout' 
     };
     $peer->do('BEGIN IMMEDIATE');
     is $write->( 'delayed', $record, 0 ), 0, 'the first lock conflict starts the deadline';
-    $clock->move(1.2495);
+    $clock->move(1);
+    is $write->( 'delayed', $record, 0 ), 0, 'a second conflict keeps the original deadline at the clock origin';
+    $clock->move(0.2495);
     $peer->do('COMMIT');
     is $write->( 'delayed', $record, 1 ), 1,     'the blocking retry commits the pending verdict';
     is $writer->sqlite_busy_timeout,      750,   'SQLite can wait the remaining whole milliseconds';
