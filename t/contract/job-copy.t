@@ -188,26 +188,34 @@ subtest 'a failing write, mode change or rename preserves the existing entry' =>
 };
 
 subtest 'the shim distinguishes a placed source on disk from a load outside the hook' => sub {
+    my $check = <<'PERL';
+my @loaded = stat $INC{'Example.pm'};
+my @placed = stat 'lib/Example.pm';
+exit 2 unless @loaded && @placed && $loaded[0] == $placed[0] && $loaded[1] == $placed[1];
+print Example::value();
+PERL
     for my $case ( [ 1, 'blind' ], [ 0, 'around' ] ) {
         my ( $placed_on_disk, $record ) = @$case;
         my $project = ShimHarness::project();
         my $target  = "$project/lib/Example.pm";
-        write_file( $target,              "package Example;\nsub value { 24 }\n1;\n" );
+        write_file( $target,              "package Example;\nsub value { 24 }\nsub unused { die 'unused' }\n1;\n" );
         write_file( "$project/unused.pm", "die 'the hook must not replace this file';\n" );
         write_file( "$project/spec",
             "trace\t0\nplaced\t$placed_on_disk\nobserve\t1\ntarget\t$target\t$project/unused.pm\n" );
         my $result = ShimHarness::run_perl(
             root => $project,
             env  => { TEST_MUTATION_SPEC => "$project/spec", TEST_MUTATION_RECORD => "$project/records" },
-            args => [
-                '-I' . ShimHarness::lib_dir(), '-MTest::Mutation::Shim',
-                '-Ilib',                       '-MExample',
-                '-e',                          'print Example::value()'
-            ],
+            args => [ '-I' . ShimHarness::lib_dir(), '-MTest::Mutation::Shim', '-Ilib', '-MExample', '-e', $check ],
         );
         is [ $result->{status}, $result->{stdout} ], [ 0, '24' ], 'the interpreter reads the source bytes from disk';
         is [ map { [ $_->[0], $_->[1] ] } grep { $_->[0] ne 'end' } ShimHarness::records($project)->@* ],
           [ [ $record, $target ] ], 'the observation identifies whether the file was placed in the copy';
+        my $raw = ShimHarness::all_records($project);
+        is [ map { $_->[1] } grep { $_->[0] eq 'begin' } @$raw ], [0], 'the interpreter ran without line tracing';
+        my $read = Test::Mutation::Record::read_directory("$project/records");
+        is [ $read->{served}{$target}, $read->{compiled}{$target}, $read->{bypassed}{$target} ],
+          $placed_on_disk ? [ { traced => 0, hits => {} }, 1, undef ] : [ undef, undef, 1 ],
+          'the placed file has file coverage and the unplaced file records a bypass';
     }
 };
 
