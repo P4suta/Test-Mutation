@@ -59,6 +59,11 @@ subtest 'a search directory outside the checkout keeps its location' => sub {
         symlink 'bin',               "$base/$site/repo/alias"     or die "link local search directory: $!";
         symlink "$base/first/tools", "$base/$site/repo/shared"    or die "link shared search directory: $!";
     }
+    my $alias = "$base/linked-project";
+    symlink "$base/first/repo", $alias or die "link project root: $!";
+    is Test::Mutation::Store::Key::environment( { PERL5LIB => "$alias/bin" }, $alias ),
+      Test::Mutation::Store::Key::environment( { PERL5LIB => "$base/second/repo/bin" }, "$base/second/repo" ),
+      'a library in a checkout reached through a symlink relocates with the project';
     for my $name (qw(PATH PERL5LIB PERLLIB)) {
         my $key = sub ( $site, $entry ) {
             my $project = "$base/$site/repo";

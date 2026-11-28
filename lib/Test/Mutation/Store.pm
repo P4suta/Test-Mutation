@@ -320,7 +320,7 @@ sub checkpoints ($path) {
             die $attempt->{error};    ## no critic (ErrorHandling::RequireCarping)
         }
         $deadline = undef;
-        return defined $may_wait ? 1 : undef;
+        return defined $may_wait ? $attempt->{value} : undef;
     };
 }
 

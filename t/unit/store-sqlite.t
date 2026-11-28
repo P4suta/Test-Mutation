@@ -5,6 +5,7 @@ use File::Temp ();
 use POSIX      ();
 use lib 't/lib';
 use Capability;
+use ManualClock;
 use Test::Mutation::Settings;
 use Test::Mutation::Source;
 use Test::Mutation::Store;
@@ -143,6 +144,33 @@ subtest 'a damaged build setting preserves independently recorded baseline obser
     }
 };
 
+subtest 'invalidating one source takes bounded work as unrelated verdicts grow' => sub {
+    my $path    = "$directory/pruning/measurement.sqlite";
+    my $current = { %$record, source => 'current' };
+    my $open    = \&Test::Mutation::Store::database;
+    my $prune   = sub ($remaining) {
+        Test::Mutation::Store::save( $path, { changed => $record, current => $current } );
+        my $hundreds = 0;
+        {
+            no warnings 'redefine';
+            local *Test::Mutation::Store::database = sub ($file) {
+                my $connection = $open->($file);
+                $connection->sqlite_progress_handler( 100, sub { $hundreds++; return 0 } );
+                return $connection;
+            };
+            is Test::Mutation::Store::save( $path, {}, undef, { $record->{path} => $current->{source} } ), $remaining,
+              'only the obsolete verdict is removed';
+        }
+        is Test::Mutation::Store::load( $path, [qw(changed current)] ), { current => $current },
+          'the matching source revision remains reusable';
+        return $hundreds;
+    };
+    my $small = $prune->(1);
+    Test::Mutation::Store::save( $path, { map { $_ => { %$record, path => "lib/Other$_.pm" } } 1 .. 1_000 } );
+    cmp_ok $prune->(1_001), '<=', $small + 1,
+      'one thousand unrelated paths cost at most one extra block of one hundred SQLite operations';
+};
+
 subtest 'concurrent writers publish only committed observations' => sub {
     my $path = "$directory/concurrent/measurement.sqlite";
     pipe my $start, my $signal or die "pipe: $!";
@@ -177,6 +205,8 @@ subtest 'concurrent writers publish only committed observations' => sub {
             }
         );
     }, qr/interrupted publication/, 'an interrupted transaction returns its original failure';
+    is $connection->selectcol_arrayref('SELECT id FROM verdict ORDER BY id'), [qw(1 2)],
+      'the writer sees the previously committed observations after its transaction fails';
     is Test::Mutation::Store::load($path), $both, 'a rolled-back write preserves every committed observation';
 };
 
@@ -193,6 +223,40 @@ subtest 'a nonblocking checkpoint retries only a competing writer' => sub {
     $peer->do(q{CREATE TRIGGER reject BEFORE INSERT ON verdict BEGIN SELECT RAISE(ABORT,'rejected record'); END});
     like dies { $write->( 'refused', $record, 0 ) }, qr/rejected record/,
       'a rejected write passes its failure to the caller';
+};
+
+subtest 'a blocking checkpoint uses the remainder of the original lock timeout' => sub {
+    my $path   = "$directory/retry/measurement.sqlite";
+    my $writer = Test::Mutation::Store::database($path);
+    my $peer   = Test::Mutation::Store::database($path);
+    my $clock  = ManualClock->new( at => 10 );
+    $writer->sqlite_busy_timeout(2_000);
+    my $write = do {
+        no warnings 'redefine';
+        local *Test::Mutation::Store::database = sub ($) { return $writer };
+        local *Test::Mutation::Clock::new      = sub ($) { return $clock };
+        Test::Mutation::Store::checkpoints($path);
+    };
+    $peer->do('BEGIN IMMEDIATE');
+    is $write->( 'delayed', $record, 0 ), 0, 'the first lock conflict starts the deadline';
+    $clock->move(1.25);
+    $peer->do('COMMIT');
+    is $write->( 'delayed', $record, 1 ), 1,     'the blocking retry commits the pending verdict';
+    is $writer->sqlite_busy_timeout,      750,   'SQLite can wait the remaining three quarters of a second';
+    is $write->( 'next', $record, 1 ),    1,     'the next checkpoint commits independently';
+    is $writer->sqlite_busy_timeout,      2_000, 'a new checkpoint receives the full lock timeout';
+    is Test::Mutation::Store::load($path), { delayed => $record, next => $record }, 'both commits are durable';
+};
+
+subtest 'SQLite acknowledges a removal even when the verdict is already absent' => sub {
+    my $path    = "$directory/removal/measurement.sqlite";
+    my $write   = Test::Mutation::Store::checkpoints($path);
+    my $pending = { %$record, status => 'Pending', reason => 'interrupted' };
+    is $write->( 'example', $record ), undef, 'a caller without a wait argument receives no acknowledgement';
+    is Test::Mutation::Store::load($path), { example => $record }, 'the completed observation was committed';
+    is $write->( 'example', $pending, 1 ), 1, 'the writer acknowledges removal of the superseded verdict';
+    is $write->( 'example', $pending, 1 ), 1, 'a retry can acknowledge the same removal';
+    is Test::Mutation::Store::load($path), {}, 'an interrupted observation leaves no reusable verdict';
 };
 
 subtest 'legacy checkpoints defer file locking until the caller can wait' => sub {
