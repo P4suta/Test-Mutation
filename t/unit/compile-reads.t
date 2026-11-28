@@ -140,13 +140,13 @@ PERL
             disable => [qw(@removal arithmetic comparison-negation logical)]
         );
         my ($entry) = grep { $_->{mutant}->mutator eq 'comparison-boundary' } $result->entries->@*;
-        return $entry->{status};
+        return [ $entry->{status}, $result->cache_mismatch ];
     };
     write_file( "$area/data/limit", "7\n" );
-    is $boundary->(1), 'Killed', 'the test distinguishes strict comparison at seven';
+    is $boundary->(1), [ 'Killed', 0 ], 'the test distinguishes strict comparison at seven';
     write_file( "$area/data/limit", "5\n" );
-    is $boundary->(1), 'Survived', 'the earlier detection cannot be reused after the external limit changes';
-    is $boundary->(0), 'Survived', 'fresh tests agree with the cached run';
+    is $boundary->(1), [ 'Survived', 0 ], 'the changed limit invalidates the old verdict before cache sampling';
+    is $boundary->(0), [ 'Survived', 0 ], 'fresh tests agree with the cached run';
 };
 
 done_testing;
