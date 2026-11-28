@@ -11,6 +11,7 @@ my $scratch = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
 my $project = "$scratch/project";
 my $script  = Cwd::abs_path('xt/bin') . '/confirm-self-measurement';
 my $report  = "$project/mutation-report/mutation.json";
+my $last_log;
 
 sub result () {
     return Test::Mutation::Report::Json::parse( Test::Mutation::Source::read_bytes($report) );
@@ -69,4 +70,6 @@ is addition( result() )->{tests_run}, 2, 'without a suggestion the normal order 
 write_file( "$project/t/a.t", qq{print "1..1\\nnot ok 1 - broken original\\n";\n} );
 is confirm($hint), 3, 'an original test failure blocks even a previously detected mutant';
 is [ map { $_->{test} } result()->baseline_failures->@* ], ['t/a.t'], 'the failing original test appears in the report';
+like $last_log, qr/^\s*t\/a\.t\s*$/m, 'the terminal report identifies the failing original test';
+like $last_log, qr/^\s*not ok 1 - broken original$/m, 'the terminal report retains the failing TAP assertion';
 done_testing;
