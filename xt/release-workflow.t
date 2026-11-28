@@ -58,8 +58,8 @@ subtest 'protected controller code verifies the local status before reading cand
     my ($check) =
       grep { ( $steps[$_]{run} || q{} ) eq 'bash controller/xt/bin/verify-local-release-check' } keys @steps;
     my ($source) = grep { ( $steps[$_]{with}{ref} || q{} ) eq q{${{ env.SOURCE_SHA }}} } keys @steps;
-    ok defined $control && defined $check && defined $source,
-      'the candidate job runs the controller and reads the candidate separately'
+    my $has_steps = defined $control && defined $check && defined $source;
+    ok $has_steps, 'the candidate job runs the controller and reads the candidate separately'
       or return;
     ok $control < $check && $check < $source, 'local status approval precedes every candidate checkout';
     is $steps[$control]{with}{ref}, q{${{ github.workflow_sha }}},
@@ -157,6 +157,13 @@ subtest 'the verified output waits for both platforms and names one immutable ar
     is $download->{with}{'digest-mismatch'}, 'error', 'a transport digest mismatch fails verification';
     my ($controller) = grep { ( $_->{with}{path} || q{} ) eq 'controller' } ( $verified->{steps} || [] )->@*;
     is $controller->{with}{ref}, q{${{ github.workflow_sha }}}, 'archive verification runs the trusted controller';
+    my $recheck = $verified->{steps}[-1];
+    is $recheck->{run}, 'bash controller/xt/bin/verify-local-release-check',
+      'a status change during either build can still stop publication';
+    is $verified->{permissions}{statuses}, 'read', 'the artifact verifier reads commit statuses';
+    is $recheck->{env}{REPOSITORY_OWNER_ID}, q{${{ github.repository_owner_id }}},
+      'the artifact verifier uses the same account identity';
+    is $recheck->{env}{GH_TOKEN}, q{${{ github.token }}}, 'the final check receives a read token';
 };
 
 subtest 'a retried verification rejects artifacts from other builds' => sub {

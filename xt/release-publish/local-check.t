@@ -53,12 +53,9 @@ subtest 'the candidate requires its latest local status from the repository acco
     my $endpoint = statuses($source);
     my $other    = { %$pass, context => 'other', state => 'failure' };
     ok admits( { $endpoint => [ [$other], [$pass] ] } ), 'a successful status on a later page approves the candidate';
-    for my $update (
-        { %$pass, state   => 'failure' },
-        { %$pass, state   => 'pending' },
-        { %$pass, creator => { id => $owner + 1 } }
-      )
-    {
+    my @updates =
+      ( { %$pass, state => 'failure' }, { %$pass, state => 'pending' }, { %$pass, creator => { id => $owner + 1 } }, );
+    for my $update (@updates) {
         ok !admits( { $endpoint => [ [ $update, $pass ] ] } ), 'an older success cannot replace the latest status';
     }
     ok !admits( { $endpoint => [ [$other] ] } ), 'a manual rehearsal requires the selected commit to pass';
@@ -121,7 +118,8 @@ subtest 'a merged release proposal can carry approval only across identical Git 
         ok !admits( { %answers, commit($head) => $wrong }, merged_event(), %trigger ),
           'an unrelated commit or tree cannot reuse approval';
     }
-    ok !admits( { %answers, statuses($source) => [ [ { %$pass, state => 'failure' } ] ] }, merged_event(), %trigger ),
+    my $failure = { %$pass, state => 'failure' };
+    ok !admits( { %answers, statuses($source) => [ [$failure] ] }, merged_event(), %trigger ),
       'a candidate failure overrides a successful proposal';
     ok !admits( { %answers, statuses($head) => [ [] ] }, merged_event(), %trigger ),
       'an untested proposal cannot approve a merge';
