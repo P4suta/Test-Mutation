@@ -18,6 +18,18 @@ sub tree ( $inside = $root ) {
     return Test::Mutation::Store::Key::tree( $inside, [], 1 );
 }
 
+subtest 'publication operations validate the names and digests they accept' => sub {
+    require Test::Mutation::Report::Publication;
+    my $directory = File::Temp::tempdir( CLEANUP => 1 );
+    isa_ok dies { Test::Mutation::Report::Publication::names('mutation.json') }, ['Error::TypeTiny'],
+      'the name list takes no arguments';
+    isa_ok dies { Test::Mutation::Report::Publication::outputs( $directory, [] ) }, ['Error::TypeTiny'],
+      'the relative directory must be a string';
+    isa_ok
+      dies { Test::Mutation::Report::Publication::record( $directory, $directory, { 'mutation.json' => 'short' } ) },
+      ['Error::TypeTiny'], 'a published checksum must contain a complete SHA-256 digest';
+};
+
 subtest 'project data can describe a mutation framework' => sub {
     for my $format (qw(json html)) {
         my $path    = "$root/data/mutation.$format";
