@@ -289,6 +289,16 @@ subtest 'a rejected commit rolls back before the caller receives a result' => su
     ok !$connection->{RaiseError}, 'the caller keeps its DBI error policy';
 };
 
+subtest 'a commit veto keeps the original error after SQLite rolls back' => sub {
+    my $connection = DBI->connect( 'dbi:SQLite::memory:', undef, undef, { RaiseError => 1, PrintError => 0 } );
+    $connection->do('CREATE TABLE items (id INTEGER)');
+    $connection->sqlite_commit_hook( sub { return 1 } );
+    like dies {
+        Test::Mutation::Store::transaction( $connection, sub { $connection->do('INSERT INTO items VALUES (1)') } );
+    }, qr/constraint failed/i, 'the caller receives the rejection from the commit hook';
+    is $connection->selectcol_arrayref('SELECT id FROM items'), [], 'the engine has already rolled back the insertion';
+};
+
 subtest 'a nonblocking checkpoint retries only a competing writer' => sub {
     my $path  = "$directory/checkpoints/measurement.sqlite";
     my $write = Test::Mutation::Store::checkpoints($path);
