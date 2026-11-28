@@ -82,6 +82,20 @@ PERL
     is [ $found->@{qw(status by)} ], [ 'Killed', 't/b.t' ], 'the current assertion determines the verdict';
     is [ map { $_->{test} } $found->{observations}[0]->@* ], [qw(t/a.t t/b.t)],
       'the ordinary measurement starts again at the first covering test';
+
+    my $restore   = \&Test::Mutation::Tree::restore;
+    my $discarded = 0;
+    no warnings 'redefine';
+    local *Test::Mutation::Tree::restore = sub (%args) {
+        if ( grep { $_ eq 'created from-hint' } $args{changes}->@* ) {
+            $discarded++;
+            die "the candidate test copy cannot be restored\n";
+        }
+        return $restore->(%args);
+    };
+    my $retry = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => 't/z.t' } } );
+    is $discarded,                 1,       'the changed copy was retired';
+    is entry( $retry, $id )->{by}, 't/b.t', 'the ordinary tests obtained a clean replacement copy';
 };
 
 subtest 'a suggested detector may precede parallel tests and must wait for serial tests' => sub {
@@ -147,6 +161,27 @@ subtest 'cache use, shards, and named reruns keep ordinary detector order' => su
           Test::Mutation::Runner::run( config( $root, %$settings ), sub { }, { detector_hints => { $id => 't/z.t' } } );
         is entry( $result, $id )->{by}, 't/a.t', 'the first covering test decides with ' . ( keys %$settings )[0];
     }
+};
+
+subtest 'the restored original must pass before an in-place detector decides' => sub {
+    my $external = File::Temp::tempdir( CLEANUP => 1 );
+    local $ENV{DETECTOR_STATE} = "$external/state";
+    my $detector = $use_number . <<'PERL';
+if (defined($number) && $number == 1) {
+    for my $path ('from-detector', $ENV{DETECTOR_STATE}) {
+        open my $marker, '>', $path or die $!;
+        close $marker or die $!;
+    }
+}
+ok !-e $ENV{DETECTOR_STATE}, 'the shared fixture was empty';
+PERL
+    my $root   = project( 't/a.t' => $strong, 't/z.t' => $detector );
+    my $config = config( $root, in_place => 1 );
+    my $id     = arithmetic_id($config);
+    my $result = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => 't/z.t' } } );
+    ok -e $ENV{DETECTOR_STATE}, 'the suggested test also fails against the restored original';
+    is [ entry( $result, $id )->@{qw(status by)} ], [ 'Killed', 't/a.t' ],
+      'the independent assertion detects the change';
 };
 
 done_testing;

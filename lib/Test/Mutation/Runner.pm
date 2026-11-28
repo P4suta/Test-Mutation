@@ -1414,11 +1414,11 @@ sub _fresh_job ( $mutant, $tests, $duration = 0 ) {
 }
 
 sub _eligible_detector ( $rules, $tests, $hint ) {
-    return                                     unless defined $hint && @$tests && $tests->[0] ne $hint;
+    return if !defined $hint || !@$tests || $tests->[0] eq $hint;
     return ( grep { $_ eq $hint } @$tests )[0] unless $rules;
     my $queue = Test::Mutation::Schedule::queue( $rules, $tests );
     while ( my $job = $queue->get_job ) {
-        last         if $job->is_spinner;
+        return       if $job->is_spinner;
         return $hint if $job->filename eq $hint;
     }
     return;
@@ -1730,6 +1730,21 @@ sub _changed_paths ( $run, $changes ) {
     return;
 }
 
+sub _record_observation ( $run, $job ) {
+    $job->{verdict} = Test::Mutation::Verdict::step( $job->{verdict}, $job->{outcome} );
+    if ( defined $job->{detector} ) {
+        _release( $run, $job );
+        if ( $job->{restore_error} || Test::Mutation::Verdict::final( $job->{verdict} ) ne 'Killed' ) {
+            $run->{stats}{verifications}++;
+            $job->%* = _fresh_job( $job->{mutant}, $job->{tests}, $job->{duration} )->%*;
+            return;
+        }
+    }
+    push $job->{observations}[ $job->{first} ? 1 : 0 ]->@*, $job->{outcome};
+    $job->{index}++;
+    return;
+}
+
 sub _after_task ( $run, $baseline, $task, $result ) {
     my $job  = $task->{payload}{job};
     my $kind = $task->{payload}{kind};
@@ -1758,18 +1773,7 @@ sub _after_task ( $run, $baseline, $task, $result ) {
     return $check if $check;
 
     if ( $kind !~ /\Acode-/ ) {
-        my $verdict = Test::Mutation::Verdict::step( $job->{verdict}, $job->{outcome} );
-        if ( defined( delete $job->{detector} ) && ( $verdict->{status} || q{} ) ne 'Killed' ) {
-            $run->{stats}{verifications}++;
-            _release( $run, $job );
-            unlink grep { defined } $job->@{qw(file spec)};
-            return if defined $job->{restore_error};
-            $job->%* = _fresh_job( $job->{mutant}, $job->{tests}, $job->{duration} )->%*;
-            return _next_test( $run, $job, $baseline );
-        }
-        push $job->{observations}[ $job->{first} ? 1 : 0 ]->@*, $job->{outcome};
-        $job->{verdict} = $verdict;
-        $job->{index}++;
+        _record_observation( $run, $job );
         return _next_test( $run, $job, $baseline )
           if !defined $job->{verdict}{status} && $job->{index} < $job->{tests}->@*;
         my $trial = Test::Mutation::Verdict::conclude( $job->{verdict} );
