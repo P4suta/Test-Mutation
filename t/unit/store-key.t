@@ -78,6 +78,11 @@ subtest 'search paths inside a checkout compare by their relative names' => sub 
       'a project mounted at the filesystem root retains its library search path after relocation';
     isnt $input->( '/b', '/shared', '/b/lib', '/b' ),         $first, 'the order remains significant';
     isnt $input->( '/b', '/shared', '/b',     '/b-old/lib' ), $first, 'an adjacent directory stays external';
+
+    my $checkout = File::Temp::tempdir( CLEANUP => 1 );
+    mkdir "$checkout/lib" or die "create project library: $!";
+    is $input->( $checkout, "$checkout/lib" ), '7db3e51c744ef23390d35f375428ecf0e9b99254bf401c9ed854356180e79e12',
+      'the project library matches the environment fingerprint used by saved shards';
 };
 
 subtest 'an unresolved search directory keeps its checkout location' => sub {
