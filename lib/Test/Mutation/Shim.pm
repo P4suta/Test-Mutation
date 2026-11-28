@@ -413,6 +413,15 @@ sub _loaded_from_disk {
     return 0 if !defined $inode;
     for my $path ( grep { defined && !ref } values(%INC), $0 ) {
         next if _basename($path) ne _basename( $target->{original} );
+        if ( $path !~ m{\A/} ) {
+            my $suffix = q{/} . join q{/}, grep { length && $_ ne q{.} } split m{/}, $path;
+            my $peers  = $STATE{by_base}{ _basename($path) } || [];
+            next if grep {
+                     defined $_->{inode}
+                  && ( q{/} . $_->{original} ) =~ /\Q$suffix\E\z/
+                  && ( $_->{device} != $device || $_->{inode} != $inode )
+            } @{$peers};
+        }
         my @stat = stat $path or next;
         return 1 if $stat[1] == $inode && $stat[0] == $device;
     }
