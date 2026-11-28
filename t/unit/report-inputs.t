@@ -174,6 +174,19 @@ subtest 'publishing preserves a user file with the metadata name and leaves exte
     ok !-e "$outside/.test-mutation-outputs", 'publishing outside the measured tree needs no metadata';
 };
 
+subtest 'only a regular publication record in its own directory identifies generated files' => sub {
+    my $name      = 'linked-record';
+    my $directory = "$root/$name";
+    write_file( "$directory/mutation.json", 'saved report' );
+    my $digest = Digest::SHA::sha256_hex('saved report');
+    Test::Mutation::Report::Publication::record( $root, $directory, { 'mutation.json' => $digest } );
+    my $marker = "$directory/.test-mutation-outputs";
+    rename $marker, "$directory/previous" or die "move the record: $!";
+    symlink 'previous', $marker or die "link the record: $!";
+    is Test::Mutation::Report::Publication::outputs( $directory, $name ), {},
+      'a symbolic link to an earlier record leaves the files in the measurement';
+};
+
 subtest 'a file moved onto the metadata path during publication survives' => sub {
     my $payload = { 'mutation.json' => 'a' x 64 };
     for my $existing ( 0, 1 ) {
