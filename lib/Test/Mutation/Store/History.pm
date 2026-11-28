@@ -57,7 +57,7 @@ sub record ( $config, $result, $anchor, $merge = undef ) {
                 $write->execute( $run, $order++, $id, $path, $sources{$path}, $entry->{status},
                     $JSON->encode( \%facts ) );
             }
-            return 1;
+            return;
         }
     );
     return;

@@ -210,6 +210,44 @@ subtest 'concurrent writers publish only committed observations' => sub {
     is Test::Mutation::Store::load($path), $both, 'a rolled-back write preserves every committed observation';
 };
 
+subtest 'a write-only transaction returns the database acknowledgement' => sub {
+    my $path       = "$directory/write-only/measurement.sqlite";
+    my $connection = Test::Mutation::Store::database($path);
+    my $acknowledged;
+    is dies {
+        $acknowledged = Test::Mutation::Store::transaction(
+            $connection,
+            sub {
+                $connection->do(q{INSERT INTO setting VALUES ('saved','yes')});
+                return;
+            }
+        );
+    }, undef, 'a committed write needs no result from the callback';
+    ok $acknowledged, 'the caller receives the successful commit result';
+    is Test::Mutation::Store::read_database($path)->selectrow_array(q{SELECT data FROM setting WHERE id = 'saved'}),
+      'yes', 'another connection can read the committed change';
+    is Test::Mutation::Store::transaction( $connection, sub { return 0 } ), 0,
+      'a defined false callback result passes through the transaction';
+};
+
+subtest 'a rejected commit rolls back before the caller receives a result' => sub {
+    my $connection = DBI->connect( 'dbi:SQLite::memory:', undef, undef, { RaiseError => 0, PrintError => 0 } );
+    $connection->do('PRAGMA foreign_keys = ON');
+    $connection->do('CREATE TABLE parent (id INTEGER PRIMARY KEY)');
+    $connection->do('CREATE TABLE child (parent INTEGER REFERENCES parent(id) DEFERRABLE INITIALLY DEFERRED)');
+    like dies {
+        Test::Mutation::Store::transaction(
+            $connection,
+            sub {
+                $connection->do('INSERT INTO child VALUES (42)');
+                return 'ready';
+            }
+        );
+    }, qr/FOREIGN KEY constraint failed/, 'the database refuses the commit after the callback returns';
+    is $connection->selectrow_array('SELECT count(*) FROM child'), 0, 'the writer has rolled back the invalid row';
+    ok !$connection->{RaiseError}, 'the caller keeps its DBI error policy';
+};
+
 subtest 'a nonblocking checkpoint retries only a competing writer' => sub {
     my $path  = "$directory/checkpoints/measurement.sqlite";
     my $write = Test::Mutation::Store::checkpoints($path);
@@ -217,9 +255,16 @@ subtest 'a nonblocking checkpoint retries only a competing writer' => sub {
     $peer->do('BEGIN IMMEDIATE');
     is $write->( 'example', $record, 0 ), 0, 'a competing write lock leaves the observation pending';
     is $peer->selectrow_array('SELECT count(*) FROM verdict'), 0, 'no partial observation is visible';
+    my $malformed = { %$record, inputs => chr(0xd800) };
+    like dies { $write->( 'malformed', $malformed, 0 ) }, qr/cannot convert to JSON/,
+      'a previous lock conflict cannot hide a new encoder failure';
     $peer->do('COMMIT');
     is $write->( 'example', $record, 0 ), 1, 'the pending observation commits when the lock clears';
     is Test::Mutation::Store::load($path), { example => $record }, 'another connection sees the commit';
+    my $error;
+    is warnings { $error = dies { $write->( 'malformed', $malformed, 0 ) } }, [],
+      'an encoding failure before any SQLite operation emits no database warning';
+    like $error, qr/cannot convert to JSON/, 'a malformed Unicode input returns its original encoder error';
     $peer->do(q{CREATE TRIGGER reject BEFORE INSERT ON verdict BEGIN SELECT RAISE(ABORT,'rejected record'); END});
     like dies { $write->( 'refused', $record, 0 ) }, qr/rejected record/,
       'a rejected write passes its failure to the caller';
@@ -239,10 +284,10 @@ subtest 'a blocking checkpoint uses the remainder of the original lock timeout' 
     };
     $peer->do('BEGIN IMMEDIATE');
     is $write->( 'delayed', $record, 0 ), 0, 'the first lock conflict starts the deadline';
-    $clock->move(1.25);
+    $clock->move(1.2495);
     $peer->do('COMMIT');
     is $write->( 'delayed', $record, 1 ), 1,     'the blocking retry commits the pending verdict';
-    is $writer->sqlite_busy_timeout,      750,   'SQLite can wait the remaining three quarters of a second';
+    is $writer->sqlite_busy_timeout,      750,   'SQLite can wait the remaining whole milliseconds';
     is $write->( 'next', $record, 1 ),    1,     'the next checkpoint commits independently';
     is $writer->sqlite_busy_timeout,      2_000, 'a new checkpoint receives the full lock timeout';
     is Test::Mutation::Store::load($path), { delayed => $record, next => $record }, 'both commits are durable';

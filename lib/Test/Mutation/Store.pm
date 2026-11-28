@@ -147,17 +147,22 @@ sub path ( $config, $write ) {
 signature_for transaction => ( positional => [ InstanceOf ['DBI::db'], CodeRef ], returns => Defined );
 
 sub transaction ( $db, $operation ) {
+    local $db->{RaiseError} = 1;
     $db->begin_work;
     my $committed = Test::Mutation::Try::attempt(
         sub {
             my $value = $operation->();
-            $db->commit;
-            return $value;
+            my $saved = $db->commit;
+            return $value // $saved;
         },
         'interruption'
     );
     return $committed->{value} if exists $committed->{value};
-    $db->rollback unless $db->{AutoCommit};
+    if ( !$db->{AutoCommit} ) { $db->rollback }
+    elsif ( $db->{Driver}{Name} eq 'SQLite' && !$db->sqlite_get_autocommit ) {
+        # DBI may restore AutoCommit while SQLite still holds a transaction that failed to commit.
+        $db->do('ROLLBACK');
+    }
     die $committed->{error};    ## no critic (ErrorHandling::RequireCarping)
 }
 
@@ -312,7 +317,9 @@ sub checkpoints ($path) {
         $db->sqlite_busy_timeout( $timeout = $wait ) if $timeout != $wait;
         my $attempt = Test::Mutation::Try::attempt( sub { $write->( $id, $record ); return 1 } );
         if ( exists $attempt->{error} ) {
-            if ( !$blocking && ( ( $db->err // 0 ) & 255 ) == SQLITE_BUSY ) {
+            my $code = $db->err;
+            $db->set_err( undef, undef );
+            if ( !$blocking && defined $code && ( $code & 255 ) == SQLITE_BUSY ) {
                 my $now = $clock->now;
                 $deadline //= $now + $budget / 1000;
                 return 0 if $now < $deadline;
@@ -451,6 +458,7 @@ A write uses a temporary snapshot that lasts for the life of the configuration.
 =head2 transaction
 
 Runs a database update and commits its return value with the completed work.
+If the update returns no value, the transaction returns the database's commit acknowledgement.
 
 =head2 checkpoints
 
