@@ -14,6 +14,7 @@ Loading injected code as `Test::Mutation::Shim` or `Test::Mutation::CompilerInpu
 The driver writes `Test::Mutation::Shim::G1` with generation-specific environment variables.
 Nested runs increment the generation and append their shim to `PERL5OPT`.
 The driver reads shim source through `@INC` hooks so nested runs can inject a mutated shim.
+The driver reads the compiler observer from its own library and lets an outer shim supply a mutation of that file.
 Only standalone compilers receive the observer directory and preload its generation-specific package.
 
 ## Alternatives
