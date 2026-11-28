@@ -985,16 +985,16 @@ sub rates ( $tally, $count, $base ) {
 sub rated ( $tally, $count, $base, $bound, $text, $findings = {} ) {
     my %default =
       map { $_->name => 1 } grep { $_->profile eq 'default' } Test::Mutation::Mutator::Catalog::mutators()->@*;
-    return [
-        map {
-            my ( $mutator, $part, $whole ) = $_->@*;
-            my $reason  = "$mutator $text";
-            my $line    = sprintf '%s (%d of %d, limit %g%%)', $reason, $part, $whole, 100 * $bound;
-            my $finding = $findings->{$reason};
-            $finding ? "$line, for example $finding->{example}" : $line;
-        }
-        grep { $default{ $_->[0] } && $_->[3] > $bound } rates( $tally, $count, $base )
-    ];
+    my @lines;
+    for my $rate ( rates( $tally, $count, $base ) ) {
+        my ( $mutator, $part, $whole, $share ) = $rate->@*;
+        next if !$default{$mutator} || $share <= $bound;
+        my $reason  = "$mutator $text";
+        my $line    = sprintf '%s (%d of %d, limit %g%%)', $reason, $part, $whole, 100 * $bound;
+        my $finding = $findings->{$reason};
+        push @lines, $finding ? "$line, for example $finding->{example}" : $line;
+    }
+    return \@lines;
 }
 
 sub equivalence_findings ( $summary, $bound ) {
