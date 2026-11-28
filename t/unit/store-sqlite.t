@@ -304,6 +304,17 @@ subtest 'SQLite acknowledges a removal even when the verdict is already absent' 
     is Test::Mutation::Store::load($path), {}, 'an interrupted observation leaves no reusable verdict';
 };
 
+subtest 'a malformed checkpoint cannot replace a reusable verdict' => sub {
+    my $path  = "$directory/invalid/measurement.sqlite";
+    my $write = Test::Mutation::Store::checkpoints($path);
+    $write->( 'saved', $record, 1 );
+    like dies { $write->( [], $record, 1 ) }, qr/type constraint/,
+      'a reference cannot become the identifier of another saved verdict';
+    like dies { $write->( 'saved', { %$record, duration => [] }, 1 ) }, qr/type constraint/,
+      'a completed observation requires a numeric duration';
+    is Test::Mutation::Store::load($path), { saved => $record }, 'both refusals preserve the original verdict';
+};
+
 subtest 'legacy checkpoints defer file locking until the caller can wait' => sub {
     my $path  = "$directory/legacy-checkpoint/cache.json";
     my $write = Test::Mutation::Store::checkpoints($path);
