@@ -25,4 +25,8 @@ on develop => sub {
     requires 'Perl::Critic',       '1.156';
     requires 'Perl::Tidy',         '20240903';
     requires 'Test::Pod',          '1.52';
+
+    # Keep build helpers in local/ so Carton can record them when cpm reuses prebuilt distributions.
+    requires 'File::ShareDir::Install', '0.13';
+    requires 'Module::Build',           '0.4227';
 };
