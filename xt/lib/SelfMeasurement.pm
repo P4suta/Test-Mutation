@@ -51,8 +51,9 @@ sub _locate_moved ( $original, $current, $sites ) {
     my $before = "\n$original\n";
     my $after  = "\n$current\n";
     return sub ($mutant) {
-        my $first   = max( 0, $mutant->from->[0] - 3 );
-        my $last    = min( $#lines, $mutant->to->[0] + 1 );
+        my ( $start_line, $end_line ) = $mutant->line_span->@*;
+        my $first   = max( 0, $start_line - 3 );
+        my $last    = min( $#lines, $end_line + 1 );
         my $context = "\n" . join( "\n", @lines[ $first .. $last ] ) . "\n";
         my $from    = _unique_offset( $before, $context );
         my $to      = _unique_offset( $after,  $context );
