@@ -255,9 +255,16 @@ subtest 'a nonblocking checkpoint retries only a competing writer' => sub {
     $peer->do('BEGIN IMMEDIATE');
     is $write->( 'example', $record, 0 ), 0, 'a competing write lock leaves the observation pending';
     is $peer->selectrow_array('SELECT count(*) FROM verdict'), 0, 'no partial observation is visible';
+    my $malformed = { %$record, inputs => chr(0xd800) };
+    like dies { $write->( 'malformed', $malformed, 0 ) }, qr/cannot convert to JSON/,
+      'a previous lock conflict cannot hide a new encoder failure';
     $peer->do('COMMIT');
     is $write->( 'example', $record, 0 ), 1, 'the pending observation commits when the lock clears';
     is Test::Mutation::Store::load($path), { example => $record }, 'another connection sees the commit';
+    my $error;
+    is warnings { $error = dies { $write->( 'malformed', $malformed, 0 ) } }, [],
+      'an encoding failure before any SQLite operation emits no database warning';
+    like $error, qr/cannot convert to JSON/, 'a malformed Unicode input returns its original encoder error';
     $peer->do(q{CREATE TRIGGER reject BEFORE INSERT ON verdict BEGIN SELECT RAISE(ABORT,'rejected record'); END});
     like dies { $write->( 'refused', $record, 0 ) }, qr/rejected record/,
       'a rejected write passes its failure to the caller';
