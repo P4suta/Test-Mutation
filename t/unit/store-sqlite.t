@@ -187,7 +187,7 @@ subtest 'invalidating one source takes bounded work as unrelated verdicts grow' 
 
 subtest 'another writer can finish the schema after the first probe' => sub {
     my $transaction = \&Test::Mutation::Store::transaction;
-    my $open = sub ( $path, $publish ) {
+    my $open        = sub ( $path, $publish ) {
         no warnings 'redefine';
         local *Test::Mutation::Store::transaction = sub ( $db, $operation ) {
             local *Test::Mutation::Store::transaction = $transaction;
@@ -196,7 +196,7 @@ subtest 'another writer can finish the schema after the first probe' => sub {
         };
         return Test::Mutation::Store::database( $path, undef );
     };
-    my $path = "$directory/raced/measurement.sqlite";
+    my $path       = "$directory/raced/measurement.sqlite";
     my $connection = $open->( $path, sub ($file) { Test::Mutation::Store::save( $file, { peer => $record } ) } );
     is $connection->selectcol_arrayref('SELECT id FROM verdict'), ['peer'],
       'the first writer opens the schema and observations committed by its peer';

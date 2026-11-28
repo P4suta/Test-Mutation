@@ -130,8 +130,7 @@ subtest 'partial baseline writes retain independent observations and measured ve
         subtest $format => sub {
             my $path  = "$dir/originals.$format";
             my $prior = record();
-            Test::Mutation::Store::save( $path, { prior => $prior }, undef, {},
-                { build => $build, tests => $first } );
+            Test::Mutation::Store::save( $path, { prior => $prior }, undef, {}, { build => $build, tests => $first } );
             is $prior, record(), 'saving a verdict preserves absent source fields in the caller';
             is Test::Mutation::Store::originals($path), { build => $build, tests => $first },
               'build arguments, duration and traced lines survive a round trip';

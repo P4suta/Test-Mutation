@@ -158,8 +158,9 @@ sub transaction ( $db, $operation ) {
         'interruption'
     );
     return $committed->{value} if exists $committed->{value};
-    if ( !$db->{AutoCommit} ) { $db->rollback }
+    if    ( !$db->{AutoCommit} ) { $db->rollback }
     elsif ( $db->{Driver}{Name} eq 'SQLite' && !$db->sqlite_get_autocommit ) {
+
         # DBI may restore AutoCommit while SQLite still holds a transaction that failed to commit.
         $db->do('ROLLBACK');
     }
