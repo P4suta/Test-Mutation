@@ -45,7 +45,7 @@ subtest 'a project or workspace fingerprint visits each included file once' => s
     @visited = ();
     my $copy = Test::Mutation::Store::Key::workspace( $root, ['A.pm'], [] );
     is \@visited, ["$root/data.txt"], 'the workspace scans its data file once without a separate original';
-    is $copy, $project, 'the same data has the same fingerprint in either workspace';
+    is $copy,     $project,           'the same data has the same fingerprint in either workspace';
 };
 
 my $env = Test::Mutation::Store::Key::environment( { ANSWER => '1', SHLVL => '2' } );

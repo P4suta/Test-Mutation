@@ -20,7 +20,7 @@ subtest 'reading a source file constructs one syntax tree for a simple phase blo
         return $constructor->(@_);
     };
     is reads(q{BEGIN { open my $in, '<', 'limits' }}), [ [ file => 'limits' ] ], 'the operand is a literal file';
-    is $parses, 1, 'the default source mode parses the block once';
+    is $parses,                                        1, 'the default source mode parses the block once';
 };
 
 subtest 'scheduled blocks identify the file operands of read-only open' => sub {
@@ -59,8 +59,7 @@ subtest 'an imported module must preserve an environment-derived file operand' =
     my $at_load = sub ($source) { return scalar Test::Mutation::Syntax::PPI::compile_reads( $source, 1 ) };
     is $at_load->(q{package Data; use strict; sub count { return 3 } 1;}), [],
       'declarations and the module return value do not change a binding';
-    is $at_load->(q{package Data; use constant LIMIT => 7; 1;}), [],
-      'a literal numeric constant has no outside input';
+    is $at_load->(q{package Data; use constant LIMIT => 7; 1;}), [], 'a literal numeric constant has no outside input';
     is $at_load->(q{package Data; use constant LIMIT => read_limit(); 1;}), undef,
       'computing a constant can read an outside file';
     is $at_load->(q{package Data; $ENV{TABLE} = 'other'; 1;}), undef, 'a file-scope assignment runs on import';
