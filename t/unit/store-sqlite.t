@@ -185,6 +185,24 @@ subtest 'invalidating one source takes bounded work as unrelated verdicts grow' 
       'one thousand unrelated paths cost at most one extra block of one hundred SQLite operations';
 };
 
+subtest 'another writer can finish the schema after the first probe' => sub {
+    my $path        = "$directory/raced/measurement.sqlite";
+    my $transaction = \&Test::Mutation::Store::transaction;
+    my $connection;
+    {
+        no warnings 'redefine';
+        local *Test::Mutation::Store::transaction = sub ( $db, $operation ) {
+            local *Test::Mutation::Store::transaction = $transaction;
+            Test::Mutation::Store::save( $path, { peer => $record } );
+            return $transaction->( $db, $operation );
+        };
+        $connection = Test::Mutation::Store::database($path);
+    }
+    is $connection->selectcol_arrayref('SELECT id FROM verdict'), ['peer'],
+      'the first writer opens the schema and observations committed by its peer';
+    is Test::Mutation::Store::load($path), { peer => $record }, 'the completed observation remains readable';
+};
+
 subtest 'concurrent writers publish only committed observations' => sub {
     my $path = "$directory/concurrent/measurement.sqlite";
     pipe my $start, my $signal or die "pipe: $!";
