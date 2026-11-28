@@ -1677,7 +1677,11 @@ sub _scheduled_result ( $run, $baseline, $schedule, $task, $result ) {
         $job->{duration} += $result->{duration};
         _release( $run, $job );
         delete $job->{spec};
-        return if $job->{restore_error};
+        if ( $job->{restore_error} ) {
+            return unless defined $job->{detector};
+            _discard_detector( $run, $job );
+            return _next_test( $run, $job, $baseline );
+        }
         my $repeat = _next_test( $run, $job, $baseline ) or return;
         $repeat->{payload}{isolated}     = 1;
         $repeat->{payload}{confirm_read} = 1 if $payload->{confirm_read};
@@ -1739,14 +1743,18 @@ sub _changed_paths ( $run, $changes ) {
     return;
 }
 
+sub _discard_detector ( $run, $job ) {
+    $run->{stats}{verifications}++;
+    $job->%* = _fresh_job( $job->{mutant}, $job->{tests}, $job->{duration} )->%*;
+    return;
+}
+
 sub _record_observation ( $run, $job ) {
     $job->{verdict} = Test::Mutation::Verdict::step( $job->{verdict}, $job->{outcome} );
     if ( defined $job->{detector} ) {
         _release( $run, $job );
         if ( $job->{restore_error} || Test::Mutation::Verdict::final( $job->{verdict} ) ne 'Killed' ) {
-            $run->{stats}{verifications}++;
-            $job->%* = _fresh_job( $job->{mutant}, $job->{tests}, $job->{duration} )->%*;
-            return;
+            return _discard_detector( $run, $job );
         }
     }
     push $job->{observations}[ $job->{first} ? 1 : 0 ]->@*, $job->{outcome};
