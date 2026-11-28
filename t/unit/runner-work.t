@@ -59,7 +59,15 @@ PERL
 subtest 'compilation retains the selected interpreter, file and working tree' => sub {
     my $workspace = Test::Mutation::Workspace::acquire($root);
     my $run       = { root => $root, project => $root, config => $config, workspace => $workspace, perl => $^X };
+    my $outer     = 2 + ( $ENV{TEST_MUTATION_GENERATION} || 0 );
+    local $ENV{TEST_MUTATION_GENERATION} = $outer;
     Test::Mutation::Runner::_prepare_work($run);
+    my $inner    = $outer + 1;
+    my $observer = "$run->{work}/compiler/Test/Mutation/CompilerInputs/G$inner.pm";
+    is Test::Mutation::Source::read_bytes("$run->{work}/shim/Test/Mutation/Shim/G$inner.pm"),
+      Test::Mutation::Runner::shim_text($inner), 'the child test loads the shim for the next generation';
+    like Test::Mutation::Source::read_bytes($observer), qr/^package Test::Mutation::CompilerInputs::G$inner;/m,
+      'the standalone compiler loads the observer for the same generation';
     my $private = copy_of('calc');
     my $job     = { mutant => $mutants[0], copy => { root => $private }, tests => ['t/add.t'] };
     my $path    = $mutants[0]->path;
