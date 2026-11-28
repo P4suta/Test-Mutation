@@ -208,4 +208,32 @@ is_deeply [ @{$result}{qw(status signal)} ], [ 0, 0 ], 'the target compiles when
   or diag $result->{stderr};
 ok !-e $limited, 'a partially written record is discarded';
 
+write_file( "$root/closing.pl", <<'PERL' );
+use IO::Handle ();
+use POSIX ();
+BEGIN {
+    *CORE::GLOBAL::close = sub (;*) {
+        my ($out) = @_;
+        my @file = stat $out;
+        my @record = stat $ENV{TEST_MUTATION_COMPILER_INPUTS};
+        if (@record && @file && $file[0] == $record[0] && $file[1] == $record[1]) {
+            $out->flush or die "flush record: $!";
+            POSIX::close(fileno($out)) == 0 or die "close descriptor: $!";
+            warn "record descriptor closed\n";
+        }
+        return CORE::close($out);
+    };
+}
+use Test::Mutation::CompilerInputs ();
+PERL
+my $closed = "$root/records/closed";
+my $close_run = run_perl(
+    root => $root,
+    env  => { TEST_MUTATION_COMPILER_INPUTS => $closed, TEST_MUTATION_COMPILER_READS => q{} },
+    args => [ '-I' . lib_dir(), '-c', 'closing.pl' ],
+);
+is $close_run->{status}, 0, 'a record close error preserves the success of the target compilation';
+like $close_run->{stderr}, qr/record descriptor closed/, 'the compiler flushed its record before the descriptor closed';
+ok !-e $closed, 'a record with a failed close is discarded even if all bytes reached the file';
+
 done_testing;
