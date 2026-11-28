@@ -203,6 +203,27 @@ subtest 'GitHub uses the remaining space in a shared step summary' => sub {
     is $repeat->{exit}, 0, 'a nearly full summary keeps its measurement outcome';
     ok -s $file <= $limit, 'the append respects the bytes already present';
     like Test::Mutation::Source::read_bytes($file), qr/Undetected: 1/, 'the compact summary still reports the gap';
+
+    my $brief = "Undetected: 1\nScore: **0.0%** (0 of 1 valid mutant)\n";
+    my $last  = Encode::encode( 'UTF-8', "\x{65e5}" );
+    for my $case (
+        [
+            $last,      length($brief) + 1,
+            "\n$brief", 'a final Japanese character and the brief report occupy separate lines'
+        ],
+        [ $last, length($brief), q{},    'the report needs space for the missing line ending' ],
+        [ "\n",  length($brief), $brief, 'a terminated line leaves every remaining byte for the report' ],
+        [ "\r",  length($brief), $brief, 'a carriage return already ends a Markdown line' ],
+      )
+    {
+        my ( $ending, $remaining, $expected, $label ) = @$case;
+        my $before = 'x' x ( $limit - $remaining - length $ending ) . $ending;
+        write_file( $file, $before );
+        my $append = World::observe( \@args, cwd => $root, env => { GITHUB_STEP_SUMMARY => $file } );
+        is $append->{exit}, 0, 'a bounded append preserves the measurement outcome';
+        my $bytes = Test::Mutation::Source::read_bytes($file);
+        is substr( $bytes, length($before) - length($ending) ), $ending . $expected, $label;
+    }
 };
 
 my $count = 0;
