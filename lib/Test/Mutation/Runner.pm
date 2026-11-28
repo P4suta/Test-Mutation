@@ -642,7 +642,7 @@ sub _plan_originals ($run) {
         my $record = $tests{$test};
         my $key    = _original_key( $run, $shared, $test, $record );
         next unless defined $key && $key eq $record->{inputs};
-        $verified{$test} = { %$record, anomalies => {}, early => 0, reusable => 1 };
+        $verified{$test} = { %$record, anomalies => {}, reusable => 1 };
     }
     return { tests => \%verified, missing => [ grep { !exists $verified{$_} } @$all ], shared => $shared };
 }
@@ -1320,7 +1320,6 @@ sub _baseline_records ( $run, $tests, $targets, $outcome ) {
             breakable => \%breakable,
             duration  => $result->{duration},
             files     => \%files,
-            early     => $result->{early},
             anomalies => \%anomalies,
             reusable  => _reusable_baseline( $run, $test, $result, $record, \%anomalies )
         };
@@ -2210,7 +2209,7 @@ sub _next_test ( $run, $job, $baseline ) {
         test            => $test,
         spec            => $job->{spec},
         timeout         => List::Util::max( $duration, $config->timeout_floor ),
-        stop_on_failure => $baseline->{tests}{$test}{early} ? 0 : 1,
+        stop_on_failure => 1,
         payload         => { kind => 'test', job => $job, $anomaly ? ( baseline_anomaly => $anomaly ) : () },
     );
 }
