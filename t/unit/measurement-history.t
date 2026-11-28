@@ -137,22 +137,27 @@ subtest 'history follows finish times when concurrent writers commit out of orde
     is $gaps->(), [], 'recording another scope with the same finish breaks the tie';
 };
 
+sub history_read_cost ( $lookup, $expected, $label ) {
+    my $hundreds = 0;
+    my $read     = \&Test::Mutation::Store::read_database;
+    no warnings 'redefine';
+    local *Test::Mutation::Store::read_database = sub ($path) {
+        my $connection = $read->($path);
+        $connection->sqlite_progress_handler( 100, sub { ++$hundreds; return 0 } );
+        return $connection;
+    };
+    is $lookup->(), $expected, $label;
+    return $hundreds;
+}
+
 subtest 'reading a scope and its evidence takes bounded work as unrelated history grows' => sub {
     my $directory = File::Temp::tempdir( CLEANUP => 1 );
     my $other     = Test::Mutation::Settings::of_call( { root => $directory } );
     Test::Mutation::Store::History::record( $other, $empty, 1 );
     my $db    = Test::Mutation::Store::database( Test::Mutation::Store::path($other) );
-    my $read  = \&Test::Mutation::Store::read_database;
     my $steps = sub ($expected) {
-        my $hundreds = 0;
-        no warnings 'redefine';
-        local *Test::Mutation::Store::read_database = sub ($path) {
-            my $connection = $read->($path);
-            $connection->sqlite_progress_handler( 100, sub { $hundreds++; return 0 } );
-            return $connection;
-        };
-        is Test::Mutation::Store::History::undetected($other), $expected, 'the selected scope keeps its own verdicts';
-        return $hundreds;
+        return history_read_cost( sub { Test::Mutation::Store::History::undetected($other) },
+            $expected, 'the selected scope keeps its own verdicts' );
     };
     my $empty_cost = $steps->( [] );
     my $one        = Test::Mutation::Result->new( $whole->%*, entries => [ $whole->entries->[0] ], finished => 130 );
@@ -173,6 +178,27 @@ SQL
     Test::Mutation::Store::History::record( $other, Test::Mutation::Result->new( $empty->%*, finished => 131 ), 1 );
     cmp_ok $steps->( [] ), '<=', $empty_cost + 1,
       'one thousand older scopes cost at most one extra block of 100 SQLite operations';
+};
+
+subtest 'looking for an unmeasured project skips unrelated history in a shared cache' => sub {
+    my $directory = File::Temp::tempdir( CLEANUP => 1 );
+    my $shared    = "$directory/cache";
+    my $absent    = Test::Mutation::Settings::of_call( { root => $directory, cache_dir => $shared } );
+    my $neighbor  = Test::Mutation::Settings::of_call( { root => $root,      cache_dir => $shared } );
+    Test::Mutation::Store::History::record( $neighbor, $empty, 1 );
+    my $db   = Test::Mutation::Store::database( Test::Mutation::Store::path($absent) );
+    my $cost = sub {
+        return history_read_cost(
+            sub { Test::Mutation::Store::History::entries( $absent, { $file => $source }, [$first] ) },
+            undef, 'the other projects supply no result for this checkout' );
+    };
+    my $small = $cost->();
+    $db->do(<<'SQL');
+WITH RECURSIVE numbers(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM numbers WHERE n < 1000)
+INSERT INTO measurement(project,finished,anchor,complete) SELECT 'other-' || n, n, 1, 1 FROM numbers
+SQL
+    cmp_ok $cost->(), '<=', $small + 1,
+      'one thousand unrelated projects cost at most one extra block of one hundred SQLite operations';
 };
 
 subtest 'read-only history stays available and fresh observations are private' => sub {
