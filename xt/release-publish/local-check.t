@@ -2,8 +2,9 @@ use v5.36;
 use Test2::V0;
 use File::Temp ();
 use JSON::PP   ();
-use lib 't/e2e/lib';
+use lib 't/lib', 't/e2e/lib';
 use Fixture qw(write_file);
+use Gate;
 
 my $dir    = File::Temp::tempdir( CLEANUP => 1 );
 my $repo   = 'P4suta/Test-Mutation';
@@ -49,7 +50,7 @@ sub admits ( $responses, $event = {}, %env ) {
     return system( 'bash', 'xt/bin/verify-local-release-check' ) == 0;
 }
 
-subtest 'the candidate requires its latest local status from the repository account' => sub {
+subtest 'the candidate rejects stale or unauthorized release statuses' => sub {
     my $endpoint = statuses($source);
     my $other    = { %$pass, context => 'other', state => 'failure' };
     ok admits( { $endpoint => [ [$other], [$pass] ] } ), 'a successful status on a later page approves the candidate';
@@ -58,6 +59,7 @@ subtest 'the candidate requires its latest local status from the repository acco
     for my $update (@updates) {
         ok !admits( { $endpoint => [ [ $update, $pass ] ] } ), 'an older success cannot replace the latest status';
     }
+    Gate::checked( 'superseding status updates', scalar @updates, at_least => 3 );
     ok !admits( { $endpoint => [ [$other] ] } ), 'a manual rehearsal requires the selected commit to pass';
     ok !admits( { $endpoint => [ [$pass] ] }, {}, FAILED_REQUEST => $endpoint ),
       'an API failure invalidates even a partial success response';
