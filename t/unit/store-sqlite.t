@@ -293,6 +293,8 @@ subtest 'concurrent writers publish only committed observations' => sub {
 subtest 'a write-only transaction returns the database acknowledgement' => sub {
     my $path       = "$directory/write-only/measurement.sqlite";
     my $connection = Test::Mutation::Store::database($path);
+    isa_ok dies { Test::Mutation::Store::transaction( $connection, 'DELETE FROM verdict' ) }, ['Error::TypeTiny'],
+      'a transaction requires a callback before opening the write';
     my $acknowledged;
     is dies {
         $acknowledged = Test::Mutation::Store::transaction(
