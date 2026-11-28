@@ -25,6 +25,11 @@ is reads(q{sub text { return q{BEGIN { main::observe() }}, qr/BEGIN\s+\w+/, "BEG
   'literal phase names in strings and regexes do not run';
 is reads(q{sub text { return "value ${ \do { 'BEGIN' } }" }}), [],
   'a string literal inside an interpolated expression remains text';
+is reads(q{sub text { return "$labels{BEGIN}" }}),   [],    'a bare hash key in an interpolated lookup is a string';
+is reads(q{sub text { return "$labels{ CHECK }" }}), [],    'whitespace around a literal hash key keeps its meaning';
+is reads(q{sub text { return "$labels[BEGIN]" }}),   undef, 'an array index still needs input verification';
+is reads(q{sub text { return "$labels{do { BEGIN { main::observe() } 'BEGIN' }}" }}), undef,
+  'a phase in a computed hash key runs before the lookup';
 is reads(q{sub nested { return "@{[ qr/(?{ CHECK { main::observe() } 1 })/ ]}" }}), undef,
   'embedded Perl can compile another regex with a phase block';
 my $class = "use experimental 'class'; class Model { method describe { return $quoted } } 1;";
