@@ -97,6 +97,42 @@ ok !$modules{ 'm' . unpack( 'H*', $INC{'Config.pm'} ) }, 'a Perl core module nee
 ok !$modules{ 'm' . unpack( 'H*', lib_dir() . '/Test/Mutation/CompilerInputs.pm' ) },
   'the recorder excludes its own source';
 
+my @optional = qw(FirstInput SecondInput);
+for my $module (@optional) {
+    write_file( "$library/$module.pm",
+        qq{die "optional module disabled\n" if \$ENV{DISABLED_MODULE} eq '$module';\n1;\n} );
+}
+write_file( "$root/probe.pl", <<'PERL' );
+BEGIN {
+    unshift @INC, 'vendor';
+    for my $module (qw(FirstInput SecondInput)) {
+        my $file = "$module.pm";
+        my $ok = eval { require $file; 1 };
+        if ($module eq $ENV{DISABLED_MODULE}) {
+            die "expected a failed require" unless !$ok && exists $INC{$file} && !defined $INC{$file};
+        } else {
+            die "load $module: $@" unless $ok;
+        }
+    }
+}
+PERL
+
+# Swap the failed module while keeping the same hash traversal in both compilers.
+for my $failed (@optional) {
+    my ($available) = grep { $_ ne $failed } @optional;
+    my %seen = map { $_ => 1 } @{
+        compile_record(
+            $root, "ignore-$failed", q{},
+            DISABLED_MODULE   => $failed,
+            PERL_HASH_SEED    => 0,
+            PERL_PERTURB_KEYS => 0
+          )
+          || []
+    };
+    ok $seen{ 'm' . unpack( 'H*',  "$library/$available.pm" ) }, "$available is recorded when $failed fails to load";
+    ok !$seen{ 'm' . unpack( 'H*', "$library/$failed.pm" ) },    "the failed $failed is excluded";
+}
+
 my $vanishing = write_file( project() . '/Transient.pm', "package Transient; sub value { 9 } 1;\n" );
 write_file( "$root/probe.pl", <<'PERL' );
 BEGIN {
