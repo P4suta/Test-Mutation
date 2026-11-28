@@ -16,6 +16,7 @@ description = "Install the dependencies recorded in cpanfile.snapshot"
 # cpm reads cpanfile.snapshot through Carton::Snapshot, so a fresh checkout needs Carton before the first install.
 run = [
   "test -x local/bin/cpm || cpanm --quiet --notest -L local App::cpm Carton",
+  "carton check",
   "cpm install -L local --top-level-phase configure,build,test,runtime,develop",
 ]
 
