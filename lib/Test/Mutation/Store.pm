@@ -285,7 +285,8 @@ sub _verdict_writer ($db) {
     my $remove = $db->prepare('DELETE FROM verdict WHERE id = ?');
     return sub ( $id, $record ) {
         if ( Test::Mutation::Status::of( $record->{status} )->cached ) {
-            $put->execute( $id, $record->@{qw(path source)}, $JSON->encode($record) );
+            my ( $path, $source ) = $record->@{qw(path source)};
+            $put->execute( $id, $path, $source, $JSON->encode($record) );
         }
         else { $remove->execute($id) }
         return;
