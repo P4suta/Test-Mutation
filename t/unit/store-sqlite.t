@@ -177,6 +177,8 @@ subtest 'concurrent writers publish only committed observations' => sub {
             }
         );
     }, qr/interrupted publication/, 'an interrupted transaction returns its original failure';
+    is $connection->selectcol_arrayref('SELECT id FROM verdict ORDER BY id'), [qw(1 2)],
+      'the writer sees the previously committed observations after its transaction fails';
     is Test::Mutation::Store::load($path), $both, 'a rolled-back write preserves every committed observation';
 };
 
