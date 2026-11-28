@@ -999,7 +999,8 @@ sub _scalar_range ($place) {
         return 1 if _is_word( $previous, \%CONDITIONAL );
         last     if $previous;
         my $parent = $first->parent->parent;
-        return 1 if $parent->isa('PPI::Structure::Condition');
+        return 1                                               if $parent->isa('PPI::Structure::Condition');
+        return _scalar_block_result( $first->parent, $parent ) if $parent->isa('PPI::Structure::Block');
         last unless $parent->isa('PPI::Structure::List');
         my $prefix = $parent->sprevious_sibling;
         return !_is_operator( scalar $prefix->sprevious_sibling, '->' )
@@ -1014,6 +1015,13 @@ sub _scalar_assignment ($operator) {
     return 0 unless _is_operator( $operator, '=' );
     my $target = $operator->sprevious_sibling;
     return $target && $target->isa('PPI::Token::Symbol') && $target->raw_type eq '$';
+}
+
+sub _scalar_block_result ( $statement, $block ) {
+    return 0 if $statement->snext_sibling;
+    my $word = $block->sprevious_sibling;
+    return _is_word( $word, { grep => 1, sort => 1, 'CORE::grep' => 1, 'CORE::sort' => 1 } )
+      && !_is_operator( scalar $word->sprevious_sibling, '->' );
 }
 
 # The element of an operand that is one element alone.
