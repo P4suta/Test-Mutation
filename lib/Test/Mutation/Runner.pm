@@ -1416,8 +1416,9 @@ sub _fresh_job ( $mutant, $tests, $duration = 0 ) {
 }
 
 sub _eligible_detector ( $rules, $tests, $hint ) {
-    return if !defined $hint || !@$tests || $tests->[0] eq $hint;
-    return ( grep { $_ eq $hint } @$tests )[0] unless $rules;
+    return       unless defined $hint;
+    return       unless List::Util::first { $tests->[$_] eq $hint } 1 .. $#$tests;
+    return $hint unless $rules;
     my $queue = Test::Mutation::Schedule::queue( $rules, $tests );
     while ( my $job = $queue->get_job ) {
         return       if $job->is_spinner;
@@ -2436,6 +2437,10 @@ The mutants of every mutator decide whether a comment suppresses one, so the cho
 =head2 run
 
 Runs the measurement and returns a L<Test::Mutation::Result>.
+The optional C<detector_hints> argument maps mutant identifiers to project-relative test paths.
+When the runner resolves the full project with caching disabled, it can try a suggested covering test first if the harness rules allow it.
+The suggested test must establish C<Killed> against the current mutant.
+An inconclusive trial starts the ordinary test order from a clean workspace with the full timeout budget.
 The listener receives C<phase> with its name and time, C<resolved>, C<copy_started>, C<copy_finished>, C<baseline_started>, C<baseline_test>, C<baseline_finished>, C<mutants_started>, C<mutant_finished>, C<mutants_finished>, C<tick>, and C<finished>.
 The original C<analyzed>, C<baseline>, and C<mutant> notifications remain available.
 The final event contains the measurement tally.

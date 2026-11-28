@@ -53,15 +53,16 @@ subtest 'a suggested detector must kill the current mutant in a fresh measuremen
     is $broken->entries, [], 'the former detector supplies no verdict after the original fails';
 };
 
-subtest 'absent and unreached detectors leave the current covering test order intact' => sub {
+subtest 'only a later covering test needs a separate detector trial' => sub {
     my $root   = project( 't/a.t' => $weak, 't/m.t' => "use Test::More tests => 1;\npass;\n", 't/z.t' => $strong );
     my $config = config($root);
     my $id     = arithmetic_id($config);
-    for my $hint (qw(t/deleted.t t/m.t)) {
+    for my $hint (qw(t/deleted.t t/m.t t/a.t)) {
         my $result = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => $hint } } );
         my $found  = entry( $result, $id );
         is [ map { $_->{test} } $found->{observations}[0]->@* ], [qw(t/a.t t/z.t)],
-          "$hint provided no current coverage";
+          "$hint leaves the current covering order intact";
+        is $result->stats->{verifications}, 0, "$hint started no extra trial";
     }
 };
 
@@ -137,6 +138,15 @@ PERL
     is [ $found->@{qw(status by tests_run)} ], [ 'Killed', 't/b.t', 2 ], 'the ordinary assertion retains its turn';
     is [ map { [ $_->@{qw(test result)} ] } $found->{observations}[0]->@* ],
       [ [ 't/a.t', 'timeout' ], [ 't/b.t', 'fail' ] ], 'only ordinary observations determine the fallback verdict';
+    is $result->stats->{verifications}, 1, 'the discarded trial is included in verification work';
+
+    write_file( "$root/t/b.t", $stall );
+    write_file( "$root/t/z.t", $strong );
+    my $ordinary = Test::Mutation::Runner::run( $config, sub { } );
+    is entry( $ordinary, $id )->{status}, 'Timeout', 'the first two ordinary tests exhaust their time limits';
+    my $confirmed = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => 't/z.t' } } );
+    is [ entry( $confirmed, $id )->@{qw(status by tests_run)} ], [ 'Killed', 't/z.t', 1 ],
+      'the current failing assertion can decide before both slow tests';
 };
 
 subtest 'a suggested test without a target witness leaves the verdict to the ordinary tests' => sub {
