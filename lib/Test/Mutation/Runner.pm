@@ -1837,11 +1837,12 @@ sub _fingerprint ( $run, $baseline ) {
         @targets
     );
     return Test::Mutation::Store::Key::digest(
-        $VERSION,                                         Test::Mutation::Store::format_version(),
-        _module_text($SHIM_FILE),                         _module_text($COMPILER_FILE),
-        _module_text('Test/Mutation/Witness.pm'),         Test::Mutation::Store::Key::interpreter( $run->{perl} ),
-        Test::Mutation::Store::Key::digest(@libraries),   Test::Mutation::Store::Key::digest(@launch),
-        Test::Mutation::Store::Key::environment( \%ENV ), _cache_project( $run, \@targets ),
+        $VERSION,                                                    Test::Mutation::Store::format_version(),
+        Test::Mutation::Result::supported_compiler_input_protocol(), _module_text($SHIM_FILE),
+        _module_text($COMPILER_FILE),                                _module_text('Test/Mutation/Witness.pm'),
+        Test::Mutation::Store::Key::interpreter( $run->{perl} ),     Test::Mutation::Store::Key::digest(@libraries),
+        Test::Mutation::Store::Key::digest(@launch),                 Test::Mutation::Store::Key::environment( \%ENV ),
+        _cache_project( $run, \@targets ),
     );
 }
 

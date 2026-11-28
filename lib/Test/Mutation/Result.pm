@@ -14,8 +14,14 @@ our $VERSION = '0.001';
 
 with 'Test::Mutation::Value';
 
-my $COMPILER_INPUT_PROTOCOL = 2;
-has compiler_input_protocol => ( is => 'ro', isa => Maybe [PositiveInt], default => $COMPILER_INPUT_PROTOCOL );
+signature_for supported_compiler_input_protocol => ( positional => [], returns => PositiveInt );
+
+sub supported_compiler_input_protocol () {
+    return 2;
+}
+
+has compiler_input_protocol =>
+  ( is => 'ro', isa => Maybe [PositiveInt], default => sub { return supported_compiler_input_protocol() } );
 
 has root => ( is => 'ro', isa => Str, required => 1 );
 has sources => ( is => 'ro', isa => HashRef [Str], required => 1 );
@@ -84,7 +90,9 @@ sub score_scope ($self) {
 signature_for verified_measurement_digest => ( method => 1, positional => [], returns => Maybe [Str] );
 
 sub verified_measurement_digest ($self) {
-    return ( $self->compiler_input_protocol || 0 ) == $COMPILER_INPUT_PROTOCOL ? $self->measurement_digest : undef;
+    return ( $self->compiler_input_protocol || 0 ) == supported_compiler_input_protocol()
+      ? $self->measurement_digest
+      : undef;
 }
 
 signature_for assessment => ( method => 1, positional => [], returns => Assessment );
@@ -205,6 +213,10 @@ Earlier reports lack the evidence needed to merge their shards.
 The protocol identifies how the measurement checked compiler inputs.
 The verified digest is available when the report uses the supported protocol and identifies its measurement inputs.
 The original digest remains available to inspect earlier reports.
+
+=head2 supported_compiler_input_protocol
+
+Returns the protocol used to verify a report and to identify reusable observations in the measurement cache.
 
 =head2 started, finished
 

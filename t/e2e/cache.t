@@ -29,7 +29,7 @@ subtest 'a new compiler input protocol rechecks the original tests and their ver
     }
     my ($current) = run_fixture($project);
     is $current->stats->{baseline_tests}, scalar $first->tests->@*, 'the current rules measure every original test';
-    is $current->reused, 0, 'the previous protocol supplies no reusable verdicts';
+    is $current->reused,   0,                'the previous protocol supplies no reusable verdicts';
     is statuses($current), statuses($first), 'remeasurement preserves the independently verified verdicts';
     my ($again) = run_fixture($project);
     is $again->reused, $measured, 'a second run with the current rules reuses the fresh observations';
