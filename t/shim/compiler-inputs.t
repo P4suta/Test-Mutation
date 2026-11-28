@@ -78,4 +78,30 @@ ok !$modules{ 'm' . unpack( 'H*', $INC{'Config.pm'} ) }, 'a Perl core module nee
 ok !$modules{ 'm' . unpack( 'H*', lib_dir() . '/Test/Mutation/CompilerInputs.pm' ) },
   'the recorder excludes its own source';
 
+my $vanishing = write_file( project() . '/Transient.pm', "package Transient; sub value { 9 } 1;\n" );
+write_file( "$root/probe.pl", <<'PERL' );
+BEGIN {
+    require $ENV{TRANSIENT_MODULE};
+    unlink $ENV{TRANSIENT_MODULE} or die "unlink loaded module: $!";
+    die "wrong module" unless Transient::value() == 9;
+}
+PERL
+ok !defined compile_record( $root, 'removed', q{}, TRANSIENT_MODULE => $vanishing ),
+  'a loaded file outside the search path must still exist when compilation finishes';
+
+my $stream = write_file( "$root/module-stream", "package StreamedInput; sub value { 11 } 1;\n" );
+write_file( "$root/probe.pl", <<'PERL' );
+BEGIN {
+    unshift @INC, sub {
+        return unless $_[1] eq 'StreamedInput.pm';
+        open my $in, '<', $ENV{MODULE_STREAM} or die "open module stream: $!";
+        return $in;
+    };
+    require StreamedInput;
+    die "expected the loader in %INC" unless ref $INC{'StreamedInput.pm'} && StreamedInput::value() == 11;
+}
+PERL
+ok !defined compile_record( $root, 'streamed', q{}, MODULE_STREAM => $stream ),
+  'a module provided by a loader without a file identity leaves no record';
+
 done_testing;
