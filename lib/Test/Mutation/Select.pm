@@ -24,7 +24,7 @@ use Test::Mutation::Store::Analysis;
 our $VERSION = '0.001';
 
 # Revise this key when the analyzer changes the sites, candidates or refusals it records.
-our $ANALYSIS_REVISION = 1;
+our $ANALYSIS_REVISION = 2;
 
 sub _refuse ( $path, $reason ) {
     return Test::Mutation::Error::raise( 'path-selector-invalid', path => $path, reason => $reason );

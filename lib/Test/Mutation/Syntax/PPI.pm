@@ -490,6 +490,8 @@ sub _visit ( $context, $element, $excluded ) {
         _token_site( $context, $element ) if !$excluded && $element->significant;
         return;
     }
+    # An anonymous subroutine can run after the enclosing import has finished.
+    $excluded = 0 if $excluded && _is_anonymous_body($element);
     if ( my $function = $context->{declarations}{ refaddr $element } ) {
         $function->{visible} = 1;
     }
@@ -500,11 +502,10 @@ sub _visit ( $context, $element, $excluded ) {
     _structure_sites( $context, $element ) if !$skip;
 
     # The name and the version of a package hold no behavior, and its block holds ordinary code.
-    # The body of an anonymous subroutine runs later, whatever statement holds it, such as a use of overload.
     my $package = $element->isa('PPI::Statement::Package');
     for my $child ( $element->children ) {
         my $apart = $skip || ( $package && !$child->isa('PPI::Structure::Block') );
-        _visit( $context, $child, _is_anonymous_body($child) ? 0 : $apart );
+        _visit( $context, $child, $apart );
     }
     return;
 }
