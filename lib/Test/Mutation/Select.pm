@@ -108,6 +108,10 @@ sub _rules_digest ( $config, $version, $mutators ) {
     );
 }
 
+sub _catalog_digest ( $rules, $digests ) {
+    return Test::Mutation::Store::Key::digest( $rules, map { ( $_, $digests->{$_} ) } sort keys %$digests );
+}
+
 signature_for measurement_rules => (
     positional => [ InstanceOf ['Test::Mutation::Config'], InstanceOf ['Test::Mutation::Selection'] ],
     returns    => Str
@@ -116,7 +120,9 @@ signature_for measurement_rules => (
 sub measurement_rules ( $config, $selection ) {
     return $selection->analysis_rules_digest if $selection->has_analysis_rules_digest;
     my ( undef, $version ) = _interpreter( $selection->project, $selection->perl );
-    return _rules_digest( $config, $version, $selection->mutators );
+    my $rules = _rules_digest( $config, $version, $selection->mutators );
+    return $rules if _catalog_digest( $rules, $selection->digests ) eq $selection->catalog_digest;
+    return Test::Mutation::Store::Key::digest( $rules, $selection->catalog_digest );
 }
 
 sub resolve ($arg) {
@@ -172,8 +178,7 @@ sub resolve ($arg) {
     $filters{paths}   = $paths                  if defined $paths;
     $filters{since}   = $config->since          if defined $config->since;
     $filters{mutants} = [ $config->mutant->@* ] if $config->mutant->@*;
-    my $digests = $analysis->{digests};
-    my $catalog = Test::Mutation::Store::Key::digest( $rules, map { ( $_, $digests->{$_} ) } sort keys %$digests );
+    my $catalog = _catalog_digest( $rules, $analysis->{digests} );
     outputs( $config, $arg->summary )                                                           if $arg->reports;
     Test::Mutation::Store::Analysis::publish( Test::Mutation::Store::path($config), \@pending ) if @pending;
     return Test::Mutation::Selection->new(
@@ -515,6 +520,8 @@ Resolves path and line operands against the configured source files.
 =head2 measurement_rules
 
 Returns the analysis rules for a resolved or caller-supplied selection.
+For a selection that supplies only a catalog digest, it uses the target Perl, mutators and settings to reconstruct the catalog.
+A catalog with different inputs keeps a separate measurement identity.
 
 =head2 by_id
 
