@@ -33,12 +33,26 @@ sub entry ( $result, $id ) {
     return $match;
 }
 
+sub measure ( $config, $options = {} ) {
+    my $next_test = \&Test::Mutation::Runner::_next_test;    ## no critic (Variables::ProtectPrivateVars)
+    my %attempts;
+    no warnings 'redefine';
+    local *Test::Mutation::Runner::_next_test = sub ( $run, $job, $baseline ) {    ## no critic (Variables::ProtectPrivateVars)
+        my $task = $next_test->( $run, $job, $baseline ) or return;
+        my $test = $task->{payload}{test};
+        my $id   = $job->{mutant}->id;
+        die "$test ran more than twice for $id" if ++$attempts{$id}{$test} > 2;
+        return $task;
+    };
+    return Test::Mutation::Runner::run( $config, sub { }, $options );
+}
+
 subtest 'a suggested detector must kill the current mutant in a fresh measurement' => sub {
     my $root = project( 't/a.t' => $weak, 't/z.t' => $strong );
     write_file( "$root/mutation.toml", qq{source = ["lib/**/*.pm"]\n} );
     my $config = config($root);
     my $id     = arithmetic_id($config);
-    my $result = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => 't/z.t' } } );
+    my $result = measure( $config, { detector_hints => { $id => 't/z.t' } } );
     my $found  = entry( $result, $id );
     is $result->stats->{baseline_tests},       2, 'the original tests ran in the current checkout';
     is $result->reused,                        0, 'the measurement reused no verdict';
@@ -48,7 +62,7 @@ subtest 'a suggested detector must kill the current mutant in a fresh measuremen
       'the changed target was served to the test that failed';
 
     write_file( "$root/t/z.t", $use_number . "is \$number, 4, 'the original is broken';\n" );
-    my $broken = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => 't/z.t' } } );
+    my $broken = measure( $config, { detector_hints => { $id => 't/z.t' } } );
     is [ map { $_->{test} } $broken->baseline_failures->@* ], ['t/z.t'], 'the original assertion now fails';
     is $broken->entries, [], 'the former detector supplies no verdict after the original fails';
 };
@@ -58,7 +72,7 @@ subtest 'only a later covering test needs a separate detector trial' => sub {
     my $config = config($root);
     my $id     = arithmetic_id($config);
     for my $hint (qw(t/deleted.t t/m.t t/a.t)) {
-        my $result = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => $hint } } );
+        my $result = measure( $config, { detector_hints => { $id => $hint } } );
         my $found  = entry( $result, $id );
         is [ map { $_->{test} } $found->{observations}[0]->@* ], [qw(t/a.t t/z.t)],
           "$hint leaves the current covering order intact";
@@ -80,7 +94,7 @@ PERL
     );
     my $config = config($root);
     my $id     = arithmetic_id($config);
-    my $result = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => 't/z.t' } } );
+    my $result = measure( $config, { detector_hints => { $id => 't/z.t' } } );
     my $found  = entry( $result, $id );
     is [ $found->@{qw(status by)} ], [ 'Killed', 't/b.t' ], 'the current assertion determines the verdict';
     is [ map { $_->{test} } $found->{observations}[0]->@* ], [qw(t/a.t t/b.t)],
@@ -96,7 +110,7 @@ PERL
         }
         return $restore->(%args);
     };
-    my $retry = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => 't/z.t' } } );
+    my $retry = measure( $config, { detector_hints => { $id => 't/z.t' } } );
     is $discarded,                 1,       'the changed copy was retired';
     is entry( $retry, $id )->{by}, 't/b.t', 'the ordinary tests obtained a clean replacement copy';
 };
@@ -111,7 +125,7 @@ subtest 'a suggested detector may precede parallel tests and must wait for seria
         );
         my $config = config($root);
         my $id     = arithmetic_id($config);
-        my $result = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => 't/z.t' } } );
+        my $result = measure( $config, { detector_hints => { $id => 't/z.t' } } );
         is entry( $result, $id )->{by}, $first, "$mode selects an eligible detector";
     }
 };
@@ -131,7 +145,7 @@ PERL
     my $root   = project( 't/a.t' => $stall, 't/b.t' => $strong, 't/z.t' => $stall );
     my $config = config( $root, timeout_floor => 0.6, timeout_factor => 4 );
     my $id     = arithmetic_id($config);
-    my $result = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => 't/z.t' } } );
+    my $result = measure( $config, { detector_hints => { $id => 't/z.t' } } );
     my $found  = entry( $result, $id );
     like Test::Mutation::Source::read_bytes( $log->filename ), qr{t/z[.]t\n[^\n]*t/a[.]t\n},
       'the suggested timeout was followed by the first ordinary test';
@@ -142,9 +156,9 @@ PERL
 
     write_file( "$root/t/b.t", $stall );
     write_file( "$root/t/z.t", $strong );
-    my $ordinary = Test::Mutation::Runner::run( $config, sub { } );
+    my $ordinary = measure($config);
     is entry( $ordinary, $id )->{status}, 'Timeout', 'the first two ordinary tests exhaust their time limits';
-    my $confirmed = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => 't/z.t' } } );
+    my $confirmed = measure( $config, { detector_hints => { $id => 't/z.t' } } );
     is [ entry( $confirmed, $id )->@{qw(status by tests_run)} ], [ 'Killed', 't/z.t', 1 ],
       'the current failing assertion can decide before both slow tests';
 };
@@ -159,7 +173,7 @@ PERL
     my $root   = project( 't/a.t' => $strong, 't/z.t' => $child );
     my $config = config( $root, in_place => 1 );
     my $id     = arithmetic_id($config);
-    my $result = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => 't/z.t' } } );
+    my $result = measure( $config, { detector_hints => { $id => 't/z.t' } } );
     my $found  = entry( $result, $id );
     is $found->{covered_by},                   [qw(t/a.t t/z.t)],        'the original child reached the target';
     is [ $found->@{qw(status by tests_run)} ], [ 'Killed', 't/a.t', 1 ], 'the test that received the change decides';
@@ -170,17 +184,17 @@ subtest 'cache use, shards, and named reruns keep ordinary detector order' => su
     my $id   = arithmetic_id( config($root) );
     for my $settings ( { cache => 1 }, { shard => '1/1' }, { mutant => [$id] } ) {
         my $result =
-          Test::Mutation::Runner::run( config( $root, %$settings ), sub { }, { detector_hints => { $id => 't/z.t' } } );
+          measure( config( $root, %$settings ), { detector_hints => { $id => 't/z.t' } } );
         is entry( $result, $id )->{by}, 't/a.t', 'the first covering test decides with ' . ( keys %$settings )[0];
     }
     my $scope    = config($root);
     my $selected = Test::Mutation::Select::resolve( config => $scope, identifiers => [$id] );
     for my $filter ( { paths => { 'lib/Number.pm' => [] } }, { selection => $selected } ) {
-        my $result = Test::Mutation::Runner::run( $scope, sub { }, { %$filter, detector_hints => { $id => 't/z.t' } } );
+        my $result = measure( $scope, { %$filter, detector_hints => { $id => 't/z.t' } } );
         is entry( $result, $id )->{by}, 't/a.t', 'an explicit source or preselected inventory keeps the ordinary order';
     }
-    my $empty = Test::Mutation::Runner::run( config( $root, cache => 1, undetected => 1 ),
-        sub { }, { detector_hints => { $id => 't/z.t' } } );
+    my $empty =
+      measure( config( $root, cache => 1, undetected => 1 ), { detector_hints => { $id => 't/z.t' } } );
     is $empty->entries, [], 'an empty historical selection stays empty';
 };
 
@@ -199,7 +213,7 @@ subtest 'a revision filter keeps ordinary covering test order' => sub {
     write_file( $file, Test::Mutation::Source::read_bytes($file) =~ s/return /return  /r );
     my $config = config( $root, since => 'HEAD' );
     my $id     = arithmetic_id($config);
-    my $result = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => 't/z.t' } } );
+    my $result = measure( $config, { detector_hints => { $id => 't/z.t' } } );
     is entry( $result, $id )->{by}, 't/a.t', 'the ordinary test detected the change on the selected line';
 };
 
@@ -218,7 +232,7 @@ PERL
     my $root   = project( 't/a.t' => $strong, 't/z.t' => $detector );
     my $config = config( $root, in_place => 1 );
     my $id     = arithmetic_id($config);
-    my $result = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => 't/z.t' } } );
+    my $result = measure( $config, { detector_hints => { $id => 't/z.t' } } );
     ok -e $ENV{DETECTOR_STATE}, 'the suggested test also fails against the restored original';
     is [ entry( $result, $id )->@{qw(status by)} ], [ 'Killed', 't/a.t' ],
       'the independent assertion detects the change';
