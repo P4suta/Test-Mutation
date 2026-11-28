@@ -72,7 +72,7 @@ subtest 'an idle pool saves ready checkpoints before requesting work' => sub {
         next        => sub { push @calls, 'next'; return },
         done        => sub { die 'unexpected test completion' },
     );
-    is $count, 0, 'no child process ran';
+    is $count,  0,               'no child process ran';
     is \@calls, [qw(save next)], 'the saved result is available before the next work request';
 };
 
