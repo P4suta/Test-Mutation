@@ -113,15 +113,16 @@ subtest 'merging applies a common deferred threshold' => sub {
         is [ merged( $first, $other_part )->assessment->@{qw(score minimum gate exitCode)} ],
           [ 60, undef, undef, 0 ], 'shards without a common threshold still yield their combined score';
     }
-    my $override = Test::Mutation::Merge::merge(
-        [
-            { name => 'first',  result => $first },
-            { name => 'second', result => part( '2/2', \@rest, min_score => 90 ) }
-        ],
-        60
-    );
+    my $reports =
+      [ { name => 'first', result => $first }, { name => 'second', result => part( '2/2', \@rest, min_score => 90 ) } ];
+    my $override = Test::Mutation::Merge::merge( $reports, 60 );
     is [ $override->assessment->@{qw(minimum gate exitCode)} ], [ 60, 'passed', 0 ],
       'a threshold requested for the whole run takes precedence at the exact combined score';
+    my $zero = Test::Mutation::Merge::merge( $reports, 0 );
+    is [ $zero->assessment->@{qw(minimum gate exitCode)} ], [ 0, 'passed', 0 ],
+      'a zero threshold overrides the higher threshold shared by both shards';
+    isa_ok dies { Test::Mutation::Merge::merge( $reports, 'unknown' ) }, ['Error::TypeTiny'],
+      'a merge rejects a nonnumeric threshold';
 };
 
 subtest 'the parts of one run merge into the result of the whole run' => sub {
@@ -250,6 +251,8 @@ subtest 'a cache disagreement in either shard propagates to the whole run' => su
 subtest 'a set that is not one complete run is refused' => sub {
     my $one = part( '1/2', \@first );
     my $two = part( '2/2', \@rest );
+    isa_ok dies { Test::Mutation::Merge::merge( [ { name => 'report', result => undef } ] ) }, ['Error::TypeTiny'],
+      'each named input requires a measured result';
     like Raised::message( sub { merged() } ),     qr/\Amerge needs at least one report/, 'no report';
     like Raised::message( sub { merged($one) } ), qr/\Apart 2 of 2 is missing/,          'a missing part';
     like Raised::message( sub { merged( $one, $one ) } ), qr/\Areport 1 and report 2 both hold part 1 of 2/,
