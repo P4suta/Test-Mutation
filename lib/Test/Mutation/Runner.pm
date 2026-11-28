@@ -92,11 +92,12 @@ signature_for run => (
         InstanceOf ['Test::Mutation::Config'],
         CodeRef,
         Dict [
-            paths         => Optional [ Maybe [PathSelection] ],
-            selection     => Optional [ InstanceOf ['Test::Mutation::Selection'] ],
-            baseline_only => Optional [Bool],
-            reports       => Optional [Bool],
-            summary       => Optional [ Maybe [Str] ]
+            paths          => Optional [ Maybe [PathSelection] ],
+            selection      => Optional [ InstanceOf ['Test::Mutation::Selection'] ],
+            baseline_only  => Optional [Bool],
+            detector_hints => Optional [ HashRef [Str] ],
+            reports        => Optional [Bool],
+            summary        => Optional [ Maybe [Str] ]
         ],
         { default => sub { {} } }
     ],
@@ -114,18 +115,21 @@ sub run ( $config, $notify, $options = {} ) {
     my $started = Time::HiRes::time();
     Test::Mutation::Event::phase( $listener, 'resolve' );
     my $project = Cwd::abs_path( $config->root );
+    my %options = $options->%*;
+    my $hints   = delete $options{detector_hints};
     my $run     = {
-        config   => $config,
-        options  => $options,
-        project  => $project,
-        root     => $project,
-        listener => $listener,
-        jobs     => $config->jobs,
-        sequence => 0,
-        first    => {},
-        warnings => {},
-        free     => {},
-        stats    => { map { $_ => 0 } qw(copies walks compiles spawns listings baseline_tests verifications) },
+        config         => $config,
+        options        => \%options,
+        detector_hints => $config->cache || defined $config->shard || $config->mutant->@* ? {} : $hints || {},
+        project        => $project,
+        root           => $project,
+        listener       => $listener,
+        jobs           => $config->jobs,
+        sequence       => 0,
+        first          => {},
+        warnings       => {},
+        free           => {},
+        stats          => { map { $_ => 0 } qw(copies walks compiles spawns listings baseline_tests verifications) },
     };
     my $release = sub {
         Test::Mutation::Try::with_cleanup(
@@ -1427,9 +1431,13 @@ sub _measurement_jobs ( $run, $mutants, $baseline, $cache, $entries ) {
         while ( $position < @$mutants ) {
             my $mutant = $mutants->[ $position++ ];
             next if $entries->{ $mutant->id };
+            my $tests = $tests_for->($mutant);
+            my $hint  = $run->{detector_hints}{ $mutant->id };
+            $hint = undef unless defined $hint && @$tests && $tests->[0] ne $hint && grep { $_ eq $hint } @$tests;
             return {
-                mutant   => $mutant,
-                tests    => $tests_for->($mutant),
+                mutant => $mutant,
+                tests  => $tests,
+                defined $hint ? ( detector => $hint ) : (),
                 index    => 0,
                 verdict  => Test::Mutation::Verdict::start(),
                 duration => 0
@@ -1735,6 +1743,7 @@ sub _after_task ( $run, $baseline, $task, $result ) {
     return $check if $check;
 
     if ( $kind !~ /\Acode-/ ) {
+        delete $job->{detector};
         push $job->{observations}[ $job->{first} ? 1 : 0 ]->@*, $job->{outcome};
         $job->{verdict} = Test::Mutation::Verdict::step( $job->{verdict}, $job->{outcome} );
         $job->{index}++;
@@ -2132,7 +2141,7 @@ sub _verify_read ( $run, $baseline, $job ) {
 sub _next_test ( $run, $job, $baseline ) {
     my $config    = $run->{config};
     my $mutant    = $job->{mutant};
-    my $test      = $job->{tests}[ $job->{index} ];
+    my $test      = defined $job->{detector} ? $job->{detector}                       : $job->{tests}[ $job->{index} ];
     my $raw       = $run->{sensitive}{$test} && keys $run->{sensitive}{$test}->%* ? 1 : 0;
     my $proof     = $run->{controls}{$test};
     my $reference = $proof && $proof->{root} ? $proof->{root} : $run->{root};
