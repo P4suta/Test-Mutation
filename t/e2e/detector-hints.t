@@ -78,4 +78,19 @@ PERL
       'the ordinary measurement starts again at the first covering test';
 };
 
+subtest 'a suggested detector may precede parallel tests and must wait for serial tests' => sub {
+    for my $rule ( [ par => 't/z.t' ], [ seq => 't/a.t' ], ) {
+        my ( $mode, $first ) = @$rule;
+        my $root = project(
+            'testrules.yml' => "---\n$mode:\n  - 't/a.t'\n  - 't/z.t'\n",
+            't/a.t'         => $strong,
+            't/z.t'         => $strong,
+        );
+        my $config = config($root);
+        my $id     = arithmetic_id($config);
+        my $result = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => 't/z.t' } } );
+        is entry( $result, $id )->{by}, $first, "$mode selects an eligible detector";
+    }
+};
+
 done_testing;

@@ -1413,6 +1413,17 @@ sub _fresh_job ( $mutant, $tests, $duration = 0 ) {
     };
 }
 
+sub _eligible_detector ( $rules, $tests, $hint ) {
+    return                                     unless defined $hint && @$tests && $tests->[0] ne $hint;
+    return ( grep { $_ eq $hint } @$tests )[0] unless $rules;
+    my $queue = Test::Mutation::Schedule::queue( $rules, $tests );
+    while ( my $job = $queue->get_job ) {
+        last         if $job->is_spinner;
+        return $hint if $job->filename eq $hint;
+    }
+    return;
+}
+
 sub _measurement_jobs ( $run, $mutants, $baseline, $cache, $entries ) {
     my $config   = $run->{config};
     my $coverage = Test::Mutation::Coverage->new(
@@ -1442,9 +1453,8 @@ sub _measurement_jobs ( $run, $mutants, $baseline, $cache, $entries ) {
             my $mutant = $mutants->[ $position++ ];
             next if $entries->{ $mutant->id };
             my $tests = $tests_for->($mutant);
-            my $hint  = $run->{detector_hints}{ $mutant->id };
-            $hint = undef unless defined $hint && @$tests && $tests->[0] ne $hint && grep { $_ eq $hint } @$tests;
-            my $job = _fresh_job( $mutant, $tests );
+            my $hint  = _eligible_detector( $run->{rules}, $tests, $run->{detector_hints}{ $mutant->id } );
+            my $job   = _fresh_job( $mutant, $tests );
             $job->{detector} = $hint if defined $hint;
             return $job;
         }
