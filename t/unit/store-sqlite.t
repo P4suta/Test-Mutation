@@ -186,21 +186,30 @@ subtest 'invalidating one source takes bounded work as unrelated verdicts grow' 
 };
 
 subtest 'another writer can finish the schema after the first probe' => sub {
-    my $path        = "$directory/raced/measurement.sqlite";
     my $transaction = \&Test::Mutation::Store::transaction;
-    my $connection;
-    {
+    my $open = sub ( $path, $publish ) {
         no warnings 'redefine';
         local *Test::Mutation::Store::transaction = sub ( $db, $operation ) {
             local *Test::Mutation::Store::transaction = $transaction;
-            Test::Mutation::Store::save( $path, { peer => $record } );
+            $publish->($path);
             return $transaction->( $db, $operation );
         };
-        $connection = Test::Mutation::Store::database($path);
-    }
+        return Test::Mutation::Store::database( $path, undef );
+    };
+    my $path = "$directory/raced/measurement.sqlite";
+    my $connection = $open->( $path, sub ($file) { Test::Mutation::Store::save( $file, { peer => $record } ) } );
     is $connection->selectcol_arrayref('SELECT id FROM verdict'), ['peer'],
       'the first writer opens the schema and observations committed by its peer';
     is Test::Mutation::Store::load($path), { peer => $record }, 'the completed observation remains readable';
+    like dies {
+        $open->(
+            "$directory/raced/future.sqlite",
+            sub ($file) {
+                my $peer = DBI->connect( "dbi:SQLite:dbname=$file", undef, undef, { RaiseError => 1 } );
+                $peer->do('PRAGMA user_version = 314');
+            }
+        );
+    }, qr/unsupported database schema 314/, 'a competing writer can install a schema this driver cannot open';
 };
 
 subtest 'concurrent writers publish only committed observations' => sub {
