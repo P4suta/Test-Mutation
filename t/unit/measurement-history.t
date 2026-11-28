@@ -76,13 +76,13 @@ is [ map { [ $inspected->{ $_->id }->@{qw(status finished)} ] } $first, $uncover
 
 subtest 'a merge keeps the finish time of each part for inspection' => sub {
     my $other   = Test::Mutation::Settings::of_call( { root => File::Temp::tempdir( CLEANUP => 1 ) } );
-    my @mutants = map { $_->{mutant} } $whole->entries->@*;
-    my %dates   = map { $mutants[$_]->id => 89 + $_ / 2 } keys @mutants;
-    Test::Mutation::Store::History::record( $other, $whole, 1, { completed => 108, measured => \%dates } );
+    my $result  = Test::Mutation::Result->new( $whole->%*, started => 0, finished => 1 );
+    my @mutants = map { $_->{mutant} } $result->entries->@*;
+    my %dates   = ( $mutants[0]->id => 0, $mutants[1]->id => 0.5 );
+    Test::Mutation::Store::History::record( $other, $result, 1, { completed => 2, measured => \%dates } );
     my $saved = Test::Mutation::Store::History::entries( $other, { $file => $source }, \@mutants );
-    is {
-        map { $_ => $saved->{$_}{finished} } keys %$saved
-    }, \%dates, 'each inspected mutant dates from its own shard';
+    is [ map { $saved->{ $_->id }{finished} } @mutants ], [ 0, 0.5, 1 ],
+      'the result finish fills a missing timestamp and preserves an observation at the epoch';
 };
 
 subtest 'each merged mutant uses the latest eligible observation of its own source' => sub {
