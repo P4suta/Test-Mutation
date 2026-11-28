@@ -2218,6 +2218,7 @@ sub _compiler_inputs ( $run, $tmp, $result, $requested ) {
 sub _remember_compiler_inputs ( $run, $job, $task, $result ) {
     my $payload       = $task->{payload};
     my $read_operands = $task->{env}{TEST_MUTATION_COMPILER_READS};
+    $result->{compiler_inputs} = undef if $payload->{syntax_only} && !_compiled($result);
     $result->{compiler_inputs} = _compiler_inputs( $run, $payload->{tmp}, $result, $read_operands )
       unless exists $result->{compiler_inputs};
     my %requested = map  { $_ => 1 } split /,/, $read_operands;
