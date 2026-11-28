@@ -333,8 +333,10 @@ subtest 'a refreshed threshold uses every row in the measured scope' => sub {
     );
     is $whole->assessment->{gate},  'unavailable',         'the whole project has no score to compare to the threshold';
     is $single->assessment->{gate}, 'no mutants selected', 'the narrowed measurement accepts an empty score';
+    is $single->score_scope, $single->selection, 'a fresh score describes the requested selection';
     my $saved = Test::Mutation::Merge::refresh( $whole, $single );
     is $saved->assessment, $whole->assessment, 'refreshing one ignored mutant preserves the whole-project gate';
+    is $saved->score_scope, {}, 'the refreshed score includes the whole project after a single-mutant request';
 };
 
 subtest 'refresh replaces the selected verdicts and keeps independently measured changes' => sub {
@@ -397,6 +399,7 @@ subtest 'refresh replaces the selected verdicts and keeps independently measured
           Test::Mutation::Report::Json::parse( Test::Mutation::Report::Json::render( $result, high => 80, low => 60 ) );
         is [ $parsed->selection, Test::Mutation::Report::Results::overview($parsed)->[0] ],
           [ $after->selection, "Scope: $scope" ], 'JSON keeps the requested selection and the scope of the score';
+        is $parsed->score_scope, $result->score_scope, 'reopening a report retains the scope of its score';
     }
     my $from_whole = Test::Mutation::Merge::refresh( $whole, $file_selection );
     my $reopened =
