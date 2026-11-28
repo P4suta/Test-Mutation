@@ -8,7 +8,10 @@ use Cwd    ();
 
 our $VERSION = '0.001';
 
-my ($record)      = ( $ENV{TEST_MUTATION_COMPILER_INPUTS} || q{} ) =~ /\A(.*)\z/s;
+my ($record) = ( $ENV{TEST_MUTATION_COMPILER_INPUTS} || q{} ) =~ /\A(.*)\z/s;
+if ( length($record) && lstat $record ) {
+    $record = q{} unless -f _ && unlink $record;
+}
 my %initial       = map { _absolute($_) => 1 } grep { !ref } @INC;
 my $operands      = $ENV{TEST_MUTATION_COMPILER_READS} || q{};
 my @core          = @Config{qw(privlibexp archlibexp)};

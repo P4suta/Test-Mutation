@@ -74,6 +74,8 @@ BEGIN {
 PERL
 ok !defined compile_record( $root, 'indirect', q{?}, CONFIG_DIR => $root ),
   'an opaque operand leaves no record even when its compiled read succeeds';
+ok !defined compile_record( $root, 'stable', q{?}, CONFIG_DIR => $root ),
+  'an opaque compilation invalidates an earlier complete record at the same path';
 
 my $library = "$root/vendor";
 my $loaded  = write_file( "$library/LibraryInput.pm",    "package LibraryInput; sub value { 5 } 1;\n" );
