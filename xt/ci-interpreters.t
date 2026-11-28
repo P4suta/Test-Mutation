@@ -4,8 +4,9 @@ use CPAN::Meta::YAML ();
 use Cwd              ();
 use File::Temp       ();
 use TOML::Tiny       ();
-use lib 't/e2e/lib';
-use Fixture                qw(write_file);
+use lib 't/lib', 't/e2e/lib';
+use Fixture qw(write_file);
+use Gate;
 use Test::Mutation::Source ();
 
 my $workflow = CPAN::Meta::YAML->read('.github/workflows/check.yml')->[0];
@@ -40,6 +41,7 @@ my %matrix   = map { $_ => $workflow->{jobs}{$_}{strategy}{matrix} } qw(driver s
 my @cases    = ( map { [ 'driver', $_->{perl}, $_->{require} ] } $matrix{driver}{include}->@* );
 push @cases, map { [ 'shim', $_, 'toolchain' ] } $matrix{shim}{perl}->@*;
 is scalar @commands, 2 * @cases, 'each hosted interpreter has a local build and a local run';
+Gate::checked( 'Linux interpreter runs', scalar( grep { $_->[0] eq 'run' } @commands ), at_least => 8 );
 for my $case (@cases) {
     my ( $kind, $version, $require ) = @$case;
     my $base  = 'perl' . ( $version =~ s/[.]//gr );
@@ -55,11 +57,11 @@ for my $case (@cases) {
     my @arguments = split q{ }, $script;
     is [ @$run[ -@arguments .. -1 ] ], \@arguments, 'run the hosted test command';
 }
-{
+subtest 'the matrix rejects a failing interpreter' => sub {
     local $ENV{CHECK_EXIT} = 9;
     write_file( $ENV{CHECK_LOG}, q{} );
     isnt system( $^X, 'xt/bin/check-ci-interpreters' ), 0, 'one failing interpreter fails the local gate';
     my @attempts = split /\n/, Test::Mutation::Source::read_bytes( $ENV{CHECK_LOG} );
     is scalar @attempts, 2, 'the first failed interpreter stops the remaining work';
-}
+};
 done_testing;
