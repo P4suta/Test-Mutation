@@ -114,11 +114,16 @@ run = "sh xt/bin/record-release-check"
 [tasks.release-compatibility]
 description = "Verify supported shim interpreters, coverage, engine behavior, and pinned distributions"
 run = [
+  "mise run check-ci-interpreters",
   "mise run shim-mutation",
   "mise run coverage",
   "mise run discover",
   "mise run realworld",
 ]
+
+[tasks.check-ci-interpreters]
+description = "Test the candidate commit on the driver and shim versions from the CI matrix"
+run = "perl xt/bin/check-ci-interpreters"
 
 [tasks.coverage]
 description = "Measure statement and branch coverage against the release floors"
