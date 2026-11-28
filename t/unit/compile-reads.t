@@ -56,6 +56,22 @@ subtest 'literal numeric guards have no external compiler inputs' => sub {
     is reads(q{BEGIN { die "@{[read_limit()]}" if 1 }}),            undef, 'the error message can execute code';
 };
 
+subtest 'classes can share a module with other declarations and load-time expressions' => sub {
+    my $pragma = q{use experimental 'class'; sub read_limit { return $ENV{LIMIT} }};
+    my $reads  = sub ($body) { return scalar Test::Mutation::Syntax::PPI::compile_reads( "$pragma $body", 1 ) };
+    is $reads->(q{class First { method count { 1 } } class Second 1.0 { method count { 2 } } 1;}), [],
+      'two classes with deferred methods can occupy one PPI statement';
+    for my $body (
+        q{class First {} class Second { my $limit = main::read_limit(); } 1;},
+        q{class Meter {} read_limit; 1;},
+        q{class Meter {} 0 + read_limit(); 1;},
+        q{class Meter; main::read_limit(); 1;},
+        q{sub Rules::apply { return main::read_limit() } apply Rules {}; 1;},
+    ) {
+        is $reads->($body), undef, "loading the module can execute read_limit in $body";
+    }
+};
+
 subtest 'an imported module must preserve an environment-derived file operand' => sub {
     my $at_load = sub ($source) { return scalar Test::Mutation::Syntax::PPI::compile_reads( $source, 1 ) };
     is $at_load->(q{package Data; use strict; sub count { return 3 } 1;}), [],
