@@ -284,10 +284,10 @@ subtest 'a blocking checkpoint uses the remainder of the original lock timeout' 
     };
     $peer->do('BEGIN IMMEDIATE');
     is $write->( 'delayed', $record, 0 ), 0, 'the first lock conflict starts the deadline';
-    $clock->move(1.25);
+    $clock->move(1.2495);
     $peer->do('COMMIT');
     is $write->( 'delayed', $record, 1 ), 1,     'the blocking retry commits the pending verdict';
-    is $writer->sqlite_busy_timeout,      750,   'SQLite can wait the remaining three quarters of a second';
+    is $writer->sqlite_busy_timeout,      750,   'SQLite can wait the remaining whole milliseconds';
     is $write->( 'next', $record, 1 ),    1,     'the next checkpoint commits independently';
     is $writer->sqlite_busy_timeout,      2_000, 'a new checkpoint receives the full lock timeout';
     is Test::Mutation::Store::load($path), { delayed => $record, next => $record }, 'both commits are durable';
