@@ -1275,6 +1275,7 @@ sub _statement_site ( $context, $segment ) {
     my $scope    = _segment_scope($segment);
     my @tokens   = map { $_->isa('PPI::Token') ? $_ : $_->tokens } @children;
     my $declares = _declares_for_later( $children[0]->parent, \@tokens );
+    my $anchored = $children[0]->isa('PPI::Token::Word') || _is_operator( $children[0], '...' );
     _add(
         $context,
         kind  => 'statement',
@@ -1283,8 +1284,8 @@ sub _statement_site ( $context, $segment ) {
         scope => $scope,
         facts => {
             head => $children[0]->isa('PPI::Token::Word') ? $children[0]->content : q{},
-            $children[0]->isa('PPI::Token::Word') ? _anchors( $context, $children[0] ) : (),
-            $declares                             ? ( declares => 1 )                  : ()
+            $anchored ? _anchors( $context, $children[0] ) : (),
+            $declares ? ( declares => 1 )                  : ()
         },
     );
     return;
