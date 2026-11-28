@@ -96,6 +96,7 @@ The driver checks the load-time code of non-core modules before it trusts a file
 With equivalence checks enabled, cached and reported verdicts share an original compilation when the source may load a module or read a file.
 An operand discovered in a loaded module takes a second pass to identify its file.
 Reports and shards use the target Perl's C<-c> check to record inputs when equivalence checking is disabled.
-Merging such shards requires a complete input record.
+Merging shards requires a complete compiler input record.
+A compile-time assignment can change a package variable without changing the deparsed program.
 
 =cut

@@ -2218,7 +2218,7 @@ sub _compiler_inputs ( $run, $tmp, $result, $requested ) {
 sub _remember_compiler_inputs ( $run, $job, $task, $result ) {
     my $payload       = $task->{payload};
     my $read_operands = $task->{env}{TEST_MUTATION_COMPILER_READS};
-    $result->{compiler_inputs} = undef if $payload->{syntax_only} && !_compiled($result);
+    $result->{compiler_inputs} = undef unless _compiled($result);
     $result->{compiler_inputs} = _compiler_inputs( $run, $payload->{tmp}, $result, $read_operands )
       unless exists $result->{compiler_inputs};
     my %requested = map  { $_ => 1 } split /,/, $read_operands;
@@ -2237,18 +2237,10 @@ sub _remember_compiler_inputs ( $run, $job, $task, $result ) {
         $run->{compiler_inputs}{$_} = $job->{compiler_inputs}{$_} = $inputs->{$_} for keys %$inputs;
     }
     else {
-        $run->{missing_compiler_inputs} = 1 if $payload->{syntax_only};
-        if ( $result->{opaque_reads} || length $task->{env}{TEST_MUTATION_COMPILER_READS} ) {
-            $result->{opaque_reads} = 1;
-            if ( defined $payload->{original} && !$payload->{syntax_only} ) {
-                $result->{observed_code} =
-                  Test::Mutation::Store::Key::digest( _compiled($result) ? $result->{digest} : 'compile-failed' )
-                  unless exists $result->{observed_code};
-                $run->{compiler_inputs}{"deparse:$payload->{original}"} = $result->{observed_code};
-            }
-        }
-        $result->{digest}        = q{};
-        $job->{unbound_compiler} = 1;
+        $run->{missing_compiler_inputs} = 1 if $payload->{kind} ne 'code-mutant';
+        $result->{opaque_reads}         = 1 if length $read_operands;
+        $result->{digest}               = q{};
+        $job->{unbound_compiler}        = 1;
     }
     return;
 }
@@ -2317,7 +2309,7 @@ sub _compile_task ( $run, $job, $kind, $file, $switch ) {
             tmp     => $tmp,
             compile => 1,
             imports => $imports,
-            $original ? ( original => $path, syntax_only => $option eq '-c' ) : ()
+            $original ? ( original => $path ) : ()
         },
     };
 }
