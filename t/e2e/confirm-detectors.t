@@ -64,7 +64,22 @@ is [ $observed->{mutant}->id, $observed->@{qw(status by tests_run)} ],
 is $fresh->reused, 0,     'a prior report supplies no cached verdict';
 is $fresh->shard,  undef, 'the release measurement covers the complete project';
 
+my $path = "$project/lib/Totals.pm";
+my $text = Test::Mutation::Source::read_bytes($path);
+write_file( $path, "\n\n$text" );
+is confirm($hint), 0, 'a source edit before the expression preserves the detection';
+my $shifted = result();
+my $moved   = addition($shifted);
+isnt $moved->{mutant}->id, $id, 'moving the operator gives it another identifier';
+is [ $moved->@{qw(status by tests_run)} ], [ 'Killed', 't/z.t', 1 ],
+  'the same unique expression still tries its previous detector first';
+is $shifted->reused, 0, 'the moved mutant was measured again';
+ok !-d "$project/.mutation", 'suggesting a detector leaves the persistent cache absent';
 write_file( "$project/t/z.t", $miss );
+is confirm($hint),                 1,          'the gate fails when the earlier detector misses the moved expression';
+is addition( result() )->{status}, 'Survived', 'only the current tests decide the moved mutant';
+write_file( $path, $text );
+
 is confirm($hint),                 1,          'an earlier detection fails the gate once both tests miss the change';
 is addition( result() )->{status}, 'Survived', 'the new result records the missed change';
 
