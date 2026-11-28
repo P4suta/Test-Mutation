@@ -91,6 +91,8 @@ sub activate {
 
     require Cwd;
     $STATE{directory} = Cwd::getcwd();
+    my @program = stat $0;
+    $STATE{program} = [ _basename($0), @program[ 0, 1 ] ] if @program;
     _include_directories() if $spec->{includes};
     unless ( $spec->{observe} ) {
         my $hook = sub { return _serve(@_) };
@@ -410,14 +412,17 @@ sub _breakable_lines {
 sub _loaded_from_disk {
     my ( $target, $device, $inode ) = @_;
     return 0 if !defined $inode;
-    for my $path ( grep { defined && !ref } values(%INC), $0 ) {
-        next if _basename($path) ne _basename( $target->{original} );
+    my $name    = _basename( $target->{original} );
+    my $program = $STATE{program};
+    return 1 if $program && $program->[0] eq $name && $program->[1] == $device && $program->[2] == $inode;
+    for my $path ( grep { defined && !ref } values %INC ) {
+        next if _basename($path) ne $name;
         if ( $path !~ m{\A/} ) {
             next unless defined $STATE{directory};
             my @initial = stat "$STATE{directory}/$path";
             next if !@initial || $initial[0] != $device || $initial[1] != $inode;
             my $suffix = q{/} . join q{/}, grep { length && $_ ne q{.} } split m{/}, $path;
-            my $peers  = $STATE{by_base}{ _basename($path) } || [];
+            my $peers  = $STATE{by_base}{$name} || [];
             next if grep {
                      defined $_->{inode}
                   && ( q{/} . $_->{original} ) =~ /\Q$suffix\E\z/
