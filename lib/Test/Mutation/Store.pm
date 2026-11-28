@@ -147,6 +147,7 @@ sub path ( $config, $write ) {
 signature_for transaction => ( positional => [ InstanceOf ['DBI::db'], CodeRef ], returns => Defined );
 
 sub transaction ( $db, $operation ) {
+    local $db->{RaiseError} = 1;
     $db->begin_work;
     my $committed = Test::Mutation::Try::attempt(
         sub {
@@ -157,7 +158,11 @@ sub transaction ( $db, $operation ) {
         'interruption'
     );
     return $committed->{value} if exists $committed->{value};
-    $db->rollback unless $db->{AutoCommit};
+    if ( !$db->{AutoCommit} ) { $db->rollback }
+    elsif ( $db->{Driver}{Name} eq 'SQLite' && !$db->sqlite_get_autocommit ) {
+        # DBI may restore AutoCommit while SQLite still holds a transaction that failed to commit.
+        $db->do('ROLLBACK');
+    }
     die $committed->{error};    ## no critic (ErrorHandling::RequireCarping)
 }
 
