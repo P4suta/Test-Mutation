@@ -43,6 +43,7 @@ my %CONTINUATION     = map { $_ => 1 } qw(elsif else continue catch finally);
 my %BODY_HEAD        = map { $_ => 1 } qw(method sub ADJUST);
 my %EXCLUDED_HEAD    = map { $_ => 1 } qw(use no package);
 my %HIDDEN_HEAD      = map { $_ => 1 } qw(field ADJUST);
+my %COMPILE_KEYWORD  = map { $_ => 1 } qw(use no BEGIN UNITCHECK CHECK INIT END);
 my %ROUTINE_HEAD     = map { $_ => 1 } qw(sub method);
 my %NEVER_A_CALL =
   map { $_ => 1 }
@@ -205,7 +206,10 @@ sub _fixed_class_load ($statement) {
     shift @rest if @rest && $rest[0]->isa('PPI::Token::Number');
     my $block = shift @rest;
     return 0 unless $block && $block->isa('PPI::Structure::Block');
-    return 0 if @rest      && ( @rest != 1 || !$rest[0]->isa('PPI::Token::Number') );
+
+    # PPI can group a compile-time directive with the method declared immediately before it.
+    return 0 if $block->find_first( sub ( $document, $element ) { _is_word( $element, \%COMPILE_KEYWORD ) } );
+    return 0 if @rest && ( @rest != 1 || !$rest[0]->isa('PPI::Token::Number') );
     for my $member ( $block->schildren ) {
         return 0 unless ref $member eq 'PPI::Statement';
         for my $segment ( _segments( {}, $member )->@* ) {
