@@ -319,6 +319,18 @@ PERL
       'changed data behind an imported constant rejects a cached shard';
     like dies { Test::Mutation::Merge::merge( [ $prior, shard( 'idle-second', 2 ) ] ) }, qr/measurement inputs differ/,
       'changed data behind an imported constant rejects a fresh shard';
+
+    my $indirect = $defaults =~ s/\$ENV\{TEST_PROJECT_TABLE\}/table()/r;
+    $indirect =~ s/^BEGIN/sub table { return \$ENV{TEST_PROJECT_TABLE} }\nBEGIN/m;
+    write_file( "$area/data-library/Defaults.pm", $indirect );
+    my $before = shard( 'idle-first', 1 );
+    ok !( grep { defined $_->{compiled_digest} } $before->{result}->entries->@* ),
+      'the unresolved imported read keeps the mutant fingerprints out of comparisons';
+    ok lives { Test::Mutation::Merge::merge( [ $before, shard( 'idle-second', 2 ) ] ) },
+      'identical observed constants from an indirect imported read can merge';
+    write_file( "$area/imported-limit", "13\n" );
+    like dies { Test::Mutation::Merge::merge( [ $before, shard( 'idle-second', 2 ) ] ) }, qr/measurement inputs differ/,
+      'a changed compiled constant rejects the merge when its imported source cannot identify the input';
 };
 
 my $wrapped = shard( 'first', 1, perl => 'tools/perl' );
