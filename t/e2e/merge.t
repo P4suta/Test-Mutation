@@ -45,10 +45,12 @@ subtest 'older compiler comparisons cannot certify the input that initialized a 
     my $merge      = ran( 2, $root, 'merge', @saved, '--format', 'json', '--report-dir', 'unverified' );
     like $merge->{stderr}, $diagnostic, 'the CLI requests fresh compiler input evidence';
     ok !-e "$root/unverified/mutation.json", 'incompatible inputs did not publish a score';
-    my @copied = map {
-        my $json = Test::Mutation::Report::Json::render( $prior[$_], high => 80, low => 60 );
-        { name => $saved[$_], result => Test::Mutation::Report::Json::parse($json) }
-    } 0, 1;
+    my @copied;
+
+    for my $part ( 0, 1 ) {
+        my $json = Test::Mutation::Report::Json::render( $prior[$part], high => 80, low => 60 );
+        push @copied, { name => $saved[$part], result => Test::Mutation::Report::Json::parse($json) };
+    }
     like dies { Test::Mutation::Merge::merge( \@copied ) }, $diagnostic,
       'reading and saving a report again cannot upgrade its compiler observations';
 };
