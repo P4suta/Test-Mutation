@@ -1892,8 +1892,7 @@ sub _verdict_key ( $cache, $mutant, $tests, $status, $killer ) {
 sub _source_read_operands ( $run, $path ) {
     return $run->{source_reads}{$path} if exists $run->{source_reads}{$path};
     my $source = $run->{sources}{$path};
-    my $module = $path =~ /[.]pm\z/ ? 1 : 0;
-    return $run->{source_reads}{$path} = _encode_read_operands( $source, $source->text, $module );
+    return $run->{source_reads}{$path} = _encode_read_operands( $source, $source->text, 1 );
 }
 
 sub _may_read_at_compile_time ( $run, $path ) {
