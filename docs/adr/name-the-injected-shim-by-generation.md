@@ -6,18 +6,19 @@ date: 2026-11-22
 
 ## Context
 
-The tests of the tool start its command, so a run of the tool on itself nests one run inside another.
-A shim loaded as `Test::Mutation::Shim` would also occupy the `%INC` entry of the file under test, and no mutant of the shim could load.
+The tool's tests start nested runs.
+Loading injected code as `Test::Mutation::Shim` or `Test::Mutation::CompilerInputs` can hide project modules with those names.
 
 ## Decision
 
-The driver writes its copy of the shim under the package `Test::Mutation::Shim::G1`, with environment variables named for that generation.
-A driver that finds a generation in its environment uses the next number and appends to the inherited `PERL5OPT`.
-The driver reads the shim source through `@INC`, hooks included, so a nested run injects a mutated shim.
+The driver writes `Test::Mutation::Shim::G1` with generation-specific environment variables.
+Nested runs increment the generation and append their shim to `PERL5OPT`.
+The driver reads shim source through `@INC` hooks so nested runs can inject a mutated shim.
+Only standalone compilers receive the observer directory and preload its generation-specific package.
 
 ## Alternatives
 
-One shared package name works for a single run and hides every mutant of the shim from a nested run.
+A shared name reserves the project's `%INC` entry, even with a separate directory.
 
 ## Consequences
 
@@ -26,5 +27,6 @@ Tests that count hooks subtract the hooks of their own process.
 
 ## Confirmation
 
-`xt/literals.t` checks the generation-specific environment names.
-`xt/release/self-mutation.t` requires detected shim changes in a complete self-measurement.
+`xt/literals.t` checks the environment names.
+`xt/release/self-mutation.t` requires detected shim changes.
+`t/e2e/library.t` exercises project imports in tests and standalone compilations.
