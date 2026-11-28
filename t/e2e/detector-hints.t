@@ -1,7 +1,8 @@
 use v5.36;
 use Test2::V0;
 use File::Temp ();
-use lib 't/e2e/lib';
+use lib 't/e2e/lib', 't/lib';
+use Capability;
 use Fixture qw(write_file);
 use Test::Mutation::Runner;
 use Test::Mutation::Settings;
@@ -33,7 +34,8 @@ sub entry ( $result, $id ) {
 }
 
 subtest 'a suggested detector must kill the current mutant in a fresh measurement' => sub {
-    my $root   = project( 't/a.t' => $weak, 't/z.t' => $strong );
+    my $root = project( 't/a.t' => $weak, 't/z.t' => $strong );
+    write_file( "$root/mutation.toml", qq{source = ["lib/**/*.pm"]\n} );
     my $config = config($root);
     my $id     = arithmetic_id($config);
     my $result = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => 't/z.t' } } );
@@ -161,6 +163,34 @@ subtest 'cache use, shards, and named reruns keep ordinary detector order' => su
           Test::Mutation::Runner::run( config( $root, %$settings ), sub { }, { detector_hints => { $id => 't/z.t' } } );
         is entry( $result, $id )->{by}, 't/a.t', 'the first covering test decides with ' . ( keys %$settings )[0];
     }
+    my $scope    = config($root);
+    my $selected = Test::Mutation::Select::resolve( config => $scope, identifiers => [$id] );
+    for my $filter ( { paths => { 'lib/Number.pm' => [] } }, { selection => $selected } ) {
+        my $result = Test::Mutation::Runner::run( $scope, sub { }, { %$filter, detector_hints => { $id => 't/z.t' } } );
+        is entry( $result, $id )->{by}, 't/a.t', 'an explicit source or preselected inventory keeps the ordinary order';
+    }
+    my $empty = Test::Mutation::Runner::run( config( $root, cache => 1, undetected => 1 ),
+        sub { }, { detector_hints => { $id => 't/z.t' } } );
+    is $empty->entries, [], 'an empty historical selection stays empty';
+};
+
+subtest 'a revision filter keeps ordinary covering test order' => sub {
+    Capability::need( 'git', length qx{git --version 2>/dev/null}, 'the selection needs Git' );
+    my $root = project( 't/a.t' => $strong, 't/z.t' => $strong );
+    my @git  = (
+        'git',                             '-C', $root,            '-c',
+        'core.hooksPath=/dev/null',        '-c', 'user.name=Test', '-c',
+        'user.email=test@example.invalid', '-c', 'commit.gpgsign=false'
+    );
+    system( @git, 'init', '-q' ) == 0  or die 'git init failed';
+    system( @git, 'add',  'lib' ) == 0 or die 'git add failed';
+    system( @git, 'commit', '-qm', 'fixture' ) == 0 or die 'git commit failed';
+    my $file = "$root/lib/Number.pm";
+    write_file( $file, Test::Mutation::Source::read_bytes($file) =~ s/return /return  /r );
+    my $config = config( $root, since => 'HEAD' );
+    my $id     = arithmetic_id($config);
+    my $result = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => 't/z.t' } } );
+    is entry( $result, $id )->{by}, 't/a.t', 'the ordinary test detected the change on the selected line';
 };
 
 subtest 'the restored original must pass before an in-place detector decides' => sub {

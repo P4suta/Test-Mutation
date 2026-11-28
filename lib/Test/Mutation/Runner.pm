@@ -114,13 +114,15 @@ sub run ( $config, $notify, $options = {} ) {
     };
     my $started = Time::HiRes::time();
     Test::Mutation::Event::phase( $listener, 'resolve' );
-    my $project = Cwd::abs_path( $config->root );
-    my %options = $options->%*;
-    my $hints   = delete $options{detector_hints};
-    my $run     = {
+    my $project  = Cwd::abs_path( $config->root );
+    my %options  = $options->%*;
+    my $hints    = delete $options{detector_hints};
+    my @filters  = ( $config->since, $config->shard, $config->mutant->@*, @options{qw(paths selection)} );
+    my $filtered = grep { defined } @filters;
+    my $run      = {
         config         => $config,
         options        => \%options,
-        detector_hints => $config->cache || defined $config->shard || $config->mutant->@* ? {} : $hints || {},
+        detector_hints => $config->cache || $filtered ? {} : $hints,
         project        => $project,
         root           => $project,
         listener       => $listener,
