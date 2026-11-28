@@ -94,6 +94,37 @@ subtest 'native object initialization is deferred while a class body can run cod
     is $reads->(q{class Model { method import { read_setting() } } 1;}), undef, 'an import method can run on use';
 };
 
+subtest 'lexical changes to other features preserve native class declarations' => sub {
+    my $reads = sub ($change) {
+        my $source = "use experimental 'class'; $change class Model { method value { 7 } } 1;";
+        return scalar Test::Mutation::Syntax::PPI::compile_reads( $source, 1 );
+    };
+    for my $change (
+        q{use feature 'say';},
+        q{no feature 'say';},
+        q{use experimental 'signatures';},
+        q{no experimental 'signatures';},
+        q{no feature ();},
+        q{no experimental;},
+        q{require feature;},
+        q{use feature ':5.36';},
+        q{no v100.0;}
+      )
+    {
+        is $reads->($change), [], "the class remains enabled after $change";
+    }
+    for my $change (
+        q{no feature 'class';},
+        q{no experimental 'class';},
+        q{no feature;}, q{no feature ':all';},
+        q{use v5.38;}
+      )
+    {
+        is $reads->($change), undef, "the class syntax is no longer enabled after $change";
+    }
+    is $reads->(q{no experimental 'class'; use feature qw(say class);}), [], 'an explicit import enables class again';
+};
+
 subtest 'a compiler search path inside the project can resolve to an external library' => sub {
     local $ENV{PERL5OPT} = '-Mstrict';
     my $area     = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
