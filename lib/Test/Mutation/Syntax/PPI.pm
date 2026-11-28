@@ -116,8 +116,8 @@ sub analyze ($source) {
         sites   => [],
         dropped => []
     };
-    $context->{values}  = _value_spans( $context, $document );
     $context->{misread} = _misread_readlines($document);
+    $context->{values}  = _value_spans( $context, $document );
     my $names = _names( $document, $context );
     _visit( $context, $document, 0 );
     my @sites    = sort { $a->start <=> $b->start || $a->end <=> $b->end } $context->{sites}->@*;
@@ -287,7 +287,7 @@ sub _value_spans ( $context, $document ) {
     my ($last)     = grep { _runs_at_load($_) } reverse @statements;
     my @values     = grep {
         ref $_ eq 'PPI::Statement'
-          && ( _is_value($_) || $last && refaddr($_) == refaddr($last) && _computed_value($_) )
+          && ( _is_value($_) || $last && refaddr($_) == refaddr($last) && _computed_value( $_, $context->{misread} ) )
     } @statements;
 
     # A statement whose place holds another text has no span, and it is among the places left out.
@@ -304,12 +304,12 @@ sub _runs_at_load ($statement) {
     return $statement->isa('PPI::Statement');
 }
 
-sub _computed_value ($statement) {
+sub _computed_value ( $statement, $readlines ) {
     my @parts = grep { !_is_semicolon($_) } $statement->schildren;
     if ( @parts == 1 && $parts[0]->isa('PPI::Structure::List') ) {
-        return scalar grep { _computed_value($_) } $parts[0]->schildren;
+        return scalar grep { _computed_value( $_, $readlines ) } $parts[0]->schildren;
     }
-    my $parsed = _parsed($statement);
+    my $parsed = _parsed( $statement, $readlines );
     my $end    = grep { $_->{kind} ne 'stop' } $parsed->{units}->@*;
     for my $at ( keys $parsed->{records}->@* ) {
         my $op = $parsed->{records}[$at] or next;
@@ -334,6 +334,7 @@ sub _is_literal ($element) {
 
 # PPI reads <$handle> in some places as two comparisons around a name.
 # No comparison lacks its right operand, so a ">" without one ends a readline, and the nearest "<" before it starts it.
+# The opening token counts the following siblings that form one operand.
 sub _misread_readlines ($document) {
     my %inside;
     my @ends = grep { $_->content eq '>' && _lacks_operand( scalar $_->snext_sibling ) }
@@ -343,7 +344,8 @@ sub _misread_readlines ($document) {
         my ($last)   = grep { refaddr $siblings[$_] == refaddr $end } 0 .. $#siblings;
         my ($first)  = grep { _starts_readline( $siblings[$_] ) } reverse 0 .. $last;
         next if !defined $first;
-        $inside{ refaddr $_ } = 1 for map { $_->isa('PPI::Token') ? $_ : $_->tokens } @siblings[ $first .. $last ];
+        $inside{ refaddr $_ } = 0 for map { $_->isa('PPI::Token') ? $_ : $_->tokens } @siblings[ $first .. $last ];
+        $inside{ refaddr $siblings[$first] } = $last - $first;
     }
     return \%inside;
 }
@@ -753,7 +755,7 @@ sub _interpolated_index ($class) {
 }
 
 sub _token_site ( $context, $token ) {
-    return                                      if $context->{misread}{ refaddr $token };
+    return                                      if exists $context->{misread}{ refaddr $token };
     return _collection_site( $context, $token ) if $token->isa('PPI::Token::QuoteLike::Words') && $token->literal;
     return _regex_sites( $context, $token )     if grep { $token->isa($_) } @REGEX_TOKEN;
     return _operator_site( $context, $token )   if $token->isa('PPI::Token::Operator');
@@ -930,16 +932,20 @@ sub _guarded_exit_site ( $context, $token, $place, $scope ) {
 # The siblings of an element as the table of precedence reads them, each unit with its elements and its record.
 sub _place ( $context, $element ) {
     my $parent = $element->parent;
-    my $parsed = $context->{parsed}{ refaddr $parent } ||= _parsed($parent);
+    my $parsed = $context->{parsed}{ refaddr $parent } ||= _parsed( $parent, $context->{misread} );
     my $at     = $parsed->{index}{ refaddr $element };
     return { $parsed->%*, unit => $parsed->{units}[$at], record => $parsed->{records}[$at] };
 }
 
-sub _parsed ($parent) {
+sub _parsed ( $parent, $readlines ) {
     my @units;
     my @children = $parent->schildren;
     while (@children) {
-        my $child    = shift @children;
+        my $child = shift @children;
+        if ( my $following = $readlines->{ refaddr $child } ) {
+            push @units, { kind => 'term', text => q{}, elements => [ $child, splice @children, 0, $following ] };
+            next;
+        }
         my @elements = ($child);
         if (   _is_operator( $child, q{^} )
             && _is_operator( $children[0], q{^} )

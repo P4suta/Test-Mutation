@@ -505,6 +505,19 @@ CODE
     my @logical_ranges = $ranges_in->($logical);
     is [ map { $_->from->[0] } @logical_ranges ], [ 8, 9 ],
       'a logical operator tests its entire left operand after a list assignment or call finishes';
+    my $stream = <<'CODE';
+sub read_range {
+    my ($first, $last, $input) = @_;
+    my $right = $first ... <$input>;
+    my @list = $first ... <$input>;
+    my $left = <$input> ... $last;
+    return $right if $first < $last;
+}
+CODE
+    is [ map { $_->from->[0] } $ranges_in->($stream) ], [ 3, 5 ],
+      'a scalar range can read either endpoint from a filehandle';
+    is changes( $stream, 'comparison-negation' ), [ [ '<', '>=' ] ],
+      'only the comparison outside the filehandle reads can be negated';
 };
 
 subtest 'guarded exits can be selected for a target with version-dependent startup code' => sub {
