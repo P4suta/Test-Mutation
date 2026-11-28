@@ -67,6 +67,28 @@ TEST
       'the same test detects the reversed comparison';
 };
 
+subtest 'standalone compilation imports the project compiler inputs package' => sub {
+    my $project = File::Temp::tempdir( CLEANUP => 1 );
+    write_file( "$project/lib/Test/Mutation/CompilerInputs.pm", <<'MODULE' );
+package Test::Mutation::CompilerInputs;
+sub _record { 7 }
+sub limit () { _record() }
+1;
+MODULE
+    write_file( "$project/lib/Boundary.pm", <<'MODULE' );
+package Boundary;
+use Test::Mutation::CompilerInputs ();
+use constant LIMIT => Test::Mutation::CompilerInputs::limit();
+sub above { return $_[0] > LIMIT }
+1;
+MODULE
+    write_file( "$project/t/pass.t", "use Test::More tests => 1; pass 'ready';\n" );
+    my $result = Test::Mutation::run( root => $project, source => ['lib/Boundary.pm'], jobs => 1, cache => 0 );
+    is $result->warnings, [], 'the original compiles with the project constant';
+    ok scalar( grep { defined $_->{compiled_digest} } $result->entries->@* ),
+      'the compiler compares changes to the uncovered boundary';
+};
+
 subtest 'the working directory is the project when the call names no root' => sub {
     my $here = Cwd::getcwd();
     chdir $root or die "chdir: $!";
