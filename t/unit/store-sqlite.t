@@ -212,6 +212,28 @@ subtest 'another writer can finish the schema after the first probe' => sub {
     }, qr/unsupported database schema 314/, 'a competing writer can install a schema this driver cannot open';
 };
 
+subtest 'opening a database returns the file acquired by the first connection' => sub {
+    my $path = "$directory/replaced/measurement.sqlite";
+    my $next = "$directory/replaced/replacement.sqlite";
+    Test::Mutation::Store::save( $path, { original    => $record } );
+    Test::Mutation::Store::save( $next, { replacement => $record } );
+    my $connect = \&DBI::connect;
+    my $opens   = 0;
+    my $db;
+    {
+        no warnings 'redefine';
+        local *DBI::connect = sub (@args) {
+            my $handle = $connect->(@args);
+            if ( ++$opens == 1 ) { rename $next, $path or die "replace $path: $!" }
+            return $handle;
+        };
+        $db = Test::Mutation::Store::database($path);
+    }
+    is $db->selectcol_arrayref('SELECT id FROM verdict'), ['original'], 'the returned handle keeps its database';
+    is $opens,                                            1,            'one request opens one database connection';
+    is Test::Mutation::Store::load($path), { replacement => $record }, 'a later request opens the replacement file';
+};
+
 subtest 'concurrent writers publish only committed observations' => sub {
     my $path = "$directory/concurrent/measurement.sqlite";
     pipe my $start, my $signal or die "pipe: $!";
