@@ -224,7 +224,7 @@ sub database ( $path, $legacy = undef ) {
     transaction(
         $db,
         sub {
-            return 1 if ( $db->selectrow_array('PRAGMA user_version') )[0];
+            return if _initialized( $db, $path );
             $db->do('CREATE TABLE verdict (id TEXT PRIMARY KEY, path TEXT, source TEXT, data TEXT NOT NULL)');
             $db->do('CREATE INDEX verdict_path ON verdict(path)');
             $db->do('CREATE TABLE original (id TEXT PRIMARY KEY, data TEXT NOT NULL)');
@@ -245,7 +245,7 @@ sub database ( $path, $legacy = undef ) {
             my $old = _read( $legacy // "$directory/cache.json" );
             _update( $db, _identified($old), undef, {}, _originals($old) );
             $db->do('PRAGMA user_version = 1');
-            return 1;
+            return;
         }
     );
     return $db;
@@ -285,7 +285,8 @@ sub _verdict_writer ($db) {
     my $remove = $db->prepare('DELETE FROM verdict WHERE id = ?');
     return sub ( $id, $record ) {
         if ( Test::Mutation::Status::of( $record->{status} )->cached ) {
-            $put->execute( $id, $record->@{qw(path source)}, $JSON->encode($record) );
+            my ( $path, $source ) = $record->@{qw(path source)};
+            $put->execute( $id, $path, $source, $JSON->encode($record) );
         }
         else { $remove->execute($id) }
         return;
