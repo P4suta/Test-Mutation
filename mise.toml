@@ -127,7 +127,23 @@ run = "perl xt/bin/check-ci-interpreters"
 
 [tasks.check-ci]
 description = "Run the local pull request checks before pushing a commit"
-run = ["mise run check", "mise run check-ci-interpreters"]
+run = '''
+  set -eu
+  candidate=$(git rev-parse --verify HEAD)
+  check_checkout() {
+    current=$(git rev-parse --verify HEAD)
+    changes=$(git status --porcelain=v1 --untracked-files=all)
+    if [ "$current" != "$candidate" ] || [ -n "$changes" ]; then
+      echo "The local CI checks need a clean checkout of the same commit." >&2
+      exit 1
+    fi
+  }
+  check_checkout
+  mise run check
+  check_checkout
+  mise run check-ci-interpreters
+  check_checkout
+'''
 
 [tasks.coverage]
 description = "Measure statement and branch coverage against the release floors"
