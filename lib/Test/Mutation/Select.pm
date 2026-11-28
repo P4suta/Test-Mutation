@@ -24,9 +24,7 @@ use Test::Mutation::Store::Analysis;
 our $VERSION = '0.001';
 
 # Revise this key when the analyzer changes the sites, candidates or refusals it records.
-sub _analysis_revision () {
-    return 1;
-}
+our $ANALYSIS_REVISION = 1;
 
 sub _refuse ( $path, $reason ) {
     return Test::Mutation::Error::raise( 'path-selector-invalid', path => $path, reason => $reason );
@@ -117,7 +115,7 @@ sub resolve ($arg) {
     );
     my ( $program, $version ) = _interpreter( $root, $config->perl );
     my $rules = Test::Mutation::Store::Key::digest(
-        $VERSION, _analysis_revision(), "$version", _parser_versions(),
+        $VERSION, $ANALYSIS_REVISION, "$version", _parser_versions(),
         $config->suppress_require_names,
         $config->suppress_require_reason,
         map { $_->name } @$mutators
