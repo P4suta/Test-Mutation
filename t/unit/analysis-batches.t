@@ -22,4 +22,23 @@ subtest 'every source in a full batch and its remainder enters the catalog once'
       'the three changes to each sum stay in file order across the batch boundary';
 };
 
+subtest 'a large source leaves the next index lookup available for small sources' => sub {
+    my $large = "$project/$paths[0]";
+    write_file( $large, Test::Mutation::Source::read_bytes($large) . q{#} . ( 'x' x ( 1024 * 1024 ) ) . "\n" );
+    my @lookups;
+    my $open = Test::Mutation::Store->can('read_database');
+    no warnings 'redefine';
+    local *Test::Mutation::Store::read_database = sub (@arguments) {
+        my $db = $open->(@arguments);
+        $db->sqlite_trace(
+            sub ($sql) {
+                push @lookups, scalar split /,/, $1 if $sql =~ /\bFROM analysis WHERE identity IN \(([^()]*)\)/i;
+            }
+        );
+        return $db;
+    };
+    Test::Mutation::Select::resolve( config => $config );
+    is \@lookups, [ 1, 64 ], 'the large file occupies one lookup and the remaining files share the next';
+};
+
 done_testing;
