@@ -34,6 +34,19 @@ my $gap = sub ($entry) {
 };
 is Test::Mutation::Store::History::undetected($config), [ map { $gap->($_) } $whole->entries->@[ 0, 1 ] ],
   'the latest completed scope yields only its undetected mutants in inventory order';
+subtest 'range filters keep the identifiers of gaps outside the recheck' => sub {
+    my ( $surviving, $uncovered ) = $whole->entries->@[ 0, 1 ];
+    my $path = $surviving->{mutant}->path;
+    my $file = { $path => [] };
+    my $line = { $path => [ [ 2, 2 ] ] };
+    is Test::Mutation::Store::History::undetected( $config, [$file] ), [ $gap->($surviving), $gap->($uncovered) ],
+      'a file without a line range includes both recorded changes';
+    is Test::Mutation::Store::History::undetected_scope( $config, [ $file, $line ] ),
+      { identifiers => [ $surviving->{mutant}->id, $uncovered->{mutant}->id ], selected => [ $gap->($uncovered) ] },
+      'a line filter skips the first gap and keeps the second in the recheck';
+    is Test::Mutation::Store::History::undetected( $config, [ $line, { 'lib/Other.pm' => [] } ] ), [],
+      'line and file filters must both include the change';
+};
 my $uncertain = Samples::result( statuses => [qw(NoVerdict Timeout NoVerdict)], finished => 104 );
 Test::Mutation::Store::History::record( $config, $uncertain, 0 );
 is Test::Mutation::Store::History::undetected($config), [ map { $gap->($_) } $whole->entries->@[ 0, 1 ] ],
