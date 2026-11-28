@@ -766,9 +766,10 @@ sub _prepare_work ($run) {
     my $work       = $run->{work} = $run->{workspace}->directory . '/work';
     my $outer      = $ENV{TEST_MUTATION_GENERATION};
     my $generation = defined $outer ? $outer + 1 : 1;
-    Test::Mutation::Tree::make( map { "$work/$_" } 'shim/Test/Mutation/Shim', 'mutants', 'records', 'tmp' );
+    Test::Mutation::Tree::make( map { "$work/$_" } 'shim/Test/Mutation/Shim',
+        'compiler/Test/Mutation', 'mutants', 'records', 'tmp' );
     _spew( "$work/shim/Test/Mutation/Shim/G$generation.pm", shim_text($generation) );
-    _spew( "$work/shim/$COMPILER_FILE",                     _module_text($COMPILER_FILE) );
+    _spew( "$work/compiler/$COMPILER_FILE",                 _module_text($COMPILER_FILE) );
     $run->{generation} = $generation;
     return;
 }
@@ -2246,7 +2247,7 @@ sub _compile_task ( $run, $job, $kind, $file, $switch ) {
     my $launch         = _launch(
         $run, $root, $tmp, $path,
         program   => $file,
-        arguments => [ "-I$run->{work}/shim", '-MTest::Mutation::CompilerInputs', $option ]
+        arguments => [ "-I$run->{work}/compiler", '-MTest::Mutation::CompilerInputs', $option ]
     );
     return {
         command => $launch->{command},
