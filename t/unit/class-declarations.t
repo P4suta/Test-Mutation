@@ -15,8 +15,11 @@ sub read_limit {
 }
 PERL
 
-my @declarations =
-  ( q{class First { method count { 1 } } class Second 1.0 { method count { 2 } } 1;}, q{class Meter {}; 1;}, );
+my @declarations = (
+    q{class First { method count { 1 } } class Second 1.0 { method count { 2 } } 1;},
+    q{class Meter {}; 1;},
+    q{class x v1.2.3 { method answer { 42 } } 1;},
+);
 my @readers = (
     q{class First {} class Second { my $limit = main::read_limit(); } 1;},
     q{class Meter {} read_limit; 1;},
