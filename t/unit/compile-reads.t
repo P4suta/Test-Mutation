@@ -31,6 +31,8 @@ subtest 'the compiler cannot identify an indirect read from its operands' => sub
     is reads(q{BEGIN { read_table() }}), undef, 'a helper may run arbitrary code';
     is reads(q{BEGIN { $ENV{TABLE} = '/other'; open my $in, '<', $ENV{TABLE} }}), undef,
       'the launch environment does not determine a reassigned variable';
+    is reads(q{use lib do { $ENV{TABLE} = 'alternate'; 'lib' }; BEGIN { open my $in, '<', $ENV{TABLE} }}), undef,
+      'an import argument can change the path before a phase block opens it';
 };
 
 subtest 'literal numeric guards have no external compiler inputs' => sub {
@@ -47,6 +49,8 @@ subtest 'an imported module must preserve an environment-derived file operand' =
       'declarations and the module return value do not change a binding';
     is $at_load->(q{package Data; $ENV{TABLE} = 'other'; 1;}), undef, 'a file-scope assignment runs on import';
     is $at_load->(q{package Data; apply_settings(); 1;}),      undef, 'a file-scope helper can alter the environment';
+    is $at_load->(q{package Data; sub choose { $ENV{TABLE} = 'other' } choose; 1;}), undef,
+      'a bare call runs when the compiler loads the module';
     is $at_load->(q{package Data; sub import { $ENV{TABLE} = 'other' } 1;}), undef, 'an import hook executes on use';
     is $at_load->(q{package Data; use Settings apply_settings(); 1;}), undef, 'an import argument can execute a helper';
 };
