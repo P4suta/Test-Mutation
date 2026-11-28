@@ -161,6 +161,7 @@ jobs:
     permissions:
       actions: read # Read the artifact's build run and immutable ID.
       contents: read # Read the controller and candidate commits separately.
+      statuses: read # Check that the local approval still applies to the artifact.
     outputs:
       source_sha: ${{ needs.candidate.outputs.source_sha }}
       version: ${{ needs.candidate.outputs.version }}
@@ -208,3 +209,8 @@ jobs:
           test -f "${archives[0]}"
           test ! -L "${archives[0]}"
           perl controller/xt/bin/verify-release-archive source "$SOURCE_SHA" "$VERSION" "${archives[0]}" "$SHA256" >> "$GITHUB_OUTPUT"
+      - name: Confirm local release checks still pass
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY_OWNER_ID: ${{ github.repository_owner_id }}
+        run: bash controller/xt/bin/verify-local-release-check
