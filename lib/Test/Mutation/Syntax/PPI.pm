@@ -14,8 +14,9 @@ use Test::Mutation::Types qw(Analysis);
 
 our $VERSION = '0.001';
 
-my $TOKEN = InstanceOf ['PPI::Token'];
-my $BLOCK = InstanceOf ['PPI::Structure::Block'];
+my $TOKEN  = InstanceOf ['PPI::Token'];
+my $BLOCK  = InstanceOf ['PPI::Structure::Block'];
+my $NUMBER = InstanceOf ['PPI::Token::Number'];
 
 my %CONDITIONAL  = map { $_ => 1 } qw(if unless while until);
 my %MODIFIER     = map { $_ => 1 } qw(if unless while until for foreach);
@@ -209,18 +210,19 @@ sub _class_feature ( $statement, $enabled ) {
 
 sub _fixed_class_load ($statement) {
     for my $segment ( _segments( {}, $statement )->@* ) {
-        return 0 unless _fixed_class_segment( grep { !_is_semicolon($_) } $segment->{children}->@* );
+        my @parts = grep { !_is_semicolon($_) } $segment->{children}->@*;
+        return 0 unless _fixed_class_segment(@parts);
     }
     return 1;
 }
 
 sub _fixed_class_segment ( $keyword = undef, $name = undef, @rest ) {
     return 1 unless defined $keyword;
-    return 1 if $keyword isa PPI::Token::Number && !defined $name;
-    return 0 unless _is_word( $keyword, { class => 1 } ) && $name isa PPI::Token::Word;
-    shift @rest if $rest[0] isa PPI::Token::Number;
+    return 1 if $NUMBER->check($keyword) && !defined $name;
+    return 0 unless _is_word( $keyword, { class => 1 } ) && _is_name($name);
+    shift @rest if $NUMBER->check( $rest[0] );
     my ($block) = @rest;
-    return 0 unless @rest == 1 && $block isa PPI::Structure::Block;
+    return 0 unless @rest == 1 && $BLOCK->check($block);
 
     # PPI can group a compile-time directive with the method declared immediately before it.
     return 0 if $block->find_first( sub ( $document, $element ) { _is_word( $element, \%COMPILE_KEYWORD ) } );
