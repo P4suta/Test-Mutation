@@ -196,19 +196,23 @@ sub _target_at {
     for my $target ( @{$candidates} ) {
         return $target if defined $target->{inode} && $stat[1] == $target->{inode} && $stat[0] == $target->{device};
     }
-    my $text    = _slurp($path);
-    my @equal   = grep { $text eq _slurp( $_->{original} ) } @{$candidates};
+    my $text = _slurp($path);
+    return unless defined $text;
+    my @equal = grep {
+        my $original = _slurp( $_->{original} );
+        defined $original && $text eq $original;
+    } @{$candidates};
     my ($named) = grep { substr( "/$_->{original}", -length("/$file") ) eq "/$file" } @equal;
     return $named || $equal[0];
 }
 
 sub _slurp {
     my ($path) = @_;
-    open my $handle, '<:raw', $path or return q{};
+    open my $handle, '<:raw', $path or return;
     local $/ = undef;
     my $content = <$handle>;
-    close $handle or return q{};
-    return defined $content ? $content : q{};
+    close $handle or return;
+    return $content;
 }
 
 sub _serve {
