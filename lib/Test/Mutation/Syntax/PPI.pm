@@ -869,7 +869,7 @@ sub _operator_site ( $context, $token ) {
     return if refaddr( $place->{unit}{elements}[0] ) != refaddr $token;
     my ( $start, $end ) = _span( $context, $token, $place->{unit}{elements}[-1] ) or return;
     my $scope = _scope( $context, $token ) or return;
-    my ( $role, $facts ) = _operator_role($place);
+    my ( $role, $facts ) = _operator_role( $context, $place );
     if ( $BOUNDED_COMPARISON{ $token->content } ) {
         my $before = $token->sprevious_sibling;
         $facts->{implicit_call} = 1
@@ -963,7 +963,7 @@ sub _parsed ($parent) {
     return { units => \@units, records => $records, index => \%index };
 }
 
-sub _operator_role ($place) {
+sub _operator_role ( $context, $place ) {
     my $content = $place->{unit}{text};
     return ( 'update', {} ) if $content eq '++' || $content eq '--';
 
@@ -981,20 +981,20 @@ sub _operator_role ($place) {
     if ( !$record && $content eq q{*} ) {
         return ( 'unary', {} ) if $BLOCK->check( scalar $place->{unit}{elements}[0]->snext_sibling );
     }
-    return ( 'binary', { flip_flop => 1 } ) if $content eq '...' && _scalar_range($place);
+    return ( 'binary', { flip_flop => 1 } ) if $content eq '...' && _scalar_range( $context, $place );
     my $prefix = $record ? $record->{position} eq 'prefix' : $ALWAYS_PREFIX{$content};
     return ( 'unary',  {} ) if $prefix;
     return ( 'binary', { _right_number($place)->%*, _version_literal($place) } );
 }
 
-sub _scalar_range ($place) {
+sub _scalar_range ( $context, $place ) {
     my $record = $place->{record};
     return 0 unless $record && $record->{before} && $record->{after};
     my $first = $place->{units}[ $record->{before}[0] ]{elements}[0];
     my $last  = $place->{units}[ $record->{after}[1] - 1 ]{elements}[-1];
     while (1) {
         my ( $previous, $next ) = ( $first->sprevious_sibling, $last->snext_sibling );
-        return 1 if _is_operator( $next, q{?}, qw(or and xor) ) || _scalar_assignment($previous);
+        return 1 if _tested_range( $context, $first, $next ) || _scalar_assignment($previous);
         last     if $next && !_is_semicolon($next);
         return 1 if _is_word( $previous, \%CONDITIONAL );
         last     if $previous;
@@ -1009,6 +1009,13 @@ sub _scalar_range ($place) {
         $first = $last = $parent;
     }
     return 0;
+}
+
+sub _tested_range ( $context, $first, $following ) {
+    return 0 unless _is_operator( $following, q{?}, qw(or and xor) );
+    my $consumer = _place( $context, $following );
+    my $operand  = $consumer->{record}{before};
+    return $operand && $operand->[0] == $consumer->{index}{ refaddr $first };
 }
 
 sub _scalar_assignment ($operator) {
