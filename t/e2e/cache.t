@@ -98,6 +98,29 @@ subtest 'ignored survivors keep their statuses and reasons in a reused run' => s
     is $after->reused,                                                   10, 'every result comes from the cache';
 };
 
+subtest 'changing whether Perl can compare a mutant invalidates its old equivalence verdict' => sub {
+    my $project    = copy_of('equivalent');
+    my ($before)   = run_fixture( $project, cache => 1 );
+    my ($ignored)  = grep { defined $_->{reason} && $_->{reason} eq 'same-code-as-original' } $before->entries->@*;
+    my $id         = $ignored->{mutant}->id;
+    my $comparable = Test::Mutation::Mutant->can('comparable');
+    my $sample     = Test::Mutation::Store->can('sample');
+    no warnings 'redefine';
+    local *Test::Mutation::Mutant::comparable = sub ($mutant) {
+        return $mutant->id eq $id ? 0 : $comparable->($mutant);
+    };
+    local *Test::Mutation::Store::sample = sub ( $ids, $seed ) {
+        return $sample->( [ grep { $_ ne $id } @$ids ], $seed );
+    };
+    my ($fresh)    = run_fixture( $project, cache => 0 );
+    my ($warm)     = run_fixture( $project, cache => 1 );
+    my ($observed) = grep { $_->{mutant}->id eq $id } $fresh->entries->@*;
+    is $observed->{status}, 'Survived',   'the current candidate must be judged by the tests';
+    is statuses($warm), statuses($fresh), 'the stored result agrees without waiting to sample the changed candidate';
+    my @unchanged = grep { $_->{mutant}->id ne $id } $before->entries->@*;
+    is $warm->reused, scalar @unchanged, 'the other candidate observations still qualify for reuse';
+};
+
 subtest 'a changed source without a mutant of its own invalidates the tests that load it' => sub {
     my $project = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
     my $inner   = sub ($limit) {

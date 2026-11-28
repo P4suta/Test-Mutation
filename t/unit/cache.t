@@ -266,8 +266,16 @@ subtest 'each saved verdict requires the observations that justify its status' =
     };
     is $reuse->( $cache, $hit, ['t/add.t'] ), undef, 'a recorded detection with changed inputs must be measured again';
     $cache->{records}{ $hit->id }{inputs} = $prior_key;
-    is $reuse->( $cache, $hit,       ['t/add.t'] )->{by}, 't/add.t', 'the verified detecting test is retained';
-    is $reuse->( $cache, $uncovered, [] )->{status}, 'NoCoverage',   'unchanged inputs can reuse an uncovered result';
+    is $reuse->( $cache, $hit, ['t/add.t'] )->{by}, 't/add.t', 'the verified detecting test is retained';
+    my $binding = Test::Mutation::Mutant->new( $hit->%*, introduced_call => [ 'Calc::adjust', $hit->start ] );
+    is $reuse->( $cache, $binding, ['t/add.t'] ), undef,
+      'a candidate that probes a different function needs fresh tests';
+    my $scope = Test::Mutation::Mutant->new( $hit->%*, scope => [ $hit->scope->[0], $hit->scope->[1] + 1 ] );
+    is $reuse->( $cache, $scope, ['t/add.t'] ), undef, 'a different covering statement needs fresh observations';
+    my $description = Test::Mutation::Mutant->new( $hit->%*, description => 'Reworded replacement description' );
+    is $reuse->( $cache, $description, ['t/add.t'] )->{by}, 't/add.t',
+      'rewording the description preserves the detection';
+    is $reuse->( $cache, $uncovered, [] )->{status}, 'NoCoverage', 'unchanged inputs can reuse an uncovered result';
     is $reuse->( $cache, $uncovered, ['t/add.t'] ),  undef, 'a newly covering test invalidates an uncovered result';
     is $reuse->( { %$cache, shared => 'another environment' }, $uncovered, [] ), undef,
       'an uncovered result still depends on the original project and interpreter';
