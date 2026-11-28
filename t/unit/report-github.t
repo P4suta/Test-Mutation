@@ -51,6 +51,8 @@ sub result ($entries) {
 }
 
 subtest 'annotations name the place of each undetected mutant' => sub {
+    isa_ok dies { Test::Mutation::Report::GitHub::annotations( {} ) }, ['Error::TypeTiny'],
+      'annotation input must be a measurement result';
     my $text = Test::Mutation::Report::GitHub::annotations(
         result(
             [
