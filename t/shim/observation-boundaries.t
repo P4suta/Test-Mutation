@@ -373,13 +373,15 @@ subtest 'observe mode leaves the test in control of loading Cwd' => sub {
     my $run = ShimHarness::run_bare(
         root => $root,
         args => [
-            '-I' . lib_dir(), '-Ilib', '-MTest::Mutation::Shim', '-e',
+            '-I' . lib_dir(),
+            '-Ilib', '-MTest::Mutation::Shim', '-e',
             'print exists $INC{"Cwd.pm"} ? "preloaded " : "unloaded "; require Cwd; print Cwd::value()'
         ],
         env => { TEST_MUTATION_SPEC => "$root/spec", TEST_MUTATION_RECORD => "$root/records" }
     );
     is_deeply [ $run->{status}, $run->{stdout} ], [ 0, 'unloaded 41' ],
-      'the test loads its own Cwd after observation starts' or diag $run->{stderr};
+      'the test loads its own Cwd after observation starts'
+      or diag $run->{stderr};
 };
 
 subtest 'the main program retains its identity after changing working directory' => sub {

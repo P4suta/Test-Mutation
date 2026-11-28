@@ -93,11 +93,14 @@ sub activate {
         record_dir  => scalar _untainted($record_dir),
     );
 
-    require Cwd;
-    $STATE{directory} = Cwd::getcwd();
+    my @directory = stat q{.};
+    $STATE{directory} = [ @directory[ 0, 1 ] ] if @directory;
     my @program = stat $0;
     $STATE{program} = [ _basename($0), @program[ 0, 1 ] ] if @program;
-    _include_directories() if $spec->{includes};
+    if ( $spec->{includes} ) {
+        require Cwd;
+        _include_directories();
+    }
     unless ( $spec->{observe} ) {
         my $hook = sub { return _serve(@_) };
         unshift @INC, $hook;
@@ -415,14 +418,12 @@ sub _breakable_lines {
 
 sub _relative_disk_match {
     my ( $path, $name, $device, $inode ) = @_;
-    return 0 unless defined $STATE{directory};
-    my @initial = stat "$STATE{directory}/$path";
-    return 0 if !@initial || $initial[0] != $device || $initial[1] != $inode;
+    my $initial   = $STATE{directory} or return 0;
+    my @directory = stat q{.};
+    return 0 if !@directory || $directory[0] != $initial->[0] || $directory[1] != $initial->[1];
     my $suffix = q{/} . join q{/}, grep { length && $_ ne q{.} } split m{/}, $path;
     my $peers  = $STATE{disk_files}{$name} || [];
-    return !grep {
-        ( q{/} . $_->[0] ) =~ /\Q$suffix\E\z/ && ( $_->[1] != $device || $_->[2] != $inode )
-    } @{$peers};
+    return !grep { ( q{/} . $_->[0] ) =~ /\Q$suffix\E\z/ && ( $_->[1] != $device || $_->[2] != $inode ) } @{$peers};
 }
 
 sub _loaded_from_disk {
