@@ -306,12 +306,12 @@ subtest 'a relative module registry entry does not identify another file after c
       )
     {
         my ( $name, $move_first, $move_last, $value, $absolute, $untracked ) = @$case;
-        my $root  = project();
-        my $first = write_file( "$root/lib/Resident.pm",       "package Resident; sub value { 17 } 1;\n" );
-        my $other = write_file( "$root/other/lib/Resident.pm", "package Resident; sub value { 29 } 1;\n" );
+        my $root    = project();
+        my $first   = write_file( "$root/lib/Resident.pm",       "package Resident; sub value { 17 } 1;\n" );
+        my $other   = write_file( "$root/other/lib/Resident.pm", "package Resident; sub value { 29 } 1;\n" );
         my @targets = $untracked ? ($other) : ( $first, $other );
         my $spec    = join q{}, map { "target\t$_\t$_\n" } @targets;
-        write_file( "$root/spec", "trace\t0\nobserve\t1\nplaced\t1\n$spec" );
+        write_file( "$root/spec",    "trace\t0\nobserve\t1\nplaced\t1\n$spec" );
         write_file( "$root/move.pl", <<'PERL' );
 my ($before, $after, $absolute) = @ARGV;
 chdir 'other' or die "enter other directory: $!" if $before;

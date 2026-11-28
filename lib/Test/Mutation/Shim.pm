@@ -89,10 +89,9 @@ sub activate {
         record_dir  => scalar _untainted($record_dir),
     );
 
-    if ( $spec->{includes} ) {
-        require Cwd;
-        _include_directories();
-    }
+    require Cwd;
+    $STATE{directory} = Cwd::getcwd();
+    _include_directories() if $spec->{includes};
     unless ( $spec->{observe} ) {
         my $hook = sub { return _serve(@_) };
         unshift @INC, $hook;
@@ -414,6 +413,9 @@ sub _loaded_from_disk {
     for my $path ( grep { defined && !ref } values(%INC), $0 ) {
         next if _basename($path) ne _basename( $target->{original} );
         if ( $path !~ m{\A/} ) {
+            next unless defined $STATE{directory};
+            my @initial = stat "$STATE{directory}/$path";
+            next if !@initial || $initial[0] != $device || $initial[1] != $inode;
             my $suffix = q{/} . join q{/}, grep { length && $_ ne q{.} } split m{/}, $path;
             my $peers  = $STATE{by_base}{ _basename($path) } || [];
             next if grep {
