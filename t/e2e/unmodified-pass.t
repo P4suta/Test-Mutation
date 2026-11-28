@@ -4,8 +4,10 @@ use lib 't/e2e/lib';
 use Config;
 use Cwd        ();
 use File::Temp ();
-use Fixture    qw(write_file run_fixture);
+use Fixture    qw(ran_from write_file run_fixture);
 use Test::Mutation;
+use Test::Mutation::Launch;
+use Test::Mutation::Runner;
 
 my $root  = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
 my %files = (
@@ -118,5 +120,46 @@ TEST
     my ($report) = run_fixture( $project, jobs => 1, mutant => [ $multiply->id ], equivalence => 0 );
     is $report->baseline_failures,    [],       'the original test uses the caller hook on disk';
     is $report->entries->[0]{status}, 'Killed', 'the disk mutation remains detectable with the caller hook';
+};
+
+subtest 'a fixture CLI receives the outer mutation and its child keeps the caller preload' => sub {
+    my $area       = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    my $generation = 1 + ( $ENV{TEST_MUTATION_GENERATION} || 0 );
+    my $module     = "Test/Mutation/Shim/G$generation.pm";
+    my $shim       = "$area/outer shim";
+    write_file( "$shim/$module", Test::Mutation::Runner::shim_text($generation) );
+    my $driver = <<'PERL';
+package Test::Mutation::CLI;
+sub main {
+    print "original driver\n";
+    my $child = 'print $CallerPreload::loaded ? "caller " : "missing "; print exists $INC{$ARGV[0]} ? "shim\n" : "plain\n"';
+    system {$^X} $^X, '-e', $child, @_ and die 'child failed';
+    return 0;
+}
+1;
+PERL
+    my $original = write_file( "$area/driver/Test/Mutation/CLI.pm", $driver );
+    my $changed  = write_file( "$area/changed",                     $driver =~ s/original driver/changed driver/r );
+    my $spec     = write_file( "$area/spec",                        "target\t$original\t$changed\n" );
+    write_file( "$area/caller/CallerPreload.pm", "package CallerPreload; our \$loaded = 1; 1;\n" );
+    mkdir "$area/records" or die $!;
+    my $launch = Test::Mutation::Launch::test_command(
+        perl    => $^X,
+        root    => $area,
+        program => 'driver',
+        tmp     => $area,
+        lib     => [],
+        switch  => [],
+        env     => {
+            PERL5LIB => join( $Config{path_sep}, "$area/caller",                     grep { defined } $ENV{PERL5LIB} ),
+            PERL5OPT => join( q{ },              grep( { defined } $ENV{PERL5OPT} ), '-MCallerPreload' )
+        },
+        shim => { generation => $generation, directory => $shim, spec => $spec, record => "$area/records" },
+    );
+    local @INC = ( $shim, @INC );
+    require $module;
+    local %ENV = ( %ENV, $launch->{env}->%* );
+    my $run = ran_from( "$area/driver", 0, $area, $module );
+    is $run->{stdout}, "changed driver\ncaller plain\n", 'the application inherits only its caller preload';
 };
 done_testing;

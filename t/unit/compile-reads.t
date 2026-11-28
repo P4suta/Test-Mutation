@@ -71,6 +71,7 @@ subtest 'an imported module must preserve an environment-derived file operand' =
 };
 
 subtest 'a compiler search path inside the project can resolve to an external library' => sub {
+    local $ENV{PERL5OPT} = '-Mstrict';
     my $area     = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
     my $project  = "$area/project";
     my $external = "$area/external";

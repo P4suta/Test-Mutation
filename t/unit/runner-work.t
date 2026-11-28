@@ -131,7 +131,24 @@ subtest 'compilation retains the selected interpreter, file and working tree' =>
     ok $workspace->release(0),    'the compiler leaves its workspace releasable';
 };
 
+subtest 'the absence of compiler reads is remembered for the next mutant of the source' => sub {
+    my $path        = 'lib/Bound.pm';
+    my $source      = Test::Mutation::Source->from_bytes( path => $path, bytes => "package Bound;\nCHECK { }\n1;\n" );
+    my $run         = { sources => { $path => $source } };
+    my $inspections = 0;
+    my $parse       = \&PPI::Document::new;
+    no warnings 'redefine';
+    local *PPI::Document::new = sub (@args) {
+        $inspections++ if ref $args[1] eq 'SCALAR';
+        return $parse->(@args);
+    };
+    ok !Test::Mutation::Runner::_may_read_at_compile_time( $run, $path ), 'an empty CHECK block reads no files';
+    ok !Test::Mutation::Runner::_may_read_at_compile_time( $run, $path ), 'a second mutant shares the result';
+    is $inspections, 1, 'the unchanged source needs one inspection';
+};
+
 subtest 'one comparison ends when the original and the uncovered mutant have compiled' => sub {
+    local $ENV{PERL5OPT} = '-Mstrict';
     my ($mutant)  = grep { $_->comparable } @mutants;
     my $workspace = Test::Mutation::Workspace::acquire($root);
     my $run       = {
