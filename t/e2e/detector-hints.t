@@ -44,6 +44,11 @@ subtest 'a suggested detector must kill the current mutant in a fresh measuremen
     is $found->{covered_by},                   [qw(t/a.t t/z.t)], 'the report retains all current covering tests';
     like $found->{observations}, [ [ hash { field test => 't/z.t'; field result => 'fail'; field served => 1; etc } ] ],
       'the changed target was served to the test that failed';
+
+    write_file( "$root/t/z.t", $use_number . "is \$number, 4, 'the original is broken';\n" );
+    my $broken = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => 't/z.t' } } );
+    is [ map { $_->{test} } $broken->baseline_failures->@* ], ['t/z.t'], 'the original assertion now fails';
+    is $broken->entries, [], 'the former detector supplies no verdict after the original fails';
 };
 
 subtest 'absent and unreached detectors leave the current covering test order intact' => sub {
@@ -132,6 +137,16 @@ PERL
     my $found  = entry( $result, $id );
     is $found->{covered_by},                   [qw(t/a.t t/z.t)],        'the original child reached the target';
     is [ $found->@{qw(status by tests_run)} ], [ 'Killed', 't/a.t', 1 ], 'the test that received the change decides';
+};
+
+subtest 'cache use, shards, and named reruns keep ordinary detector order' => sub {
+    my $root = project( 't/a.t' => $strong, 't/z.t' => $strong );
+    my $id   = arithmetic_id( config($root) );
+    for my $settings ( { cache => 1 }, { shard => '1/1' }, { mutant => [$id] } ) {
+        my $result =
+          Test::Mutation::Runner::run( config( $root, %$settings ), sub { }, { detector_hints => { $id => 't/z.t' } } );
+        is entry( $result, $id )->{by}, 't/a.t', 'the first covering test decides with ' . ( keys %$settings )[0];
+    }
 };
 
 done_testing;
