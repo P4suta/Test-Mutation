@@ -432,7 +432,7 @@ sub finish {
                 next;
             }
             if ( _loaded_from_disk( $target, $target->{device}, $target->{inode} ) ) {
-                if ( $STATE{placed} ) { _record( 'seen', $target->{original}, 'loaded-at-exit' ) }
+                if ( $STATE{placed} ) { _record( 'blind', $target->{original}, 'loaded-at-exit' ) }
                 else                  { _record( 'around', $target->{original} ) }
             }
             next;
@@ -471,9 +471,9 @@ Each process writes tab-separated lines to one file in the record directory.
 C<begin> carries 1 when line tracing is active.
 C<seen> names a target that compiled.
 The optional C<opened> and C<failed> fields record opening the source and a failed load.
-The C<loaded-at-exit> field records a file found in C<%INC> or as the main program at process exit.
-The reader uses file coverage unless the same process already recorded compilation of the target.
 C<blind> names a target that compiled without an available line tracer.
+Its optional C<loaded-at-exit> field identifies a file found in C<%INC> or as the main program at process exit.
+The reader uses file coverage for that observation unless the same process already recorded compilation of the target.
 C<around> records loading the target around the hook and C<outside> records loading the project file outside its copy.
 C<error> carries the target and the diagnostic from the shim.
 C<hit> carries a target and a line that ran.
