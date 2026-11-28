@@ -2433,6 +2433,10 @@ The mutants of every mutator decide whether a comment suppresses one, so the cho
 =head2 run
 
 Runs the measurement and returns a L<Test::Mutation::Result>.
+The optional C<detector_hints> argument maps mutant identifiers to project-relative test paths.
+When the runner resolves the full project with caching disabled, it can try a suggested covering test first if the harness rules allow it.
+The suggested test must establish C<Killed> against the current mutant.
+An inconclusive trial starts the ordinary test order from a clean workspace with the full timeout budget.
 The listener receives C<phase> with its name and time, C<resolved>, C<copy_started>, C<copy_finished>, C<baseline_started>, C<baseline_test>, C<baseline_finished>, C<mutants_started>, C<mutant_finished>, C<mutants_finished>, C<tick>, and C<finished>.
 The original C<analyzed>, C<baseline>, and C<mutant> notifications remain available.
 The final event contains the measurement tally.
