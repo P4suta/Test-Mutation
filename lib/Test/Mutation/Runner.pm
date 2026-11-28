@@ -2193,7 +2193,7 @@ sub _compiler_inputs ( $run, $tmp, $result, $requested ) {
         return unless defined $digest;
         $inputs{$path} = $digest;
     }
-    if ( $requested =~ /(?:\A|,)e/ || grep { /\Ae/ } keys %{ $result->{module_reads} || {} } ) {
+    if ( length($requested) || keys %{ $result->{module_reads} || {} } ) {
         $result->{module_reads}{q{?}} = 1 if grep { _loaded_read_operands( $run, $_, 1 ) eq q{?} } @modules;
     }
     return \%inputs;
