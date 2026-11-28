@@ -491,6 +491,10 @@ sub through_condition {
     /begin/ ... /end/ and return 1;
     (/left/ ... /right/) or die;
 }
+sub through_callback {
+    my $send = shift;
+    &$send(1 ... 3) or die 'nothing sent';
+}
 CODE
     my @logical_ranges = grep { $_->mutator eq 'range-boundary' } mutants( $logical, profile => 'extended' )->@*;
     is [ map { $_->from->[0] } @logical_ranges ], [ 8, 9 ],
