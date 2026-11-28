@@ -66,6 +66,16 @@ subtest 'search paths inside a checkout compare by their relative names' => sub 
     isnt $input->( '/b', '/shared', '/b',     '/b-old/lib' ), $first, 'an adjacent directory stays external';
 };
 
+subtest 'a search directory retains its identity when missing parents appear' => sub {
+    my $project = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    my $library = "$project/dependencies/vendor/lib";
+    my $env     = { PERL5LIB => $library };
+    my $missing = Test::Mutation::Store::Key::environment( $env, $project );
+    write_file( "$library/Module.pm", "1;\n" );
+    is Test::Mutation::Store::Key::environment( $env, $project ), $missing,
+      'creating the library directory preserves its path in the environment fingerprint';
+};
+
 subtest 'an unresolved search directory keeps its checkout location' => sub {
     my @keys;
     for ( 1 .. 2 ) {
