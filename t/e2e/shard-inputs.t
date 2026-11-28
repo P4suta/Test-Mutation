@@ -196,8 +196,11 @@ PERL
     for my $checkout (qw(data-first data-second)) {
         write_file( "$area/$checkout/lib/Idle.pm", $idle );
     }
-    my $opaque = shard( 'data-first',  1, cache => 1 );
+    my $opaque = shard( 'data-first',  1, cache => 1, jobs => 1 );
     my $peer   = shard( 'data-second', 2, cache => 1 );
+    is $opaque->{result}->stats->{compiles}, 1, 'an unbound original needs no mutant compilations';
+    unlike join( "\n", $opaque->{result}->warnings->@* ), qr/no stable text/,
+      'a repeatable compilation with an unknown input has no unstable-output warning';
     is $opaque->{result}->compiler_inputs, $peer->{result}->compiler_inputs,
       'an unchanged opaque source has the same compilation in both checkouts';
     ok !( grep { defined $_->{compiled_digest} } $peer->{result}->entries->@* ),

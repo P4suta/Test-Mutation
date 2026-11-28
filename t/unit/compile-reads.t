@@ -17,8 +17,8 @@ subtest 'scheduled blocks identify the file operands of read-only open' => sub {
     is reads(q{UNITCHECK { CORE::open(my $in, '<:raw', '/data/file') }}), [ [ file => '/data/file' ] ],
       'a literal path and a PerlIO layer identify one input';
     is reads(q{BEGIN;}), undef, 'a phase declaration without a body supplies no read evidence';
-    is reads(q{sub CHECK { open my $in, '<', 'limits' }}), [ [ file => 'limits' ] ],
-      'an explicitly declared phase subroutine runs during compilation';
+    is reads(q{END { 1 } sub CHECK { open my $in, '<', 'limits' }}), [ [ file => 'limits' ] ],
+      'a later explicit CHECK subroutine still runs during compilation';
     is reads(q{BEGIN { unshift @INC, $ENV{LIBRARY}; push @INC, '/opt/lib' }}), [],
       'the compiler already records literal and environment-derived include directories';
     is reads(q{sub load { open my $in, '<', make_path() } # BEGIN }), [],
