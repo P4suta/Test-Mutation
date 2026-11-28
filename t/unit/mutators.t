@@ -455,10 +455,22 @@ sub ranges {
     my @copy = 1 ... $_[0];
     return [1 ... $_[0]] if check(1 ... $_[0]);
 }
+sub values {
+    my $active = /begin/ ... /end/;
+    my @result = scalar(/begin/ ... /end/);
+    return (($active ... $result[0])) ? 1 : 0;
+}
+sub arguments {
+    my ($first) = /begin/ ... /end/;
+    my $object = shift;
+    return $object->scalar(/begin/ ... /end/);
+}
 sub unfinished { ... }
 CODE
-    is changes( $source, 'range-boundary', profile => 'extended' ), [ [ '...', '..' ], [ '...', '..' ] ],
-      'only scalar conditions test the endpoint during the first evaluation';
+    my @ranges = grep { $_->mutator eq 'range-boundary' } mutants( $source, profile => 'extended' )->@*;
+    is [ map { [ $_->from->[0], $_->original, $_->replacement ] } @ranges ],
+      [ map { [ $_, '...', '..' ] } 3, 4, 12, 13, 14 ],
+      'scalar assignments, explicit scalar context, and conditions evaluate the range endpoint earlier';
 };
 
 subtest 'guarded exits can be selected for a target with version-dependent startup code' => sub {
