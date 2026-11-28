@@ -48,16 +48,17 @@ PERL
         );
         return $result;
     };
-    my $left = $measure->( 1, 1 );
-    is [ map { $_->{status} } $left->entries->@* ], ['Killed'], 'the test detects the inclusive boundary at seven';
+    my $original = $measure->( 1, 1 );
+    is [ map { $_->{status} } $original->entries->@* ], ['Killed'], 'the test detects the inclusive boundary at seven';
     write_file( $ENV{TEST_EMBEDDED_LIMIT}, "5\n" );
-    my $warm  = $measure->( 1, 1 );
-    my $right = $measure->( 2, 0 );
-    is [ map { $_->{status} } $warm->entries->@* ],  ['Survived'], 'a warm run measures the new limit';
-    is [ $warm->reused, $warm->cache_mismatch ],     [ 0, 0 ],     'the cached verdict is ineligible before sampling';
-    is [ map { $_->{status} } $right->entries->@* ], ['Survived'], 'a cold peer observes the same new limit';
+    my $warm = $measure->( 1, 1 );
+    my $peer = $measure->( 2, 0 );
+    is [ map { $_->{status} } $warm->entries->@* ], ['Survived'], 'a warm run measures the new limit';
+    is [ $warm->reused, $warm->cache_mismatch ],    [ 0, 0 ],     'the cached verdict is ineligible before sampling';
+    is [ map { $_->{status} } $peer->entries->@* ], ['Survived'], 'a cold peer observes the same new limit';
     like dies {
-        Test::Mutation::Merge::merge( [ { name => 'before', result => $left }, { name => 'after', result => $right } ] )
+        Test::Mutation::Merge::merge(
+            [ { name => 'before', result => $original }, { name => 'after', result => $peer } ] )
     }, qr/measurement inputs are missing/, 'the old and new unverified limits cannot certify a combined score';
 };
 
