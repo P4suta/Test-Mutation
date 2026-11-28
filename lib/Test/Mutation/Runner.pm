@@ -558,11 +558,7 @@ sub _copy_exclusions ($run) {
     my $project = $run->{project};
     my @skip    = ( '.git', map { _inside( $project, $_ ) } $config->cache_dir, $config->report_dir );
     return @skip if $config->in_place;
-    unless ( $run->{report_outputs} ) {
-        my $view =
-          _available_digest( sub { return Test::Mutation::Store::Key::project( $project, \@skip, $config->link ) } );
-        $run->{report_outputs} = $view ? $view->{outputs} : [];
-    }
+    $run->{report_outputs} ||= Test::Mutation::Store::Key::published_outputs( $project, \@skip, $config->link );
     return @skip, $run->{report_outputs}->@*;
 }
 
