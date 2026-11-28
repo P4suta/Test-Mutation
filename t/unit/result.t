@@ -104,10 +104,16 @@ subtest 'a cached disagreement or an unanalyzed source makes a scored run inconc
                 cache_mismatch => $mismatch,
                 problems       => $unparsed ? [ { path => 'lib/Incomplete.pm', problem => 'unreadable source' } ] : []
             );
+            my $tally = Test::Mutation::Result->can('tally');
+            my $calls = 0;
+            no warnings 'redefine';
+            local *Test::Mutation::Result::tally = sub ($self) { $calls++; return $tally->($self) };
             my $decision = Test::Mutation::Outcome::of( $report, 0 );
             is [ $decision->{name}, $decision->{exit}->name ],
               $mismatch || $unparsed ? [qw(inconclusive inconclusive)] : [qw(measured success)],
               "cache mismatch $mismatch and source problem $unparsed decide the whole measurement";
+            is $calls, $mismatch || $unparsed ? 0 : 1,
+              "cache mismatch $mismatch and source problem $unparsed determine whether a score is needed";
         }
     }
 };
