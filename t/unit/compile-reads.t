@@ -67,7 +67,7 @@ sub inside { return Local::floor() < Defaults::limit() }
 PERL
     write_file( "$project/t/pass.t", "use Test::More tests => 1; pass 'ready';\n" );
     my %compiled;
-    my $compile = \&Test::Mutation::Runner::_compile_task;    ## no critic (Subroutines::ProtectPrivateSubs)
+    my $compile = \&Test::Mutation::Runner::_compile_task;    ## no critic (Variables::ProtectPrivateVars)
     no warnings 'redefine';
     local *Test::Mutation::Runner::_compile_task = sub ( $run, $job, $kind, $file, $switch ) {    ## no critic (Variables::ProtectPrivateVars)
         die "repeated $kind for $file\n" if $compiled{$kind}{$file}++;
