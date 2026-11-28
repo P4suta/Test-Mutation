@@ -296,6 +296,43 @@ subtest 'the exit record identifies a module loaded before the observer started'
     }
 };
 
+subtest 'a relative module registry entry does not identify another file after chdir' => sub {
+    for my $case (
+        [ 'load then move',   0, 1, 17, 0 ],
+        [ 'move then load',   1, 0, 29, 0 ],
+        [ 'return from load', 1, 1, 29, 0 ],
+        [ 'absolute load',    0, 1, 17, 1 ],
+      )
+    {
+        my ( $name, $move_first, $move_last, $value, $absolute ) = @$case;
+        my $root  = project();
+        my $first = write_file( "$root/lib/Resident.pm",       "package Resident; sub value { 17 } 1;\n" );
+        my $other = write_file( "$root/other/lib/Resident.pm", "package Resident; sub value { 29 } 1;\n" );
+        write_file( "$root/spec", "trace\t0\nobserve\t1\nplaced\t1\ntarget\t$first\t$first\ntarget\t$other\t$other\n" );
+        write_file( "$root/move.pl", <<'PERL' );
+my ($before, $after, $absolute) = @ARGV;
+chdir 'other' or die "enter other directory: $!" if $before;
+if (length $absolute) { require $absolute } else { require Resident }
+print Resident::value(), "\n", $INC{$absolute || 'Resident.pm'}, "\n";
+chdir($before ? '..' : 'other') or die "change directory after require: $!" if $after;
+PERL
+        my $run = run_perl(
+            root => $root,
+            args => [
+                '-I' . lib_dir(), '-Ilib',    '-MTest::Mutation::Shim', 'move.pl',
+                $move_first,      $move_last, $absolute ? $first : q{}
+            ],
+            env => { TEST_MUTATION_SPEC => "$root/spec", TEST_MUTATION_RECORD => "$root/records" }
+        );
+        is $run->{status}, 0, "$name: the ordinary require completes" or diag $run->{stderr};
+        is $run->{stdout}, "$value\n" . ( $absolute ? $first : 'lib/Resident.pm' ) . "\n",
+          "$name: the program identifies the value loaded and the path that Perl registered";
+        my @observed = grep { $_->[0] eq 'blind' || $_->[0] eq 'around' } @{ all_records($root) };
+        is_deeply \@observed, $absolute ? [ [ 'blind', $first, 'loaded-at-exit' ] ] : [],
+          "$name: only an unambiguous file identity supplies coverage";
+    }
+};
+
 subtest 'the command selector stops before looking up aliases for a missing main program' => sub {
     my $root = project();
     write_file( "$root/bin/tool",  "print 1;\n" );
