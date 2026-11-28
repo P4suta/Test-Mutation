@@ -170,7 +170,7 @@ subtest 'the matrix rejects a mutant that no input tells from the original' => s
     Oracle::count( $tally, 'number-literal',      'unseparated', 25 );
     is Matrix::over_bound($tally),
       [
-        'comparison-negation has no input of the matrix that tells it from the original in more than 2 percent of its mutants (2 of 50)'
+        'comparison-negation has no input of the matrix that tells it from the original (2 of 50, limit 2%)'
       ],
       'a mutator of the default profile above 2 percent is a finding, and one of the extended profile has no bound';
     is Gate::outcomes( sub { Gate::findings( 'mutants-c2-rejected', Matrix::over_bound($tally) ) } ),
