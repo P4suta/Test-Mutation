@@ -47,6 +47,10 @@ subtest 'an imported module must preserve an environment-derived file operand' =
     my $at_load = sub ($source) { return scalar Test::Mutation::Syntax::PPI::compile_reads( $source, 1 ) };
     is $at_load->(q{package Data; use strict; sub count { return 3 } 1;}), [],
       'declarations and the module return value do not change a binding';
+    is $at_load->(q{package Data; use constant LIMIT => 7; 1;}), [],
+      'a literal numeric constant has no outside input';
+    is $at_load->(q{package Data; use constant LIMIT => read_limit(); 1;}), undef,
+      'computing a constant can read an outside file';
     is $at_load->(q{package Data; $ENV{TABLE} = 'other'; 1;}), undef, 'a file-scope assignment runs on import';
     is $at_load->(q{package Data; apply_settings(); 1;}),      undef, 'a file-scope helper can alter the environment';
     is $at_load->(q{package Data; use strict; sub choose { $ENV{TABLE} = 'other' } choose; 1;}), undef,
