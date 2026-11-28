@@ -2,6 +2,7 @@ use v5.36;
 use Test2::V0;
 use Cwd        ();
 use File::Temp ();
+use TOML::Tiny ();
 use lib 't/e2e/lib';
 use Fixture                qw(write_file);
 use Test::Mutation::Source ();
@@ -84,4 +85,31 @@ like $events[2], qr{repos/fixture/distribution/statuses/$commit\b.*state=success
 my $dirty = record();
 isnt $dirty->[0], 0,   'a dirty checkout is refused before testing';
 is $dirty->[1],   q{}, 'a dirty checkout starts no gate and changes no status';
+subtest 'the local release tasks run a cold measurement with optional reports' => sub {
+    my $config = TOML::Tiny::from_toml( Test::Mutation::Source::read_bytes('mise.toml') );
+    my $tasks  = $config->{tasks};
+    is $tasks->{'record-release-check'}{run}, 'sh xt/bin/record-release-check',
+      'the recording task executes the checked release script';
+    my @steps = $tasks->{'mutation-gate'}{run}->@*;
+    is [ @steps[ 1, 2 ] ], [ 'prove -l xt/release', 'mise run discover-mutants' ],
+      'the local gate verifies the completed inventory and the installed corpus';
+    tool( 'perl', <<'SH' );
+test -z "${TEST_MUTATION_DETECTOR_DIR+x}"
+printf '%s\n' "$@" > "$CHECK_LOG"
+SH
+    my $directory = "$scratch/prior reports";
+    write_file( "$directory/one.json",      q{} );
+    write_file( "$directory/two days.json", q{} );
+    local $ENV{PATH}                       = "$scratch/bin:$ENV{PATH}";
+    local $ENV{CHECK_LOG}                  = $log;
+    local $ENV{TEST_MUTATION_DETECTOR_DIR} = $directory;
+    is system( 'sh', '-ec', $steps[0] ), 0, 'the scheduling input stays outside the measured environment';
+    is Test::Mutation::Source::read_bytes($log),
+      "xt/bin/confirm-self-measurement\n$directory/one.json\n$directory/two days.json\n",
+      'the measurement receives both filenames as separate arguments';
+    delete $ENV{TEST_MUTATION_DETECTOR_DIR};
+    is system( 'sh', '-ec', $steps[0] ), 0, 'the full measurement can run on a fresh machine';
+    is Test::Mutation::Source::read_bytes($log), "xt/bin/confirm-self-measurement\n",
+      'a fresh machine supplies no reports';
+};
 done_testing;
