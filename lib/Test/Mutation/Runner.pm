@@ -2176,24 +2176,22 @@ sub _compiler_input_digest ( $run, $path ) {
     );
 }
 
-sub _loaded_read_operands ( $run, $file, $check_load = 0 ) {
-    my $memo = $run->{module_reads}{$file} ||= {};
-    return $memo->{$check_load} if exists $memo->{$check_load};
+sub _loaded_read_operands ( $run, $file ) {
+    return $run->{module_reads}{$file} if exists $run->{module_reads}{$file};
     my $bytes = _available_digest( sub { Test::Mutation::Source::read_bytes($file) } );
     return q{?} unless defined $bytes;
     my $source = Test::Mutation::Source->from_bytes( path => $file, bytes => $bytes );
-    return $memo->{$check_load} = _encode_read_operands( $source, $source->text, $check_load );
+    return $run->{module_reads}{$file} = _encode_read_operands( $source, $source->text, 1 );
 }
 
-sub _compiler_inputs ( $run, $tmp, $result, $requested ) {
+sub _compiler_inputs ( $run, $tmp, $result ) {
     return unless -f "$tmp/inputs";
     my @lines = split /\n/, Test::Mutation::Source::read_bytes("$tmp/inputs");
     return unless @lines && pop(@lines) eq q{.};
-    my ( @modules, %inputs );
+    my %inputs;
     for my $line (@lines) {
         if ( $line =~ /\Am((?:[0-9a-f]{2})+)\z/ ) {
-            my $file = pack 'H*', $1;
-            push @modules, $file;
+            my $file  = pack 'H*', $1;
             my $reads = _loaded_read_operands( $run, $file );
             $result->{module_reads}{$_} = 1 for split /,/, $reads;
             next;
@@ -2209,9 +2207,6 @@ sub _compiler_inputs ( $run, $tmp, $result, $requested ) {
         return unless defined $digest;
         $inputs{$path} = $digest;
     }
-    if ( length($requested) || keys %{ $result->{module_reads} || {} } ) {
-        $result->{module_reads}{q{?}} = 1 if grep { _loaded_read_operands( $run, $_, 1 ) eq q{?} } @modules;
-    }
     return \%inputs;
 }
 
@@ -2219,7 +2214,7 @@ sub _remember_compiler_inputs ( $run, $job, $task, $result ) {
     my $payload       = $task->{payload};
     my $read_operands = $task->{env}{TEST_MUTATION_COMPILER_READS};
     $result->{compiler_inputs} = undef unless _compiled($result);
-    $result->{compiler_inputs} = _compiler_inputs( $run, $payload->{tmp}, $result, $read_operands )
+    $result->{compiler_inputs} = _compiler_inputs( $run, $payload->{tmp}, $result )
       unless exists $result->{compiler_inputs};
     my %requested = map  { $_ => 1 } split /,/, $read_operands;
     my $missing   = grep { !$requested{$_} } keys %{ $result->{module_reads} || {} };
