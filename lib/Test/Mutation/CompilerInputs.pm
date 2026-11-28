@@ -5,6 +5,7 @@ use strict;
 use warnings;
 use Config qw(%Config);
 use Cwd    ();
+use Fcntl  qw(O_CREAT O_EXCL O_WRONLY);
 
 our $VERSION = '0.001';
 
@@ -58,11 +59,13 @@ sub _record {
         return unless -f $file;
         $paths{$file} = 1;
     }
-    open my $out, '>:raw', $record or return;
-    print {$out} map { 'm' . unpack( 'H*', $_ ) . "\n" } sort keys %modules or return;
-    print {$out} map { unpack( 'H*', $_ ) . "\n" } sort keys %paths         or return;
-    print {$out} ".\n" or return;
-    close $out;
+    my @lines = map { 'm' . unpack( 'H*', $_ ) } sort keys %modules;
+    push @lines, map { unpack( 'H*', $_ ) } sort keys %paths;
+    my $bytes = join "\n", @lines, q{.}, q{};
+    sysopen my $out, $record, O_WRONLY | O_CREAT | O_EXCL, 0600 or return;
+    my $written = syswrite $out, $bytes;
+    my $closed  = close $out;
+    unlink $record unless $closed && defined $written && $written == length $bytes;
     return;
 }
 

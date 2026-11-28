@@ -3,7 +3,7 @@ use warnings;
 use Config ();
 use Test::More;
 use lib 't/shim/lib';
-use ShimHarness qw(lib_dir project run_perl write_file);
+use ShimHarness qw(lib_dir project run_command run_perl write_file);
 
 sub compile_record {
     my ( $root, $name, $operands, %environment ) = @_;
@@ -160,5 +160,38 @@ BEGIN {
 PERL
 ok !defined compile_record( $root, 'streamed', q{}, MODULE_STREAM => $stream ),
   'a module provided by a loader without a file identity leaves no record';
+
+my $many = "$root/include";
+mkdir $many or die "mkdir $many: $!";
+for my $number ( 1 .. 128 ) {
+    my $path = "$many/" . ( 'd' x 176 ) . $number;
+    mkdir $path or die "mkdir $path: $!";
+}
+write_file( "$root/limited.pl", <<'PERL' );
+use Test::Mutation::CompilerInputs ();
+BEGIN {
+    opendir my $dir, 'include' or die "open include: $!";
+    push @INC, map { "include/$_" } grep { /^d/ } readdir $dir;
+    closedir $dir or die "close include: $!";
+}
+PERL
+my $limited = "$root/records/limited";
+my $result  = run_command(
+    root => $root,
+    env  => {
+        TEST_MUTATION_COMPILER_INPUTS => $limited,
+        TEST_MUTATION_COMPILER_READS  => q{},
+        PERL5OPT                      => $ENV{PERL5OPT},
+        PERL5LIB                      => $ENV{PERL5LIB},
+    },
+    command => [
+        '/bin/sh',  '-c', q{ulimit -f 32 && trap '' XFSZ && exec "$@"},
+        'compiler', $^X,  '-I' . lib_dir(),
+        '-c',       'limited.pl'
+    ],
+);
+is_deeply [ @{$result}{qw(status signal)} ], [ 0, 0 ], 'the target compiles when its record exceeds the file size limit'
+  or diag $result->{stderr};
+ok !-e $limited, 'a partially written record is discarded';
 
 done_testing;
