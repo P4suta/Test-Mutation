@@ -208,6 +208,9 @@ PERL
     ok + ( grep { $_->{status} eq 'NoCoverage' } $peer->{result}->entries->@* ),
       'the untouched target keeps its actual lack of test coverage';
     ok lives { Test::Mutation::Merge::merge( [ $opaque, $peer ] ) }, 'equal observations from opaque sources can merge';
+    my @unchecked = map { shard( "data-$_->[0]", $_->[1], equivalence => 0 ) } [ first => 1 ], [ second => 2 ];
+    like dies { Test::Mutation::Merge::merge( \@unchecked ) }, qr/measurement inputs are missing/,
+      'unidentified compiler inputs prevent a merge without observed deparsed code';
     write_file( "$area/limit", "11\n" );
     my $changed = shard( 'data-second', 2, cache => 1 );
     is $changed->{result}->reused, 0, 'a source with opaque compiler reads is measured again';
@@ -306,6 +309,14 @@ PERL
     write_file( "$area/$_/lib/Idle.pm",           $idle ) for qw(idle-first idle-second);
     write_file( "$area/imported-limit",           "3\n" );
     write_file( "$area/data-library/Defaults.pm", "package Defaults; sub count () { 3 } 1;\n" );
+    my $check_only = "#!$^X\n" . <<'PERL';
+die "unexpected deparse\n" if grep { $_ eq '-MO=Deparse' } @ARGV;
+exec {$^X} $^X, @ARGV or die $!;
+PERL
+
+    for my $checkout (qw(idle-first idle-second)) {
+        chmod 0755, write_file( "$area/$checkout/tools/check-perl", $check_only ) or die $!;
+    }
     my $simple = shard( 'idle-second', 2 );
     write_file( "$area/data-library/Defaults.pm", $defaults );
     my $prior = shard( 'idle-first',  1, cache => 1 );
@@ -316,7 +327,17 @@ PERL
       'only the original needs a second compilation to bind the imported read';
     ok lives { Test::Mutation::Merge::merge( [ $prior, $other ] ) }, 'identical imported constants can merge';
     ok shard( 'idle-second', 2, cache => 1 )->{result}->reused > 0,  'an unchanged imported data file permits reuse';
+    my %syntax = ( equivalence => 0, cache => 1, perl => 'tools/check-perl' );
+    my $seen   = shard( 'idle-first',  1, %syntax );
+    my $next   = shard( 'idle-second', 2, %syntax );
+    ok lives { Test::Mutation::Merge::merge( [ $seen, $next ] ) },
+      'known equal compiler inputs merge without deparsing';
+    ok shard( 'idle-second', 2, %syntax )->{result}->reused > 0, 'a syntax-only observation validates cached verdicts';
     write_file( "$area/imported-limit", "9\n" );
+    my $checked = shard( 'idle-second', 2, %syntax );
+    is $checked->{result}->reused, 0, 'a syntax-only cache checks the changed input before reuse';
+    like dies { Test::Mutation::Merge::merge( [ $seen, $checked ] ) }, qr/measurement inputs differ/,
+      'changed compiler inputs cannot merge when equivalence is disabled';
     my $warm = shard( 'idle-second', 2, cache => 1 );
     is $warm->{result}->reused, 0, 'a warm run verifies data read from a compiler dependency';
     like dies { Test::Mutation::Merge::merge( [ $prior, $warm ] ) }, qr/measurement inputs differ/,
@@ -335,6 +356,17 @@ PERL
     write_file( "$area/imported-limit", "13\n" );
     like dies { Test::Mutation::Merge::merge( [ $before, shard( 'idle-second', 2 ) ] ) }, qr/measurement inputs differ/,
       'a changed compiled constant rejects the merge when its imported source cannot identify the input';
+    write_file( "$area/data-library/Defaults.pm", $defaults );
+    write_file( "$area/idle-first/lib/Idle.pm", $idle =~ s/use Defaults;/use ApplicationContext ();\nuse Defaults;/r );
+    write_file( "$area/idle-first/t/pass.t",    <<'PERL' );
+use Test::More tests => 1;
+BEGIN { $INC{'ApplicationContext.pm'} = __FILE__ }
+use Idle;
+ok Idle::small(1);
+PERL
+    my $incomplete = shard( 'idle-first', 1, %syntax )->{result};
+    is $incomplete->baseline_failures,  [],    'the test supplies the application context required to load the source';
+    is $incomplete->measurement_digest, undef, 'a failed syntax check cannot certify a partial compiler input record';
 };
 
 my $wrapped = shard( 'first', 1, perl => 'tools/perl' );

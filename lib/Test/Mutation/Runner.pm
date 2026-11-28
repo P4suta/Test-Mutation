@@ -454,6 +454,7 @@ sub _measure ( $run, $started ) {
     }
 
     Test::Mutation::Event::phase( $listener, 'conclude' );
+    $result{measurement_digest} = undef if $run->{missing_compiler_inputs};
     my $compiler = $run->{compiler_inputs} || {};
     return {
         %result,
@@ -1492,8 +1493,7 @@ sub _mutants ( $run, $mutants, $baseline, $sample_only = 0 ) {
             return [ map { $entry_of{ $_->id } } @$mutants ];
         }
     }
-    local $run->{bind_compiler} =
-      !$sample_only && ( $cache || defined $run->{config}->shard || $run->{options}{reports} );
+    local $run->{sampling_verdicts} = $sample_only;
     _execute_jobs( $run, $baseline, $next_job, \%entry_of, $cache );
 
     my @entries = map { $entry_of{ $_->id } } $mutants->@*;
@@ -1938,14 +1938,17 @@ sub _save_observation ( $run, $cache, $entry, $may_wait = 1 ) {
 }
 
 sub _next_code ( $run, $job ) {
-    return if !$run->{config}->equivalence || defined $job->{stale};
+    return if defined $job->{stale};
     my $mutant   = $job->{mutant};
     my $path     = $mutant->path;
     my $original = $run->{original_compile}{$path};
     my $compare =
-      !defined $job->{code} && $mutant->comparable && $UNDETECTED{ Test::Mutation::Verdict::final( $job->{verdict} ) };
+         $run->{config}->equivalence
+      && !defined $job->{code}
+      && $mutant->comparable
+      && $UNDETECTED{ Test::Mutation::Verdict::final( $job->{verdict} ) };
     if ( !$original ) {
-        return unless $compare || $run->{bind_compiler} && _may_read_at_compile_time( $run, $path );
+        return unless $compare || _observe_original_inputs( $run, $path );
         return _compile_task( $run, $job, 'code-original', "$run->{root}/$path", '-MO=Deparse' );
     }
     return unless $compare;
@@ -1962,6 +1965,12 @@ sub _next_code ( $run, $job ) {
         ( $job->{file} ) = _changed_source( $run, $run->{sources}{$path}, $mutant );
     }
     return _compile_task( $run, $job, 'code-mutant', $job->{file}, '-MO=Deparse' );
+}
+
+sub _observe_original_inputs ( $run, $path ) {
+    return if $run->{sampling_verdicts};
+    return unless $run->{config}->equivalence || defined $run->{config}->shard || $run->{options}{reports};
+    return _may_read_at_compile_time( $run, $path );
 }
 
 sub _after_code ( $run, $task, $result ) {
@@ -2209,6 +2218,7 @@ sub _compiler_inputs ( $run, $tmp, $result, $requested ) {
 sub _remember_compiler_inputs ( $run, $job, $task, $result ) {
     my $payload       = $task->{payload};
     my $read_operands = $task->{env}{TEST_MUTATION_COMPILER_READS};
+    $result->{compiler_inputs} = undef if $payload->{syntax_only} && !_compiled($result);
     $result->{compiler_inputs} = _compiler_inputs( $run, $payload->{tmp}, $result, $read_operands )
       unless exists $result->{compiler_inputs};
     my %requested = map  { $_ => 1 } split /,/, $read_operands;
@@ -2227,9 +2237,10 @@ sub _remember_compiler_inputs ( $run, $job, $task, $result ) {
         $run->{compiler_inputs}{$_} = $job->{compiler_inputs}{$_} = $inputs->{$_} for keys %$inputs;
     }
     else {
+        $run->{missing_compiler_inputs} = 1 if $payload->{syntax_only};
         if ( $result->{opaque_reads} || length $task->{env}{TEST_MUTATION_COMPILER_READS} ) {
             $result->{opaque_reads} = 1;
-            if ( defined $payload->{original} ) {
+            if ( defined $payload->{original} && !$payload->{syntax_only} ) {
                 $result->{observed_code} =
                   Test::Mutation::Store::Key::digest( _compiled($result) ? $result->{digest} : 'compile-failed' )
                   unless exists $result->{observed_code};
@@ -2274,7 +2285,8 @@ sub _compile_task ( $run, $job, $kind, $file, $switch ) {
     my $root = $original || !$job->{copy} ? $run->{root} : $job->{copy}{root};
     my $tmp  = "$run->{work}/tmp/" . ++$run->{sequence};
     Test::Mutation::Tree::make($tmp);
-    my $option         = $original ? '-MO=Deparse' : $switch;
+    my $option = $switch;
+    $option = $run->{config}->equivalence ? '-MO=Deparse' : '-c' if $original;
     my $source         = $run->{sources}{$path}->text;
     my $standard_hints = $option eq '-MO=Deparse' && $source =~ /\buse\s+charnames\b/ && $source !~ /[\$%]\^H/;
     my $imports        = $run->{compiler_imports}{$path} || q{};
@@ -2305,7 +2317,7 @@ sub _compile_task ( $run, $job, $kind, $file, $switch ) {
             tmp     => $tmp,
             compile => 1,
             imports => $imports,
-            $original ? ( original => $path ) : ()
+            $original ? ( original => $path, syntax_only => $option eq '-c' ) : ()
         },
     };
 }
