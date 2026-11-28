@@ -138,6 +138,7 @@ subtest 'the absence of compiler reads is remembered for the next mutant of the 
 };
 
 subtest 'one comparison ends when the original and the uncovered mutant have compiled' => sub {
+    local $ENV{PERL5OPT} = '-Mstrict';
     my ($mutant)  = grep { $_->comparable } @mutants;
     my $workspace = Test::Mutation::Workspace::acquire($root);
     my $run       = {

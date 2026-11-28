@@ -47,8 +47,7 @@ subtest 'an imported module must preserve an environment-derived file operand' =
     my $at_load = sub ($source) { return scalar Test::Mutation::Syntax::PPI::compile_reads( $source, 1 ) };
     is $at_load->(q{package Data; use strict; sub count { return 3 } 1;}), [],
       'declarations and the module return value do not change a binding';
-    is $at_load->(q{package Data; use constant LIMIT => 7; 1;}), [],
-      'a literal numeric constant has no outside input';
+    is $at_load->(q{package Data; use constant LIMIT => 7; 1;}), [], 'a literal numeric constant has no outside input';
     is $at_load->(q{package Data; use constant LIMIT => read_limit(); 1;}), undef,
       'computing a constant can read an outside file';
     is $at_load->(q{package Data; $ENV{TABLE} = 'other'; 1;}), undef, 'a file-scope assignment runs on import';
@@ -60,6 +59,7 @@ subtest 'an imported module must preserve an environment-derived file operand' =
 };
 
 subtest 'a compiler search path inside the project can resolve to an external library' => sub {
+    local $ENV{PERL5OPT} = '-Mstrict';
     my $area     = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
     my $project  = "$area/project";
     my $external = "$area/external";
