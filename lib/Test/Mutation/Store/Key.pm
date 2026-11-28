@@ -182,18 +182,21 @@ sub _directory_files ( $directory, $relative, $reports, $skip ) {
     if (@candidates) {
         my $expected = Test::Mutation::Report::Publication::outputs( $directory, $relative );
         for my $name (@candidates) {
-            my $path = "$directory/$name";
-            next if -l $path || !-f $path;
-            my $mode = ( stat $path )[2] & oct '111';
-            next if $reports->{outputs_only} && ( !exists $expected->{$name} || $mode || !-r $path );
-            my $digest = file($path);
-            my $output =
-              !$mode && exists $expected->{$name} && ( !defined $expected->{$name} || $digest eq $expected->{$name} );
-            $observed{$name} = [ $output, $mode, $digest ];
+            $observed{$name} = _report_file( "$directory/$name", $name, $expected, $reports->{outputs_only} );
         }
     }
     close $lock or Test::Mutation::Error::raise( 'file-unclosable', path => $directory, reason => "$!" );
     return ( \@names, \%observed );
+}
+
+sub _report_file ( $path, $name, $expected, $outputs_only ) {
+    return if -l $path || !-f $path;
+    my $mode     = ( stat $path )[2] & oct '111';
+    my $recorded = !$mode && exists $expected->{$name};
+    return if $outputs_only && ( !$recorded || !-r $path );
+    my $digest = file($path);
+    my $output = $recorded && ( !defined $expected->{$name} || $digest eq $expected->{$name} );
+    return [ $output, $mode, $digest ];
 }
 
 sub _node ( $state, $path, $observed, $reports ) {
@@ -220,7 +223,7 @@ sub _node ( $state, $path, $observed, $reports ) {
         _link_target( $state, $reports, $absolute ) if $reports;
         $linked = 1;
     }
-    return 0         if $reports && $reports->{outputs_only} && ( $linked || !-d $absolute || !-r _ || !-x _ );
+    return 0         if $reports && $reports->{outputs_only} && ( $linked || !-x -r -d $absolute );
     $reports = undef if $linked;
     if ( !-d $absolute ) {
         push @$files, 'file', $path, ( ( stat $absolute )[2] & oct '111' ), file($absolute) if -f $absolute;
