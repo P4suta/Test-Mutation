@@ -116,4 +116,31 @@ PERL
       'a deleted file can precede a surviving file in a report';
 };
 
+subtest 'two replacements at the same position retain their own detecting tests' => sub {
+    my $text = 'package Example; sub matches { return $_[0] =~ /(?im:^abc$)/ }';
+    my $root = project(
+        $text,
+        {
+            't/case.t'  => "use Test::More tests => 1; use Example; ok Example::matches('ABC');\n",
+            't/lines.t' => q{use Test::More tests => 1; use Example; ok Example::matches("before\nabc\nafter");} . "\n",
+        }
+    );
+    write_file( "$root/mutation.toml", qq{enable = ["regex-flag"]\n} );
+    my $variants = sub ($selected) {
+        return grep { $_->mutator eq 'regex-flag' && $_->original eq '?im:' } $selected->mutants->@*;
+    };
+    my %expected = ( '?m:' => 't/case.t', '?i:' => 't/lines.t' );
+    my ( $before, $report ) = measure( $root, $variants->( selection($root) ) );
+    is {
+        map { $_->{mutant}->replacement => [ $_->{status}, $_->{by} ] } $before->entries->@*
+    },
+      { map { $_ => [ 'Killed', $expected{$_} ] } keys %expected },
+      'removing each scoped flag breaks only its own test';
+    write_file( "$root/lib/Example.pm", "$shift$text\n1;\n" );
+    my $selected = selection($root);
+    is SelfMeasurement::detector_hints( $selected, $report ),
+      { map { $_->id => $expected{ $_->replacement } } $variants->($selected) },
+      'the moved flags select the test that actually detected each replacement';
+};
+
 done_testing;
