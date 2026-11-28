@@ -257,9 +257,9 @@ package Test::Mutation::Shim::G3;
 sub seen { die "project witness called\n" }
 1;
 PERL
-    my $path   = "$root/run.pl";
-    my $source = "use Test::Mutation::Shim::G3 ();\n1;\n";
-    write_file( $path, Test::Mutation::Witness::insert( $source, length($source), 3, 4, "$root/records", 9 ) );
+    my $path    = "$root/run.pl";
+    my $program = "use Test::Mutation::Shim::G3 ();\n1;\n";
+    write_file( $path, Test::Mutation::Witness::insert( $program, length($program), 3, 4, "$root/records", 9 ) );
     my $result = ShimHarness::run_command(
         root    => $root,
         command => [ $ENV{TEST_MUTATION_SECOND_PERL} || $^X, "-I$root/lib", $path ],
