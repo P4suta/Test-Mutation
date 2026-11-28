@@ -5,8 +5,9 @@ use Raised;
 use lib 't/e2e/lib';
 use Cwd        ();
 use File::Temp ();
-use Fixture    qw(copy_of write_file);
+use Fixture    qw(copy_of ran_from write_file);
 use Test::Mutation;
+use Test::Mutation::Report::Json;
 use Test::Mutation::Runner;
 
 my $root = copy_of('calc');
@@ -70,7 +71,7 @@ TEST
 subtest 'standalone compilation imports the project compiler inputs package' => sub {
     my $project = File::Temp::tempdir( CLEANUP => 1 );
     write_file( "$project/lib/Test/Mutation/CompilerInputs.pm", <<'MODULE' );
-package Test::Mutation::CompilerInputs;
+package Test::Mutation::CompilerInputs 0.100;
 sub _record { 7 }
 sub limit () { _record() }
 1;
@@ -87,6 +88,18 @@ MODULE
     is $result->warnings, [], 'the original compiles with the project constant';
     ok scalar( grep { defined $_->{compiled_digest} } $result->entries->@* ),
       'the compiler compares changes to the uncovered boundary';
+
+    my $reports = File::Temp::tempdir( CLEANUP => 1 );
+    local $ENV{PERL5LIB} = join q{:}, Cwd::abs_path('lib'), grep { defined } $ENV{PERL5LIB};
+    my $run = ran_from(
+        "$project/lib", 0,          $project, 'run',          '--no-cache', '--jobs',
+        1,              '--format', 'json',   '--report-dir', $reports,     'lib/Boundary.pm'
+    );
+    if ( !$run->{exit} ) {
+        my $saved = Test::Mutation::Report::Json::parse( Test::Mutation::Source::read_bytes("$reports/mutation.json") );
+        ok scalar( grep { defined $_->{compiled_digest} } $saved->entries->@* ),
+          'a project library ahead of the installed driver leaves its compiler observations available';
+    }
 };
 
 subtest 'the working directory is the project when the call names no root' => sub {
