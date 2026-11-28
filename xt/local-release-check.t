@@ -1,0 +1,87 @@
+use v5.36;
+use Test2::V0;
+use Cwd        ();
+use File::Temp ();
+use lib 't/e2e/lib';
+use Fixture                qw(write_file);
+use Test::Mutation::Source ();
+
+my $scratch = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+my $project = "$scratch/project";
+my $log     = "$scratch/events";
+my $runner  = Cwd::abs_path('xt/bin') . '/record-release-check';
+
+sub tool ( $name, $source ) {
+    my $path = write_file( "$scratch/bin/$name", "#!/bin/sh\nset -eu\n$source" );
+    chmod oct '755', $path or die "make $path executable: $!";
+    return;
+}
+
+tool( 'gh', <<'SH' );
+case "$1" in
+    repo) printf '%s\n' 'fixture/distribution' ;;
+    api) printf 'github %s\n' "$*" >> "$CHECK_LOG" ;;
+    *) exit 2 ;;
+esac
+SH
+tool( 'mise', <<'SH' );
+case "$*" in
+    'run release-gate')
+        printf 'run %s\n' "$(git rev-parse HEAD)" >> "$CHECK_LOG"
+        if [ -n "${CHANGE_FILE:-}" ]; then printf 'changed\n' >> source; fi
+        exit "${GATE_EXIT:-0}" ;;
+    *) exit 2 ;;
+esac
+SH
+
+write_file( "$project/source", "tracked\n" );
+my @git = (
+    'git',                      '-C', $project,               '-c',
+    'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', '-c',
+    'user.name=Release check',  '-c', 'user.email=check@example.invalid'
+);
+system( @git, 'init', '-q' ) == 0     or die 'initialize the fixture';
+system( @git, 'add',  'source' ) == 0 or die 'stage the source';
+system( @git, 'commit', '-qm', 'source' ) == 0 or die 'commit the source';
+open my $head, q{-|}, @git, 'rev-parse', 'HEAD' or die 'read the fixture commit';
+chomp( my $commit = readline $head );
+close $head or die 'resolve the fixture commit';
+
+sub record () {
+    write_file( $log, q{} );
+    my $previous = Cwd::getcwd();
+    chdir $project or die "enter $project: $!";
+    local $ENV{PATH}      = "$scratch/bin:$ENV{PATH}";
+    local $ENV{CHECK_LOG} = $log;
+    my $status = system( 'sh', $runner );
+    chdir $previous or die "return to $previous: $!";
+    return [ $status >> 8, Test::Mutation::Source::read_bytes($log) ];
+}
+
+my ( $status, $events ) = record()->@*;
+is $status, 0, 'the checked release can record success';
+my @events = split /\n/, $events;
+is scalar @events, 3, 'one gate runs between two status updates';
+like $events[0], qr{repos/fixture/distribution/statuses/$commit\b.*state=pending\b.*context=release/local\b},
+  'the pending status identifies the checked commit';
+is $events[1], "run $commit", 'the full local release gate checks that commit';
+like $events[2], qr{repos/fixture/distribution/statuses/$commit\b.*state=success\b.*context=release/local\b},
+  'success follows the completed gate';
+
+{
+    local $ENV{GATE_EXIT} = 19;
+    my $failed = record();
+    isnt $failed->[0], 0, 'a failed gate fails the command';
+    like $failed->[1],   qr/state=failure\b/, 'a failure supersedes any earlier success';
+    unlike $failed->[1], qr/state=success\b/, 'a failed gate cannot record success';
+}
+{
+    local $ENV{CHANGE_FILE} = 1;
+    my $changed = record();
+    isnt $changed->[0], 0, 'a source edit during measurement fails the command';
+    like $changed->[1], qr/state=failure\b/, 'changed sources invalidate the measurement';
+}
+my $dirty = record();
+isnt $dirty->[0], 0,   'a dirty checkout is refused before testing';
+is $dirty->[1],   q{}, 'a dirty checkout starts no gate and changes no status';
+done_testing;
