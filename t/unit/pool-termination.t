@@ -61,6 +61,21 @@ sub pooled ( $clock, $jobs, $tasks, $done = sub (@) { return } ) {
 
 my $QUICK = qq{print "1..1\\nok 1\\n";\n};
 
+subtest 'an idle pool saves ready checkpoints before requesting work' => sub {
+    my @calls;
+    my $clock = ManualClock->new( limit => 0 );
+    my $count = Test::Mutation::Pool::run(
+        jobs        => 1,
+        clock       => $clock,
+        work        => {},
+        checkpoints => [ sub ($may_wait) { push @calls, $may_wait ? 'save' : 'try'; return 1 } ],
+        next        => sub { push @calls, 'next'; return },
+        done        => sub { die 'unexpected test completion' },
+    );
+    is $count, 0, 'no child process ran';
+    is \@calls, [qw(save next)], 'the saved result is available before the next work request';
+};
+
 subtest 'tasks, follow-up tasks, and an empty queue end' => sub {
     my @quick = map { script( "quick-$_.t", $QUICK ) } 1 .. 3;
     my $later = script( 'later.t', $QUICK );
