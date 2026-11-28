@@ -100,6 +100,9 @@ subtest 'unknown and malformed records leave a diagnostic' => sub {
     is $record->{errors},
       [ 'unknown record kind mystery', 'missing field for record kind seen', '/p/A.pm: invalid hit line' ],
       'unknown kinds, missing paths, and missing line numbers each retain their diagnostic';
+    my $zero = Test::Mutation::Record::parse( ["begin\t1\nseen\t/p/A.pm\t0\n"] );
+    is [ $zero->{errors}, $zero->{compiled} ], [ ['/p/A.pm: unknown load stage 0'], {} ],
+      'a zero field is an unknown stage and cannot confirm a compilation';
     is $record->{served},                             {}, 'malformed records do not establish coverage';
     is Test::Mutation::Record::parse( [] )->{served}, {}, 'no record files';
 
