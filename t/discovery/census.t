@@ -131,6 +131,18 @@ subtest 'the gate rejects an undecided key, a declined key with a mutant, and a 
     is Census::undecided( \%refused, {} ), [], 'a key whose changes the generator refuses with a rule has its reason';
 };
 
+my $account_lookups = <<'CODE';
+sub home { (getpwnam $_[0])[7] }
+sub uid { scalar getpwnam $_[0] }
+CODE
+
+subtest 'account lookups by name return a record or a user ID' => sub {
+    my $census = census_of( $account_lookups . 'sub names { my %h = (getpwnam => 1); $obj->getpwnam() }' );
+    is $census->{observed}{'word getpwnam'}, 2, 'the two calls count under the built-in name';
+    is $census->{claimed}{'word getpwnam'} || 0, 0, 'neither lookup has a replacement function';
+    like Census::declined()->{'word getpwnam'}, qr/account/, 'the reason identifies the account lookup';
+};
+
 subtest 'the parent process ID is measured in statement and value contexts' => sub {
     my $source = Oracle::file_source('t/corpus/findings/ParentProcess.pm');
     my $census = census_of( $source->text );
@@ -203,7 +215,7 @@ subtest 'the census rejects a pattern that the analysis leaves out without a cou
 };
 
 # The seed shows each declined construct that the corpus lacks, in a declaration that no mutator changes.
-my $SEED = $tied_handle . <<'CODE';
+my $SEED = $account_lookups . $tied_handle . <<'CODE';
 my ( $x, @list ) = ( \&code, [ 1, 2 ] );
 print { $x->[0] } "@list$#list";
 LABEL: for my $item ( @{ $x }, $_ ) { next LABEL }
