@@ -105,8 +105,18 @@ signature_for project => (
 );
 
 sub project ( $root, $skip, $links ) {
+    return _project( $root, $skip, $links, 0 );
+}
+
+signature_for published_outputs => ( positional => [ Str, ArrayRef [Str], ArrayRef [Str] ], returns => ArrayRef [Str] );
+
+sub published_outputs ( $root, $skip, $links ) {
+    return _project( $root, $skip, $links, 1 )->{outputs};
+}
+
+sub _project ( $root, $skip, $links, $outputs_only ) {
     require Test::Mutation::Report::Publication;
-    my $reports = { names => [], targets => {} };
+    my $reports = { names => [], targets => {}, outputs_only => $outputs_only };
     $reports->{candidates} = { map { $_ => 1 } Test::Mutation::Report::Publication::names()->@* };
     my $digest  = _tree( $root, $skip, $reports, $links );
     my @targets = keys $reports->{targets}->%*;
@@ -114,7 +124,8 @@ sub project ( $root, $skip, $links ) {
         my $path = "$_/";
         !grep { index( "$_/", $path ) == 0 || index( $path, "$_/" ) == 0 } @targets;
     } $reports->{names}->@*;
-    $digest = _tree( $root, [ @$skip, @outputs ], undef, $links ) if @outputs != $reports->{names}->@*;
+    $digest = _tree( $root, [ @$skip, @outputs ], undef, $links )
+      if !$outputs_only && @outputs != $reports->{names}->@*;
     return { digest => $digest, outputs => \@outputs };
 }
 
@@ -173,7 +184,8 @@ sub _directory_files ( $directory, $relative, $reports, $skip ) {
         for my $name (@candidates) {
             my $path = "$directory/$name";
             next if -l $path || !-f $path;
-            my $mode   = ( stat $path )[2] & oct '111';
+            my $mode = ( stat $path )[2] & oct '111';
+            next if $reports->{outputs_only} && ( !exists $expected->{$name} || $mode || !-r $path );
             my $digest = file($path);
             my $output =
               !$mode && exists $expected->{$name} && ( !defined $expected->{$name} || $digest eq $expected->{$name} );
@@ -208,6 +220,7 @@ sub _node ( $state, $path, $observed, $reports ) {
         _link_target( $state, $reports, $absolute ) if $reports;
         $linked = 1;
     }
+    return 0         if $reports && $reports->{outputs_only} && ( $linked || !-d $absolute || !-r _ || !-x _ );
     $reports = undef if $linked;
     if ( !-d $absolute ) {
         push @$files, 'file', $path, ( ( stat $absolute )[2] & oct '111' ), file($absolute) if -f $absolute;
@@ -297,6 +310,11 @@ An optional true third argument omits generated mutation reports and directories
 
 Returns the input digest and the published output paths to omit from an isolated copy.
 Linked project inputs retain their visible contents.
+
+=head2 published_outputs
+
+Identifies the published paths to omit from an isolated copy when some project inputs cannot be fingerprinted.
+The copy keeps linked inputs and files whose publication records cannot be verified.
 
 =head2 workspace
 
