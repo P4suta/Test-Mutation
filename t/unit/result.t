@@ -50,6 +50,18 @@ sub result ( $statuses, %fields ) {
     );
 }
 
+subtest 'the supported compiler input protocol identifies which digest a reader can verify' => sub {
+    my $protocol = Test::Mutation::Result::supported_compiler_input_protocol();
+    isa_ok dies { Test::Mutation::Result::supported_compiler_input_protocol('extra') }, ['Error::TypeTiny'],
+      'the protocol depends only on the installed driver';
+    my $digest = 'ac' x 32;
+    is result( [], measurement_digest => $digest )->verified_measurement_digest, $digest,
+      'the current protocol verifies the measured inputs';
+    my $future = result( [], compiler_input_protocol => $protocol + 1, measurement_digest => $digest );
+    is $future->measurement_digest,          $digest, 'a reader can display a digest written by a newer driver';
+    is $future->verified_measurement_digest, undef,   'unknown compiler rules cannot verify the inputs';
+};
+
 subtest 'tally' => sub {
     my $tally = result( [qw(Killed Killed Survived Timeout)] )->tally;
     is $tally->{counts}{Killed}, 2, 'killed';
