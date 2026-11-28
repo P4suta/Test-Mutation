@@ -187,7 +187,7 @@ subtest 'invalidating one source takes bounded work as unrelated verdicts grow' 
 
 subtest 'another writer can finish the schema after the first probe' => sub {
     my $transaction = \&Test::Mutation::Store::transaction;
-    my $open = sub ( $path, $publish ) {
+    my $open        = sub ( $path, $publish ) {
         no warnings 'redefine';
         local *Test::Mutation::Store::transaction = sub ( $db, $operation ) {
             local *Test::Mutation::Store::transaction = $transaction;
@@ -196,7 +196,7 @@ subtest 'another writer can finish the schema after the first probe' => sub {
         };
         return Test::Mutation::Store::database( $path, undef );
     };
-    my $path = "$directory/raced/measurement.sqlite";
+    my $path       = "$directory/raced/measurement.sqlite";
     my $connection = $open->( $path, sub ($file) { Test::Mutation::Store::save( $file, { peer => $record } ) } );
     is $connection->selectcol_arrayref('SELECT id FROM verdict'), ['peer'],
       'the first writer opens the schema and observations committed by its peer';
@@ -210,6 +210,39 @@ subtest 'another writer can finish the schema after the first probe' => sub {
             }
         );
     }, qr/unsupported database schema 314/, 'a competing writer can install a schema this driver cannot open';
+};
+
+subtest 'each request reads the file acquired by its first connection' => sub {
+    my $connect = \&DBI::connect;
+    for my $case (
+        [
+            handle => sub ($path) {
+                return Test::Mutation::Store::database($path)->selectcol_arrayref('SELECT id FROM verdict');
+            }
+        ],
+        [ verdicts => sub ($path) { return [ keys Test::Mutation::Store::load($path)->%* ] } ]
+      )
+    {
+        my ( $name, $read ) = @$case;
+        my $path = "$directory/$name/measurement.sqlite";
+        my $next = "$directory/$name/replacement.sqlite";
+        Test::Mutation::Store::save( $path, { original    => $record } );
+        Test::Mutation::Store::save( $next, { replacement => $record } );
+        my $opens = 0;
+        my $ids;
+        {
+            no warnings 'redefine';
+            local *DBI::connect = sub (@args) {
+                my $handle = $connect->(@args);
+                if ( ++$opens == 1 ) { rename $next, $path or die "replace $path: $!" }
+                return $handle;
+            };
+            $ids = $read->($path);
+        }
+        is $ids,   ['original'], "the $name request keeps its first database";
+        is $opens, 1,            "one $name request opens one connection";
+        is Test::Mutation::Store::load($path), { replacement => $record }, 'a later request opens the replacement file';
+    }
 };
 
 subtest 'concurrent writers publish only committed observations' => sub {
@@ -287,6 +320,16 @@ subtest 'a rejected commit rolls back before the caller receives a result' => su
     }, qr/FOREIGN KEY constraint failed/, 'the database refuses the commit after the callback returns';
     is $connection->selectrow_array('SELECT count(*) FROM child'), 0, 'the writer has rolled back the invalid row';
     ok !$connection->{RaiseError}, 'the caller keeps its DBI error policy';
+};
+
+subtest 'a commit veto keeps the original error after SQLite rolls back' => sub {
+    my $connection = DBI->connect( 'dbi:SQLite::memory:', undef, undef, { RaiseError => 1, PrintError => 0 } );
+    $connection->do('CREATE TABLE items (id INTEGER)');
+    $connection->sqlite_commit_hook( sub { return 1 } );
+    like dies {
+        Test::Mutation::Store::transaction( $connection, sub { $connection->do('INSERT INTO items VALUES (1)') } );
+    }, qr/constraint failed/i, 'the caller receives the rejection from the commit hook';
+    is $connection->selectcol_arrayref('SELECT id FROM items'), [], 'the engine has already rolled back the insertion';
 };
 
 subtest 'a nonblocking checkpoint retries only a competing writer' => sub {

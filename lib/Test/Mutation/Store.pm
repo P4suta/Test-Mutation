@@ -75,9 +75,10 @@ sub sample ( $ids, $seed ) {
     return [ @ordered[ 0 .. $take - 1 ] ];
 }
 
-signature_for load => ( positional => [ Str, Optional [ Maybe [ ArrayRef [Str] ] ] ], returns => HashRef [$RECORD] );
+signature_for load =>
+  ( positional => [ Str, Maybe [ ArrayRef [Str] ], { default => undef } ], returns => HashRef [$RECORD] );
 
-sub load ( $path, $ids = undef ) {
+sub load ( $path, $ids ) {
     my $records;
     if ( $path =~ /[.]sqlite\z/ ) {
         my $db = read_database($path);
@@ -158,8 +159,9 @@ sub transaction ( $db, $operation ) {
         'interruption'
     );
     return $committed->{value} if exists $committed->{value};
-    if ( !$db->{AutoCommit} ) { $db->rollback }
+    if    ( !$db->{AutoCommit} ) { $db->rollback }
     elsif ( $db->{Driver}{Name} eq 'SQLite' && !$db->sqlite_get_autocommit ) {
+
         # DBI may restore AutoCommit while SQLite still holds a transaction that failed to commit.
         $db->do('ROLLBACK');
     }
@@ -214,9 +216,10 @@ sub read_database ($path) {
     return _initialized( $db, $path, 1 ) ? $db : undef;
 }
 
-signature_for database => ( positional => [ Str, Optional [ Maybe [Str] ] ], returns => InstanceOf ['DBI::db'] );
+signature_for database =>
+  ( positional => [ Str, Maybe [Str], { default => undef } ], returns => InstanceOf ['DBI::db'] );
 
-sub database ( $path, $legacy = undef ) {
+sub database ( $path, $legacy ) {
     my $directory = File::Basename::dirname($path);
     Test::Mutation::Tree::make($directory) unless -d $directory;
     my $db = _connect($path);

@@ -14,14 +14,15 @@ use Test::Mutation::Status;
 my $dir = File::Temp::tempdir( CLEANUP => 1 );
 
 {
-    my $walk = Test::Mutation::Store::Key->can('_walk');
-    no warnings 'redefine';
-    local *Test::Mutation::Store::Key::_walk = sub ( $state, $relative, $reports ) {
-        die "an empty project scheduled a directory walk of '$relative'\n" if length $relative;
-        return $walk->( $state, $relative, $reports );
-    };
-    is Test::Mutation::Store::Key::tree( $dir, [] ), Test::Mutation::Store::Key::digest(),
-      'an empty project has no file or directory inputs';
+    my $parent = File::Temp::tempdir( CLEANUP => 1 );
+    my $empty  = "$parent/empty";
+    mkdir $empty or die "mkdir $empty: $!";
+    write_file( "$parent/neighbor", "outside the project\n" );
+    is(
+        Test::Mutation::Store::Key::tree( $empty, ['../..'] ),
+        Test::Mutation::Store::Key::digest(),
+        'an empty project has no file or directory inputs'
+    ) or do { done_testing; exit 1 };
 }
 
 sub record (%fields) {
@@ -130,8 +131,7 @@ subtest 'partial baseline writes retain independent observations and measured ve
         subtest $format => sub {
             my $path  = "$dir/originals.$format";
             my $prior = record();
-            Test::Mutation::Store::save( $path, { prior => $prior }, undef, {},
-                { build => $build, tests => $first } );
+            Test::Mutation::Store::save( $path, { prior => $prior }, undef, {}, { build => $build, tests => $first } );
             is $prior, record(), 'saving a verdict preserves absent source fields in the caller';
             is Test::Mutation::Store::originals($path), { build => $build, tests => $first },
               'build arguments, duration and traced lines survive a round trip';
