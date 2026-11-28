@@ -9,9 +9,12 @@ use Test::Mutation::Settings;
 
 my $root = copy_of('calc');
 write_file( "$root/lib/Other.pm", 'package Other; sub plus { return $_[0] + 1 } 1;' );
-my $config  = sub (%given) { Test::Mutation::Settings::of_call( { root => $root, %given } ) };
-my $all     = Test::Mutation::Select::resolve( config => $config->() );
-my $id      = $all->mutants->[0]->id;
+my $config   = sub (%given) { Test::Mutation::Settings::of_call( { root => $root, %given } ) };
+my $all      = Test::Mutation::Select::resolve( config => $config->() );
+my $id       = $all->mutants->[0]->id;
+my $uncached = Test::Mutation::Select::resolve( config => $config->( cache => 0, mutant => [$id] ) );
+is [ map { $_->id } $uncached->mutants->@* ], [$id],      'an uncached lookup resolves the requested identifier';
+is [ sort keys $uncached->sources->%* ], ['lib/Calc.pm'], 'unrelated source files stay outside the uncached result';
 my $analyze = Test::Mutation::Syntax::PPI->can('analyze');
 my @parsed;
 {
