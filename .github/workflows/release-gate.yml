@@ -51,14 +51,32 @@ jobs:
     name: Check the candidate commit and version
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read  # Read the protected controller and both Git trees.
+      statuses: read  # Read the local release result for the selected commit.
     outputs:
       source_sha: ${{ steps.identity.outputs.source_sha }}
       version: ${{ steps.identity.outputs.version }}
     steps:
       - name: Require a main controller and an immutable source
+        env:
+          REF_PROTECTED: ${{ github.ref_protected }}
         run: |
           test "$GITHUB_REF" = refs/heads/main
+          test "$REF_PROTECTED" = true
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: controller
+          sparse-checkout: xt/bin/verify-local-release-check
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Require local release checks before building
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY_OWNER_ID: ${{ github.repository_owner_id }}
+        run: bash controller/xt/bin/verify-local-release-check
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.SOURCE_SHA }}
