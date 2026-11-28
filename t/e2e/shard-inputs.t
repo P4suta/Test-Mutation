@@ -330,6 +330,16 @@ PERL
       'changed data behind an imported constant rejects a cached shard';
     like dies { Test::Mutation::Merge::merge( [ $prior, shard( 'idle-second', 2 ) ] ) }, qr/measurement inputs differ/,
       'changed data behind an imported constant rejects a fresh shard';
+    write_file( "$area/idle-first/lib/Idle.pm", $idle =~ s/use Defaults;/use ApplicationContext ();\nuse Defaults;/r );
+    write_file( "$area/idle-first/t/pass.t", <<'PERL' );
+use Test::More tests => 1;
+BEGIN { $INC{'ApplicationContext.pm'} = __FILE__ }
+use Idle;
+ok Idle::small(1);
+PERL
+    my $incomplete = shard( 'idle-first', 1, %syntax )->{result};
+    is $incomplete->baseline_failures, [], 'the test supplies the application context required to load the source';
+    is $incomplete->measurement_digest, undef, 'a failed syntax check cannot certify a partial compiler input record';
 };
 
 my $wrapped = shard( 'first', 1, perl => 'tools/perl' );
