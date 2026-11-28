@@ -131,6 +131,38 @@ subtest 'compilation retains the selected interpreter, file and working tree' =>
     ok $workspace->release(0),    'the compiler leaves its workspace releasable';
 };
 
+subtest 'one comparison ends when the original and the uncovered mutant have compiled' => sub {
+    my ($mutant)  = grep { $_->comparable } @mutants;
+    my $workspace = Test::Mutation::Workspace::acquire($root);
+    my $run       = {
+        root      => $root,
+        project   => $root,
+        config    => $config,
+        workspace => $workspace,
+        perl      => $^X,
+        sources   => $selection->sources
+    };
+    Test::Mutation::Runner::_prepare_work($run);
+    my $job     = { mutant => $mutant, tests => [], verdict => Test::Mutation::Verdict::start() };
+    my @pending = Test::Mutation::Runner::_next_code( $run, $job );
+    my ( @completed, $extra );
+    Test::Mutation::Pool::run(
+        jobs => 1,
+        next => sub { return shift @pending },
+        done => sub ( $task, $result ) {
+            push @completed, $task->{payload}{kind};
+            my $next = Test::Mutation::Runner::_after_task( $run, {}, $task, $result );
+            return $next if @completed < 2;
+            $extra = $next;
+            return;
+        },
+    );
+    is \@completed, [qw(code-original code-mutant)], 'the target Perl compiled both sides of the comparison';
+    is $extra,      undef,                           'the completed comparison schedules no further compiler';
+    like $job->{code}, qr/\A[0-9a-f]{64}\z/, 'the result keeps the real mutant fingerprint';
+    ok $workspace->release(0), 'the workspace is released after the comparison';
+};
+
 subtest 'every original compiler observation records the result before the job continues' => sub {
     my $path   = $mutants[0]->path;
     my $inputs = { '/external/modules' => 'de' x 32 };
