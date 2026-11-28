@@ -126,10 +126,10 @@ subtest 'the absence of compiler reads is remembered for the next mutant of the 
     my $source      = Test::Mutation::Source->from_bytes( path => $path, bytes => "package Bound;\nCHECK { }\n1;\n" );
     my $run         = { sources => { $path => $source } };
     my $inspections = 0;
-    my $parse       = \&Test::Mutation::Syntax::PPI::_document;
+    my $parse       = \&PPI::Document::new;
     no warnings 'redefine';
-    local *Test::Mutation::Syntax::PPI::_document = sub (@args) {
-        $inspections++;
+    local *PPI::Document::new = sub (@args) {
+        $inspections++ if ref $args[1] eq 'SCALAR';
         return $parse->(@args);
     };
     ok !Test::Mutation::Runner::_may_read_at_compile_time( $run, $path ), 'an empty CHECK block reads no files';
