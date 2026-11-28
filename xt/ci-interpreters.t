@@ -49,6 +49,7 @@ for my $case (@cases) {
     ok scalar( grep { $_ eq "CHECK_PERL=$base" } @$build ), 'build the selected interpreter';
     ok scalar( grep { $_ eq "check-$kind" } @$build ),      'select the driver or shim dependencies';
     is $run->[0], 'run', 'execute the built image';
+    ok scalar( grep { $_ eq '--init' } @$run ), 'reap orphaned test processes as a hosted runner does';
     ok scalar( grep { $_ eq "TEST_MUTATION_REQUIRE=$require" } @$run ), 'require every hosted capability';
     my $script    = $workflow->{jobs}{$kind}{steps}[-1]{run};
     my @arguments = split q{ }, $script;
