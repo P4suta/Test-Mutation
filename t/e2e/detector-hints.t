@@ -57,4 +57,25 @@ subtest 'absent and unreached detectors leave the current covering test order in
     }
 };
 
+subtest 'a stale detector that passes leaves the usual test order and workspace intact' => sub {
+    my $root = project(
+        't/a.t' => $use_number . "ok !-e 'from-hint', 'the test starts from the baseline';\n",
+        't/b.t' => $strong,
+        't/z.t' => $use_number . <<'PERL',
+if (!defined($number) || $number != 3) {
+    open my $marker, '>', 'from-hint' or die $!;
+    close $marker or die $!;
+}
+pass 'the obsolete detector accepts the change';
+PERL
+    );
+    my $config = config($root);
+    my $id     = arithmetic_id($config);
+    my $result = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => 't/z.t' } } );
+    my $found  = entry( $result, $id );
+    is [ $found->@{qw(status by)} ], [ 'Killed', 't/b.t' ], 'the current assertion determines the verdict';
+    is [ map { $_->{test} } $found->{observations}[0]->@* ], [qw(t/a.t t/b.t)],
+      'the ordinary measurement starts again at the first covering test';
+};
+
 done_testing;

@@ -1403,6 +1403,16 @@ sub _raw_baseline ( $run, $tests, $outcome ) {
     return;
 }
 
+sub _fresh_job ( $mutant, $tests, $duration = 0 ) {
+    return {
+        mutant   => $mutant,
+        tests    => $tests,
+        index    => 0,
+        verdict  => Test::Mutation::Verdict::start(),
+        duration => $duration
+    };
+}
+
 sub _measurement_jobs ( $run, $mutants, $baseline, $cache, $entries ) {
     my $config   = $run->{config};
     my $coverage = Test::Mutation::Coverage->new(
@@ -1434,14 +1444,9 @@ sub _measurement_jobs ( $run, $mutants, $baseline, $cache, $entries ) {
             my $tests = $tests_for->($mutant);
             my $hint  = $run->{detector_hints}{ $mutant->id };
             $hint = undef unless defined $hint && @$tests && $tests->[0] ne $hint && grep { $_ eq $hint } @$tests;
-            return {
-                mutant => $mutant,
-                tests  => $tests,
-                defined $hint ? ( detector => $hint ) : (),
-                index    => 0,
-                verdict  => Test::Mutation::Verdict::start(),
-                duration => 0
-            };
+            my $job = _fresh_job( $mutant, $tests );
+            $job->{detector} = $hint if defined $hint;
+            return $job;
         }
         return;
     };
@@ -1743,9 +1748,17 @@ sub _after_task ( $run, $baseline, $task, $result ) {
     return $check if $check;
 
     if ( $kind !~ /\Acode-/ ) {
-        delete $job->{detector};
+        my $verdict = Test::Mutation::Verdict::step( $job->{verdict}, $job->{outcome} );
+        if ( defined( delete $job->{detector} ) && ( $verdict->{status} || q{} ) ne 'Killed' ) {
+            $run->{stats}{verifications}++;
+            _release( $run, $job );
+            unlink grep { defined } $job->@{qw(file spec)};
+            return if defined $job->{restore_error};
+            $job->%* = _fresh_job( $job->{mutant}, $job->{tests}, $job->{duration} )->%*;
+            return _next_test( $run, $job, $baseline );
+        }
         push $job->{observations}[ $job->{first} ? 1 : 0 ]->@*, $job->{outcome};
-        $job->{verdict} = Test::Mutation::Verdict::step( $job->{verdict}, $job->{outcome} );
+        $job->{verdict} = $verdict;
         $job->{index}++;
         return _next_test( $run, $job, $baseline )
           if !defined $job->{verdict}{status} && $job->{index} < $job->{tests}->@*;
