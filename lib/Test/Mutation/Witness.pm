@@ -1,5 +1,6 @@
 package Test::Mutation::Witness;
 use v5.36;
+use Digest::SHA            ();
 use Encode                 ();
 use Fcntl                  ();
 use File::Basename         ();
@@ -16,12 +17,13 @@ signature_for insert =>
 
 sub insert ( $text, $offset, $generation, $index, $records, $descriptor ) {
     my $package   = "Test::Mutation::Shim::G$generation";
-    my $trace     = "Test::Mutation::Shim::TraceG$generation";
-    my $preloaded = _preloaded( $generation, File::Basename::dirname($records) );
+    my $work      = File::Basename::dirname($records);
+    my $trace     = trace_package($work);
+    my $preloaded = _preloaded( $generation, $work );
     my $directory = _directory( $generation, $records, $descriptor );
     my $statement =
         "UNITCHECK{package DB;unless(defined&${trace}::seen?${trace}::seen($index):"
-      . "$preloaded&&${package}::seen($index)){"
+      . "$preloaded&&defined&${package}::seen&&${package}::seen($index)){"
       . $directory
       . 'if(CORE::open(my$h,q{>>:raw},"$d/blind-$$.rec")){CORE::syswrite($h,"blind\t'
       . $index
@@ -30,8 +32,12 @@ sub insert ( $text, $offset, $generation, $index, $records, $descriptor ) {
     return $text;
 }
 
-sub _literal ($bytes) {
-    my $hex = unpack 'H*', utf8::is_utf8($bytes) ? Encode::encode_utf8($bytes) : $bytes;
+sub _path_bytes ($path) {
+    return utf8::is_utf8($path) ? Encode::encode_utf8($path) : $path;
+}
+
+sub _literal ($path) {
+    my $hex = unpack 'H*', _path_bytes($path);
     return 'CORE::pack(q{H*},q{' . $hex . '})';
 }
 
@@ -91,7 +97,7 @@ signature_for trace => (
 sub trace ($arg) {
     my $generation = $arg->generation;
     my $package    = "Test::Mutation::Shim::G$generation";
-    my $trace      = "Test::Mutation::Shim::TraceG$generation";
+    my $trace      = trace_package( $arg->work );
     my $preloaded  = _preloaded( $generation, $arg->work );
     my $statement =
         'BEGIN{package DB;my$t;if('
@@ -111,6 +117,12 @@ sub trace ($arg) {
     my $text = $arg->text;
     substr $text, $arg->offset, 0, $statement;
     return $text;
+}
+
+signature_for trace_package => ( positional => [Str], returns => Str );
+
+sub trace_package ($work) {
+    return 'Test::Mutation::Shim::Trace_' . Digest::SHA::sha256_hex( _path_bytes($work) );
 }
 
 signature_for reserve => ( positional => [Str], returns => FileHandle );
@@ -159,6 +171,10 @@ A package with an autoloader can resolve the call at run time.
 =head2 trace
 
 Places a line tracer before the first statement of a diagnostic copy.
+
+=head2 trace_package
+
+Returns the package name for the tracer in a single workspace.
 
 =head2 reserve
 
