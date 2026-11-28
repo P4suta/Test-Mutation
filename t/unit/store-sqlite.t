@@ -143,6 +143,33 @@ subtest 'a damaged build setting preserves independently recorded baseline obser
     }
 };
 
+subtest 'invalidating one source takes bounded work as unrelated verdicts grow' => sub {
+    my $path    = "$directory/pruning/measurement.sqlite";
+    my $current = { %$record, source => 'current' };
+    my $open    = \&Test::Mutation::Store::database;
+    my $prune   = sub ($remaining) {
+        Test::Mutation::Store::save( $path, { changed => $record, current => $current } );
+        my $hundreds = 0;
+        {
+            no warnings 'redefine';
+            local *Test::Mutation::Store::database = sub ($file) {
+                my $connection = $open->($file);
+                $connection->sqlite_progress_handler( 100, sub { $hundreds++; return 0 } );
+                return $connection;
+            };
+            is Test::Mutation::Store::save( $path, {}, undef, { $record->{path} => $current->{source} } ), $remaining,
+              'only the obsolete verdict is removed';
+        }
+        is Test::Mutation::Store::load( $path, [qw(changed current)] ), { current => $current },
+          'the matching source revision remains reusable';
+        return $hundreds;
+    };
+    my $small = $prune->(1);
+    Test::Mutation::Store::save( $path, { map { $_ => { %$record, path => "lib/Other$_.pm" } } 1 .. 1_000 } );
+    cmp_ok $prune->(1_001), '<=', $small + 1,
+      'one thousand unrelated paths cost at most one extra block of one hundred SQLite operations';
+};
+
 subtest 'concurrent writers publish only committed observations' => sub {
     my $path = "$directory/concurrent/measurement.sqlite";
     pipe my $start, my $signal or die "pipe: $!";
