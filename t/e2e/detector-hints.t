@@ -118,4 +118,20 @@ PERL
       [ [ 't/a.t', 'timeout' ], [ 't/b.t', 'fail' ] ], 'only ordinary observations determine the fallback verdict';
 };
 
+subtest 'a suggested test without a target witness leaves the verdict to the ordinary tests' => sub {
+    my $child = <<'PERL';
+use Test::More tests => 1;
+%ENV = ();
+my $status = system $^X, '-T', '-Ilib', '-e', 'require Number; exit(Number::next_number(2) == 3 ? 0 : 1)';
+is $status, 0, 'the child computes three';
+PERL
+    my $root   = project( 't/a.t' => $strong, 't/z.t' => $child );
+    my $config = config( $root, in_place => 1 );
+    my $id     = arithmetic_id($config);
+    my $result = Test::Mutation::Runner::run( $config, sub { }, { detector_hints => { $id => 't/z.t' } } );
+    my $found  = entry( $result, $id );
+    is $found->{covered_by},                   [qw(t/a.t t/z.t)],        'the original child reached the target';
+    is [ $found->@{qw(status by tests_run)} ], [ 'Killed', 't/a.t', 1 ], 'the test that received the change decides';
+};
+
 done_testing;
