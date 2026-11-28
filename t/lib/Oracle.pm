@@ -681,8 +681,10 @@ sub apart ( $source, $judgement ) {
 
 # Oracle c: the compiled code of the mutant differs from the compiled code of the original.
 # B::Deparse prints no field and no ADJUST block, so a mutant there has nothing to compare.
+my $SAME_CODE = 'compiles to the code of the original';
+
 sub equivalent ($judgement) {
-    return map { [ $_->{mutant}, 'compiles to the code of the original' ] }
+    return map { [ $_->{mutant}, $SAME_CODE ] }
       grep { $_->{compiled} && $_->{same_code} && $_->{mutant}->comparable } $judgement->{verdicts}->@*;
 }
 
@@ -980,13 +982,23 @@ sub rates ( $tally, $count, $base ) {
 
 # A mutant that compiles to the code of its original, or that no input tells apart, measures its mutator, and no change fixes it.
 # The plan places a mutator in the default profile while such a rate stays at its bound, so a finding names a mutator above it.
-sub rated ( $tally, $count, $base, $bound, $text ) {
+sub rated ( $tally, $count, $base, $bound, $text, $findings = {} ) {
     my %default =
       map { $_->name => 1 } grep { $_->profile eq 'default' } Test::Mutation::Mutator::Catalog::mutators()->@*;
     return [
-        map  { "$_->[0] $text ($_->[1] of $_->[2])" }
+        map {
+            my ( $mutator, $part, $whole ) = $_->@*;
+            my $reason  = "$mutator $text";
+            my $line    = sprintf '%s (%d of %d, limit %g%%)', $reason, $part, $whole, 100 * $bound;
+            my $finding = $findings->{$reason};
+            $finding ? "$line, for example $finding->{example}" : $line;
+        }
         grep { $default{ $_->[0] } && $_->[3] > $bound } rates( $tally, $count, $base )
     ];
+}
+
+sub equivalence_findings ( $summary, $bound ) {
+    return rated( $summary->{tally}, 'equivalent', 'compared', $bound, $SAME_CODE, $summary->{findings}{c} || {} );
 }
 
 # One line for each rule of the generator: how often it refused a change, and for which mutators.

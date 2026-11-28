@@ -531,9 +531,13 @@ subtest 'the rate rejects a mutator of the default profile above its bound, and 
       'each mutator with a base has its count, its base, and its rate';
     my $summary = Oracle::summary(
         [
-            [ 'lib/Guard.pm', 'count', 'arithmetic', 'compared', 70 ],
+            [ 'lib/Guard.pm', 'count', 'arithmetic', 'compared',   70 ],
             [ 'lib/Guard.pm', 'count', 'arithmetic', 'equivalent', 2 ],
-            [ 'lib/Guard.pm', 'finding', 'c', 'arithmetic compiles to the code of the original', 'lib/Guard.pm line 4: + -> -' ],
+            [
+                'lib/Guard.pm', 'finding', 'c',
+                'arithmetic compiles to the code of the original',
+                'lib/Guard.pm line 4: + -> -'
+            ],
         ]
     );
     is Oracle::equivalence_findings( $summary, 0.02 ),
