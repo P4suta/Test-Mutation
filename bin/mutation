@@ -1386,7 +1386,7 @@ The C<extended> profile includes the mutator.
 
 =item C<range-boundary>
 
-Lowers the upper bound of a range by one.
+Moves the endpoint of a range or flip-flop.
 The C<extended> profile includes the mutator.
 
 =item C<regex-anchor>
