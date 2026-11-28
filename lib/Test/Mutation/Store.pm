@@ -317,7 +317,9 @@ sub checkpoints ($path) {
         $db->sqlite_busy_timeout( $timeout = $wait ) if $timeout != $wait;
         my $attempt = Test::Mutation::Try::attempt( sub { $write->( $id, $record ); return 1 } );
         if ( exists $attempt->{error} ) {
-            if ( !$blocking && ( ( $db->err // 0 ) & 255 ) == SQLITE_BUSY ) {
+            my $code = $db->err;
+            $db->set_err( undef, undef );
+            if ( !$blocking && defined $code && ( $code & 255 ) == SQLITE_BUSY ) {
                 my $now = $clock->now;
                 $deadline //= $now + $budget / 1000;
                 return 0 if $now < $deadline;
