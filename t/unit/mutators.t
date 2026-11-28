@@ -444,11 +444,9 @@ subtest 'changes to control flow and operands respect Perl precedence' => sub {
       'grep and first negate their predicates while keeping their input lists';
 };
 
-subtest 'a flip-flop can end on the same line as it starts' => sub {
+sub flip_flop_cases () {
     my $ranges_in = sub ($text) {
-        my ( $ended, $changes ) = Bounded::ended( 2, sub { return mutants( $text, profile => 'extended' ) } );
-        ok $ended, 'range analysis terminates while following the enclosing syntax';
-        return grep { $_->mutator eq 'range-boundary' } @{ $changes // [] };
+        return grep { $_->mutator eq 'range-boundary' } mutants( $text, profile => 'extended' )->@*;
     };
     my $source = <<'CODE';
 sub select_lines {
@@ -518,6 +516,12 @@ CODE
       'a scalar range can read either endpoint from a filehandle';
     is changes( $stream, 'comparison-negation' ), [ [ '<', '>=' ] ],
       'only the comparison outside the filehandle reads can be negated';
+    return;
+}
+
+subtest 'a flip-flop can end on the same line as it starts' => sub {
+    my ($ended) = Bounded::ended( 2, \&flip_flop_cases );
+    ok $ended, 'range analysis terminates while following the enclosing syntax';
 };
 
 subtest 'guarded exits can be selected for a target with version-dependent startup code' => sub {
