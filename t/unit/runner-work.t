@@ -3,6 +3,8 @@ use Test2::V0;
 use File::Temp ();
 use lib 't/e2e/lib';
 use Fixture qw(copy_of);
+use lib 't/shim/lib';
+use ShimHarness qw(project write_file write_spec run_perl lib_dir);
 use Test::Mutation::Runner;
 use Test::Mutation::Select;
 use Test::Mutation::Settings;
@@ -17,6 +19,41 @@ my @mutants   = $selection->mutants->@*;
 
 # A compiler task exposes the exact command and working directory passed to the pool.
 ## no critic (Subroutines::ProtectPrivateSubs)
+subtest 'the outer shim can replace the compiler observer of an installed driver' => sub {
+    my $area       = project();
+    my $installed  = "$area/blib/lib";
+    my $project    = "$area/project/lib";
+    my $library    = lib_dir();
+    my $runner     = 'Test/Mutation/Runner.pm';
+    my $observer   = 'Test/Mutation/CompilerInputs.pm';
+    my $generation = 1 + ( $ENV{TEST_MUTATION_GENERATION} || 0 );
+    for my $name ( $runner, $observer ) {
+        write_file( "$installed/$name", Test::Mutation::Source::read_bytes("$library/$name") );
+    }
+    my $change = "package Test::Mutation::CompilerInputs;\nour \$CHANGED = 1;\n1;\n";
+    write_file( "$project/$observer", "package Test::Mutation::CompilerInputs 0.100;\n1;\n" );
+    write_file( "$area/changed.pm",   $change );
+    write_file( "$area/shim/Test/Mutation/Shim/G$generation.pm", Test::Mutation::Runner::shim_text($generation) );
+    write_spec( "$area/spec", targets => [ [ "$installed/$observer", "$area/changed.pm" ] ] );
+    write_file( "$area/read.pl", <<'PERL' );
+use lib 'project/lib', 'blib/lib';
+use Cwd ();
+use Test::Mutation::Runner;
+print Cwd::abs_path($INC{'Test/Mutation/Runner.pm'}), "\n";
+print Test::Mutation::Runner::_module_text('Test/Mutation/CompilerInputs.pm');
+PERL
+    my $run = run_perl(
+        root => $area,
+        env  => {
+            PERL5LIB                          => join( q{:}, "$area/shim", $library ),
+            "TEST_MUTATION_SPEC_G$generation" => "$area/spec",
+        },
+        args => [ "-MTest::Mutation::Shim::G$generation", 'read.pl' ],
+    );
+    is $run->{status}, 0, 'the installed driver can read the observer' or diag $run->{stderr};
+    is $run->{stdout}, "$installed/$runner\n$change", 'the installed copy receives the replacement from the outer shim';
+};
+
 subtest 'compilation retains the selected interpreter, file and working tree' => sub {
     my $workspace = Test::Mutation::Workspace::acquire($root);
     my $run       = { root => $root, project => $root, config => $config, workspace => $workspace, perl => $^X };

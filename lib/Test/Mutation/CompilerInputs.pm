@@ -1,13 +1,18 @@
-package Test::Mutation::CompilerInputs;
 use 5.010;
+
+package Test::Mutation::CompilerInputs;
 use strict;
 use warnings;
 use Config qw(%Config);
 use Cwd    ();
+use Fcntl  qw(O_CREAT O_EXCL O_WRONLY);
 
 our $VERSION = '0.001';
 
-my ($record)      = ( $ENV{TEST_MUTATION_COMPILER_INPUTS} || q{} ) =~ /\A(.*)\z/s;
+my ($record) = ( $ENV{TEST_MUTATION_COMPILER_INPUTS} || q{} ) =~ /\A(.*)\z/s;
+if ( length($record) && lstat $record ) {
+    $record = q{} unless -f _ && unlink $record;
+}
 my %initial       = map { _absolute($_) => 1 } grep { !ref } @INC;
 my $operands      = $ENV{TEST_MUTATION_COMPILER_READS} || q{};
 my @core          = @Config{qw(privlibexp archlibexp)};
@@ -41,6 +46,7 @@ sub _record {
         return if $initial_reads->{$operand} ne $current_reads->{$operand};
         $paths{ $current_reads->{$operand} } = 1;
     }
+    my $observer = join( '/', split /::/, __PACKAGE__ ) . '.pm';
     my %modules;
     for my $name ( keys %INC ) {
         my $loaded = $INC{$name};
@@ -48,16 +54,26 @@ sub _record {
         return if ref $loaded;
         my $file = _absolute($loaded);
         $modules{$file} = 1
-          if $name ne 'Test/Mutation/CompilerInputs.pm' && !grep { index( $file, "$_/" ) == 0 } @core;
+          if $name ne $observer && !grep { index( $file, "$_/" ) == 0 } @core;
         next if grep { index( $file, "$_/" ) == 0 } @libraries;
         return unless -f $file;
         $paths{$file} = 1;
     }
-    open my $out, '>:raw', $record or return;
-    print {$out} map { 'm' . unpack( 'H*', $_ ) . "\n" } sort keys %modules or return;
-    print {$out} map { unpack( 'H*', $_ ) . "\n" } sort keys %paths         or return;
-    print {$out} ".\n" or return;
-    close $out;
+    my @lines = map { 'm' . unpack( 'H*', $_ ) } sort keys %modules;
+    push @lines, map { unpack( 'H*', $_ ) } sort keys %paths;
+    _write_record( join "\n", @lines, q{.}, q{} );
+    return;
+}
+
+sub _write_record {
+    my ($bytes) = @_;
+    sysopen my $out, $record, O_WRONLY | O_CREAT | O_EXCL, 0600 or return;
+    my ( $device, $inode ) = stat $out;
+    my $written = syswrite $out, $bytes;
+    my $closed  = close $out;
+    return if $closed && defined $written && $written == length $bytes;
+    my ( $named_device, $named_inode ) = lstat $record;
+    unlink $record if defined $inode && defined $named_inode && $device == $named_device && $inode == $named_inode;
     return;
 }
 

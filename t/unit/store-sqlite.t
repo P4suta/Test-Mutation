@@ -50,6 +50,11 @@ subtest 'reusable records can be read before an interrupted migration resumes' =
         is $read->($empty), $expected, "the $name lookup can use the legacy cache";
         is -s $empty,       0,         "reading $name leaves the incomplete SQLite file untouched";
     }
+    my %unidentified = %$record;
+    delete @unidentified{qw(path source)};
+    Test::Mutation::Store::save( $old, { other => $record, unidentified => \%unidentified } );
+    is Test::Mutation::Store::load( "$directory/partial/verdicts.sqlite", [qw(missing unidentified earlier)] ),
+      { earlier => $record }, 'selection from the JSON fallback requires both a requested identifier and known source';
 };
 
 my $db = DBI->connect( "dbi:SQLite:dbname=$database", undef, undef, { RaiseError => 1, PrintError => 0 } );

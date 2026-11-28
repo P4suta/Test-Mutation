@@ -20,7 +20,9 @@ die "$perl reports $version, expected Perl $family\n" unless $version =~ /\A\Q$f
 my $root   = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
 my $source = 'lib/Test/Mutation/Shim.pm';
 File::Path::make_path( "$root/lib/Test/Mutation", "$root/t" );
-File::Copy::copy( $source, "$root/$source" )        or die "copy $source: $!\n";
+for my $file ( $source, 'lib/Test/Mutation/CompilerInputs.pm' ) {
+    File::Copy::copy( $file, "$root/$file" ) or die "copy $file: $!\n";
+}
 system( 'cp', '-R', 't/shim', "$root/t/shim" ) == 0 or die "copy the shim tests: $?\n";
 
 my $config = Test::Mutation::Settings::of_call( { root => q{.} } );
