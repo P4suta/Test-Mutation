@@ -32,7 +32,8 @@ subtest 'a large source leaves the next index lookup available for small sources
         my $db = $open->(@arguments);
         $db->sqlite_trace(
             sub ($sql) {
-                push @lookups, scalar split /,/, $1 if $sql =~ /\bFROM analysis WHERE identity IN \(([^()]*)\)/i;
+                my ($identities) = $sql =~ /\bFROM analysis WHERE identity IN \(([^()]*)\)/i;
+                push @lookups, scalar split /,/, $identities if defined $identities;
             }
         );
         return $db;
