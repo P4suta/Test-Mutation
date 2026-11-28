@@ -314,8 +314,9 @@ PERL
     my %entries;
     ## no critic (Subroutines::ProtectPrivateSubs)
     my $next_job = Test::Mutation::Runner::_measurement_jobs( $sample_run, [ $detected, $other, $excluded ],
-        $baseline, undef, \%entries );
+        $baseline, { records => {} }, \%entries );
     ## use critic
+    is [ keys %entries ], [ $excluded->id ], 'cache misses occupy no result slots before the first job is requested';
     my @jobs;
     while ( my $job = $next_job->() ) { push @jobs, $job }
     is [ map { [ $_->{mutant}->id, $_->{tests} ] } @jobs ],
