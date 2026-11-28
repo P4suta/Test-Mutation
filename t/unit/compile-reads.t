@@ -84,6 +84,7 @@ PERL
 subtest 'standalone compilation records the external file used by an explicit BEGIN subroutine' => sub {
     my $area = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
     my $root = "$area/project";
+    local $ENV{PERL5OPT}            = '-Mstrict';
     local $ENV{TEST_COMPILER_LIMIT} = write_file( "$area/limit", "4\n" );
     write_file( "$root/lib/Bound.pm", <<'PERL' );
 package Bound;
