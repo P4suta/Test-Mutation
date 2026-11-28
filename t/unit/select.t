@@ -196,6 +196,18 @@ subtest 'a prepared shard and a resolved shard can measure the same source lines
     my $merged = $merge->( $measure->($selected) );
     is scalar( $merged->entries->@* ), $selected->inventory->{mutants}, 'both parts restore the selected inventory';
     ok $merged->tally->{counts}{Killed}, 'the merged report contains an observed test failure';
+    my $previous;
+    {
+        local $Test::Mutation::Select::ANALYSIS_REVISION = $Test::Mutation::Select::ANALYSIS_REVISION - 1;
+        $previous = Test::Mutation::Select::resolve( config => $first, paths => $paths );
+    }
+    like dies { $merge->( $measure->($previous) ) }, qr/measurement inputs differ/,
+      'a catalog from an earlier analyzer revision cannot identify the current rules';
+    my $strict = Test::Mutation::Settings::of_call(
+        { root => $project, shard => '1/2', cache => 0, suppress_require_reason => 1 } );
+    my $other_rules = Test::Mutation::Select::resolve( config => $strict, paths => $paths );
+    like dies { $merge->( $measure->($other_rules) ) }, qr/measurement inputs differ/,
+      'a different suppression policy cannot identify the current rules';
 };
 
 done_testing;
