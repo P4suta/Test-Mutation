@@ -21,7 +21,7 @@ subtest 'an updated analysis rule appears in the catalog while previous verdicts
     my $prior;
     {
         no warnings 'redefine';
-        local *Test::Mutation::Select::_analysis_revision  = sub { return 'without range boundaries' };    ## no critic (Variables::ProtectPrivateVars)
+        local $Test::Mutation::Select::ANALYSIS_REVISION   = 'without range boundaries';
         local *Test::Mutation::Mutant::Generator::generate = sub (@arguments) {
             my $made = $generate->(@arguments);
             $made->{mutants} = [ grep { $_->mutator ne 'range-boundary' } $made->{mutants}->@* ];
