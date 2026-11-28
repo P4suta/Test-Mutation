@@ -39,9 +39,10 @@ my %lines = map { $_ => 1 } @lines;
 ok $lines{ unpack 'H*', $literal }, 'the compiler records the absolute path of a literal read';
 ok $lines{ unpack 'H*', $config },  'the compiler records the file named by the environment';
 
-my $second = write_file( "$root/second config", "environment\n" );
-my %second_run = map { $_ => 1 } @{ compile_record( $root, 'stable', $operands, COMPILER_CONFIG => $second ) || [] };
-ok $second_run{ unpack 'H*', $second } && !$second_run{ unpack 'H*', $config },
+my $later_config = write_file( "$root/second config", "environment\n" );
+my %later_inputs =
+  map { $_ => 1 } @{ compile_record( $root, 'stable', $operands, COMPILER_CONFIG => $later_config ) || [] };
+ok $later_inputs{ unpack 'H*', $later_config } && !$later_inputs{ unpack 'H*', $config },
   'a later successful compilation replaces the inputs at the same record path';
 
 my $other = write_file( "$root/other config", "replacement\n" );
@@ -218,6 +219,9 @@ BEGIN {
         my @record = stat $ENV{TEST_MUTATION_COMPILER_INPUTS};
         if (@record && @file && $file[0] == $record[0] && $file[1] == $record[1]) {
             $out->flush or die "flush record: $!";
+            if ($ENV{REPLACE_RECORD_WITH}) {
+                rename $ENV{REPLACE_RECORD_WITH}, $ENV{TEST_MUTATION_COMPILER_INPUTS} or die "replace record: $!";
+            }
             POSIX::close(fileno($out)) == 0 or die "close descriptor: $!";
             warn "record descriptor closed\n";
         }
@@ -226,7 +230,7 @@ BEGIN {
 }
 use Test::Mutation::CompilerInputs ();
 PERL
-my $closed = "$root/records/closed";
+my $closed    = "$root/records/closed";
 my $close_run = run_perl(
     root => $root,
     env  => { TEST_MUTATION_COMPILER_INPUTS => $closed, TEST_MUTATION_COMPILER_READS => q{} },
@@ -235,5 +239,20 @@ my $close_run = run_perl(
 is $close_run->{status}, 0, 'a record close error preserves the success of the target compilation';
 like $close_run->{stderr}, qr/record descriptor closed/, 'the compiler flushed its record before the descriptor closed';
 ok !-e $closed, 'a record with a failed close is discarded even if all bytes reached the file';
+
+my $replacement = "$root/replacement";
+symlink $literal, $replacement or die "symlink replacement: $!";
+my $swapped  = "$root/records/swapped";
+my $swap_run = run_perl(
+    root => $root,
+    env  => {
+        TEST_MUTATION_COMPILER_INPUTS => $swapped,
+        TEST_MUTATION_COMPILER_READS  => q{},
+        REPLACE_RECORD_WITH           => $replacement,
+    },
+    args => [ '-I' . lib_dir(), '-c', 'closing.pl' ],
+);
+is $swap_run->{status}, 0,        'a concurrent replacement preserves the target compilation';
+is readlink($swapped),  $literal, 'discarding a failed output preserves a replacement symlink';
 
 done_testing;

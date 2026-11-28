@@ -61,11 +61,19 @@ sub _record {
     }
     my @lines = map { 'm' . unpack( 'H*', $_ ) } sort keys %modules;
     push @lines, map { unpack( 'H*', $_ ) } sort keys %paths;
-    my $bytes = join "\n", @lines, q{.}, q{};
+    _write_record( join "\n", @lines, q{.}, q{} );
+    return;
+}
+
+sub _write_record {
+    my ($bytes) = @_;
     sysopen my $out, $record, O_WRONLY | O_CREAT | O_EXCL, 0600 or return;
+    my ( $device, $inode ) = stat $out;
     my $written = syswrite $out, $bytes;
     my $closed  = close $out;
-    unlink $record unless $closed && defined $written && $written == length $bytes;
+    return if $closed && defined $written && $written == length $bytes;
+    my ( $named_device, $named_inode ) = lstat $record;
+    unlink $record if defined $inode && defined $named_inode && $device == $named_device && $inode == $named_inode;
     return;
 }
 
