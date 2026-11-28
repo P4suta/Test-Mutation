@@ -59,6 +59,10 @@ subtest 'records survive a round trip' => sub {
     );
     is Test::Mutation::Store::save( $path, \%records ), 4,         'save returns the number of stored records';
     is Test::Mutation::Store::load($path),              \%records, 'the loaded records equal the saved records';
+    my $selected = 'bbbbbbbbbbbb';
+    is Test::Mutation::Store::load( $path, [ 'ffffffffffff', $selected ] ), { $selected => $records{$selected} },
+      'a JSON lookup returns the requested verdict and omits missing and unrequested identifiers';
+    is Test::Mutation::Store::load( $path, [] ), {}, 'an empty selection returns no JSON verdicts';
 
     open my $handle, '<', $path or die "open: $!";
     my $text = do { local $/ = undef; readline $handle };
