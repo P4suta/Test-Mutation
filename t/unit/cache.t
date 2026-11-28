@@ -8,9 +8,21 @@ use Fcntl   qw(:flock);
 use Test::Mutation::Runner;
 use Test::Mutation::Settings;
 use Test::Mutation::Store;
+use Test::Mutation::Store::Key;
 use Test::Mutation::Status;
 
 my $dir = File::Temp::tempdir( CLEANUP => 1 );
+
+{
+    my $walk = Test::Mutation::Store::Key->can('_walk');
+    no warnings 'redefine';
+    local *Test::Mutation::Store::Key::_walk = sub ( $state, $relative, $reports ) {
+        die "an empty project scheduled a directory walk of '$relative'\n" if length $relative;
+        return $walk->( $state, $relative, $reports );
+    };
+    is Test::Mutation::Store::Key::tree( $dir, [] ), Test::Mutation::Store::Key::digest(),
+      'an empty project has no file or directory inputs';
+}
 
 sub record (%fields) {
     return {
