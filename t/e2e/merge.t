@@ -37,7 +37,7 @@ my @reports = ( 'part2/mutation.json', 'part1/mutation.json' );
 subtest 'older compiler comparisons cannot certify the input that initialized a package variable' => sub {
 
     # Commit 395ef555 measured the two shards with different values in BOUNDARY_INPUT.
-    my @saved = map { Cwd::abs_path("t/fixtures/shards-before-input-verification/part-$_.json") } 1, 2;
+    my @saved = map { Cwd::abs_path("t/e2e/fixtures/shards-before-input-verification/part-$_.json") } 1, 2;
     my @prior = map { Test::Mutation::Report::Json::parse( slurp($_) ) } @saved;
     is [ map { $_->entries->[0]{status} } @prior ], [qw(Killed Survived)], 'both original verdicts remain readable';
     ok defined $prior[0]->measurement_digest, 'the historical input digest is still available to readers';
