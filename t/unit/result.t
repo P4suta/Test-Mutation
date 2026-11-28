@@ -71,6 +71,8 @@ subtest 'tally' => sub {
 
 subtest 'the public assessment applies the threshold to this scope' => sub {
     my $report = result( [qw(Killed Survived)], min_score => 75 );
+    isa_ok dies { Test::Mutation::Outcome::assessment( $report, 'unavailable' ) }, ['Error::TypeTiny'],
+      'an assessment rejects a nonnumeric minimum score';
     is $report->assessment,
       { $report->tally->%*, minimum => 75, outcome => 'measured', gate => 'failed', exitCode => 1 },
       'the API includes the same tally and exit status as the command';
