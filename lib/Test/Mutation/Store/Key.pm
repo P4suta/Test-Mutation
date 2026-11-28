@@ -92,9 +92,9 @@ sub file ($path) {
     return $value;
 }
 
-signature_for tree => ( positional => [ Str, ArrayRef [Str], Optional [Bool] ], returns => Str );
+signature_for tree => ( positional => [ Str, ArrayRef [Str], Bool, { default => 0 } ], returns => Str );
 
-sub tree ( $root, $skip, $omit_reports = 0 ) {
+sub tree ( $root, $skip, $omit_reports ) {
     return project( $root, $skip, [] )->{digest} if $omit_reports;
     return _tree( $root, $skip, undef );
 }
@@ -119,9 +119,9 @@ sub project ( $root, $skip, $links ) {
 }
 
 signature_for workspace =>
-  ( positional => [ Str, ArrayRef [Str], ArrayRef [Str], Optional [ Maybe [Str] ] ], returns => Str );
+  ( positional => [ Str, ArrayRef [Str], ArrayRef [Str], Maybe [Str], { default => undef } ], returns => Str );
 
-sub workspace ( $root, $skip, $links, $original = undef ) {
+sub workspace ( $root, $skip, $links, $original ) {
     return _tree( $root, $skip, undef, $links, $original );
 }
 
