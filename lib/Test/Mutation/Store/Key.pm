@@ -316,8 +316,8 @@ Linked project inputs retain their visible contents.
 
 =head2 published_outputs
 
-Identifies the published paths to omit from an isolated copy when some project inputs cannot be fingerprinted.
-The copy keeps linked inputs and files whose publication records cannot be verified.
+Identifies the published paths to omit from an isolated copy even when a project input is unreadable.
+The copy keeps linked inputs and files that lack a matching publication record.
 
 =head2 workspace
 
