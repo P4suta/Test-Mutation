@@ -30,6 +30,9 @@ mise run record-release-check
 To shorten the measurement, set `TEST_MUTATION_DETECTOR_DIR` to a directory outside the checkout containing earlier JSON reports.
 The current measurement runs every original test and checks every mutant.
 An earlier detection can only suggest which covering test to try first.
+The gate prefers an exact mutant ID.
+If an edit moves a mutant, the gate matches its span, mutator, and replacement within unchanged source lines.
+The matching text includes up to two lines on each side and must occur once in each version of the same file.
 
 The recording task sets the `release/local` commit status using your GitHub CLI account.
 GitHub verifies that the repository account recorded the status and installs the archive on Linux and macOS.
