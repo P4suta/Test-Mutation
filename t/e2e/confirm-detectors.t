@@ -3,7 +3,7 @@ use Test2::V0;
 use Cwd        ();
 use File::Temp ();
 use lib 't/e2e/lib';
-use Fixture                      qw(ran write_file);
+use Fixture                      qw(ran with_driver_shims write_file);
 use Test::Mutation::Report::Json ();
 use Test::Mutation::Source       ();
 
@@ -23,17 +23,22 @@ sub addition ($measurement) {
 }
 
 sub confirm (@hints) {
-    my $saved = Cwd::getcwd();
-    chdir $project or die "enter $project: $!";
-    open my $output, q{-|}, $^X, $script, @hints or die "start the measurement: $!";
-    my $log = do { local $/ = undef; readline $output };
+    my $child = open my $output, q{-|};
+    die "start the measurement: $!" unless defined $child;
+    if ( !$child ) {
+        chdir $project or die "enter $project: $!";
+        open STDERR, '>&', \*STDOUT or die "capture the measurement diagnostic: $!";
+        with_driver_shims(
+            sub (@switches) { exec {$^X} $^X, @switches, $script, @hints or die "run the measurement: $!" } );
+    }
+    $last_log = do { local $/ = undef; readline $output };
     close $output;
     my $status = $?;
-    chdir $saved or die "return to $saved: $!";
     die "the measurement ended on a signal: $status" if $status & 127;
     return $status >> 8;
 }
 
+write_file( "$project/mutation.toml", "jobs = 1\n" );
 write_file( "$project/lib/Totals.pm",
     "package Totals;\nsub sum { my (\$left, \$right) = \@_; \$left + \$right }\n1;\n" );
 my $miss = "use Test::More tests => 1;\nuse Totals;\nis Totals::sum(4, 0), 4;\n";
@@ -70,6 +75,6 @@ is addition( result() )->{tests_run}, 2, 'without a suggestion the normal order 
 write_file( "$project/t/a.t", qq{print "1..1\\nnot ok 1 - broken original\\n";\n} );
 is confirm($hint), 3, 'an original test failure blocks even a previously detected mutant';
 is [ map { $_->{test} } result()->baseline_failures->@* ], ['t/a.t'], 'the failing original test appears in the report';
-like $last_log, qr/^\s*t\/a\.t\s*$/m, 'the terminal report identifies the failing original test';
+like $last_log, qr/^\s*t\/a\.t\s*$/m,                 'the terminal report identifies the failing original test';
 like $last_log, qr/^\s*not ok 1 - broken original$/m, 'the terminal report retains the failing TAP assertion';
 done_testing;
