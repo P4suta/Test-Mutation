@@ -201,15 +201,22 @@ sub _fixed_module_load ($document) {
 }
 
 sub _fixed_class_load ($statement) {
-    my ( $keyword, $name, @rest ) = grep { !_is_semicolon($_) } $statement->schildren;
-    return 0 unless _is_word( $keyword, { class => 1 } ) && $name && $name->isa('PPI::Token::Word');
-    shift @rest if @rest && $rest[0]->isa('PPI::Token::Number');
-    my $block = shift @rest;
-    return 0 unless $block && $block->isa('PPI::Structure::Block');
+    for my $segment ( _segments( {}, $statement )->@* ) {
+        return 0 unless _fixed_class_segment( grep { !_is_semicolon($_) } $segment->{children}->@* );
+    }
+    return 1;
+}
+
+sub _fixed_class_segment ( $keyword = undef, $name = undef, @rest ) {
+    return 1 unless defined $keyword;
+    return 1 if $keyword isa PPI::Token::Number && !defined $name;
+    return 0 unless _is_word( $keyword, { class => 1 } ) && $name isa PPI::Token::Word;
+    shift @rest if $rest[0] isa PPI::Token::Number;
+    my ($block) = @rest;
+    return 0 unless @rest == 1 && $block isa PPI::Structure::Block;
 
     # PPI can group a compile-time directive with the method declared immediately before it.
     return 0 if $block->find_first( sub ( $document, $element ) { _is_word( $element, \%COMPILE_KEYWORD ) } );
-    return 0 if @rest && ( @rest != 1 || !$rest[0]->isa('PPI::Token::Number') );
     for my $member ( $block->schildren ) {
         return 0 unless ref $member eq 'PPI::Statement';
         for my $segment ( _segments( {}, $member )->@* ) {

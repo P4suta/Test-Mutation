@@ -67,7 +67,8 @@ subtest 'classes can share a module with other declarations and load-time expres
         q{class Meter {} 0 + read_limit(); 1;},
         q{class Meter; main::read_limit(); 1;},
         q{sub Rules::apply { return main::read_limit() } apply Rules {}; 1;},
-    ) {
+      )
+    {
         is $reads->($body), undef, "loading the module can execute read_limit in $body";
     }
 };
