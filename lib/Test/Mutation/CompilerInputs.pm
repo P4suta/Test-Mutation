@@ -93,5 +93,7 @@ The driver loads this module in the target Perl before a standalone compilation.
 The module records additional library directories and modules loaded outside the initial search path.
 For known read-only C<open> calls, the target interpreter resolves literal paths and named environment variables.
 The driver checks the load-time code of non-core modules before it trusts a file operand read during compilation.
+With equivalence checks enabled, cached and reported verdicts share an original compilation when the source may load a module or read a file.
+An operand discovered in a loaded module takes a second pass to identify its file.
 
 =cut

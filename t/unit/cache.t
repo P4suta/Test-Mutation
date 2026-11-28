@@ -267,6 +267,7 @@ subtest 'each saved verdict requires the observations that justify its status' =
             detail     => undef,
           };
     }
+    $run->{compiler_of_mutant} = { map { ( $_->id, {} ) } $hit, $uncovered };
     Test::Mutation::Runner::_save_observation( $run, $cache, $_ ) for @entries;
     $cache->{records} = Test::Mutation::Store::load( $cache->{path} );
     is [ sort keys $cache->{records}->%* ], [ sort map { $_->id } $hit, $uncovered ],
@@ -278,6 +279,10 @@ subtest 'each saved verdict requires the observations that justify its status' =
     };
     is $reuse->( $cache, $hit, ['t/add.t'] ), undef, 'a recorded detection with changed inputs must be measured again';
     $cache->{records}{ $hit->id }{inputs} = $prior_key;
+    my $proof = delete $cache->{records}{ $hit->id }{compiler_inputs};
+    is $reuse->( $cache, $hit, ['t/add.t'] ), undef,
+      'a legacy detection with unverified module imports needs new tests';
+    $cache->{records}{ $hit->id }{compiler_inputs} = $proof;
     is $reuse->( $cache, $hit, ['t/add.t'] )->{by}, 't/add.t', 'the verified detecting test is retained';
     my $binding = Test::Mutation::Mutant->new( $hit->%*, introduced_call => [ 'Calc::adjust', $hit->start ] );
     is $reuse->( $cache, $binding, ['t/add.t'] ), undef,

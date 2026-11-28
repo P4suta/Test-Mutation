@@ -162,4 +162,66 @@ PERL
     is $boundary->(1), [ 'Killed', 0, undef ], 'the previous survival cannot be reused after the data changes';
 };
 
+subtest 'a detecting test depends on the file read by an imported constant' => sub {
+    my $area = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    my $root = "$area/project";
+    local $ENV{PERL5OPT}          = '-Mstrict';
+    local $ENV{PERL5LIB}          = join q{:}, "$area/modules", grep { defined } $ENV{PERL5LIB};
+    local $ENV{TEST_IMPORTED_MAX} = write_file( "$area/data/limit", "7\n" );
+    write_file( "$area/modules/Threshold.pm", <<'PERL' );
+package Threshold;
+BEGIN {
+    open my $input, '<', $ENV{TEST_IMPORTED_MAX} or die $!;
+    my $limit = 0 + <$input>;
+    close $input or die $!;
+    require constant;
+    constant->import('LIMIT', $limit);
+}
+1;
+PERL
+    write_file( "$root/lib/Bound.pm", <<'PERL' );
+package Bound;
+use Threshold ();
+sub first { return $_[0] < Threshold::LIMIT() }
+sub second { return $_[0] < Threshold::LIMIT() }
+1;
+PERL
+    write_file( "$root/lib/Plain.pm", q{package Plain; sub below { return $_[0] < 1 } 1;} );
+    write_file( "$root/t/check.t",    <<'PERL' );
+use Test::More tests => 3;
+use Bound;
+use Plain;
+ok !Bound::first(7);
+ok !Bound::second(7);
+ok !Plain::below(1);
+PERL
+    my $measure = sub ($cache) {
+        my ($result) = run_fixture(
+            $root,
+            cache   => $cache,
+            jobs    => 2,
+            shard   => '1/1',
+            enable  => ['comparison-boundary'],
+            disable => [qw(@removal arithmetic comparison-negation logical)]
+        );
+        return $result;
+    };
+    my $statuses = sub ($result) {
+        return [ map { $_->{status} } $result->entries->@* ];
+    };
+    my $cold = $measure->(1);
+    is $statuses->($cold), [ ('Killed') x 3 ], 'the test detects each changed boundary';
+    is $cold->compiler_inputs->{ Test::Mutation::Store::Key::digest( $ENV{TEST_IMPORTED_MAX} ) },
+      Test::Mutation::Store::Key::file( $ENV{TEST_IMPORTED_MAX} ), 'the report identifies the external operand';
+    is $cold->stats->{compiles}, 2, 'the reader shares its discovery and binding and the plain source needs neither';
+    my $same = $measure->(1);
+    is [ $same->reused, $same->stats->{compiles} ], [ 3, 0 ], 'verified inputs need no repeat compiler process';
+    write_file( $ENV{TEST_IMPORTED_MAX}, "5\n" );
+    my $warm  = $measure->(1);
+    my $fresh = $measure->(0);
+    is $statuses->($fresh), [ 'Survived', 'Survived', 'Killed' ], 'the new limit changes the two dependent verdicts';
+    is $statuses->($warm),  $statuses->($fresh),           'cached and fresh runs agree after the external change';
+    is [ $warm->reused, $warm->cache_mismatch ], [ 1, 0 ], 'only the independent verdict is eligible for sampling';
+};
+
 done_testing;
