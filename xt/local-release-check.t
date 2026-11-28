@@ -28,6 +28,14 @@ esac
 SH
 tool( 'mise', <<'SH' );
 case "$*" in
+    'run check'|'run check-ci-interpreters')
+        printf '%s\n' "$*" >> "$CHECK_LOG"
+        if [ "${EDIT_AFTER:-}" = "$*" ]; then printf 'changed\n' >> source; fi
+        if [ "${COMMIT_AFTER:-}" = "$*" ]; then
+            git -c core.hooksPath=/dev/null -c commit.gpgsign=false -c user.name=Fixture \
+                -c user.email=check@example.invalid commit --quiet --allow-empty -m 'Another commit'
+        fi
+        exit "${GATE_EXIT:-0}" ;;
     'run release-gate')
         printf 'run %s\n' "$(git rev-parse HEAD)" >> "$CHECK_LOG"
         if [ -n "${CHANGE_FILE:-}" ]; then printf 'changed\n' >> source; fi
@@ -49,16 +57,18 @@ open my $head, q{-|}, @git, 'rev-parse', 'HEAD' or die 'read the fixture commit'
 chomp( my $commit = readline $head );
 close $head or die 'resolve the fixture commit';
 
-sub record () {
+sub run_in_project (@command) {
     write_file( $log, q{} );
     my $previous = Cwd::getcwd();
     chdir $project or die "enter $project: $!";
     local $ENV{PATH}      = "$scratch/bin:$ENV{PATH}";
     local $ENV{CHECK_LOG} = $log;
-    my $status = system( 'sh', $runner );
+    my $status = system(@command);
     chdir $previous or die "return to $previous: $!";
     return [ $status >> 8, Test::Mutation::Source::read_bytes($log) ];
 }
+
+sub record () { return run_in_project( 'sh', $runner ) }
 
 my ( $status, $events ) = record()->@*;
 is $status, 0, 'the checked release can record success';
@@ -77,6 +87,28 @@ subtest 'the recording command rejects a failed release gate' => sub {
     isnt $failed->[0], 0, 'a failed gate fails the command';
     like $failed->[1],   qr/state=failure\b/, 'a failure supersedes any earlier success';
     unlike $failed->[1], qr/state=success\b/, 'a failed gate cannot record success';
+};
+subtest 'the pre-push gate checks the same clean commit on every interpreter' => sub {
+    my $task    = TOML::Tiny::from_toml( Test::Mutation::Source::read_bytes('mise.toml') )->{tasks}{'check-ci'}{run};
+    my $program = ref $task eq 'ARRAY' ? join( "\n", @$task ) : $task;
+    my $check   = sub { return run_in_project( 'sh', '-ec', $program ) };
+    is $check->(), [ 0, "run check\nrun check-ci-interpreters\n" ], 'the clean commit receives both checks';
+    my $untracked = write_file( "$project/local-only.t", "uncommitted test\n" );
+    my $dirty     = $check->();
+    isnt $dirty->[0], 0,   'an uncommitted test fails the pre-push check';
+    is $dirty->[1],   q{}, 'the mismatched checkout starts no expensive checks';
+    unlink $untracked or die "remove the temporary test: $!";
+
+    for my $stage ( 'run check', 'run check-ci-interpreters' ) {
+        local $ENV{EDIT_AFTER} = $stage;
+        my $changed = $check->();
+        isnt $changed->[0], 0, "an edit during $stage invalidates the result";
+        is $changed->[1], "run check\n", 'a change during fast checks stops the remaining work'
+          if $stage eq 'run check';
+        write_file( "$project/source", "tracked\n" );
+    }
+    local $ENV{COMMIT_AFTER} = 'run check-ci-interpreters';
+    isnt $check->()->[0], 0, 'a different clean commit cannot inherit the local result';
 };
 {
     local $ENV{CHANGE_FILE} = 1;
