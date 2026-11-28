@@ -29,6 +29,8 @@ has left_out       => ( is => 'ro', isa => HashRef [Int], required => 1 );
 has rejected =>
   ( is => 'ro', isa => ArrayRef [ Dict [ path => Str, mutator => Str, line => Int, rule => Str ] ], required => 1 );
 
+has analysis_rules_digest => ( is => 'ro', isa => Str, lazy => 1, builder => 'catalog_digest' );
+
 signature_for verify_copy => ( method => InstanceOf [__PACKAGE__], positional => [Str], returns => Undef );
 
 sub verify_copy ( $self, $root ) {
@@ -68,6 +70,11 @@ The decoded source files, ordered test paths, selected mutators, and mutants ass
 
 The filters describe the requested subset.
 The catalog digest identifies the source and mutator inputs used to refresh a report.
+
+=head2 analysis_rules_digest
+
+The digest identifies the target Perl version, parser versions, mutators, and suppression rules used for the selection.
+A selection constructed without this attribute uses its catalog digest.
 
 =head2 inventory
 

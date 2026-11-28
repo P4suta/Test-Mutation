@@ -177,6 +177,7 @@ sub resolve ($arg) {
               || grep { exists $config->specified->{$_} }
               qw(source source-exclude test test-exclude since mutant enable disable profile shard)
         ) ? 1 : 0,
+        analysis_rules_digest => $rules,
     );
 }
 
