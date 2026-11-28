@@ -38,12 +38,19 @@ sub additions ($selected) {
     return grep { $_->mutator eq 'arithmetic' } $selected->mutants->@*;
 }
 
+sub measure ( $root, @mutants ) {
+    my ($result) = run_fixture( $root, cache => 0, jobs => 1, mutant => [ map { $_->id } @mutants ] );
+    my $dir = File::Temp::tempdir( DIR => $scratch );
+    my $report =
+      write_file( "$dir/mutation.json", Test::Mutation::Report::Json::render( $result, high => 80, low => 60 ) );
+    return ( $result, $report );
+}
+
 sub measured_report ($root) {
     my ($addition) = additions( selection($root) );
-    my ($result)   = run_fixture( $root, cache => 0, jobs => 1, mutant => [ $addition->id ] );
+    my ( $result, $report ) = measure( $root, $addition );
     is $result->entries->[0]{status}, 'Killed', 'the earlier test actually detects the selected addition';
-    return write_file( "$scratch/" . $addition->id . '.json',
-        Test::Mutation::Report::Json::render( $result, high => 80, low => 60 ) );
+    return $report;
 }
 
 my %tests        = ( 't/a.t' => $weak, 't/z.t' => $strong );
@@ -62,18 +69,51 @@ is SelfMeasurement::detector_hints( $current, $previous, $same_id ), { $id => 't
   'the same exact ID takes priority in either file order';
 
 my $changed   = $source =~ s/\$left \+ \$right/\$left + abs(\$right)/r;
+my $following = $source =~ s/return \$sum;/return int \$sum;/r;
 my $duplicate = "$source\nsub also {\n$body";
 for my $case (
     [ project( "$shift$source", \%tests, 'lib/Renamed.pm' ), 'the expression belongs to another file' ],
     [ project( "$shift$changed",   \%tests ),              'the moved expression changed' ],
+    [ project( "$shift$following", \%tests ),              'a line following the moved expression changed' ],
     [ project( "$shift$duplicate", \%tests ),              'the current source has two identical contexts' ],
     [ project( "$shift$source",    { 't/a.t' => $weak } ), 'the earlier detecting test is absent' ],
   )
 {
-    is SelfMeasurement::detector_hints( selection( $case->[0] ), $previous ), {}, $case->[1];
+    my $hints;
+    my $selected = selection( $case->[0] );
+    is warnings { $hints = SelfMeasurement::detector_hints( $selected, $previous ) }, [],
+      "ignoring the earlier test is silent when $case->[1]";
+    is $hints, {}, $case->[1];
 }
 my $ambiguous = measured_report( project( "\n$duplicate", \%tests ) );
 is SelfMeasurement::detector_hints( $current, $ambiguous ), {},
   'a report of one mutant includes the entire earlier source with both identical contexts';
+
+subtest 'all useful observations from the same report remain available' => sub {
+    my $root = File::Temp::tempdir( DIR => $scratch );
+    my $text = sub ($name) { return "package $name;\nsub sum {\n$body\n1;\n" };
+    write_file( "$root/lib/$_.pm", $text->($_) ) for qw(Alpha Beta Gamma);
+    write_file( "$root/t/all.t",   <<'PERL' );
+use Test::More tests => 3;
+use Alpha;
+use Beta;
+use Gamma;
+is Alpha::sum(4, 0), 4;
+is Beta::sum(4, 1), 5;
+is Gamma::sum(4, 1), 5;
+PERL
+    my ( $before, $report ) = measure( $root, additions( selection($root) ) );
+    is [ map { $_->{status} } $before->entries->@* ], [qw(Survived Killed Killed)],
+      'the test misses the first addition and detects both later additions';
+    write_file( "$root/lib/Gamma.pm", $shift . $text->('Gamma') );
+    my $selected = selection($root);
+    my ( $alpha, $beta, $gamma ) = additions($selected);
+    is SelfMeasurement::detector_hints( $selected, $report ), { $beta->id => 't/all.t', $gamma->id => 't/all.t' },
+      'a missed mutant and an exact ID can precede the one that moved';
+    unlink "$root/lib/Beta.pm" or die "remove Beta: $!";
+    write_file( "$root/t/all.t", "use Test::More tests => 1;\nuse Gamma;\nis Gamma::sum(4, 1), 5;\n" );
+    is SelfMeasurement::detector_hints( selection($root), $report ), { $gamma->id => 't/all.t' },
+      'a deleted file can precede a surviving file in a report';
+};
 
 done_testing;
