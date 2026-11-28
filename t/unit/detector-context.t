@@ -62,15 +62,21 @@ is SelfMeasurement::detector_hints( $current, $previous, $same_id ), { $id => 't
   'the same exact ID takes priority in either file order';
 
 my $changed   = $source =~ s/\$left \+ \$right/\$left + abs(\$right)/r;
+my $following = $source =~ s/return \$sum;/return int \$sum;/r;
 my $duplicate = "$source\nsub also {\n$body";
 for my $case (
     [ project( "$shift$source", \%tests, 'lib/Renamed.pm' ), 'the expression belongs to another file' ],
     [ project( "$shift$changed",   \%tests ),              'the moved expression changed' ],
+    [ project( "$shift$following", \%tests ),              'a line following the moved expression changed' ],
     [ project( "$shift$duplicate", \%tests ),              'the current source has two identical contexts' ],
     [ project( "$shift$source",    { 't/a.t' => $weak } ), 'the earlier detecting test is absent' ],
   )
 {
-    is SelfMeasurement::detector_hints( selection( $case->[0] ), $previous ), {}, $case->[1];
+    my $hints;
+    my $selected = selection( $case->[0] );
+    is warnings { $hints = SelfMeasurement::detector_hints( $selected, $previous ) }, [],
+      "ignoring the earlier test is silent when $case->[1]";
+    is $hints, {}, $case->[1];
 }
 my $ambiguous = measured_report( project( "\n$duplicate", \%tests ) );
 is SelfMeasurement::detector_hints( $current, $ambiguous ), {},
