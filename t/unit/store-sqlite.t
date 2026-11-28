@@ -5,6 +5,7 @@ use File::Temp ();
 use POSIX      ();
 use lib 't/lib';
 use Capability;
+use ManualClock;
 use Test::Mutation::Settings;
 use Test::Mutation::Source;
 use Test::Mutation::Store;
@@ -222,6 +223,29 @@ subtest 'a nonblocking checkpoint retries only a competing writer' => sub {
     $peer->do(q{CREATE TRIGGER reject BEFORE INSERT ON verdict BEGIN SELECT RAISE(ABORT,'rejected record'); END});
     like dies { $write->( 'refused', $record, 0 ) }, qr/rejected record/,
       'a rejected write passes its failure to the caller';
+};
+
+subtest 'a blocking checkpoint uses the remainder of the original lock timeout' => sub {
+    my $path   = "$directory/retry/measurement.sqlite";
+    my $writer = Test::Mutation::Store::database($path);
+    my $peer   = Test::Mutation::Store::database($path);
+    my $clock  = ManualClock->new( at => 10 );
+    $writer->sqlite_busy_timeout(2_000);
+    my $write = do {
+        no warnings 'redefine';
+        local *Test::Mutation::Store::database = sub ($) { return $writer };
+        local *Test::Mutation::Clock::new      = sub ($) { return $clock };
+        Test::Mutation::Store::checkpoints($path);
+    };
+    $peer->do('BEGIN IMMEDIATE');
+    is $write->( 'delayed', $record, 0 ), 0, 'the first lock conflict starts the deadline';
+    $clock->move(1.25);
+    $peer->do('COMMIT');
+    is $write->( 'delayed', $record, 1 ), 1,     'the blocking retry commits the pending verdict';
+    is $writer->sqlite_busy_timeout,      750,   'SQLite can wait the remaining three quarters of a second';
+    is $write->( 'next', $record, 1 ),    1,     'the next checkpoint commits independently';
+    is $writer->sqlite_busy_timeout,      2_000, 'a new checkpoint receives the full lock timeout';
+    is Test::Mutation::Store::load($path), { delayed => $record, next => $record }, 'both commits are durable';
 };
 
 subtest 'legacy checkpoints defer file locking until the caller can wait' => sub {
