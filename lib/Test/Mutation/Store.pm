@@ -215,9 +215,10 @@ sub read_database ($path) {
     return _initialized( $db, $path, 1 ) ? $db : undef;
 }
 
-signature_for database => ( positional => [ Str, Optional [ Maybe [Str] ] ], returns => InstanceOf ['DBI::db'] );
+signature_for database =>
+  ( positional => [ Str, Maybe [Str], { default => undef } ], returns => InstanceOf ['DBI::db'] );
 
-sub database ( $path, $legacy = undef ) {
+sub database ( $path, $legacy ) {
     my $directory = File::Basename::dirname($path);
     Test::Mutation::Tree::make($directory) unless -d $directory;
     my $db = _connect($path);
