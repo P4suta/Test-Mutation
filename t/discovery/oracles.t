@@ -522,7 +522,7 @@ subtest 'the rate rejects a mutator of the default profile above its bound, and 
     Oracle::count( $tally, 'number-literal',      'equivalent', 5 );
     Oracle::count( $tally, 'negation',            'equivalent', 1 );
     is Oracle::rated( $tally, 'equivalent', 'compared', 0.02, 'is equivalent too often' ),
-      ['comparison-negation is equivalent too often'],
+      ['comparison-negation is equivalent too often (3 of 100)'],
       'a share above the bound fails, a share at the bound passes, and a mutator of the extended profile has no bound';
     is Oracle::rated( $tally, 'equivalent', 'compared', 0.5, 'is equivalent too often' ), [],
       'a mutator without a base has no rate';
