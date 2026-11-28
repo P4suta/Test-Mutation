@@ -1,6 +1,8 @@
 use v5.36;
 use Test2::V0;
 use File::Temp ();
+use lib 't/lib';
+use ManualClock;
 use lib 't/e2e/lib';
 use Fixture qw(copy_of);
 use lib 't/shim/lib';
@@ -198,6 +200,31 @@ subtest 'only a completed nonempty mutant deparse provides a digest for comparis
         Test::Mutation::Runner::_after_code( {}, $task, $result );
         is $job->{code}, $usable ? 'fingerprint' : q{}, 'a failed or empty deparse cannot establish equivalence';
     }
+};
+
+subtest 'a durable published result completes its checkpoint without another wait' => sub {
+    my $mutant = $mutants[0];
+    my $path   = project() . '/measurement.sqlite';
+    my $cache  = { path => $path, targets => { $mutant->path => 'source' }, facts => { 't/add.t' => 'observed' } };
+    my $entry =
+      Test::Mutation::Runner::_entry( $mutant, 'Killed', undef, 'sum changed', 't/add.t', ['t/add.t'], 1, 0.1 );
+    my @published;
+    my $run = {
+        listener => sub ( $event, $record ) {
+            push @published, Test::Mutation::Store::load($path)->{ $record->{mutant}->id }{status};
+            return;
+        }
+    };
+    my $save  = Test::Mutation::Runner::_publish_finished( $run, $cache, $entry, {}, {} );
+    my $count = Test::Mutation::Pool::run(
+        jobs        => 1,
+        clock       => ManualClock->new( limit => 0 ),
+        checkpoints => [$save],
+        next        => sub { return },
+        done        => sub { die 'unexpected test completion' }
+    );
+    is $count,      0,          'the completed checkpoint needs no child process';
+    is \@published, ['Killed'], 'the observer receives the durable result once';
 };
 
 subtest 'interruptions retain completed verdicts and account for every attempted test' => sub {
