@@ -67,6 +67,29 @@ subtest 'several processes of one test run' => sub {
     is Test::Mutation::Record::parse( [ $untraced, $traced ] )->{served}{'/p/A.pm'}{traced}, 0, 'whatever the order';
 };
 
+subtest 'a module listed at exit uses the compilation observed by the same process' => sub {
+    my $target = '/p/A.pm';
+    my $other  = '/p/B.pm';
+    my $traced = lines( [ 'begin', 1 ], [ 'seen', $target ], [ 'hit', $target, 4 ] );
+    my $listed = lines( [ 'begin', 1 ], [ 'seen', $target, 'loaded-at-exit' ] );
+    my $observed =
+      Test::Mutation::Record::parse( [ $traced . $listed . lines( [ 'seen', $other, 'loaded-at-exit' ] ) ] );
+    is $observed->{errors}, [], 'finding a module on disk at exit is a valid observation';
+    is $observed->{served},
+      { $target => { traced => 1, hits => { 4 => 1 } }, $other => { traced => 0, hits => {} } },
+      'a successful trace explains only the file that supplied it';
+    is $observed->{compiled}, { $target => 1, $other => 1 }, 'the module registry confirms both loads';
+    is Test::Mutation::Record::parse( [ $traced, $listed ] )->{served}{$target}{traced}, 0,
+      'a different process can have loaded the same module without tracing';
+    is Test::Mutation::Record::parse( [ $listed . $traced ] )->{served}{$target}{traced}, 0,
+      'a later compilation cannot explain an earlier observation';
+    my $opened = lines( [ 'begin', 1 ], [ 'seen', $target, 'opened' ] );
+    is Test::Mutation::Record::parse( [ $opened . $listed ] )->{served}{$target}{traced}, 0,
+      'opening a source alone never proves its compilation was traced';
+    is Test::Mutation::Record::parse( [ $traced . lines( [ 'blind', $target ] ) ] )->{served}{$target}{traced}, 0,
+      'an explicit blind load from an earlier shim keeps file coverage';
+};
+
 subtest 'unknown and malformed records leave a diagnostic' => sub {
     my $record = Test::Mutation::Record::parse( ["begin\t1\nmystery\t/p/A.pm\nseen\n\nhit\t/p/A.pm\n"] );
     is $record->{errors},

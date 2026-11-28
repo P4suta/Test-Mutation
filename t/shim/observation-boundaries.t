@@ -318,8 +318,8 @@ PERL
     my $records = all_records($root);
     is scalar( grep { $_->[0] eq 'seen' && $_->[1] eq $main } @$records ), 1,
       'a witnessed main program reports its compilation';
-    is scalar( grep { $_->[0] eq 'blind' && $_->[1] eq $later } @$records ), 1,
-      'the ordinary require has only on-disk evidence';
+    is_deeply [ grep { defined $_->[1] && $_->[1] eq $later } @$records ], [ [ 'seen', $later, 'loaded-at-exit' ] ],
+      'the module registry identifies the ordinary require at process exit';
     is scalar( grep { $_->[0] eq 'hit' && $_->[1] ne $main } @$records ), 0, 'only the selected main has hit records';
 };
 
