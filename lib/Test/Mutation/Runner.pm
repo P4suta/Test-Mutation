@@ -487,8 +487,7 @@ sub _measurement_digest ( $run, $selection ) {
           { project => $project_digest, tests => \%tests, sources => $selection->digests, separate => \@separate };
     }
     return Test::Mutation::Store::Key::digest(
-        $VERSION,
-        Test::Mutation::Store::Key::digest( map { $_->name } $selection->mutators->@* ),
+        $selection->catalog_digest,
         Test::Mutation::Store::Key::digest( map { ( $_, $selection->digests->{$_} ) } @sources ),
         Test::Mutation::Store::Key::interpreter_build( $selection->perl ),
         $project_digest,
