@@ -4,7 +4,7 @@ use File::Temp ();
 use lib 't/e2e/lib';
 use Fixture qw(copy_of);
 use lib 't/shim/lib';
-use ShimHarness qw(project write_file write_spec run_perl lib_dir);
+use ShimHarness qw(project write_file write_spec run_bare run_perl lib_dir);
 use Test::Mutation::Runner;
 use Test::Mutation::Select;
 use Test::Mutation::Settings;
@@ -135,6 +135,36 @@ subtest 'the absence of compiler reads is remembered for the next mutant of the 
     ok !Test::Mutation::Runner::_may_read_at_compile_time( $run, $path ), 'an empty CHECK block reads no files';
     ok !Test::Mutation::Runner::_may_read_at_compile_time( $run, $path ), 'a second mutant shares the result';
     is $inspections, 1, 'the unchanged source needs one inspection';
+};
+
+subtest 'an imported module keeps its unknown inputs across inspections and removal' => sub {
+    my $area   = project();
+    my $module = write_file( "$area/modules/Threshold.pm", <<'MODULE' );
+package Threshold;
+my $path = $ENV{LIMIT_FILE};
+open my $input, '<', $path or die $!;
+my $limit = <$input>;
+close $input or die $!;
+sub limit { return $limit }
+1;
+MODULE
+    write_file( "$area/selected.pl", "use Threshold (); 1;\n" );
+    my $compiled = run_bare(
+        root => $area,
+        env  => { TEST_MUTATION_COMPILER_INPUTS => "$area/inputs", LIMIT_FILE => write_file( "$area/limit", "7\n" ) },
+        args => [ '-I' . lib_dir(), "-I$area/modules", '-MTest::Mutation::CompilerInputs', '-c', 'selected.pl' ],
+    );
+    is $compiled->{status}, 0, 'the target Perl actually loaded the data reader' or diag $compiled->{stderr};
+    my $consult = sub ($run) {
+        my $result = {};
+        Test::Mutation::Runner::_compiler_inputs( $run, $area, $result );
+        return $result->{module_reads};
+    };
+    my $run = {};
+    is $consult->($run), { q{?} => 1 }, 'the loaded code can read an indirect path';
+    is $consult->($run), { q{?} => 1 }, 'the next compilation retains the same uncertainty';
+    unlink $module or die $!;
+    is $consult->( {} ), { q{?} => 1 }, 'a recorded module that disappeared cannot establish the absence of reads';
 };
 
 subtest 'one comparison ends when the original and the uncovered mutant have compiled' => sub {
