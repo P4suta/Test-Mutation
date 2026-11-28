@@ -248,6 +248,17 @@ subtest 'a blocking checkpoint uses the remainder of the original lock timeout' 
     is Test::Mutation::Store::load($path), { delayed => $record, next => $record }, 'both commits are durable';
 };
 
+subtest 'SQLite acknowledges a removal even when the verdict is already absent' => sub {
+    my $path    = "$directory/removal/measurement.sqlite";
+    my $write   = Test::Mutation::Store::checkpoints($path);
+    my $pending = { %$record, status => 'Pending', reason => 'interrupted' };
+    is $write->( 'example', $record ), undef, 'a caller without a wait argument receives no acknowledgement';
+    is Test::Mutation::Store::load($path), { example => $record }, 'the completed observation was committed';
+    is $write->( 'example', $pending, 1 ), 1, 'the writer acknowledges removal of the superseded verdict';
+    is $write->( 'example', $pending, 1 ), 1, 'a retry can acknowledge the same removal';
+    is Test::Mutation::Store::load($path), {}, 'an interrupted observation leaves no reusable verdict';
+};
+
 subtest 'legacy checkpoints defer file locking until the caller can wait' => sub {
     my $path  = "$directory/legacy-checkpoint/cache.json";
     my $write = Test::Mutation::Store::checkpoints($path);
