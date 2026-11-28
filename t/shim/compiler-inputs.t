@@ -166,6 +166,15 @@ PERL
 ok !defined compile_record( $root, 'streamed', q{}, MODULE_STREAM => $stream ),
   'a module provided by a loader without a file identity leaves no record';
 
+write_file( "$root/output.pl", qq{BEGIN { warn "target diagnostic\\n" }\n} );
+my $unwritable = run_perl(
+    root => $root,
+    env  => { TEST_MUTATION_COMPILER_INPUTS => "$root/missing/output", TEST_MUTATION_COMPILER_READS => q{} },
+    args => [ '-I' . lib_dir(), '-MTest::Mutation::CompilerInputs', '-c', 'output.pl' ],
+);
+is_deeply [ @{$unwritable}{qw(status stderr)} ], [ 0, "target diagnostic\noutput.pl syntax OK\n" ],
+  'an unavailable record destination preserves the target compiler diagnostics';
+
 my $many = "$root/include";
 mkdir $many or die "mkdir $many: $!";
 for my $number ( 1 .. 128 ) {
