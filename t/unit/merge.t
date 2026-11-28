@@ -79,6 +79,20 @@ sub merged (@parts) {
 my @first = ( entry( 1, 'Killed' ),  entry( 3, 'Survived' ), entry( 5, 'Killed' ) );
 my @rest  = ( entry( 2, 'Timeout' ), entry( 4, 'Killed' ),   entry( 6, 'NoCoverage' ) );
 
+subtest 'reports from before embedded compiler phases can still show their measured verdicts' => sub {
+    my $early = part( '1/2', \@first, compiler_input_protocol => 1 );
+    my $old =
+      Test::Mutation::Report::Json::parse( Test::Mutation::Report::Json::render( $early, high => 80, low => 60 ) );
+    is [ $old->compiler_input_protocol, $old->measurement_digest, $old->entries->[0]{status} ],
+      [ 1, 'cd' x 32, 'Killed' ], 'the historical report preserves the protocol, original digest, and verdict';
+    is $old->verified_measurement_digest, undef,
+      'the earlier digest cannot identify inputs read inside a Perl expression';
+    like dies { merged( $old, part( '2/2', \@rest, compiler_input_protocol => 1 ) ) },
+      qr/measurement inputs are missing/, 'even matching first-generation shards must be measured again';
+    like dies { merged( part( '1/2', \@first ), part( '2/2', \@rest, compiler_input_protocol => 1 ) ) },
+      qr/measurement inputs are missing/, 'a current shard cannot certify the earlier measurement';
+};
+
 subtest 'merging applies a common deferred threshold' => sub {
     my $result = merged( part( '1/2', \@first, min_score => 90 ), part( '2/2', \@rest, min_score => 90 ) );
     is [ $result->assessment->@{qw(minimum gate exitCode)} ], [ 90, 'failed', 1 ],
@@ -423,12 +437,14 @@ subtest 'refresh replaces the selected verdicts and keeps independently measured
     is Test::Mutation::Merge::refresh( $old_measurement, $superset ), $superset,
       'a partial update cannot vouch for rows from before compiler input verification';
 
+    my $early_protocol = { compiler_input_protocol => 1 };
     for my $case (
         [ 'a prior shard',                      { shard => '1/2' },              {} ],
         [ 'a current shard',                    {},                              { shard => '2/2' } ],
         [ 'another project',                    { root => '/other' },            {} ],
         [ 'a legacy prior report',              { catalog_digest => undef },     {} ],
         [ 'a legacy current report',            {},                              { catalog_digest => undef } ],
+        [ 'an earlier compiler input protocol', $early_protocol,                 {} ],
         [ 'another catalog',                    { catalog_digest => 'cd' x 32 }, {} ],
         [ 'a whole run',                        {},                              { selection          => {} } ],
         [ 'changed measurement inputs',         {},                              { measurement_digest => 'ab' x 32 } ],

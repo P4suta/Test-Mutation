@@ -248,7 +248,7 @@ subtest 'the document carries the facts of the run that the schema has no place 
             verifications => 0
         },
 
-        compilerInputProtocol => 1,
+        compilerInputProtocol => 2,
       },
       'the run facts';
 };
