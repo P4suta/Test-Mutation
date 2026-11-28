@@ -14,7 +14,12 @@ use Test::Mutation::Store::Key;
 my $root   = File::Temp::tempdir( CLEANUP => 1 );
 my $config = Test::Mutation::Settings::of_call( { root => $root, cache => 1 } );
 my $whole  = Samples::result( statuses => [qw(Survived NoCoverage Killed)] );
-is Test::Mutation::Store::History::undetected($config), undef, 'a project has no completed measurement yet';
+is Test::Mutation::Store::History::undetected($config),        undef, 'a project has no completed measurement yet';
+is Test::Mutation::Store::History::entries( $config, {}, [] ), undef, 'a new checkout has no indexed observations';
+isa_ok dies { Test::Mutation::Store::History::entries( $config, {}, ['unresolved'] ) }, ['Error::TypeTiny'],
+  'an indexed lookup accepts resolved mutants';
+isa_ok dies { Test::Mutation::Store::History::undetected_scope( $config, [ { 'lib/A.pm' => [17] } ] ) },
+  ['Error::TypeTiny'], 'a history filter requires pairs of line numbers';
 Test::Mutation::Store::History::record( $config, $whole, 1 );
 my $recorded = Test::Mutation::Store::read_database( Test::Mutation::Store::path( $config, 0 ) );
 is [ map { $recorded->selectrow_array("SELECT count(*) FROM $_") } qw(measurement observation) ],
