@@ -3,7 +3,8 @@ use Test2::V0;
 use Cwd        ();
 use File::Temp ();
 use lib 't/e2e/lib';
-use Fixture qw(run_fixture write_file);
+use Fixture        qw(run_fixture write_file);
+use Test::Mutation ();
 use Test::Mutation::Store::Key;
 use Test::Mutation::Syntax::PPI;
 
@@ -87,6 +88,32 @@ PERL
     is $result->compiler_inputs->{ Test::Mutation::Store::Key::digest($external) },
       Test::Mutation::Store::Key::tree( $external, [] ),
       'the compiler binds the external directory reached by the link';
+};
+
+subtest 'a mutant that empties the file operand supplies its own compile-time inputs' => sub {
+    my $root = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    write_file( "$root/limit.dat",    "7\n" );
+    write_file( "$root/lib/Bound.pm", <<'MODULE' );
+package Bound;
+BEGIN {
+    open my $input, '<', 'limit.dat';
+    my $limit = 0 + <$input>;
+    close $input;
+    require constant;
+    constant->import('LIMIT', $limit);
+}
+sub limit { return LIMIT() }
+1;
+MODULE
+    write_file( "$root/t/check.t", "use Test::More tests => 1; use Bound; ok defined Bound::limit();\n" );
+    my $changes = Test::Mutation::mutants( root => $root, enable => ['string-literal'] );
+    my ($emptied) = grep { $_->original eq q{'limit.dat'} && $_->replacement eq q{''} } @$changes;
+    my ($result) =
+      run_fixture( $root, cache => 0, jobs => 1, enable => ['string-literal'], mutant => [ $emptied->id ] );
+    my $entry = $result->entries->[0];
+    is $entry->{status}, 'Survived', 'the test accepts the default value after the open fails';
+    ok defined $result->measurement_digest, 'the original program has a known file operand';
+    is $entry->{compiled_digest}, undef, 'the mutant cannot certify its empty operand with the original file';
 };
 
 subtest 'standalone compilation records the external file used by an explicit BEGIN subroutine' => sub {
