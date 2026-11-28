@@ -458,7 +458,8 @@ sub ranges {
 sub values {
     my $active = /begin/ ... /end/;
     my @result = scalar(/begin/ ... /end/);
-    return (($active ... $result[0])) ? 1 : 0;
+    my $selected = (($active ... $result[0])) ? 1 : 0;
+    return $selected;
 }
 sub arguments {
     my ($first) = /begin/ ... /end/;

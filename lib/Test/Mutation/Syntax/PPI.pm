@@ -981,21 +981,39 @@ sub _operator_role ($place) {
     if ( !$record && $content eq q{*} ) {
         return ( 'unary', {} ) if $BLOCK->check( scalar $place->{unit}{elements}[0]->snext_sibling );
     }
-    return ( 'binary', { flip_flop => 1 } ) if $content eq '...' && _range_is_condition($place);
+    return ( 'binary', { flip_flop => 1 } ) if $content eq '...' && _scalar_range($place);
     my $prefix = $record ? $record->{position} eq 'prefix' : $ALWAYS_PREFIX{$content};
     return ( 'unary',  {} ) if $prefix;
     return ( 'binary', { _right_number($place)->%*, _version_literal($place) } );
 }
 
-sub _range_is_condition ($place) {
+sub _scalar_range ($place) {
     my $record = $place->{record};
     return 0 unless $record && $record->{before} && $record->{after};
     my $first = $place->{units}[ $record->{before}[0] ]{elements}[0];
     my $last  = $place->{units}[ $record->{after}[1] - 1 ]{elements}[-1];
-    my ( $previous, $next ) = ( $first->sprevious_sibling, $last->snext_sibling );
-    return 0 if $next && !_is_semicolon($next);
-    return _is_word( $previous, \%CONDITIONAL )
-      || !$previous && $first->parent->parent->isa('PPI::Structure::Condition');
+    while (1) {
+        my ( $previous, $next ) = ( $first->sprevious_sibling, $last->snext_sibling );
+        return 1 if _is_operator( $next, q{?}, qw(or and xor) ) || _scalar_assignment($previous);
+        last     if $next && !_is_semicolon($next);
+        return 1 if _is_word( $previous, \%CONDITIONAL );
+        last     if $previous;
+        my $parent = $first->parent->parent;
+        return 1 if $parent->isa('PPI::Structure::Condition');
+        last unless $parent->isa('PPI::Structure::List');
+        my $prefix = $parent->sprevious_sibling;
+        return !_is_operator( scalar $prefix->sprevious_sibling, '->' )
+          if _is_word( $prefix, { scalar => 1, 'CORE::scalar' => 1 } );
+        last if $prefix && ( !$prefix->isa('PPI::Token::Operator') || _is_operator( $prefix, '->' ) );
+        $first = $last = $parent;
+    }
+    return 0;
+}
+
+sub _scalar_assignment ($operator) {
+    return 0 unless _is_operator( $operator, '=' );
+    my $target = $operator->sprevious_sibling;
+    return $target && $target->isa('PPI::Token::Symbol') && $target->raw_type eq '$';
 }
 
 # The element of an operand that is one element alone.
