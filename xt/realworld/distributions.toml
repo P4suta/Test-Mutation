@@ -222,6 +222,22 @@ seconds = 30
 
 [Module-Runtime.expect.verdicts]
 "23b684b1d7d2" = "Survived"
-"a69ddf608877" = "Survived"
 "ca469947a037" = "Survived"
 "efbd4605401e" = "Survived"
+
+["Module-Runtime with a guarded exit"]
+name = "Module-Runtime"
+version = "0.018"
+pathname = "H/HA/HAARG/Module-Runtime-0.018.tar.gz"
+sha256 = "0bf77ef68e53721914ff554eada20973596310b4e2cf1401fc958601807de577"
+shape = "a guarded exit during compilation that the upstream tests allow the tool to remove"
+build = []
+tests = ["prove", "-lr", "t"]
+options = ["--enable", "early-exit", "--mutant", "a69ddf608877"]
+
+["Module-Runtime with a guarded exit".expect]
+mutants = [1, 1]
+score = [0, 0]
+verdicts = { "a69ddf608877" = "Survived" }
+warnings = []
+seconds = 30
