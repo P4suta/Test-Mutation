@@ -9,6 +9,7 @@ use Fcntl          qw(O_RDONLY LOCK_EX SEEK_END S_ISREG);
 use List::Util     ();
 use Scalar::Util   ();
 use Time::HiRes    ();
+use IO::File       ();
 use IO::Handle     ();
 use Types::Standard
   qw(ArrayRef Bool CodeRef Dict Enum FileHandle GlobRef HashRef InstanceOf Int Maybe Optional Slurpy Str);
@@ -450,9 +451,8 @@ sub _previous_report ( $directory, $select ) {
 
 sub _summary_separator ( $path, $used ) {
     return q{} unless $used;
-    open my $previous, '<:raw', $path or return "\n";
-    my $last = seek( $previous, -1, SEEK_END ) ? getc $previous : undef;
-    close $previous or return "\n";
+    my $previous = IO::File->new( $path, '<:raw' ) or return "\n";
+    my $last     = seek( $previous, -1, SEEK_END ) ? getc $previous : undef;
     return defined $last && $last =~ /[\r\n]/ ? q{} : "\n";
 }
 
