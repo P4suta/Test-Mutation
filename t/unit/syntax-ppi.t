@@ -22,7 +22,7 @@ sub summary ( $code, $kind ) {
 
 subtest 'BEGIN membership uses the character offsets of the original source' => sub {
     my $first  = 'BEGIN { 1 }';
-    my $later  = "BEGIN {\r\n3;\r\n}";
+    my $later  = "sub BEGIN {\r\n3;\r\n}";
     my $text   = "\x{feff}$first\r\nEND { 2 }\r\n$later\r\n1;\r\n";
     my $source = Test::Mutation::Source->new( path => 'X.pm', text => $text, encoding => 'UTF-8' );
     my @inside = grep { Test::Mutation::Syntax::PPI::inside_begin( $source, $_ ) } 0 .. length $text;
