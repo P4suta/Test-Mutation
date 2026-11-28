@@ -56,10 +56,11 @@ sub with_driver_shims ($driver) {
     for my $generation ( 1 .. ( $ENV{TEST_MUTATION_GENERATION} || 0 ) ) {
         my $name = "Test/Mutation/Shim/G$generation.pm";
         my $file = $INC{$name};
-        next unless defined $file && !ref $file && $file =~ m{\A(.+)/\Q$name\E\z}s;
-        my $directory = $1;
-        my $include   = $directory =~ /\s/ ? '-Mlib+pack(q(H*),q(' . unpack( 'H*', $directory ) . '))' : "-I$directory";
-        my $load      = "-MTest::Mutation::Shim::G$generation";
+        next if !defined $file || ref $file;
+        my ($directory) = $file =~ m{\A(.+)/\Q$name\E\z}s;
+        next unless defined $directory;
+        my $include = $directory =~ /\s/ ? '-Mlib+pack(q(H*),q(' . unpack( 'H*', $directory ) . '))' : "-I$directory";
+        my $load    = "-MTest::Mutation::Shim::G$generation";
         push @switches, "-I$directory", $load if $options =~ s/(?<!\S)\Q$include $load\E(?!\S)//;
     }
     return $driver->() unless @switches;
