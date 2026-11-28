@@ -78,7 +78,7 @@ sub parse ( $texts, $targets ) {
         errors      => []
     );
     for my $text ( $texts->@* ) {
-        my %missing;
+        my ( %missing, %compiled );
         my $traced = 0;
         for my $line ( split /\n/, $text ) {
             my ( $kind, $path, $value ) = split /\t/, $line, 3;
@@ -99,15 +99,21 @@ sub parse ( $texts, $targets ) {
                 }
                 $path = $targets->[$path];
             }
-            if ( $kind eq 'seen' && defined $value && $value eq 'unresolved' ) {
+            my $stage = $value // q{};
+            if ( $kind eq 'seen' && $stage eq 'unresolved' ) {
                 $missing{$path} = 1;
                 next;
             }
-            if ( $kind eq 'seen' && defined $value && $value eq 'unresolved-at-exit' ) {
+            if ( $kind eq 'seen' && $stage eq 'unresolved-at-exit' ) {
                 $record{unresolved}{$path} = 1 if $missing{$path};
                 next;
             }
-            $apply->( \%record, \$traced, $path, defined $value ? $value : q{} );
+            if ( $kind eq 'seen' && $stage eq 'loaded-at-exit' ) {
+                next if $compiled{$path};
+                $apply = $APPLY{blind};
+            }
+            $compiled{$path} = 1 if $kind eq 'seen' && !length $stage;
+            $apply->( \%record, \$traced, $path, $stage );
         }
     }
     return \%record;
