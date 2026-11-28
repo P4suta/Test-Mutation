@@ -1492,6 +1492,8 @@ sub _mutants ( $run, $mutants, $baseline, $sample_only = 0 ) {
             return [ map { $entry_of{ $_->id } } @$mutants ];
         }
     }
+    local $run->{bind_compiler} =
+      !$sample_only && ( $cache || defined $run->{config}->shard || $run->{options}{reports} );
     _execute_jobs( $run, $baseline, $next_job, \%entry_of, $cache );
 
     my @entries = map { $entry_of{ $_->id } } $mutants->@*;
@@ -1887,20 +1889,21 @@ sub _verdict_key ( $cache, $mutant, $tests, $status, $killer ) {
     return Test::Mutation::Store::Key::digest( $mutation, map { ( $_, $cache->{facts}{$_} ) } @needed );
 }
 
+sub _may_read_at_compile_time ( $run, $path ) {
+    my $known = $run->{source_reads} ||= {};
+    return $known->{$path} if exists $known->{$path};
+    my $source = $run->{sources}{$path};
+    return $known->{$path} =
+      $source->text =~ /\b(?:use|no)\b/ || length _encode_read_operands( $source, $source->text );
+}
+
 sub _reused_entry ( $run, $cache, $mutant, $tests ) {
     return if $run->{config}->mutant->@*;
     my $record = $cache->{records}{ $mutant->id } or return;
     return if $record->{status} eq 'NoCoverage' && $tests->@*;
     my $key = _verdict_key( $cache, $mutant, $tests, $record->{status}, $record->{by} );
     return unless defined $key && $key eq $record->{inputs};
-    if ( !defined $record->{compiler_inputs} ) {
-        my $path = $mutant->path;
-        unless ( exists $run->{source_read_operands}{$path} ) {
-            my $source = $run->{sources}{$path};
-            $run->{source_read_operands}{$path} = _encode_read_operands( $source, $source->text );
-        }
-        return if length $run->{source_read_operands}{$path};
-    }
+    return if !defined $record->{compiler_inputs} && _may_read_at_compile_time( $run, $mutant->path );
     my $inputs = $record->{compiler_inputs} || {};
     for my $path ( keys %$inputs ) {
         my $digest = _compiler_input_digest( $run, $path );
@@ -1935,16 +1938,17 @@ sub _save_observation ( $run, $cache, $entry, $may_wait = 1 ) {
 }
 
 sub _next_code ( $run, $job ) {
-    return if !$run->{config}->equivalence || defined $job->{code} || !$job->{mutant}->comparable;
-    return if !$UNDETECTED{ Test::Mutation::Verdict::final( $job->{verdict} ) };
-    my $mutant = $job->{mutant};
-    my $path   = $mutant->path;
-    return if defined $job->{stale};
-    if ( !defined $job->{file} ) {
-        ( $job->{file} ) = _changed_source( $run, $run->{sources}{$path}, $mutant );
-    }
+    return if !$run->{config}->equivalence || defined $job->{stale};
+    my $mutant   = $job->{mutant};
+    my $path     = $mutant->path;
     my $original = $run->{original_compile}{$path};
-    return _compile_task( $run, $job, 'code-original', "$run->{root}/$path", '-MO=Deparse' ) unless $original;
+    my $compare =
+      !defined $job->{code} && $mutant->comparable && $UNDETECTED{ Test::Mutation::Verdict::final( $job->{verdict} ) };
+    if ( !$original ) {
+        return unless $compare || $run->{bind_compiler} && _may_read_at_compile_time( $run, $path );
+        return _compile_task( $run, $job, 'code-original', "$run->{root}/$path", '-MO=Deparse' );
+    }
+    return unless $compare;
     if ( !$original->{passed} ) {
         _warn( $run, Test::Mutation::Message::warning( 'syntax-check-failed', path => $path ) );
         return;
@@ -1953,6 +1957,9 @@ sub _next_code ( $run, $job ) {
         return if $original->{opaque};
         _warn( $run, Test::Mutation::Message::warning( 'decompiled-code-unstable', path => $path ) );
         return;
+    }
+    if ( !defined $job->{file} ) {
+        ( $job->{file} ) = _changed_source( $run, $run->{sources}{$path}, $mutant );
     }
     return _compile_task( $run, $job, 'code-mutant', $job->{file}, '-MO=Deparse' );
 }
@@ -2327,7 +2334,7 @@ sub _finish ( $run, $job ) {
     }
     else {
         my %inputs = ( %{ $original && $original->{inputs} || {} }, %{ $job->{compiler_inputs} || {} } );
-        $run->{compiler_of_mutant}{ $mutant->id } = \%inputs if %inputs;
+        $run->{compiler_of_mutant}{ $mutant->id } = \%inputs if $original || %inputs;
     }
     my $code = !$run->{unbound_compiler}{ $mutant->id } && defined $job->{code} ? $job->{code} : q{};
     my ( $status, $reason, $detail ) = $verdict->@{qw(status reason detail)};
