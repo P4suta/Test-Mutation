@@ -49,6 +49,7 @@ sub rechecks_compiler_parser ( $name, $upgraded ) {
     my $report = $upgraded->()->{result};
     is [ $report->stats->{baseline_tests}, $report->reused ], [ 1, 0 ],
       "a changed $name version rechecks the original test and its verdicts";
+    return;
 }
 
 rechecks_compiler_parser(
