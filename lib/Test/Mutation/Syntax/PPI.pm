@@ -489,6 +489,7 @@ sub _visit ( $context, $element, $excluded ) {
         _token_site( $context, $element ) if !$excluded && $element->significant;
         return;
     }
+
     # An anonymous subroutine can run after the enclosing import has finished.
     $excluded = 0 if $excluded && _is_anonymous_body($element);
     if ( my $function = $context->{declarations}{ refaddr $element } ) {
