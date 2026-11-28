@@ -2218,8 +2218,12 @@ sub _next_test ( $run, $job, $baseline ) {
     );
 }
 
+sub _compiler_exited ($result) {
+    return !$result->{signal} && !$result->{timed_out} && !$result->{overflowed};
+}
+
 sub _compiled ($result) {
-    return !$result->{exit} && !$result->{signal} && !$result->{timed_out} && !$result->{overflowed};
+    return !$result->{exit} && _compiler_exited($result);
 }
 
 sub _compiler_input_digest ( $run, $path ) {
@@ -2269,7 +2273,10 @@ sub _compiler_inputs ( $run, $tmp, $result ) {
 sub _remember_compiler_inputs ( $run, $job, $task, $result ) {
     my $payload       = $task->{payload};
     my $read_operands = $task->{env}{TEST_MUTATION_COMPILER_READS};
-    $result->{compiler_inputs} = undef unless _compiled($result);
+    if ( !_compiled($result) ) {
+        $job->{unbound_compiler}   = 1;
+        $result->{compiler_inputs} = undef unless $payload->{kind} eq 'syntax-mutant' && _compiler_exited($result);
+    }
     $result->{compiler_inputs} = _compiler_inputs( $run, $payload->{tmp}, $result )
       unless exists $result->{compiler_inputs};
     my %requested = map  { $_ => 1 } split /,/, $read_operands;
