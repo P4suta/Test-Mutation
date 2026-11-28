@@ -56,6 +56,25 @@ ok !defined compile_record(
   ),
   'an initially unavailable operand cannot acquire evidence later in compilation';
 
+write_file( "$root/probe.pl", <<'PERL' );
+BEGIN {
+    if (open my $optional, '<', $ENV{COMPILER_CONFIG}) {
+        close $optional or die "close optional config: $!";
+    }
+}
+PERL
+ok !defined compile_record( $root, 'absent', $named, COMPILER_CONFIG => "$root/missing" ),
+  'a named file that does not exist cannot be recorded as a stable compiler input';
+
+write_file( "$root/probe.pl", <<'PERL' );
+BEGIN {
+    open my $in, '<', $ENV{CONFIG_DIR} . '/config' or die "open indirect config: $!";
+    die "wrong config" unless <$in> eq "environment\n";
+}
+PERL
+ok !defined compile_record( $root, 'indirect', q{?}, CONFIG_DIR => $root ),
+  'an opaque operand leaves no record even when its compiled read succeeds';
+
 my $library = "$root/vendor";
 my $loaded  = write_file( "$library/LibraryInput.pm",    "package LibraryInput; sub value { 5 } 1;\n" );
 my $direct  = write_file( project() . '/DirectInput.pm', "package DirectInput; sub value { 7 } 1;\n" );
