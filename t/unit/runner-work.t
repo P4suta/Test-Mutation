@@ -118,7 +118,15 @@ subtest 'compilation retains the selected interpreter, file and working tree' =>
         my $task = Test::Mutation::Runner::_compile_task( $run, $job, 'syntax-mutant', $file, '-c' );
         is $task->{timeout}, $duration < 1 ? 10 : 25, 'a measured compile supplies a deadline with a floor';
     }
-    ok $workspace->release(0), 'the compiler leaves its workspace releasable';
+    my $dependency = write_file( "$private/Imported.pm", q{BEGIN { open my $input, '<', '/table' or die $! }} );
+    my $original   = Test::Mutation::Runner::_compile_task( $run, $job, 'code-original', "$root/$path", '-MO=Deparse' );
+    my $previous   = $original->{payload}{tmp};
+    write_file( "$previous/inputs", 'm' . unpack( 'H*', $dependency ) . "\n.\n" );
+    my $retry = Test::Mutation::Runner::_after_task( $run, {}, $original, {} );
+    is $retry->{env}{TEST_MUTATION_COMPILER_READS}, 'f' . unpack( 'H*', '/table' ), 'the retry binds the imported read';
+    ok !-e $previous,             'the first compiler directory has been released before the retry runs';
+    ok -d $retry->{payload}{tmp}, 'the retry has its own live directory';
+    ok $workspace->release(0),    'the compiler leaves its workspace releasable';
 };
 
 subtest 'every original compiler observation records the result before the job continues' => sub {
