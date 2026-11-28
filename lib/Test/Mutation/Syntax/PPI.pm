@@ -183,13 +183,7 @@ sub _fixed_module_load ($document) {
             return 0 if $name =~ /(?:\A|::) (?:import|unimport|AUTOLOAD|DESTROY) \z/x;
         }
         if ( $statement->isa('PPI::Statement::Include') && _fixed_import($statement) ) {
-            my $module = $statement->module || q{};
-            if ( !$module || $module eq 'feature' || $module eq 'experimental' ) {
-                my @features = map { $_->literal }
-                  grep { $_->isa('PPI::Token::Quote::Single') || $_->isa('PPI::Token::QuoteLike::Words') }
-                  $statement->arguments;
-                $native_class = $statement->type eq 'use' && grep { $_ eq 'class' } @features;
-            }
+            $native_class = _class_feature( $statement, $native_class );
             next;
         }
         next unless _runs_at_load($statement);
@@ -198,6 +192,19 @@ sub _fixed_module_load ($document) {
         return 0 unless @value == 1 && $value[0]->isa('PPI::Token::Number');
     }
     return 1;
+}
+
+sub _class_feature ( $statement, $enabled ) {
+    my $module = $statement->module || q{};
+    my $type   = $statement->type;
+    return 0 if !$module && $type eq 'use';
+    return $enabled unless $module eq 'feature' || $module eq 'experimental';
+    my @arguments = $statement->arguments;
+    my @features  = map { $_->literal }
+      grep { $_->isa('PPI::Token::Quote::Single') || $_->isa('PPI::Token::QuoteLike::Words') } @arguments;
+    return $type eq 'use' if grep { $_ eq 'class' } @features;
+    return 0 if $module eq 'feature' && $type eq 'no' && ( !@arguments || grep { $_ eq ':all' } @features );
+    return $enabled;
 }
 
 sub _fixed_class_load ($statement) {
