@@ -321,6 +321,8 @@ subtest 'word families' => sub {
       ),
       [ [ 'if', 'unless' ], [ ' $b > 1 ', '!( $b > 1 )' ], [ '$d + 1 : h($e)', 'h($e) : $d + 1' ] ],
       'an elsif condition is negated, and the branches of a conditional swap';
+    is changes( 'sub read_one { return $use_left ? <$left> : <$right> }', 'condition-negation' ),
+      [ [ '<$left> : <$right>', '<$right> : <$left>' ] ], 'a branch swap moves both delimiters of each readline';
     is changes( 'for (@a) { next if $_; last; redo }', 'loop-control' ),
       [ [ 'next', 'last' ], [ 'last', 'next' ], [ 'redo', 'next' ] ], 'loop control, where a redo becomes a next';
     is changes( 'my @t = ( defined $x, exists $h{a}, wantarray, -e $p, -s $q > 1, ref $r, - $s );', 'predicate' ),
