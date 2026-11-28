@@ -8,6 +8,8 @@ use File::Copy       ();
 use File::Temp       ();
 use IO::Socket::UNIX ();
 use Socket           ();
+use lib 't/lib';
+use Capability;
 use lib 't/e2e/lib';
 use Fixture qw(write_file);
 use Test::Mutation::Store::Key;
@@ -285,12 +287,74 @@ subtest 'a project copy keeps a relative link target and reports dangling links 
     my %omitted = map { $_ => 1 } $view->{outputs}->@*;
     ok !$omitted{history} && !$omitted{'history/mutation.json'}, 'the link has its original directory and file';
     ok $omitted{'history/mutation.html'}, 'a sibling publication that the link cannot reach stays hidden';
+    is $view->{digest}, Test::Mutation::Store::Key::tree( $project, $view->{outputs} ),
+      'the project fingerprint includes all bytes that an isolated copy exposes through a link';
     is Test::Mutation::Store::Key::published_outputs( $project, [], [] ), $view->{outputs},
       'an isolated copy keeps every published path reached through an ordinary link';
     is Test::Mutation::Store::Key::published_outputs( $project, [], ['history'] ), [],
       'an explicitly linked directory exposes its original publications';
     is Test::Mutation::Store::Key::project( $project, [], ['history'] )->{outputs}, [],
       'a directory explicitly linked to the real project exposes all its contents';
+};
+
+subtest 'finding published paths reads only files that could still match a publication' => sub {
+    my $project = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    my $history = "$project/history";
+    my $data    = 'archived result';
+    write_file( "$history/$_", $data ) for qw(mutation.html mutation.json);
+    Test::Mutation::Report::Publication::record( $project, $history,
+        { map { $_ => Digest::SHA::sha256_hex($data) } qw(mutation.html mutation.json) } );
+    chmod 0755, "$history/mutation.html" or die "set executable mode: $!";
+    write_file( "$project/spec/mutation.json", 'project data' );
+    write_file( "$project/share/operand",      'ordinary input' );
+    symlink 'history/mutation.html', "$project/command" or die "link the executable: $!";
+    my @reads;
+    my $file = \&Test::Mutation::Store::Key::file;
+    no warnings 'redefine';
+    local *Test::Mutation::Store::Key::file = sub ($path) {
+        push @reads, $path;
+        return $file->($path);
+    };
+    my @published = qw(history/.test-mutation-outputs history/mutation.json);
+    is Test::Mutation::Store::Key::published_outputs( $project, [], [] ), \@published,
+      'the executable and both ordinary input directories stay in the copy';
+    is [ sort @reads ], [ map { "$project/$_" } @published ],
+      'only verifiable publication records and report bytes were read';
+    symlink 'history/mutation.json', "$project/operand" or die "link the report: $!";
+    @reads = ();
+    is Test::Mutation::Store::Key::published_outputs( $project, [], [] ), [ $published[0] ],
+      'a linked report stays visible as a project input';
+    is [ sort @reads ], [ map { "$project/$_" } @published ],
+      'keeping a linked report does not require reading unrelated input bytes';
+};
+
+subtest 'unreadable entries cannot hide a verified report in another directory' => sub {
+    Capability::has( 'unprivileged', $> != 0, 'the fixture needs restricted directory permissions' ) or return;
+    my $project = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    my $history = "$project/history";
+    my $digest  = Digest::SHA::sha256_hex('report bytes');
+    write_file( "$history/$_", 'report bytes' ) for qw(mutation.html mutation.json);
+    Test::Mutation::Report::Publication::record( $project, $history,
+        { 'mutation.html' => $digest, 'mutation.json' => $digest } );
+    write_file( "$project/$_/mutation.json", 'private' ) for qw(unlisted unsearchable);
+    chmod 0111, "$project/unlisted"      or die "restrict listing: $!";
+    chmod 0444, "$project/unsearchable"  or die "restrict search: $!";
+    chmod 0000, "$history/mutation.html" or die "restrict report: $!";
+    my $outputs = \&Test::Mutation::Report::Publication::outputs;
+    my ( @inspected, $found );
+    {
+        no warnings 'redefine';
+        local *Test::Mutation::Report::Publication::outputs = sub ( $directory, $relative ) {
+            push @inspected, $relative;
+            return $outputs->( $directory, $relative );
+        };
+        is dies { $found = Test::Mutation::Store::Key::published_outputs( $project, [], [] ) }, undef,
+          'the isolated copy can identify outputs with an unreadable file and inaccessible directories';
+    }
+    chmod( 0700, "$project/unlisted", "$project/unsearchable" ) == 2 or die "restore directories: $!";
+    is \@inspected, ['history'], 'publication records are opened only in searchable directories';
+    is $found, [qw(history/.test-mutation-outputs history/mutation.json)],
+      'the unreadable report stays in the copy and the verified sibling is omitted';
 };
 
 subtest 'a socket at a former report path is never opened as a report' => sub {
