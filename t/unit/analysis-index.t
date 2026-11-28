@@ -80,6 +80,18 @@ subtest 'an unfiltered catalog decodes candidates as it reads them' => sub {
       'the cursor releases each encoded row before fetching another';
     is $sorts, 0, 'SQLite streams the catalog in its stored order without a temporary sort';
 };
+subtest 'invalid catalog operations fail at the requested interface' => sub {
+    my $directory = File::Temp::tempdir( CLEANUP => 1 );
+    my $path      = "$directory/catalog.sqlite";
+    isa_ok dies { Test::Mutation::Store::Analysis::publish( $path, [ [ 'source', {} ] ] ) }, ['Error::TypeTiny'],
+      'incomplete analysis facts are rejected';
+    ok !-e $path, 'an invalid batch creates no database';
+    my $db = Test::Mutation::Store::database($path);
+    isa_ok dies { Test::Mutation::Store::Analysis::read_file( $db, 'source' ) }, ['Error::TypeTiny'],
+      'a single-file lookup requires a prefix filter';
+    isa_ok dies { Test::Mutation::Store::Analysis::read_files( undef, [], [] ) }, ['Error::TypeTiny'],
+      'an empty batch still requires an open database';
+};
 subtest 'thousands of named mutants fit within SQLite query limits' => sub {
     my $project = File::Temp::tempdir( CLEANUP => 1 );
     my $methods = join "\n", map { sprintf 'sub sum%03d { return $_[0] + $_[1] }', $_ } 1 .. 96;
