@@ -391,11 +391,11 @@ PERL
     my $before = shard( 'idle-first', 1 );
     ok !( grep { defined $_->{compiled_digest} } $before->{result}->entries->@* ),
       'the unresolved imported read keeps the mutant fingerprints out of comparisons';
-    ok lives { Test::Mutation::Merge::merge( [ $before, shard( 'idle-second', 2 ) ] ) },
-      'identical observed constants from an indirect imported read can merge';
+    like dies { Test::Mutation::Merge::merge( [ $before, shard( 'idle-second', 2 ) ] ) },
+      qr/measurement inputs are missing/, 'an indirect imported read needs a verified input even for equal constants';
     write_file( "$area/imported-limit", "13\n" );
-    like dies { Test::Mutation::Merge::merge( [ $before, shard( 'idle-second', 2 ) ] ) }, qr/measurement inputs differ/,
-      'a changed compiled constant rejects the merge when its imported source cannot identify the input';
+    like dies { Test::Mutation::Merge::merge( [ $before, shard( 'idle-second', 2 ) ] ) },
+      qr/measurement inputs are missing/, 'a changed constant cannot certify an unidentified imported input';
     write_file( "$area/data-library/Defaults.pm", $defaults );
     write_file( "$area/idle-first/lib/Idle.pm", $idle =~ s/use Defaults;/use ApplicationContext ();\nuse Defaults;/r );
     write_file( "$area/idle-first/t/pass.t",    <<'PERL' );
