@@ -4,8 +4,9 @@ use Cwd         ();
 use Digest::SHA ();
 use File::Temp  ();
 use lib 't/e2e/lib', 't/lib';
-use Fixture qw(write_file);
+use Fixture qw(copy_of write_file);
 use Raised;
+use Test::Mutation::Merge;
 use Test::Mutation::Select;
 use Test::Mutation::Selection;
 use Test::Mutation::Runner;
@@ -172,6 +173,29 @@ subtest 'a report identifies the requested lines and the inputs that support the
     delete $attributes{analysis_rules_digest};
     is Test::Mutation::Selection->new(%attributes)->analysis_rules_digest, $whole->catalog_digest,
       'a selection supplied without separate analysis rules retains its catalog identity';
+};
+
+subtest 'a prepared shard and a resolved shard can measure the same source lines' => sub {
+    my $project = copy_of('calc');
+    write_file( "$project/lib/Other.pm", "package Other; 1;\n" );
+    my $paths = { 'lib/Calc.pm' => [ [ 7, 7 ] ] };
+    my ( $first, $second ) =
+      map { Test::Mutation::Settings::of_call( { root => $project, shard => "$_/2", cache => $_ - 1 } ); } 1, 2;
+    my $peer    = Test::Mutation::Runner::run( $second, sub { }, { paths => $paths } );
+    my $measure = sub ($selection) {
+        my %inputs = $selection->%*;
+        delete $inputs{analysis_rules_digest};
+        my $prepared = Test::Mutation::Selection->new(%inputs);
+        return Test::Mutation::Runner::run( $first, sub { }, { selection => $prepared } );
+    };
+    my $selected = Test::Mutation::Select::resolve( config => $first, paths => $paths );
+    my $merge    = sub ($part) {
+        return Test::Mutation::Merge::merge(
+            [ { name => 'prepared', result => $part }, { name => 'peer', result => $peer } ] );
+    };
+    my $merged = $merge->( $measure->($selected) );
+    is scalar( $merged->entries->@* ), $selected->inventory->{mutants}, 'both parts restore the selected inventory';
+    ok $merged->tally->{counts}{Killed}, 'the merged report contains an observed test failure';
 };
 
 done_testing;
