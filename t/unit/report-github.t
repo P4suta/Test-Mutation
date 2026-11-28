@@ -107,9 +107,10 @@ subtest 'the summary names a sample of the gaps and the full report' => sub {
     is scalar( () = $commands =~ /^::warning /mg ), 10, 'ten warnings';
     is scalar( () = $commands =~ /^::notice /mg ),  10, 'ten notices';
     my $summary = Test::Mutation::Report::GitHub::summary( $result, 85, ['artifacts/mutation.json'] );
-    like $summary,   qr/Gate: .*85%/,               'the summary includes the threshold decision';
-    like $summary,   qr/^Undetected: 12$/m,         'the full count excludes timeouts';
-    like $summary,   qr/000000000001/,              'the first undetected change is included';
+    like $summary, qr/Gate: .*85%/,       'the summary includes the threshold decision';
+    like $summary, qr/^Undetected: 12$/m, 'the full count excludes timeouts';
+    my @sample = $summary =~ /^\| ([0-9a-f]{12}) \|/mg;
+    is \@sample, [ map { sprintf '%012x', $_ } 1 .. 5 ], 'the table lists the first five undetected changes in order';
     unlike $summary, qr/00000000000c/,              'the sample leaves room for the report location';
     like $summary,   qr{artifacts/mutation[.]json}, 'the summary names the published file';
     unlike $summary, qr/\| lib\/A\|B[.]pm \|/,      'a pipe in a filename cannot split a table cell';
