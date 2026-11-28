@@ -1,5 +1,10 @@
 use v5.36;
 use Test2::V0;
+use Cwd        ();
+use File::Temp ();
+use lib 't/e2e/lib';
+use Fixture qw(run_fixture write_file);
+use Test::Mutation::Store::Key;
 use Test::Mutation::Syntax::PPI;
 
 sub reads ($source) {
@@ -41,6 +46,32 @@ subtest 'an imported module must preserve an environment-derived file operand' =
     is $at_load->(q{package Data; apply_settings(); 1;}),      undef, 'a file-scope helper can alter the environment';
     is $at_load->(q{package Data; sub import { $ENV{TABLE} = 'other' } 1;}), undef, 'an import hook executes on use';
     is $at_load->(q{package Data; use Settings apply_settings(); 1;}), undef, 'an import argument can execute a helper';
+};
+
+subtest 'a compiler search path inside the project can resolve to an external library' => sub {
+    my $area     = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    my $project  = "$area/project";
+    my $external = "$area/external";
+    write_file( "$project/a-local/Local.pm", "package Local; sub floor () { 1 } 1;\n" );
+    write_file( "$external/Defaults.pm",     "package Defaults; sub limit () { 3 } 1;\n" );
+    symlink $external, "$project/z-defaults" or die "link compiler library: $!";
+    local $ENV{TEST_LOCAL_LIBRARY}  = "$project/a-local";
+    local $ENV{TEST_LINKED_LIBRARY} = "$project/z-defaults";
+    write_file( "$project/lib/Bounds.pm", <<'PERL' );
+package Bounds;
+use lib $ENV{TEST_LOCAL_LIBRARY}, $ENV{TEST_LINKED_LIBRARY};
+use Local ();
+use Defaults ();
+sub inside { return Local::floor() < Defaults::limit() }
+1;
+PERL
+    write_file( "$project/t/pass.t", "use Test::More tests => 1; pass 'ready';\n" );
+    my ($result) = run_fixture( $project, cache => 0, jobs => 1 );
+    ok !exists $result->compiler_inputs->{ Test::Mutation::Store::Key::digest("$project/a-local") },
+      'the ordinary library is already part of the project';
+    is $result->compiler_inputs->{ Test::Mutation::Store::Key::digest($external) },
+      Test::Mutation::Store::Key::tree( $external, [] ),
+      'the compiler binds the external directory reached by the link';
 };
 
 done_testing;
