@@ -1,11 +1,12 @@
 use v5.36;
 use Test2::V0;
 use File::Temp ();
-use lib 't/e2e/lib', 't/lib';
+use lib 't/e2e/lib', 't/lib', 't/shim/lib';
 use Encode ();
 use POSIX  ();
 use Raised;
-use Fixture qw(write_file);
+use ShimHarness ();
+use Fixture     qw(write_file);
 use Test::Mutation::Mutant;
 use Test::Mutation::Source;
 use Test::Mutation::Record;
@@ -190,6 +191,56 @@ sub replacement ( $source, $start, $end, $change ) {
 }
 
 ## no critic (Subroutines::ProtectPrivateSubs Variables::ProtectPrivateVars)
+subtest 'a standalone line trace preserves modules loaded before and after its witnesses' => sub {
+    my $run = observation_project();
+    Test::Mutation::Runner::_prepare_work($run);
+    my $generation = $run->{generation};
+    my $package    = "Test::Mutation::Shim::G$generation";
+    my $module     = "Test/Mutation/Shim/G$generation.pm";
+    for my $order (qw(before after)) {
+        my $root = ShimHarness::project();
+        write_file( "$root/lib/$module", "package $package;\n" . <<'PERL' );
+use strict;
+use warnings;
+sub trace_source { die "application tracer called\n" }
+sub value { return 42 }
+1;
+PERL
+        my $load = "BEGIN { require $package }\n";
+        my $body = "sub measured {\n    return 2;\n}\n";
+        my $path = "$root/target.pl";
+        my $text = Test::Mutation::Witness::insert( $body, length($body), $generation, 0, "$run->{work}/records", 9 );
+        for ( 1 .. 2 ) {
+            $text = Test::Mutation::Witness::trace(
+                text       => $text,
+                offset     => 0,
+                line       => 1,
+                generation => $generation,
+                index      => 0,
+                target     => $path,
+                work       => $run->{work},
+                descriptor => 9
+            );
+        }
+        $text = $order eq 'before' ? $load . $text : $text . $load;
+        write_file( $path, $text . 'print measured() + ' . $package . "::value(), qq{\\n};\n" . <<'PERL' );
+die "tracer in module list\n" if grep { defined && index($_, $ARGV[0]) == 0 } values %INC;
+PERL
+        my $result = ShimHarness::run_command(
+            root    => $root,
+            command => [ $^X, "-I$root/lib", $path, "$run->{work}/" ],
+            env     => { "TEST_MUTATION_RECORD_G$generation" => "$root/records" },
+        );
+        is $result, { status => 0, signal => 0, stdout => "44\n", stderr => q{} },
+          "the application loads its own module $order the two witnesses";
+        my $records = ShimHarness::all_records($root);
+        is [ grep { $_->[0] eq 'begin' } @$records ], [ [ 'begin', 1 ] ], 'the second witness retains the first tracer';
+        ok scalar( grep { $_->[0] eq 'hit' && $_->[1] eq $path && $_->[2] == 2 } @$records ),
+          'executing the function records its original line';
+    }
+    ok $run->{workspace}->release(0), 'the tracing workspace is released';
+};
+
 subtest 'placing a replacement preserves the witness position around a changed span' => sub {
     my $run = observation_project();
     Test::Mutation::Runner::_prepare_work($run);
