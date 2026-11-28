@@ -17,7 +17,7 @@ with 'Test::Mutation::Value';
 signature_for supported_compiler_input_protocol => ( positional => [], returns => PositiveInt );
 
 sub supported_compiler_input_protocol () {
-    return 2;
+    return 3;
 }
 
 has compiler_input_protocol =>
