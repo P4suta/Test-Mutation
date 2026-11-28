@@ -99,6 +99,23 @@ subtest 'the context check rejects a context that changes the mutants of an expr
       'a context that the analysis never reads loses every change';
 };
 
+subtest 'the context check expects an endpoint change only in a known scalar context' => sub {
+    my %context = map { $_->{name} => $_ } Snippets::contexts();
+    my %operand = map { $_->{name} => $_ } Snippets::operands();
+    my $range = Snippets::expression( '...', @operand{qw(variable literal)} );
+    for my $name (qw(assignment modifier argument return), 'compound condition') {
+        is Snippets::lost( $context{$name}, $range ), [], "the $name context produces the specified changes";
+    }
+    my $endpoint = '3 ... -> .. range-boundary';
+    my $literal  = '7 2 -> 3 number-literal';
+    is Snippets::lost( $context{modifier}, $range, [$literal] ), ["- $endpoint"],
+      'losing the flip-flop in a scalar condition fails';
+    is Snippets::lost( $context{argument}, $range, [ $literal, $endpoint ] ), ["+ $endpoint"],
+      'changing a range between equivalent list operators fails';
+    is Snippets::lost( $context{assignment}, $range, [$endpoint] ), ["- $literal"],
+      'the scalar exception cannot hide another mutator losing the end operand';
+};
+
 subtest 'the matrix rejects a context that cuts the expression' => sub {
     my ($return) = grep { $_->{name} eq 'return' } Snippets::contexts();
     is Matrix::context()->{code}, 'sub c { return ( EXPR ) }', 'the expression stands inside parentheses';
