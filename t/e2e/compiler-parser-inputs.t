@@ -44,4 +44,26 @@ ok $warm->reused, 'the same parser reuses the verdicts';
       'shards from different driver quote parser versions cannot merge';
 }
 
+sub rechecks_compiler_parser ( $name, $upgraded ) {
+    part(2);
+    my $report = $upgraded->()->{result};
+    is [ $report->stats->{baseline_tests}, $report->reused ], [ 1, 0 ],
+      "a changed $name version rechecks the original test and its verdicts";
+}
+
+rechecks_compiler_parser(
+    'PPI',
+    sub {
+        local $PPI::VERSION = PPI->VERSION . '_001';
+        return part(2);
+    }
+);
+rechecks_compiler_parser(
+    'PPIx::Regexp',
+    sub {
+        local $PPIx::Regexp::VERSION = PPIx::Regexp->VERSION . '_001';
+        return part(2);
+    }
+);
+
 done_testing;
