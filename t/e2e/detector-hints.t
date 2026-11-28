@@ -130,6 +130,39 @@ subtest 'a suggested detector may precede parallel tests and must wait for seria
     }
 };
 
+subtest 'overlapping detectors that leave unrestorable copies fall back to the covering tests' => sub {
+    my $root = project(
+        't/a.t' => $use_number . "ok !-e 'from-hint', 'the covering test starts in a clean copy';\n",
+        't/b.t' => $strong,
+        't/z.t' => $use_number . <<'PERL',
+if (!defined($number) || $number != 3) {
+    open my $marker, '>', 'from-hint' or die $!;
+    close $marker or die $!;
+}
+is $number, 3, 'the suggested test detects the change';
+PERL
+    );
+    my $config    = config( $root, jobs => 4 );
+    my %hints     = map { $_->id => 't/z.t' } Test::Mutation::Runner::analyze($config)->{mutants}->@*;
+    my $restore   = \&Test::Mutation::Tree::restore;
+    my $discarded = 0;
+    no warnings 'redefine';
+    local *Test::Mutation::Tree::restore = sub (%args) {
+        if ( grep { $_ eq 'created from-hint' } $args{changes}->@* ) {
+            $discarded++;
+            die "the detector copy cannot be restored\n";
+        }
+        return $restore->(%args);
+    };
+    my $result = measure( $config, { detector_hints => \%hints } );
+    my $found  = entry( $result, arithmetic_id($config) );
+    ok $discarded >= 2, 'the failing detectors left separate copies to discard';
+    is [ $found->@{qw(status by tests_run)} ], [ 'Killed', 't/b.t', 2 ],
+      'the normal assertion decides from a clean copy';
+    is [ map { $_->{test} } $found->{observations}[0]->@* ], [qw(t/a.t t/b.t)],
+      'the discarded detector supplies no observation';
+};
+
 subtest 'a suggested test that times out preserves the ordinary two-timeout budget' => sub {
     my $log = File::Temp->new;
     local $ENV{DETECTOR_ATTEMPTS} = $log->filename;
