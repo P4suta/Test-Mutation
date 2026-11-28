@@ -981,17 +981,21 @@ sub _operator_role ($place) {
     if ( !$record && $content eq q{*} ) {
         return ( 'unary', {} ) if $BLOCK->check( scalar $place->{unit}{elements}[0]->snext_sibling );
     }
-    if ( $content eq '...' && $record && $record->{before} && $record->{after} ) {
-        my $left  = $place->{units}[ $record->{before}[0] ]{elements}[0];
-        my $right = $place->{units}[ $record->{after}[1] - 1 ]{elements}[-1];
-        my ( $previous, $next ) = ( $left->sprevious_sibling, $right->snext_sibling );
-        my $condition = _is_word( $previous, \%CONDITIONAL )
-          || !$previous && $left->parent->parent->isa('PPI::Structure::Condition');
-        return ( 'binary', { flip_flop => 1 } ) if $condition && ( !$next || _is_semicolon($next) );
-    }
+    return ( 'binary', { flip_flop => 1 } ) if $content eq '...' && _range_is_condition($place);
     my $prefix = $record ? $record->{position} eq 'prefix' : $ALWAYS_PREFIX{$content};
     return ( 'unary',  {} ) if $prefix;
     return ( 'binary', { _right_number($place)->%*, _version_literal($place) } );
+}
+
+sub _range_is_condition ($place) {
+    my $record = $place->{record};
+    return 0 unless $record && $record->{before} && $record->{after};
+    my $first = $place->{units}[ $record->{before}[0] ]{elements}[0];
+    my $last  = $place->{units}[ $record->{after}[1] - 1 ]{elements}[-1];
+    my ( $previous, $next ) = ( $first->sprevious_sibling, $last->snext_sibling );
+    return 0 if $next && !_is_semicolon($next);
+    return _is_word( $previous, \%CONDITIONAL )
+      || !$previous && $first->parent->parent->isa('PPI::Structure::Condition');
 }
 
 # The element of an operand that is one element alone.
