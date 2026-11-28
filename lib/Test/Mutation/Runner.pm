@@ -45,6 +45,7 @@ our $VERSION = '0.001';
 
 my $SHIM_FILE     = 'Test/Mutation/Shim.pm';
 my $COMPILER_FILE = 'Test/Mutation/CompilerInputs.pm';
+my $DRIVER_LIB    = Cwd::abs_path( File::Basename::dirname(__FILE__) . '/../..' );
 my %UNDETECTED    = map { $_->name => 1 } grep { $_->role eq 'undetected' } Test::Mutation::Status::rows()->@*;
 my $CHANGES_NAMED = 5;
 my $TYPED         = InstanceOf ['Test::Mutation::Error'];
@@ -796,7 +797,12 @@ sub _generation_text ( $file, $generation ) {
 }
 
 sub _module_text ($file) {
-    for my $entry (@INC) {
+    my $compiler = $file eq $COMPILER_FILE;
+    my @entries  = $compiler ? ( ( grep { ref } @INC ), $DRIVER_LIB ) : @INC;
+
+    # The outer shim resolves the requested name in @INC before selecting the source to serve.
+    local @INC = ( $DRIVER_LIB, @INC ) if $compiler;
+    for my $entry (@entries) {
         if ( ref $entry eq 'CODE' ) {
             my @served = $entry->( $entry, $file );
             next          if !@served;
