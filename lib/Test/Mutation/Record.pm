@@ -62,6 +62,27 @@ my %APPLY = (
     },
 );
 
+sub _interpreter_streams ($text) {
+    my @parts = split /(?=^begin\t[^\t\n])/m, $text;
+    return $text if @parts < 2;
+    my @streams;
+    my $ends = 0;
+
+    # An exec discards the END blocks of every observer in the previous interpreter.
+    # Only an outstanding ending can link an earlier observer to a later one.
+    for my $part ( reverse @parts ) {
+        if ($ends) {
+            $streams[-1] = $part . $streams[-1];
+        }
+        else {
+            push @streams, $part;
+        }
+        $ends += () = $part =~ /^end\t[^\t\n]/mg;
+        --$ends if $ends;
+    }
+    return reverse @streams;
+}
+
 signature_for parse =>
   ( positional => [ ArrayRef [Str], ArrayRef [Str], { default => sub { [] } } ], returns => TaskRecord );
 
@@ -77,7 +98,7 @@ sub parse ( $texts, $targets ) {
         breakable   => {},
         errors      => []
     );
-    for my $text ( $texts->@* ) {
+    for my $text ( map { _interpreter_streams($_) } $texts->@* ) {
         my ( %missing, %compiled );
         my $traced = 0;
         for my $line ( split /\n/, $text ) {
@@ -169,8 +190,9 @@ Test::Mutation::Record - read what the shim recorded about one test run
 
 Folds the texts of the record files of one test run into one record.
 C<served> maps each target that the hook served to its trace state and the lines that ran.
-A target counts as traced when every process that loaded it was tracing.
-C<begun> and C<ended> count process starts and endings across the record files.
+A target counts as traced when every interpreter that loaded it was tracing.
+C<begun> and C<ended> count observer starts and endings across the record files.
+C<exec> keeps the process ID and discards the previous interpreter's C<END> blocks.
 C<compiled>, C<load_failed>, C<bypassed>, and C<outside> name the targets with those observations.
 C<unresolved> names introduced functions by target when the same process found the binding missing at compilation and exit.
 C<errors> preserves diagnostics from the shim and the record decoder.

@@ -104,6 +104,76 @@ MODULE
     ok $served->{hits}{4} && !$served->{hits}{5}, 'only the method invoked by the child has a hit';
 };
 
+subtest 'exec can load the same module without tracing its second interpreter' => sub {
+    my $project = ShimHarness::project();
+    my $source  = "$project/lib/Example.pm";
+    write_file( $source, "package Example;\nsub before { 23 }\nsub after { 47 }\n1;\n" );
+    my $settings = "trace\t1\nplaced\t1\ntarget\t$source\t$source\n";
+    write_file( "$project/traced.spec", $settings );
+    write_file( "$project/disk.spec",   $settings . "observe\t1\n" );
+    write_file( "$project/first.pl",    <<'PERL' );
+require Example;
+die 'the first interpreter did not execute the module' unless Example::before() == 23;
+$ENV{TEST_MUTATION_SPEC} = 'disk.spec';
+exec {$^X} $^X, @ARGV, '-MTest::Mutation::Shim', 'second.pl', $$ or die "exec: $!";
+PERL
+    write_file( "$project/second.pl", <<'PERL' );
+die 'exec changed the PID' unless $$ == shift;
+require Example;
+print Example::after();
+PERL
+    my @libraries = ( '-I' . ShimHarness::lib_dir(), "-I$project/lib" );
+    my $run       = ShimHarness::run_bare(
+        root => $project,
+        args => [ @libraries, '-MTest::Mutation::Shim', 'first.pl', @libraries ],
+        env  => { TEST_MUTATION_SPEC => 'traced.spec', TEST_MUTATION_RECORD => "$project/records" }
+    );
+    is [ $run->@{qw(status stdout stderr)} ], [ 0, '47', q{} ], 'both interpreters execute the module at the same PID';
+    my ($file) = glob "$project/records/*.rec";
+    like Test::Mutation::Source::read_bytes($file),
+      qr/^seen\t\Q$source\E\n.*^begin\t1\n.*^blind\t\Q$source\E\tloaded-at-exit$/ms,
+      'the replacement reports its own disk load';
+    my $record = Test::Mutation::Record::read_directory("$project/records");
+    is [ $record->@{qw(begun ended)} ], [ 2, 1 ], 'only the replacement interpreter runs its END block';
+    my $served = $record->{served}{$source};
+    ok $served->{hits}{2} && !$served->{hits}{3}, 'only the call before exec has a line hit';
+    is $served->{traced}, 0, 'the untraced load in the replacement interpreter requires file coverage';
+};
+
+subtest 'two observers in one interpreter can identify the same traced load' => sub {
+    my $project = ShimHarness::project();
+    my $source  = "$project/lib/Example.pm";
+    write_file( $source, "package Example;\nsub value { 23 }\n1;\n" );
+    my $settings = "trace\t1\nplaced\t1\ntarget\t$source\t$source\n";
+    write_file( "$project/traced.spec",                  $settings );
+    write_file( "$project/disk.spec",                    $settings . "observe\t1\n" );
+    write_file( "$project/lib/Test/Mutation/Shim/G1.pm", Test::Mutation::Runner::shim_text(1) );
+    write_file( "$project/observers.pl",                 <<'PERL' );
+require Example;
+die 'the module did not run' unless Example::value() == 23;
+require Test::Mutation::Shim::G1;
+Test::Mutation::Shim::G1->import();
+PERL
+    my $run = ShimHarness::run_bare(
+        root => $project,
+        args => [ '-I' . ShimHarness::lib_dir(), "-I$project/lib", '-MTest::Mutation::Shim', 'observers.pl' ],
+        env  => {
+            TEST_MUTATION_SPEC      => 'traced.spec',
+            TEST_MUTATION_RECORD    => "$project/records",
+            TEST_MUTATION_SPEC_G1   => 'disk.spec',
+            TEST_MUTATION_RECORD_G1 => "$project/records"
+        }
+    );
+    is [ $run->@{qw(status stderr)} ], [ 0, q{} ], 'both observers share the interpreter that executed the module';
+    my ($file) = glob "$project/records/*.rec";
+    like Test::Mutation::Source::read_bytes($file),
+      qr/^seen\t\Q$source\E\n.*^begin\t1\n.*^blind\t\Q$source\E\tloaded-at-exit$/ms,
+      'the second observer finds the loaded file';
+    my $record = Test::Mutation::Record::read_directory("$project/records");
+    is [ $record->@{qw(begun ended)} ],    [ 2, 2 ], 'both observers reach their END blocks';
+    is $record->{served}{$source}{traced}, 1,        'the second observer finds the compilation traced by the first';
+};
+
 subtest 'an installed command without a blib/bin entry receives the changed bytes' => sub {
     my $tree = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
     write_file( "$tree/bin/tool",         $original );

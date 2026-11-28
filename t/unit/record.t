@@ -71,7 +71,7 @@ subtest 'a module listed at exit uses the compilation observed by the same proce
     my $target = '/p/A.pm';
     my $other  = '/p/B.pm';
     my $traced = lines( [ 'begin', 1 ], [ 'seen', $target ], [ 'hit', $target, 4 ] );
-    my $listed = lines( [ 'begin', 1 ], [ 'blind', $target, 'loaded-at-exit' ] );
+    my $listed = lines( [ 'blind', $target, 'loaded-at-exit' ] );
     my $observed =
       Test::Mutation::Record::parse( [ $traced . $listed . lines( [ 'blind', $other, 'loaded-at-exit' ] ) ] );
     is $observed->{errors}, [], 'finding a module on disk at exit is a valid observation';
@@ -79,8 +79,16 @@ subtest 'a module listed at exit uses the compilation observed by the same proce
       { $target => { traced => 1, hits => { 4 => 1 } }, $other => { traced => 0, hits => {} } },
       'a successful trace explains only the file that supplied it';
     is $observed->{compiled}, { $target => 1, $other => 1 }, 'the module registry confirms both loads';
-    is Test::Mutation::Record::parse( [ $traced, $listed ] )->{served}{$target}{traced}, 0,
+    my $restart = lines( [ 'begin', 1 ] );
+    is Test::Mutation::Record::parse( [ $traced, $restart . $listed ] )->{served}{$target}{traced}, 0,
       'a different process can have loaded the same module without tracing';
+    is Test::Mutation::Record::parse( [ $traced . $restart . $listed ] )->{served}{$target}{traced}, 0,
+      'an unfinished interpreter cannot borrow a trace from before exec';
+    my $after_exec = lines( [ 'begin', 1 ], [ 'seen', $other ], [ 'hit', $other, 9 ] );
+    my $shutdown   = lines( [ 'blind', $other, 'loaded-at-exit' ], [ 'end', 23 ], [ 'end', 23 ] );
+    is Test::Mutation::Record::parse( [ $traced . $after_exec . $restart . $listed . $shutdown ] )->{served},
+      { $target => { traced => 0, hits => { 4 => 1 } }, $other => { traced => 1, hits => { 9 => 1 } } },
+      'only the two observers that reach shutdown can share their compilation after exec';
     is Test::Mutation::Record::parse( [ $listed . $traced ] )->{served}{$target}{traced}, 0,
       'a later compilation cannot explain an earlier observation';
     my $opened = lines( [ 'begin', 1 ], [ 'seen', $target, 'opened' ] );
