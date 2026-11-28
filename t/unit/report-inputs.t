@@ -2,6 +2,7 @@ use v5.36;
 use Test2::V0;
 use Cwd              ();
 use Digest::SHA      ();
+use Encode           ();
 use Fcntl            qw(LOCK_EX LOCK_NB O_RDONLY);
 use File::Copy       ();
 use File::Temp       ();
@@ -131,6 +132,20 @@ subtest 'only published bytes at their recorded paths leave the project input' =
     isnt $copied, $without_archive, 'an exact copy of a publication is ordinary data at another path';
     write_file( "$archive/mutation.json", $payload{'mutation.json'} =~ tr/1/2/r );
     isnt tree(), $copied, 'copying a whole report directory does not exempt its contents at another path';
+};
+
+subtest 'a report in a Unicode directory has the same record for characters and path bytes' => sub {
+    my $name      = "\x{5831}\x{544a}";
+    my $bytes     = Encode::encode( 'UTF-8', $name );
+    my $directory = "$root/$bytes";
+    my $json      = 'published report';
+    write_file( "$directory/mutation.json", $json );
+    my $digest = Digest::SHA::sha256_hex($json);
+    Test::Mutation::Report::Publication::record( $root, $directory, { 'mutation.json' => $digest } );
+    for my $relative ( $name, $bytes ) {
+        is Test::Mutation::Report::Publication::outputs( $directory, $relative )->{'mutation.json'}, $digest,
+          'the published report matches its relative name';
+    }
 };
 
 subtest 'publishing preserves a user file with the metadata name and leaves external directories alone' => sub {
