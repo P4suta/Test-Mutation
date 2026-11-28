@@ -25,7 +25,8 @@ One hosted job can expire before it produces a report.
 ## Consequences
 
 Each shard repeats the original tests.
-Eleven release cases exercise eight distributions.
+Thirteen release cases exercise eight distributions.
+Named runs preserve two verdicts across changes to the default profile and shard membership.
 
 ## Confirmation
 
