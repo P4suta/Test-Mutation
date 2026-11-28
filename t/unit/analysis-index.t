@@ -92,6 +92,19 @@ subtest 'invalid catalog operations fail at the requested interface' => sub {
     isa_ok dies { Test::Mutation::Store::Analysis::read_files( undef, [], [] ) }, ['Error::TypeTiny'],
       'an empty batch still requires an open database';
 };
+subtest 'retrying a partially stored batch keeps both file analyses' => sub {
+    my $directory = File::Temp::tempdir( CLEANUP => 1 );
+    my $path      = "$directory/catalog.sqlite";
+    my ( $stored_mutant, $queued_mutant ) = $all->mutants->@[ 0, 1 ];
+    my $saved = { problem => undef, left_out => 0, refusals => [], rejected => [], mutants => [$stored_mutant] };
+    my $next  = { %$saved, left_out => 3, mutants => [$queued_mutant] };
+    Test::Mutation::Store::Analysis::publish( $path, [ [ 'existing', $saved ] ] );
+    Test::Mutation::Store::Analysis::publish( $path, [ [ 'existing', $next ], [ 'later', $next ] ] );
+    my $db    = Test::Mutation::Store::read_database($path);
+    my $files = Test::Mutation::Store::Analysis::read_files( $db, [qw(existing later)], [] );
+    is $files->{existing}, $saved, 'the existing file retains its first analysis and candidate';
+    is $files->{later},    $next,  'the later file and its candidate are committed in the same retry';
+};
 subtest 'thousands of named mutants fit within SQLite query limits' => sub {
     my $project = File::Temp::tempdir( CLEANUP => 1 );
     my $methods = join "\n", map { sprintf 'sub sum%03d { return $_[0] + $_[1] }', $_ } 1 .. 96;
