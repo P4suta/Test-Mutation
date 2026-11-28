@@ -39,7 +39,7 @@ ok $warm->reused, 'the same parser reuses the verdicts';
     is $changed->{result}->catalog_digest, $one->{result}->catalog_digest,
       'a driver quote parser upgrade preserves the indexed catalog';
     is $changed->{result}->stats->{baseline_tests}, 1, 'the upgraded parser measures the original test again';
-    is $changed->{result}->reused, 0, 'the upgraded parser measures every selected mutant again';
+    is $changed->{result}->reused,                  0, 'the upgraded parser measures every selected mutant again';
     like dies { Test::Mutation::Merge::merge( [ $one, $changed ] ) }, qr/measurement inputs differ/,
       'shards from different driver quote parser versions cannot merge';
 }
