@@ -167,7 +167,7 @@ sub compile_reads ( $source, $loaded = 0 ) {
             return;
         }
     }
-    if ( $loaded || grep { $_->[0] eq 'env' } @reads ) {
+    if ( $loaded || @reads ) {
         return
           if grep { $_->type ne 'require' && !_fixed_import($_) } @{ $document->find('PPI::Statement::Include') || [] };
     }
