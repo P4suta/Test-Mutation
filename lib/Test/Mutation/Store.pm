@@ -151,8 +151,8 @@ sub transaction ( $db, $operation ) {
     my $committed = Test::Mutation::Try::attempt(
         sub {
             my $value = $operation->();
-            $db->commit;
-            return $value;
+            my $saved = $db->commit;
+            return $value // $saved;
         },
         'interruption'
     );
@@ -451,6 +451,7 @@ A write uses a temporary snapshot that lasts for the life of the configuration.
 =head2 transaction
 
 Runs a database update and commits its return value with the completed work.
+If the update returns no value, the transaction returns the database's commit acknowledgement.
 
 =head2 checkpoints
 
