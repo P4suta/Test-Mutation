@@ -12,6 +12,8 @@ my $workflow = CPAN::Meta::YAML->read('.github/workflows/check.yml')->[0];
 my $tasks    = TOML::Tiny::from_toml( Test::Mutation::Source::read_bytes('mise.toml') )->{tasks};
 is $tasks->{'check-ci-interpreters'}{run}, 'perl xt/bin/check-ci-interpreters',
   'the interpreter checks are available locally';
+is $tasks->{'check-ci'}{run}, [ 'mise run check', 'mise run check-ci-interpreters' ],
+  'one pre-push command runs the fast gate and the entire interpreter matrix';
 ok scalar( grep { $_ eq 'mise run check-ci-interpreters' } $tasks->{'release-compatibility'}{run}->@* ),
   'recording a release includes the interpreter matrix';
 
