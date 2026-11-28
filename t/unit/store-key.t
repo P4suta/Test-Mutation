@@ -58,13 +58,13 @@ isnt Test::Mutation::Store::Key::environment( { ANSWER => q{} } ), Test::Mutatio
 subtest 'a search directory retains its identity when missing parents appear' => sub {
     my $project = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
     my $library = "$project/dependencies/vendor/lib";
-    my $env     = { PERL5LIB => $library };
+    my $search  = { PERL5LIB => $library };
     my ( $ended, $missing ) =
-      Bounded::ended( 3, sub { return Test::Mutation::Store::Key::environment( $env, $project ) } );
+      Bounded::ended( 3, sub { return Test::Mutation::Store::Key::environment( $search, $project ) } );
     ok $ended, 'looking up a missing directory reaches an existing ancestor';
     bail_out('the missing library search path did not resolve') unless $ended;
     write_file( "$library/Module.pm", "1;\n" );
-    is Test::Mutation::Store::Key::environment( $env, $project ), $missing,
+    is Test::Mutation::Store::Key::environment( $search, $project ), $missing,
       'creating the library directory preserves its path in the environment fingerprint';
 };
 
