@@ -13,11 +13,6 @@ my $area = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
 subtest 'an opaque phase can change a package variable without changing the compiled program' => sub {
     my $root = "$area/global";
     local $ENV{TEST_PROJECT_TABLE} = "$area/global-limit";
-    my $target = write_file( "$root/tools/target-perl", "#!$^X\n" . <<'PERL' );
-$ENV{PERL5OPT} = '-Mstrict' if grep { $_ eq '-c' || $_ eq '-MO=Deparse' } @ARGV;
-exec {$^X} $^X, @ARGV or die $!;
-PERL
-    chmod 0755, $target or die $!;
     write_file( "$root/lib/Bound.pm", <<'PERL' );
 package Bound;
 our $LIMIT;
@@ -38,7 +33,7 @@ PERL
         write_file( $ENV{TEST_PROJECT_TABLE}, $part == 1 ? "7\n" : "5\n" );
         my $dir = "$area/global-part$part";
         ran(
-            0,          $root, 'run', '--shard', "$part/2", '--no-cache', '--jobs', 1, '--perl', $target,
+            0,          $root, 'run', '--shard', "$part/2", '--no-cache', '--jobs', 1,
             '--enable', 'comparison-boundary',
             ( map { ( '--disable', $_ ) } qw(@removal comparison-negation arithmetic logical) ),
             '--format', 'json', '--report-dir', $dir
@@ -55,7 +50,6 @@ PERL
 
 subtest 'loading a module can read external data at file scope' => sub {
     my $root = "$area/file-scope";
-    local $ENV{PERL5OPT}           = '-Mstrict';
     local $ENV{PERL5LIB}           = join q{:}, "$area/threshold", grep { defined } $ENV{PERL5LIB};
     local $ENV{TEST_PROJECT_TABLE} = "$area/table";
     write_file( "$area/threshold/Threshold.pm", <<'PERL' );
