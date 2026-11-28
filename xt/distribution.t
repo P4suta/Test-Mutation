@@ -121,6 +121,7 @@ my @release_tools = qw(
   release-please-config.json xt/release-please/package.json xt/release-please/node_modules/dependency/index.js
   xt/release-publish/draft.rs xt/release-workflow.t xt/publication-workflow.t xt/release-archive.t xt/bin/verify-release-archive
   xt/local-release-check.t xt/bin/record-release-check xt/bin/verify-local-release-check
+  xt/ci-interpreters.t xt/bin/check-ci-interpreters
 );
 write_file( "$scratch/$_", "release automation\n" ) for grep { !-e "$scratch/$_" } @release_tools;
 ok in_scratch( 'git', 'add', '--force', '--', @release_tools ), 'the release tools are tracked'
