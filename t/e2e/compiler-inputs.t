@@ -94,4 +94,26 @@ PERL
     }
 };
 
+subtest 'a failed mutant compilation is checked again even with a verified original' => sub {
+    my $root = "$area/mutant-check";
+    write_file( "$root/lib/Bound.pm", <<'MODULE' );
+package Bound;
+BEGIN { die "broken\n" if 3 - 1 != 2 }
+sub value { return 7 }
+1;
+MODULE
+    write_file( "$root/t/use.t", "use Test::More tests => 1; use Bound; is Bound::value(), 7;\n" );
+    for my $attempt ( 1, 2 ) {
+        my ($result) = run_fixture(
+            $root,
+            jobs    => 1,
+            cache   => 1,
+            disable => [qw(@removal condition-negation comparison-negation)]
+        );
+        is [ map { [ $_->{mutant}->description, $_->{status} ] } $result->entries->@* ],
+          [ [ 'replaced - with +', 'CompileError' ] ], "measurement $attempt observes the failing compile-time guard";
+        is $result->reused, 0, 'a successful original does not certify the failed mutant';
+    }
+};
+
 done_testing;
