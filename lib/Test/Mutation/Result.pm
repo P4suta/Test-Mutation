@@ -14,7 +14,7 @@ our $VERSION = '0.001';
 
 with 'Test::Mutation::Value';
 
-my $COMPILER_INPUT_PROTOCOL = 1;
+my $COMPILER_INPUT_PROTOCOL = 2;
 has compiler_input_protocol => ( is => 'ro', isa => Maybe [PositiveInt], default => $COMPILER_INPUT_PROTOCOL );
 
 has root => ( is => 'ro', isa => Str, required => 1 );
