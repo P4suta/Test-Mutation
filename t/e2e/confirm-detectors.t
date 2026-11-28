@@ -76,7 +76,7 @@ is [ $moved->@{qw(status by tests_run)} ], [ 'Killed', 't/z.t', 1 ],
 is $shifted->reused, 0, 'the moved mutant was measured again';
 ok !-d "$project/.mutation", 'suggesting a detector leaves the persistent cache absent';
 write_file( "$project/t/z.t", $miss );
-is confirm($hint), 1, 'the gate fails when the earlier detector misses the moved expression';
+is confirm($hint),                 1,          'the gate fails when the earlier detector misses the moved expression';
 is addition( result() )->{status}, 'Survived', 'only the current tests decide the moved mutant';
 write_file( $path, $text );
 
