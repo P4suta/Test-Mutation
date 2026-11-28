@@ -82,15 +82,42 @@ subtest 'the release rejects mutable sources and controllers outside main' => su
     }
     my $script = step( $jobs->{candidate}, qr/GITHUB_REF/ );
     ok length($script), 'the workflow validates the source before checking it out' or return;
-    local $ENV{GITHUB_REF} = 'refs/heads/main';
-    local $ENV{SOURCE_SHA} = 'a' x 40;
+    local $ENV{GITHUB_REF}    = 'refs/heads/main';
+    local $ENV{SOURCE_SHA}    = 'a' x 40;
+    local $ENV{REF_PROTECTED} = 'true';
     is system( 'bash', '-eu', '-c', $script ), 0, 'main can choose an immutable commit';
+    {
+        local $ENV{REF_PROTECTED} = 'false';
+        isnt system( 'bash', '-eu', '-c', $script ), 0, 'the controller requires protected main';
+    }
     {
         local $ENV{SOURCE_SHA} = 'main';
         isnt system( 'bash', '-eu', '-c', $script ), 0, 'a mutable candidate ref is refused';
     }
     local $ENV{GITHUB_REF} = 'refs/heads/other';
     isnt system( 'bash', '-eu', '-c', $script ), 0, 'a workflow dispatched outside main is refused';
+};
+
+subtest 'protected controller code verifies the local status before reading candidate files' => sub {
+    my $candidate = $jobs->{candidate};
+    is $candidate->{permissions}, { contents => 'read', statuses => 'read' },
+      'the identity job only reads commits and their statuses';
+    my @steps = $candidate->{steps}->@*;
+    my ($control) = grep { ( $steps[$_]{with}{path} || q{} ) eq 'controller' } keys @steps;
+    my ($check) =
+      grep { ( $steps[$_]{run} || q{} ) eq 'bash controller/xt/bin/verify-local-release-check' } keys @steps;
+    my ($source) = grep { ( $steps[$_]{with}{ref} || q{} ) eq q{${{ env.SOURCE_SHA }}} } keys @steps;
+    ok defined $control && defined $check && defined $source,
+      'the candidate job runs the controller and reads the candidate separately'
+      or return;
+    ok $control < $check && $check < $source, 'local status approval precedes every candidate checkout';
+    is $steps[$control]{with}{ref}, q{${{ github.workflow_sha }}},
+      'the verifier belongs to the calling workflow revision';
+    is $steps[$control]{with}{'persist-credentials'}, 'false', 'the controller checkout keeps no credential';
+    is $steps[$check]{env}{REPOSITORY_OWNER_ID}, q{${{ github.repository_owner_id }}},
+      'GitHub supplies the trusted account ID';
+    is $steps[$check]{env}{GH_TOKEN},       q{${{ github.token }}}, 'only the verifier step receives the status token';
+    is $steps[$check]{'continue-on-error'}, undef,                  'a failed status check stops the job';
 };
 
 subtest 'the project measures guarded exits in its release shards' => sub {
@@ -120,7 +147,9 @@ subtest 'all release shards restore the same measured tools and dependency bytes
 
 subtest 'each measurement and build checks out the selected commit' => sub {
     for my $job (qw(candidate self-runtime self-measurement compatibility release macos)) {
-        my ($checkout) = grep { ( $_->{uses} || q{} ) =~ m{\Aactions/checkout@} } ( $jobs->{$job}{steps} || [] )->@*;
+        my ($checkout) =
+          grep { ( $_->{uses} || q{} ) =~ m{\Aactions/checkout@} && ( $_->{with}{path} || q{} ) ne 'controller' }
+          ( $jobs->{$job}{steps} || [] )->@*;
         is $checkout->{with}{ref},                   q{${{ env.SOURCE_SHA }}}, "$job reads the selected commit";
         is $checkout->{with}{'persist-credentials'}, 'false', "$job leaves no credentials in the checkout";
     }
