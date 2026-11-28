@@ -22,6 +22,15 @@ my $value = Value::plus(2);
 if (-e $ENV{CHECK_CHANGED_VALUE}) { is $value, 3, 'the sum' }
 else { pass 'the sum is observed' }
 PERL
+write_file( "$root/t/conditional.t", <<'PERL' );
+use Test::More tests => 1;
+if (-e $ENV{CHECK_CHANGED_VALUE}) {
+    require Value;
+    is Value::plus(2), 3, 'the new branch uses the sum';
+} else {
+    pass 'the sum is unused';
+}
+PERL
 
 my ($first) = run_fixture( $root, equivalence => 0 );
 my ($warm)  = run_fixture( $root, equivalence => 0 );
@@ -34,6 +43,8 @@ my ($changed) = run_fixture( $root, equivalence => 0 );
 is $changed->reused, 0, 'an inconsistent sample discards all cached verdicts';
 is [ map { $_->{status} } $changed->entries->@* ], [ ('Killed') x $count ],
   'every returned verdict comes from a fresh measurement';
+is [ map { [ sort $_->{covered_by}->@* ] } $changed->entries->@* ],
+  [ ( [qw(t/conditional.t t/value.t)] ) x $count ], 'every new job uses the coverage of the repeated baseline';
 ok !$changed->conclusive, 'the mismatch prevents the run from passing its gate';
 like $changed->warnings, bag { item match qr/cached verdict.*fresh measurement/; etc },
   'the report names the discrepancy';
@@ -46,7 +57,8 @@ my $cache_file = "$root/.mutation/measurement.sqlite";
 my $saved      = Test::Mutation::Store::load($cache_file);
 ok keys %$saved, 'the project holds measured verdicts before its source changes';
 write_file( "$root/lib/Value.pm", "package Value;\n1;\n" );
-unlink "$root/t/value.t" or die "remove the test: $!";
+unlink "$root/t/value.t"       or die "remove the test: $!";
+unlink "$root/t/conditional.t" or die "remove the conditional test: $!";
 for my $case (
     [ 'disabled caching',    0, {} ],
     [ 'a partial selection', 1, { paths         => { 'lib/Value.pm' => [] } } ],
