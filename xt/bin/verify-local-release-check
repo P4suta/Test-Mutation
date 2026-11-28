@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${SOURCE_SHA:?}" "${REPOSITORY_OWNER_ID:?}" "${GITHUB_REPOSITORY:?}"
+[[ ${SOURCE_SHA} =~ ^[0-9a-f]{40}$ && ${REPOSITORY_OWNER_ID} =~ ^[1-9][0-9]*$ ]]
+
+latest_status() {
+	gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/commits/${1}/statuses?per_page=100" |
+		jq -er --arg owner "${REPOSITORY_OWNER_ID}" '
+      if type != "array" or length == 0 or any(.[]; type != "array") then error("Unexpected commit status response") else . end |
+      [.[][] | select((.context | ascii_downcase) == "release/local")] | first |
+      if . == null then "missing"
+      elif .state == "success" and (.creator.id | tostring) == $owner then "approved"
+      else "refused" end'
+}
+
+status=$(latest_status "${SOURCE_SHA}")
+if [[ ${status} == approved ]]; then exit 0; fi
+echo "The candidate needs a successful release/local status from the repository account." >&2
+exit 1
