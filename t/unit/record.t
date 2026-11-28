@@ -71,9 +71,9 @@ subtest 'a module listed at exit uses the compilation observed by the same proce
     my $target = '/p/A.pm';
     my $other  = '/p/B.pm';
     my $traced = lines( [ 'begin', 1 ], [ 'seen', $target ], [ 'hit', $target, 4 ] );
-    my $listed = lines( [ 'begin', 1 ], [ 'seen', $target, 'loaded-at-exit' ] );
+    my $listed = lines( [ 'begin', 1 ], [ 'blind', $target, 'loaded-at-exit' ] );
     my $observed =
-      Test::Mutation::Record::parse( [ $traced . $listed . lines( [ 'seen', $other, 'loaded-at-exit' ] ) ] );
+      Test::Mutation::Record::parse( [ $traced . $listed . lines( [ 'blind', $other, 'loaded-at-exit' ] ) ] );
     is $observed->{errors}, [], 'finding a module on disk at exit is a valid observation';
     is $observed->{served},
       { $target => { traced => 1, hits => { 4 => 1 } }, $other => { traced => 0, hits => {} } },

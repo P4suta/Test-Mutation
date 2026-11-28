@@ -108,10 +108,7 @@ sub parse ( $texts, $targets ) {
                 $record{unresolved}{$path} = 1 if $missing{$path};
                 next;
             }
-            if ( $kind eq 'seen' && $stage eq 'loaded-at-exit' ) {
-                next if $compiled{$path};
-                $apply = $APPLY{blind};
-            }
+            next if $kind eq 'blind' && $stage eq 'loaded-at-exit' && $compiled{$path};
             $compiled{$path} = 1 if $kind eq 'seen' && !length $stage;
             $apply->( \%record, \$traced, $path, $stage );
         }
