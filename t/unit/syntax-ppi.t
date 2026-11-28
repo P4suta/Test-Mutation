@@ -129,6 +129,9 @@ subtest 'operators carry a role' => sub {
       'an ordering comparison of the version of Perl names its literal';
     is [ map { $_->text } sites_of( 'f( [ < $in ] );', 'operator' )->@* ], ['<'],
       'a comparison without a neighbor on one side is read without a literal';
+    my $unfinished = 'my $active = $start ...; my $complete = $start ... $end;';
+    is [ map { $_->facts->{flip_flop} } grep { $_->text eq '...' } sites_of( $unfinished, 'operator' )->@* ],
+      [ undef, 1 ], 'a scalar assignment supplies a flip-flop only when both operands are present';
 };
 
 subtest 'condition keywords used as method names take list arguments' => sub {
