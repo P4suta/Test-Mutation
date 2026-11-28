@@ -143,4 +143,21 @@ subtest 'two replacements at the same position retain their own detecting tests'
       'the moved flags select the test that actually detected each replacement';
 };
 
+subtest 'a half-open span ends on its last changed line' => sub {
+    my $text        = $source . "our \$neighbor = 1;\nour \$revision = 1;\n";
+    my $root        = project( $text, { 't/sum.t' => $strong } );
+    my $body_mutant = sub ($selected) {
+        return ( grep { $_->mutator eq 'sub-body' } $selected->mutants->@* )[0];
+    };
+    my $earlier = $body_mutant->( selection($root) );
+    is $earlier->to->[1], 1, 'the removed body ends before the closing brace at the start of the next line';
+    my ( $before, $report ) = measure( $root, $earlier );
+    is $before->entries->[0]{status}, 'Killed', 'removing the body actually breaks the sum test';
+    $text =~ s/\$revision = 1/\$revision = 2/;
+    write_file( "$root/lib/Example.pm", "$shift$text\n1;\n" );
+    my $selected = selection($root);
+    is SelfMeasurement::detector_hints( $selected, $report ), { $body_mutant->($selected)->id => 't/sum.t' },
+      'an edit three lines after the last changed line leaves two neighboring lines unchanged';
+};
+
 done_testing;
