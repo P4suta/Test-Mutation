@@ -1,5 +1,6 @@
 use strict;
 use warnings;
+use Config ();
 use Test::More;
 use lib 't/shim/lib';
 use ShimHarness qw(lib_dir project run_perl write_file);
@@ -48,9 +49,33 @@ BEGIN {
 PERL
 ok !defined compile_record( $root, 'rebound', $named, COMPILER_CONFIG => $config, REPLACEMENT_CONFIG => $other ),
   'rebinding an environment operand to another readable file leaves no record';
-ok !
-  defined compile_record( $root, 'unavailable', $named, COMPILER_CONFIG => "$root/missing",
-    REPLACEMENT_CONFIG => $other ),
+ok !defined compile_record(
+    $root, 'unavailable', $named,
+    COMPILER_CONFIG    => "$root/missing",
+    REPLACEMENT_CONFIG => $other
+  ),
   'an initially unavailable operand cannot acquire evidence later in compilation';
+
+my $library = "$root/vendor";
+my $loaded  = write_file( "$library/LibraryInput.pm",    "package LibraryInput; sub value { 5 } 1;\n" );
+my $direct  = write_file( project() . '/DirectInput.pm', "package DirectInput; sub value { 7 } 1;\n" );
+write_file( "$root/probe.pl", <<'PERL' );
+BEGIN {
+    unshift @INC, 'vendor';
+    require LibraryInput;
+    require $ENV{DIRECT_MODULE};
+    die "wrong modules" unless LibraryInput::value() + DirectInput::value() == 12;
+}
+PERL
+my %modules = map { $_ => 1 } @{ compile_record( $root, 'modules', q{}, DIRECT_MODULE => $direct ) || [] };
+ok $modules{ unpack 'H*', $library },         'a directory added to the compiler search path is an input';
+ok $modules{ 'm' . unpack( 'H*', $loaded ) }, 'a module in the added directory has a source record';
+ok !$modules{ unpack 'H*', $loaded },         'the containing directory covers its module path';
+ok $modules{ 'm' . unpack( 'H*', $direct ) } && $modules{ unpack 'H*', $direct },
+  'a module outside the search path is both a source record and a file input';
+ok !$modules{ unpack 'H*', lib_dir() }, 'the initial search directory is already known';
+ok !$modules{ 'm' . unpack( 'H*', $INC{'Config.pm'} ) }, 'a Perl core module needs no source record';
+ok !$modules{ 'm' . unpack( 'H*', lib_dir() . '/Test/Mutation/CompilerInputs.pm' ) },
+  'the recorder excludes its own source';
 
 done_testing;
