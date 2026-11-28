@@ -17,6 +17,7 @@ Store test observations and compiler comparisons per mutant.
 Fingerprint sources, tests, execution settings, interpreter, and dependencies.
 Verify copied inputs and key cached observations to them.
 Require identified compiler inputs and compare shared inputs by content.
+Require a known compiler input protocol when merging or refreshing saved verdicts.
 Exclude unchanged published reports from isolated copies at their recorded paths.
 Fingerprint reports visible in place or through links.
 Reuse detections when covering tests through the first failure match.
