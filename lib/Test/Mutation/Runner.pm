@@ -1893,6 +1893,14 @@ sub _reused_entry ( $run, $cache, $mutant, $tests ) {
     return if $record->{status} eq 'NoCoverage' && $tests->@*;
     my $key = _verdict_key( $cache, $mutant, $tests, $record->{status}, $record->{by} );
     return unless defined $key && $key eq $record->{inputs};
+    if ( !defined $record->{compiler_inputs} ) {
+        my $path = $mutant->path;
+        unless ( exists $run->{source_read_operands}{$path} ) {
+            my $source = $run->{sources}{$path};
+            $run->{source_read_operands}{$path} = _encode_read_operands( $source, $source->text );
+        }
+        return if length $run->{source_read_operands}{$path};
+    }
     my $inputs = $record->{compiler_inputs} || {};
     for my $path ( keys %$inputs ) {
         my $digest = _compiler_input_digest( $run, $path );
@@ -2185,7 +2193,7 @@ sub _compiler_inputs ( $run, $tmp, $result, $requested ) {
         return unless defined $digest;
         $inputs{$path} = $digest;
     }
-    if ( $requested =~ /(?:\A|,)e/ || grep { /\Ae/ } keys %{ $result->{module_reads} || {} } ) {
+    if ( length($requested) || keys %{ $result->{module_reads} || {} } ) {
         $result->{module_reads}{q{?}} = 1 if grep { _loaded_read_operands( $run, $_, 1 ) eq q{?} } @modules;
     }
     return \%inputs;

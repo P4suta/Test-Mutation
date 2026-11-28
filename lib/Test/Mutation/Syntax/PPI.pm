@@ -140,7 +140,7 @@ sub inside_begin ( $source, $offset ) {
     my $document = _document($text) or return 0;
     my $context  = { source => $source, text => $source->text, mark => $mark };
     for my $block ( @{ $document->find('PPI::Statement::Scheduled') || [] } ) {
-        next unless $block->first_token->content eq 'BEGIN';
+        next unless $block->type eq 'BEGIN';
         my $first = _offset( $context, $block->first_token );
         my $last  = _offset( $context, $block->last_token );
         return 1 if defined $first && defined $last && $first <= $offset && $offset <= $last;
@@ -157,9 +157,8 @@ sub compile_reads ( $source, $loaded = 0 ) {
     return if $loaded && !_fixed_module_load($document);
     my @reads;
     for my $phase ( @{ $document->find('PPI::Statement::Scheduled') || [] } ) {
-        next unless $phase->first_token->content =~ /\A(?:BEGIN|UNITCHECK|CHECK)\z/;
-        my $body = $phase->schild(1);
-        return unless $body && $body->isa('PPI::Structure::Block');
+        next unless $phase->type =~ /\A(?:BEGIN|UNITCHECK|CHECK)\z/;
+        my $body = $phase->block or return;
         my %handles;
         for my $statement ( $body->schildren ) {
             my $text = join q{ }, map { $_->content } grep { $_->significant } $statement->tokens;
@@ -168,7 +167,7 @@ sub compile_reads ( $source, $loaded = 0 ) {
             return;
         }
     }
-    if ( $loaded || grep { $_->[0] eq 'env' } @reads ) {
+    if ( $loaded || @reads ) {
         return
           if grep { $_->type ne 'require' && !_fixed_import($_) } @{ $document->find('PPI::Statement::Include') || [] };
     }
