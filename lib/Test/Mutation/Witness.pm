@@ -2,6 +2,7 @@ package Test::Mutation::Witness;
 use v5.36;
 use Encode                 ();
 use Fcntl                  ();
+use File::Basename         ();
 use POSIX                  ();
 use Types::Standard        qw(FileHandle Int Maybe Str StrMatch);
 use Types::Common::Numeric qw(PositiveOrZeroInt PositiveInt);
@@ -16,10 +17,11 @@ signature_for insert =>
 sub insert ( $text, $offset, $generation, $index, $records, $descriptor ) {
     my $package   = "Test::Mutation::Shim::G$generation";
     my $trace     = "Test::Mutation::Shim::TraceG$generation";
+    my $preloaded = _preloaded( $generation, File::Basename::dirname($records) );
     my $directory = _directory( $generation, $records, $descriptor );
     my $statement =
         "UNITCHECK{package DB;unless(defined&${trace}::seen?${trace}::seen($index):"
-      . "defined&${package}::seen&&${package}::seen($index)){"
+      . "$preloaded&&${package}::seen($index)){"
       . $directory
       . 'if(CORE::open(my$h,q{>>:raw},"$d/blind-$$.rec")){CORE::syswrite($h,"blind\t'
       . $index
@@ -31,6 +33,11 @@ sub insert ( $text, $offset, $generation, $index, $records, $descriptor ) {
 sub _literal ($bytes) {
     my $hex = unpack 'H*', utf8::is_utf8($bytes) ? Encode::encode_utf8($bytes) : $bytes;
     return 'CORE::pack(q{H*},q{' . $hex . '})';
+}
+
+sub _preloaded ( $generation, $work ) {
+    my $module = "Test/Mutation/Shim/G$generation.pm";
+    return '($INC{q{' . $module . '}}||q{}) eq ' . _literal("$work/shim/$module");
 }
 
 sub _directory ( $generation, $records, $descriptor ) {
@@ -85,19 +92,17 @@ sub trace ($arg) {
     my $generation = $arg->generation;
     my $package    = "Test::Mutation::Shim::G$generation";
     my $trace      = "Test::Mutation::Shim::TraceG$generation";
-    my $module     = "Test/Mutation/Shim/G$generation.pm";
+    my $preloaded  = _preloaded( $generation, $arg->work );
     my $statement =
-        'BEGIN{package DB;my$w='
-      . _literal( $arg->work )
-      . ';my$m=q{'
-      . $module
-      . '};my$t;'
-      . 'if(($INC{$m}||q{})eq"$w/shim/$m"){$t=\&'
+        'BEGIN{package DB;my$t;if('
+      . $preloaded
+      . '){$t=\&'
       . $package
       . '::trace_source}'
       . 'else{unless(defined&'
       . $trace
-      . '::trace_source){my$f="$w/trace.pl";'
+      . '::trace_source){my$f='
+      . _literal( $arg->work . '/trace.pl' ) . ';'
       . 'local$INC{$f};delete$INC{$f};CORE::require($f)}$t=\&'
       . $trace
       . '::trace_source}'
