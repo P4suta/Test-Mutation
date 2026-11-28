@@ -127,6 +127,24 @@ subtest 'the step limit counts encoded bytes' => sub {
     like $summary, qr{reports/mutation[.]html}, 'the file location survives an oversized example';
 };
 
+subtest 'the sample skips oversized changes and fits as many later rows as the step allows' => sub {
+    my $result = result(
+        [
+            entry('Killed'),
+            entry( 'Survived', mutant => { id => '000000000001', description => 'x' x 2000 } ),
+            map { entry( 'Survived', mutant => { id => sprintf( '%012x', $_ ), description => "\x{754c}" x 200 } ) }
+              2 .. 5
+        ]
+    );
+    my $bytes = 1600;
+    my $text  = Test::Mutation::Report::GitHub::summary( $result, 70, [], 1024 * 1024 - $bytes );
+    my @rows  = $text =~ /^\| ([0-9a-f]{12}) \|/mg;
+    is \@rows, ['000000000002'], 'the first row that fits follows a detected change and an oversized example';
+    is scalar( () = $text =~ /^### Undetected changes$/mg ), 1, 'the table has a single heading';
+    like $text, qr/^\| ID \| Location \| Change \| Status \|$/m, 'the sample identifies its four columns';
+    cmp_ok length( Encode::encode( 'UTF-8', $text ) ), '<=', $bytes, 'every included row uses its encoded byte length';
+};
+
 subtest 'large selections reserve room for the gate and report location' => sub {
     my $case = Test::Mutation::Result->new( result( [ entry('Survived') ] )->%*,
         selection => { paths => { ( 'a' x 1200 ) => [] } } );
