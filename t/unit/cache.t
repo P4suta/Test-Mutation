@@ -39,6 +39,18 @@ sub record (%fields) {
     };
 }
 
+{
+    my $path            = "$dir/first/measurement.sqlite";
+    my $completed       = record( path => 'lib/Calc.pm', source => 'measured' );
+    my $checkpoint      = Test::Mutation::Store::checkpoints($path);
+    my $acknowledgement = $checkpoint->( 'first', $completed, 0 );
+    is(
+        [ $acknowledgement, Test::Mutation::Store::load($path) ],
+        [ 1,                { first => $completed } ],
+        'a nonblocking checkpoint acknowledges the verdict visible to the next reader'
+    ) or do { done_testing; exit 1 };
+}
+
 sub write_text ( $name, $text ) {
     open my $handle, '>', "$dir/$name" or die "open: $!";
     print {$handle} $text or die "print: $!";

@@ -282,6 +282,12 @@ subtest 'concurrent writers publish only committed observations' => sub {
     is $connection->selectcol_arrayref('SELECT id FROM verdict ORDER BY id'), [qw(1 2)],
       'the writer sees the previously committed observations after its transaction fails';
     is Test::Mutation::Store::load($path), $both, 'a rolled-back write preserves every committed observation';
+    is dies {
+        Test::Mutation::Store::transaction( $connection,
+            sub { $connection->do(q{INSERT INTO setting VALUES ('next','ready')}) } );
+    }, undef, 'the same writer can begin a new transaction immediately after rollback';
+    is Test::Mutation::Store::read_database($path)->selectrow_array(q{SELECT data FROM setting WHERE id = 'next'}),
+      'ready', 'another connection can read the next commit';
 };
 
 subtest 'a write-only transaction returns the database acknowledgement' => sub {
