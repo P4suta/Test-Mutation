@@ -11,6 +11,7 @@ use Test::Mutation::Mutator::Providers;
 use Test::Mutation::Site;
 use Test::Mutation::Suppression;
 use Test::Mutation::Syntax::Precedence;
+use Test::Mutation::Try;
 use Test::Mutation::Types qw(Analysis);
 
 our $VERSION = '0.001';
@@ -765,7 +766,8 @@ sub _add ( $context, %site ) {
 }
 
 sub _parsed_quote ( $parser, $content ) {
-    my $parsed = $parser->new($content);
+    my $parsed =
+      Test::Mutation::Try::attempt( sub { return $parser->new( $content, index_locations => 0 ) || 0 } )->{value};
     return if !$parsed || $parsed->failures;
     return $parsed;
 }
