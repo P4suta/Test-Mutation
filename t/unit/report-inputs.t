@@ -174,6 +174,14 @@ subtest 'publishing preserves a user file with the metadata name and leaves exte
     ok !-e "$outside/.test-mutation-outputs", 'publishing outside the measured tree needs no metadata';
 };
 
+subtest 'a publication reports an error when its destination is a file' => sub {
+    my $destination = write_file( "$root/plain-file", 'ordinary input' );
+    my $failure     = dies {
+        Test::Mutation::Report::Publication::record( $root, $destination, { 'mutation.json' => 'c' x 64 } );
+    };
+    is $failure, object { call id => 'file-unwritable' }, 'the caller learns why recording the report failed';
+};
+
 subtest 'only a regular publication record in its own directory identifies generated files' => sub {
     my $name      = 'linked-record';
     my $directory = "$root/$name";
