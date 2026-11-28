@@ -27,6 +27,8 @@ subtest 'publication operations validate the names and digests they accept' => s
       'the name list takes no arguments';
     isa_ok dies { Test::Mutation::Report::Publication::outputs( $directory, [] ) }, ['Error::TypeTiny'],
       'the relative directory must be a string';
+    isa_ok dies { Test::Mutation::Store::Key::published_outputs( $directory, [], [ [] ] ) }, ['Error::TypeTiny'],
+      'every linked input needs a path string';
     isa_ok
       dies { Test::Mutation::Report::Publication::record( $directory, $directory, { 'mutation.json' => 'short' } ) },
       ['Error::TypeTiny'], 'a published checksum must contain a complete SHA-256 digest';
