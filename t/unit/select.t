@@ -182,18 +182,19 @@ subtest 'a prepared shard and a resolved shard can measure the same source lines
     my ( $first, $second ) =
       map { Test::Mutation::Settings::of_call( { root => $project, shard => "$_/2", cache => $_ - 1 } ); } 1, 2;
     my $peer    = Test::Mutation::Runner::run( $second, sub { }, { paths => $paths } );
-    my $measure = sub ($selection) {
+    my $measure = sub ( $selection, $config ) {
         my %inputs = $selection->%*;
         delete $inputs{analysis_rules_digest};
         my $prepared = Test::Mutation::Selection->new(%inputs);
-        return Test::Mutation::Runner::run( $first, sub { }, { selection => $prepared } );
+        return Test::Mutation::Runner::run( $config, sub { }, { selection => $prepared } );
     };
     my $selected = Test::Mutation::Select::resolve( config => $first, paths => $paths );
-    my $merge    = sub ($part) {
+    my $merge    = sub ( $part, $other ) {
         return Test::Mutation::Merge::merge(
-            [ { name => 'prepared', result => $part }, { name => 'peer', result => $peer } ] );
+            [ { name => 'prepared', result => $part }, { name => 'peer', result => $other } ] );
     };
-    my $merged = $merge->( $measure->($selected) );
+    my $part   = $measure->( $selected, $first );
+    my $merged = $merge->( $part, $peer );
     is scalar( $merged->entries->@* ), $selected->inventory->{mutants}, 'both parts restore the selected inventory';
     ok $merged->tally->{counts}{Killed}, 'the merged report contains an observed test failure';
     my $previous;
@@ -201,13 +202,17 @@ subtest 'a prepared shard and a resolved shard can measure the same source lines
         local $Test::Mutation::Select::ANALYSIS_REVISION = $Test::Mutation::Select::ANALYSIS_REVISION - 1;
         $previous = Test::Mutation::Select::resolve( config => $first, paths => $paths );
     }
-    like dies { $merge->( $measure->($previous) ) }, qr/measurement inputs differ/,
+    my $old_part = $measure->( $previous, $first );
+    like dies { $merge->( $old_part, $peer ) }, qr/measurement inputs differ/,
       'a catalog from an earlier analyzer revision cannot identify the current rules';
     my $strict = Test::Mutation::Settings::of_call(
-        { root => $project, shard => '1/2', cache => 0, suppress_require_reason => 1 } );
+        { root => $project, shard => '2/2', cache => 1, suppress_require_reason => 1 } );
     my $other_rules = Test::Mutation::Select::resolve( config => $strict, paths => $paths );
-    like dies { $merge->( $measure->($other_rules) ) }, qr/measurement inputs differ/,
+    my $strict_peer = $measure->( $other_rules, $second );
+    like dies { $merge->( $part, $strict_peer ) }, qr/measurement inputs differ/,
       'a different suppression policy cannot identify the current rules';
+    like dies { $merge->( $old_part, $strict_peer ) }, qr/measurement inputs differ/,
+      'shards from two different prepared catalogs retain their own identities';
 };
 
 done_testing;
