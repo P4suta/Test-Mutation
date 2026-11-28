@@ -366,6 +366,21 @@ PERL
     is $run->{stderr}, q{},                           'unavailable identities cause no warnings';
 };
 
+subtest 'the main program retains its identity after changing working directory' => sub {
+    my $root   = project();
+    my $script = write_file( "$root/bin/app.pl",       "chdir 'other' or die \$!;\nprint 17;\n" );
+    my $other  = write_file( "$root/other/bin/app.pl", "print 29;\n" );
+    write_file( "$root/spec", "trace\t0\nobserve\t1\nplaced\t1\ntarget\t$script\t$script\ntarget\t$other\t$other\n" );
+    my $run = run_perl(
+        root => $root,
+        args => [ '-I' . lib_dir(), '-MTest::Mutation::Shim', 'bin/app.pl' ],
+        env  => { TEST_MUTATION_SPEC => "$root/spec", TEST_MUTATION_RECORD => "$root/records" }
+    );
+    is_deeply [ $run->{status}, $run->{stdout} ], [ 0, '17' ], 'Perl executes the script opened in the first directory';
+    is_deeply [ grep { $_->[0] eq 'blind' } @{ all_records($root) } ], [ [ 'blind', $script, 'loaded-at-exit' ] ],
+      'file coverage belongs to the main program that started';
+};
+
 subtest 'witnesses distinguish served targets from unseen targets with and without a tracer' => sub {
     for my $blind ( 0, 1 ) {
         my $root   = project();
