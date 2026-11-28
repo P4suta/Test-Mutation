@@ -140,10 +140,13 @@ sub route {
     my ($rule, $first, $last) = @_;
     $rule->if($first ... $last);
     return 1 if (($first ... $last));
+    my @values = $rule->if + $first ... $last;
+    my $active = $rule->if + $first ... $last;
+    my @other = $rule->if() + $first ... $last;
 }
 PERL
     is [ map { $_->facts->{flip_flop} } grep { $_->text eq '...' } sites_of( $code, 'operator' )->@* ],
-      [ undef, 1 ], 'parentheses around a method argument and a condition give the range different contexts';
+      [ undef, 1, undef, 1, undef ], 'the assignment sets the context of a range starting with a method result';
 };
 
 subtest 'a readline that the parser takes for two comparisons yields no site' => sub {
