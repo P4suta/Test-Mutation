@@ -1,8 +1,10 @@
 use v5.36;
 use Test2::V0;
-use File::Copy ();
-use File::Temp ();
-use POSIX      ();
+use File::Copy       ();
+use File::Temp       ();
+use IO::Socket::UNIX ();
+use POSIX            ();
+use Socket           ();
 use Test::Mutation::Report::Json;
 use lib 't/e2e/lib';
 use Fixture qw(ran write_file);
@@ -39,6 +41,18 @@ subtest 'inspection uses the older valid report when the newer file is incomplet
         my $shown = ran( 0, $project, 'show', $id, '--no-cache', '--report-dir', $history );
         like $shown->{stdout}, qr/^Last result: Survived$/m, "the older $older report supplies the result";
     }
+};
+subtest 'inspection skips a socket at the newer report path' => sub {
+    my $history = File::Temp::tempdir( DIR => '/tmp', CLEANUP => 1 );
+    my $older   = "$history/mutation.html";
+    File::Copy::copy( "$files/mutation.html", $older ) or die "copy the HTML report: $!";
+    utime 1, 1, $older or die "date the HTML report: $!";
+    my $path   = "$history/mutation.json";
+    my $socket = IO::Socket::UNIX->new( Type => Socket::SOCK_STREAM(), Local => $path, Listen => 1 )
+      or die "listen at the other report path: $!";
+    my $shown = ran( 0, $project, 'show', $id, '--no-cache', '--report-dir', $history );
+    like $shown->{stdout}, qr/^Last result: Survived$/m, 'the regular HTML file supplies the verdict';
+    ok -S $path, 'inspection preserves the live socket';
 };
 write_file( "$project/t/stronger.t", "use Test::More tests => 1;\nuse Totals;\nis Totals::sum(4, 1), 5;\n" );
 ran( 0, $project, @options, '--mutant', $id );
