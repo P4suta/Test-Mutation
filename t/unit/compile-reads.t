@@ -105,4 +105,48 @@ PERL
       Test::Mutation::Store::Key::file("$area/limit"), 'the report binds the external bytes used for the constant';
 };
 
+subtest 'an import can redirect a relative input before the compiler opens it' => sub {
+    my $area = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
+    my $root = "$area/project";
+    local $ENV{TEST_LIMIT_DIRECTORY} = "$area/data";
+    write_file( "$root/limit",        "3\n" );
+    write_file( "$root/lib/Bound.pm", <<'PERL' );
+package Bound;
+use Cwd ();
+use warnings do {
+    $ENV{TEST_PREVIOUS_DIRECTORY} = Cwd::getcwd();
+    chdir $ENV{TEST_LIMIT_DIRECTORY} or die $!;
+    'numeric'
+};
+BEGIN {
+    open my $input, '<', 'limit' or die $!;
+    my $limit = 0 + <$input>;
+    close $input or die $!;
+    require constant;
+    constant->import('LIMIT', $limit);
+}
+use warnings do { chdir $ENV{TEST_PREVIOUS_DIRECTORY} or die $!; 'numeric' };
+sub below { return $_[0] < LIMIT }
+1;
+PERL
+    write_file( "$root/t/check.t", "use Test::More tests => 1; use Bound; ok !Bound::below(7);\n" );
+    my $boundary = sub ($cache) {
+        my ($result) = run_fixture(
+            $root,
+            cache   => $cache,
+            jobs    => 1,
+            shard   => '1/1',
+            enable  => ['comparison-boundary'],
+            disable => [qw(@removal arithmetic comparison-negation logical)]
+        );
+        my ($entry) = grep { $_->{mutant}->mutator eq 'comparison-boundary' } $result->entries->@*;
+        return $entry->{status};
+    };
+    write_file( "$area/data/limit", "7\n" );
+    is $boundary->(1), 'Killed', 'the test distinguishes strict comparison at seven';
+    write_file( "$area/data/limit", "5\n" );
+    is $boundary->(1), 'Survived', 'the earlier detection cannot be reused after the external limit changes';
+    is $boundary->(0), 'Survived', 'fresh tests agree with the cached run';
+};
+
 done_testing;
