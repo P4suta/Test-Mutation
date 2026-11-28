@@ -26,7 +26,8 @@ my @readers = (
     q{class Meter {} 0 + read_limit(); 1;},
     q{class Meter; main::read_limit(); 1;},
     q{sub Rules::apply { return main::read_limit() } apply Rules {}; 1;},
-    q{class Derived 1.0 :isa(Local::Parent) {} 1;},
+    q{class Derived :isa(Local::Parent 1.0) {} 1;},
+    q{class Meter 1.0 { main::read_limit(); } 1;},
 );
 
 subtest 'classes can share a module with other declarations and load-time expressions' => sub {
@@ -35,6 +36,8 @@ subtest 'classes can share a module with other declarations and load-time expres
     for my $body (@readers) {
         is $reads->($body), undef, "loading the module can execute read_limit in $body";
     }
+    is $reads->(q{class Derived 1.0 :isa(Local::Parent) {} 1;}), undef,
+      'a versioned subclass can load an external parent';
     is $reads->(q{class Meter 1.0 unfinished; 1;}), undef, 'an incomplete class header supplies no proof of its inputs';
 };
 
@@ -43,7 +46,8 @@ subtest 'requiring each native class module observes its expected file reads' =>
     return unless Capability::has( 'class', $has_class, 'native classes need Perl 5.38' );
     my $root  = project();
     my $table = write_file( "$root/limit", "42\n" );
-    write_file( "$root/Local/Parent.pm", "use experimental 'class'; class Local::Parent {} main::read_limit(); 1;\n" );
+    write_file( "$root/Local/Parent.pm",
+        "use experimental 'class'; class Local::Parent 1.0 {} main::read_limit(); 1;\n" );
     for my $case ( ( map { [ $_, q{} ] } @declarations ), ( map { [ $_, "42\n" ] } @readers ) ) {
         my ( $body, $output ) = @$case;
         write_file( "$root/Measured.pm", "$module_start$body\n" );
