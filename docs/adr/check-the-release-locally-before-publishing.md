@@ -7,7 +7,7 @@ date: 2026-11-28
 
 ## Context
 
-The hosted release repeated the test suite across eight mutation shards.
+The [previous release gate](require-complete-self-mutation-results.md) repeated the test suite across eight mutation shards.
 A Perl module can read a file into a package variable while compiling.
 Two shards can produce identical deparsed code and observe different values.
 
