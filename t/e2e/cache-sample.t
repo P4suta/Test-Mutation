@@ -76,6 +76,33 @@ is $empty->entries, [], 'removing the last mutation produces an empty inventory'
 is Test::Mutation::Store::load("$root/.mutation/measurement.sqlite"), {},
   'records of the last removed source are pruned';
 
+subtest 'a warm copy checks the configuration bytes that the tests will read' => sub {
+    my $project  = "$parent/config-input";
+    my $settings = write_file( "$project/settings.toml", "# original\n" );
+    write_file( "$project/lib/Value.pm", "package Value; sub plus { \$_[0] + 1 } 1;\n" );
+    write_file( "$project/t/value.t",    <<'PERL' );
+use Test::More tests => 2;
+use Value;
+open my $file, '<', 'settings.toml' or die $!;
+is scalar readline $file, "# original\n", 'the expected input was copied';
+close $file or die $!;
+is Value::plus(2), 3, 'the sum';
+PERL
+    my %options  = ( root => $project, config => 'settings.toml', jobs => 1, equivalence => 0 );
+    my $recorded = Test::Mutation::run(%options);
+    is $recorded->baseline_failures, [], 'the original test passes with the recorded configuration bytes';
+    my $error = dies {
+        Test::Mutation::run(
+            %options,
+            on_event => sub ( $event, $data ) {
+                write_file( $settings, "# changed\n" ) if $event eq 'phase' && $data->{name} eq 'acquire';
+                return;
+            }
+        );
+    };
+    like $error, qr/measurement inputs changed/, 'a copy that no longer matches the saved original is rejected';
+};
+
 subtest 'an interrupted cache sample keeps only the verdicts it measured' => sub {
     my $project = "$parent/interrupted";
     write_file( "$project/lib/Totals.pm", <<'PERL' );
