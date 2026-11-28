@@ -1911,12 +1911,15 @@ sub _verdict_key ( $cache, $mutant, $tests, $status, $killer ) {
     return Test::Mutation::Store::Key::digest( $mutation, map { ( $_, $cache->{facts}{$_} ) } @needed );
 }
 
-sub _may_read_at_compile_time ( $run, $path ) {
-    my $known = $run->{source_reads} ||= {};
-    return $known->{$path} if exists $known->{$path};
+sub _source_read_operands ( $run, $path ) {
+    return $run->{source_reads}{$path} if exists $run->{source_reads}{$path};
     my $source = $run->{sources}{$path};
-    return $known->{$path} =
-      $source->text =~ /\b(?:use|no)\b/ || length _encode_read_operands( $source, $source->text );
+    my $module = $path =~ /[.]pm\z/ ? 1 : 0;
+    return $run->{source_reads}{$path} = _encode_read_operands( $source, $source->text, $module );
+}
+
+sub _may_read_at_compile_time ( $run, $path ) {
+    return $run->{sources}{$path}->text =~ /\b(?:use|no)\b/ || length _source_read_operands( $run, $path );
 }
 
 sub _reused_entry ( $run, $cache, $mutant, $tests ) {
@@ -2266,8 +2269,9 @@ sub _compiler_read_operands ( $run, $job, $original ) {
     my $mutant = $job->{mutant};
     my $source = $run->{sources}{ $mutant->path };
     my $text   = $source->text;
-    return q{} unless $text =~ /\b(?:BEGIN|UNITCHECK|CHECK)\b/;
-    $text = $source->replace_span( $mutant->start, $mutant->end, $mutant->replacement ) unless $original;
+    my $reads  = _source_read_operands( $run, $mutant->path );
+    return $reads if $original || $reads eq q{?} || $text !~ /\b(?:BEGIN|UNITCHECK|CHECK)\b/;
+    $text = $source->replace_span( $mutant->start, $mutant->end, $mutant->replacement );
     return _encode_read_operands( $source, $text );
 }
 

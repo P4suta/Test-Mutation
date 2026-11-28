@@ -62,6 +62,10 @@ subtest 'an imported module must preserve an environment-derived file operand' =
     is $at_load->(q{package Data; use constant LIMIT => 7; 1;}), [], 'a literal numeric constant has no outside input';
     is $at_load->(q{package Data; use constant LIMIT => read_limit(); 1;}), undef,
       'computing a constant can read an outside file';
+    is $at_load->(q{package Data; use lib $ENV{CUSTOM}, $ENV{FALLBACK}; 1;}), [],
+      'the target records both include directories supplied by named environment variables';
+    is $at_load->(q{package Data; use lib $ENV{CUSTOM}, fallback(); 1;}), undef,
+      'a computed fallback directory can read an outside file';
     is $at_load->(q{package Data; $ENV{TABLE} = 'other'; 1;}), undef, 'a file-scope assignment runs on import';
     is $at_load->(q{package Data; apply_settings(); 1;}),      undef, 'a file-scope helper can alter the environment';
     is $at_load->(q{package Data; use strict; sub choose { $ENV{TABLE} = 'other' } choose; 1;}), undef,
