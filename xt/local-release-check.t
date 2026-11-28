@@ -3,8 +3,9 @@ use Test2::V0;
 use Cwd        ();
 use File::Temp ();
 use TOML::Tiny ();
-use lib 't/e2e/lib';
-use Fixture                qw(write_file);
+use lib 't/lib', 't/e2e/lib';
+use Fixture qw(write_file);
+use Gate;
 use Test::Mutation::Source ();
 
 my $scratch = Cwd::abs_path( File::Temp::tempdir( CLEANUP => 1 ) );
@@ -63,19 +64,20 @@ my ( $status, $events ) = record()->@*;
 is $status, 0, 'the checked release can record success';
 my @events = split /\n/, $events;
 is scalar @events, 3, 'one gate runs between two status updates';
+Gate::checked( 'commit status updates', scalar( grep { /\Agithub / } @events ), at_least => 2 );
 like $events[0], qr{repos/fixture/distribution/statuses/$commit\b.*state=pending\b.*context=release/local\b},
   'the pending status identifies the checked commit';
 is $events[1], "run $commit", 'the full local release gate checks that commit';
 like $events[2], qr{repos/fixture/distribution/statuses/$commit\b.*state=success\b.*context=release/local\b},
   'success follows the completed gate';
 
-{
+subtest 'the recording command rejects a failed release gate' => sub {
     local $ENV{GATE_EXIT} = 19;
     my $failed = record();
     isnt $failed->[0], 0, 'a failed gate fails the command';
     like $failed->[1],   qr/state=failure\b/, 'a failure supersedes any earlier success';
     unlike $failed->[1], qr/state=success\b/, 'a failed gate cannot record success';
-}
+};
 {
     local $ENV{CHANGE_FILE} = 1;
     my $changed = record();
