@@ -110,7 +110,7 @@ sub publish ( $path, $pending ) {
                     $candidate->execute( $identity, $order++, $mutant->id, $JSON->encode( { $mutant->%* } ) );
                 }
             }
-            return 1;
+            return;
         }
     );
     return;
